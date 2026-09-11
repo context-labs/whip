@@ -12,7 +12,7 @@ import (
 
 const (
 	Major = 6
-	Minor = 3
+	Minor = 4
 )
 
 type ErrorData struct {

@@ -21,12 +21,12 @@ func (s *Server) handleExecutor(connection *serverConn, request rpcMessage) (any
 		if err := decodeProviderParams(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, err.Error()), true
 		}
-		tools, err := executorTools(connection.ctx, s.daemon.store, params)
+		tools, hooks, err := executorCoverage(connection.ctx, s.daemon.store, params)
 		if err != nil {
 			return nil, rpcFailure(-32602, err.Error()), true
 		}
-		generation := registry.bind(connection, params.Definition, params.Revision, tools)
-		return protocol.ExecutorBindResult{Generation: generation, Tools: tools}, nil, true
+		generation := registry.bind(connection, params.Definition, params.Revision, tools, hooks)
+		return protocol.ExecutorBindResult{Generation: generation, Tools: tools, Hooks: hooks}, nil, true
 	case "executor.pending":
 		var params protocol.ExecutorPendingParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {
@@ -59,46 +59,58 @@ func (s *Server) handleExecutor(connection *serverConn, request rpcMessage) (any
 	return nil, nil, false
 }
 
-// executorTools resolves the definition revision an executor binds and checks
-// that the offered handlers cover every declared tool, and nothing more.
-func executorTools(ctx context.Context, store *session.Store, params protocol.ExecutorBindParams) ([]string, error) {
+// executorCoverage resolves the definition revision an executor binds and
+// checks that the offered handlers cover every declared tool and hook, and
+// nothing more. It returns both lists in the definition's canonical order.
+func executorCoverage(ctx context.Context, store *session.Store, params protocol.ExecutorBindParams) (tools, hooks []string, err error) {
 	if params.Definition == "" {
-		return nil, errors.New("executor.bind requires a definition id")
+		return nil, nil, errors.New("executor.bind requires a definition id")
 	}
 	var definition agentdef.Definition
 	if builtIn, ok := agentdef.Lookup(params.Definition); ok {
 		if params.Revision != "" {
-			return nil, fmt.Errorf("built-in definition %q has no revisions", params.Definition)
+			return nil, nil, fmt.Errorf("built-in definition %q has no revisions", params.Definition)
 		}
 		definition = builtIn
 	} else {
 		if params.Revision == "" {
-			return nil, errors.New("executor.bind requires the registered definition's revision")
+			return nil, nil, errors.New("executor.bind requires the registered definition's revision")
 		}
 		record, err := store.LoadDefinition(ctx, params.Definition, params.Revision)
 		if errors.Is(err, session.ErrNoDefinition) {
-			return nil, fmt.Errorf("agent definition %q revision %s is not registered", params.Definition, params.Revision)
+			return nil, nil, fmt.Errorf("agent definition %q revision %s is not registered", params.Definition, params.Revision)
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if definition, err = agentdef.Decode(record.Body); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	declared := definition.ToolNames()
-	if len(declared) == 0 {
-		return nil, fmt.Errorf("agent definition %q declares no tools", params.Definition)
+	tools, hooks = definition.ToolNames(), definition.HookNames()
+	if len(tools) == 0 && len(hooks) == 0 {
+		return nil, nil, fmt.Errorf("agent definition %q declares no tools or hooks", params.Definition)
 	}
+	if err := coverage("tool", params.Definition, tools, params.Tools); err != nil {
+		return nil, nil, err
+	}
+	if err := coverage("hook", params.Definition, hooks, params.Hooks); err != nil {
+		return nil, nil, err
+	}
+	return tools, hooks, nil
+}
+
+// coverage requires offered to equal declared as sets.
+func coverage(kind, definition string, declared, offered []string) error {
 	for _, name := range declared {
-		if !slices.Contains(params.Tools, name) {
-			return nil, fmt.Errorf("executor offers no handler for tool %q", name)
+		if !slices.Contains(offered, name) {
+			return fmt.Errorf("executor offers no handler for %s %q", kind, name)
 		}
 	}
-	for _, name := range params.Tools {
+	for _, name := range offered {
 		if !slices.Contains(declared, name) {
-			return nil, fmt.Errorf("agent definition %q declares no tool %q", params.Definition, name)
+			return fmt.Errorf("agent definition %q declares no %s %q", definition, kind, name)
 		}
 	}
-	return declared, nil
+	return nil
 }

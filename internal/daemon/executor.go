@@ -31,6 +31,7 @@ type executorLease struct {
 	generation int64
 	conn       executorConn
 	tools      []string
+	hooks      []string
 }
 
 type toolOutcome struct {
@@ -67,7 +68,7 @@ func leaseKey(definition, revision string) string { return definition + "@" + re
 
 // bind installs conn as the executor for a definition revision and returns the
 // lease generation. Pending invocations of a replaced holder fail.
-func (r *executorRegistry) bind(conn executorConn, definition, revision string, toolNames []string) int64 {
+func (r *executorRegistry) bind(conn executorConn, definition, revision string, toolNames, hookNames []string) int64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := leaseKey(definition, revision)
@@ -75,7 +76,7 @@ func (r *executorRegistry) bind(conn executorConn, definition, revision string, 
 		r.failLeaseLocked(previous, errors.New("executor replaced by a newer bind"))
 	}
 	r.generation++
-	r.leases[key] = &executorLease{key: key, generation: r.generation, conn: conn, tools: slices.Clone(toolNames)}
+	r.leases[key] = &executorLease{key: key, generation: r.generation, conn: conn, tools: slices.Clone(toolNames), hooks: slices.Clone(hookNames)}
 	close(r.bound)
 	r.bound = make(chan struct{})
 	return r.generation

@@ -56,6 +56,201 @@
         ],
         "additionalProperties": false
       }
+    },
+    "hooks": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "invocation_id": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "hook": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "arguments": true,
+          "spawn": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "request": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "definition": {
+                    "type": "string"
+                  },
+                  "capabilities": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "budgets": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "report": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  },
+                  "mcp_tools": true
+                },
+                "required": [
+                  "prompt",
+                  "name",
+                  "definition",
+                  "capabilities",
+                  "tools",
+                  "budgets",
+                  "report",
+                  "model",
+                  "provider",
+                  "effort"
+                ],
+                "additionalProperties": false
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "definition": {
+                    "type": "string"
+                  },
+                  "modules": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "capabilities": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "budgets": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "report": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "definition",
+                  "modules",
+                  "capabilities",
+                  "tools",
+                  "budgets",
+                  "report"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "request",
+              "resolved"
+            ],
+            "additionalProperties": false
+          },
+          "input": {
+            "type": "string"
+          },
+          "permission_mode": {
+            "type": "string"
+          },
+          "deadline_millis": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "invocation_id",
+          "definition",
+          "revision",
+          "generation",
+          "root_id",
+          "agent_id",
+          "turn_id",
+          "hook",
+          "permission_mode",
+          "deadline_millis"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "$id": "https://whip.dev/protocol/v6/ExecutorPendingResult",

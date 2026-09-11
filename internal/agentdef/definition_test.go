@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/rlm"
 )
@@ -119,5 +120,55 @@ func TestNamedChildAppliesItsDefinitionThenOverrides(t *testing.T) {
 	}
 	if _, err := parent.Child("reviewer", ChildOverrides{Capabilities: []string{"write"}}); err == nil {
 		t.Fatal("override widened a named child")
+	}
+}
+
+// Hooks are validated like tools: bounded timeouts, an operation filter that
+// names real operations once, and a filter only where it applies. Children
+// inherit hooks unchanged.
+func TestHooksValidateAndInherit(t *testing.T) {
+	definition := Coding()
+	definition.Tools = []Tool{{Name: "lookup", InputSchema: []byte(`{"type":"object"}`)}}
+	definition.Hooks = &Hooks{
+		BeforeTool:  &Hook{Operations: []string{"shell.run", "files.write", "tools.lookup", "agents.spawn"}, TimeoutMillis: 1000},
+		BeforeSpawn: &Hook{Optional: true},
+		TurnStart:   &Hook{TimeoutMillis: int64(MaxHookTimeout.Milliseconds())},
+	}
+	if err := definition.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(definition.HookNames(), []string{HookBeforeTool, HookBeforeSpawn, HookTurnStart}) {
+		t.Fatalf("hook names = %v", definition.HookNames())
+	}
+	if definition.Hook(HookBeforeTool).Timeout() != time.Second || definition.Hook(HookBeforeSpawn).Timeout() != DefaultHookTimeout || definition.Hook("nope") != nil {
+		t.Fatalf("hook timeouts = %v %v", definition.Hook(HookBeforeTool).Timeout(), definition.Hook(HookBeforeSpawn).Timeout())
+	}
+	child, err := definition.Child("", ChildOverrides{Capabilities: []string{"read"}})
+	if err != nil || !reflect.DeepEqual(child.Hooks, definition.Hooks) {
+		t.Fatalf("child hooks = %+v %v", child.Hooks, err)
+	}
+	cases := map[string]func(*Definition){
+		"unknown operation":  func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"shell.dance"} },
+		"unknown module":     func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"telepathy.read"} },
+		"unknown tool":       func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"tools.missing"} },
+		"malformed":          func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"shell"} },
+		"repeated operation": func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"shell.run", "shell.run"} },
+		"timeout ceiling":    func(d *Definition) { d.Hooks.TurnStart.TimeoutMillis = int64(MaxHookTimeout.Milliseconds()) + 1 },
+		"negative timeout":   func(d *Definition) { d.Hooks.BeforeSpawn.TimeoutMillis = -1 },
+		"spawn filter":       func(d *Definition) { d.Hooks.BeforeSpawn.Operations = []string{"agents.spawn"} },
+		"turn filter":        func(d *Definition) { d.Hooks.TurnStart.Operations = []string{"shell.run"} },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			value := definition
+			hooks := *definition.Hooks
+			beforeTool, beforeSpawn, turnStart := *hooks.BeforeTool, *hooks.BeforeSpawn, *hooks.TurnStart
+			hooks.BeforeTool, hooks.BeforeSpawn, hooks.TurnStart = &beforeTool, &beforeSpawn, &turnStart
+			value.Hooks = &hooks
+			mutate(&value)
+			if err := value.Validate(); err == nil {
+				t.Fatalf("expected %s to fail validation", name)
+			}
+		})
 	}
 }

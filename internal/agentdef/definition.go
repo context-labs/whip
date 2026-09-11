@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/rlm"
@@ -46,6 +47,82 @@ type Definition struct {
 	// inherit the parent definition.
 	Children map[string]Child `json:"children"`
 	Surface  Surface          `json:"surface"`
+	// Hooks are the decision points the agent's executor serves. Nil declares
+	// none. Children inherit their parent's hooks unchanged.
+	Hooks *Hooks `json:"hooks"`
+}
+
+// Hooks names the hooks a definition declares. Each declared hook must be
+// covered by the executor that binds the definition.
+type Hooks struct {
+	// BeforeTool runs before every host operation a cell calls and may deny or
+	// rewrite the arguments.
+	BeforeTool *Hook `json:"before_tool"`
+	// BeforeSpawn runs after a spawn request is parsed and resolved and may
+	// deny or rewrite the request.
+	BeforeSpawn *Hook `json:"before_spawn"`
+	// TurnStart contributes ephemeral context to each turn. It never gates.
+	TurnStart *Hook `json:"turn_start"`
+}
+
+// Hook configures one hook.
+type Hook struct {
+	// Operations narrows before_tool to these module.operation names; nil
+	// means every host operation. Only before_tool accepts it.
+	Operations []string `json:"operations"`
+	// Optional hooks proceed with a notice when unanswered or failing; a
+	// required hook (the default) denies instead.
+	Optional bool `json:"optional"`
+	// TimeoutMillis bounds one invocation; zero uses DefaultHookTimeout. A
+	// gate holds the cell's kernel slot, so MaxHookTimeout caps it.
+	TimeoutMillis int64 `json:"timeout_millis"`
+}
+
+// Hook names, in the canonical order HookNames reports them.
+const (
+	HookBeforeTool  = "before_tool"
+	HookBeforeSpawn = "before_spawn"
+	HookTurnStart   = "turn_start"
+)
+
+const (
+	DefaultHookTimeout = 30 * time.Second
+	MaxHookTimeout     = 60 * time.Second
+)
+
+// Timeout is the effective invocation deadline.
+func (h Hook) Timeout() time.Duration {
+	if h.TimeoutMillis <= 0 {
+		return DefaultHookTimeout
+	}
+	return time.Duration(h.TimeoutMillis) * time.Millisecond
+}
+
+// Hook returns the declared hook by name, or nil.
+func (d Definition) Hook(name string) *Hook {
+	if d.Hooks == nil {
+		return nil
+	}
+	switch name {
+	case HookBeforeTool:
+		return d.Hooks.BeforeTool
+	case HookBeforeSpawn:
+		return d.Hooks.BeforeSpawn
+	case HookTurnStart:
+		return d.Hooks.TurnStart
+	}
+	return nil
+}
+
+// HookNames lists the declared hooks in canonical order.
+func (d Definition) HookNames() []string {
+	var names []string
+	for _, name := range []string{HookBeforeTool, HookBeforeSpawn, HookTurnStart} {
+		if d.Hook(name) != nil {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // Instructions is the agent-owned part of the system prompt plus the discovery
@@ -186,6 +263,9 @@ func (d Definition) Validate() error {
 			return fmt.Errorf("agent definition %q tool %q timeout must be between 0 and %s", d.ID, tool.Name, MaxToolTimeout)
 		}
 	}
+	if err := d.validateHooks(known); err != nil {
+		return err
+	}
 	for name, child := range d.Children {
 		if name == "" {
 			return fmt.Errorf("agent definition %q has a child without a name", d.ID)
@@ -201,6 +281,34 @@ func (d Definition) Validate() error {
 		for kind, limit := range child.Budgets {
 			if limit < 0 {
 				return fmt.Errorf("agent definition %q child %q budget %q is negative", d.ID, name, kind)
+			}
+		}
+	}
+	return nil
+}
+
+// validateHooks bounds timeouts and checks before_tool's operation filter
+// against the module registry and the declared tools.
+func (d Definition) validateHooks(known map[string][]string) error {
+	for _, name := range d.HookNames() {
+		hook := d.Hook(name)
+		if hook.TimeoutMillis < 0 || time.Duration(hook.TimeoutMillis)*time.Millisecond > MaxHookTimeout {
+			return fmt.Errorf("agent definition %q hook %s timeout must be between 0 and %s", d.ID, name, MaxHookTimeout)
+		}
+		if name != HookBeforeTool && hook.Operations != nil {
+			return fmt.Errorf("agent definition %q hook %s does not accept operations", d.ID, name)
+		}
+		for i, operation := range hook.Operations {
+			module, op, ok := strings.Cut(operation, ".")
+			operations, knownModule := known[module]
+			if module == "tools" {
+				operations, knownModule = d.ToolNames(), true
+			}
+			if !ok || !knownModule || !slices.Contains(operations, op) {
+				return fmt.Errorf("agent definition %q hook %s names unknown operation %q", d.ID, name, operation)
+			}
+			if slices.Contains(hook.Operations[:i], operation) {
+				return fmt.Errorf("agent definition %q hook %s repeats operation %q", d.ID, name, operation)
 			}
 		}
 	}

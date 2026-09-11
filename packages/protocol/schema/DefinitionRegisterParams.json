@@ -271,6 +271,107 @@
             "goal_loop"
           ],
           "additionalProperties": false
+        },
+        "hooks": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "before_tool": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            },
+            "before_spawn": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            },
+            "turn_start": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "before_tool",
+            "before_spawn",
+            "turn_start"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -283,7 +384,8 @@
         "mcp",
         "tools",
         "children",
-        "surface"
+        "surface",
+        "hooks"
       ],
       "additionalProperties": false
     }

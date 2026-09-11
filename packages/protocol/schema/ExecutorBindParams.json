@@ -15,6 +15,15 @@
       "items": {
         "type": "string"
       }
+    },
+    "hooks": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$id": "https://whip.dev/protocol/v6/ExecutorBindParams",

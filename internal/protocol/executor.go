@@ -8,6 +8,9 @@ type ExecutorBindParams struct {
 	Definition string   `json:"definition"`
 	Revision   string   `json:"revision"`
 	Tools      []string `json:"tools"`
+	// Hooks names the hooks this executor serves; it must cover every hook the
+	// definition declares.
+	Hooks []string `json:"hooks,omitempty"`
 }
 
 // ExecutorBindResult returns the lease generation the executor must quote on
@@ -15,6 +18,7 @@ type ExecutorBindParams struct {
 type ExecutorBindResult struct {
 	Generation int64    `json:"generation,string"`
 	Tools      []string `json:"tools"`
+	Hooks      []string `json:"hooks,omitempty"`
 }
 
 // ExecutorPendingParams lists the invocations still awaiting this lease, for an
@@ -27,6 +31,75 @@ type ExecutorPendingParams struct {
 
 type ExecutorPendingResult struct {
 	Invocations []ToolInvokeParams `json:"invocations"`
+	Hooks       []HookInvokeParams `json:"hooks,omitempty"`
+}
+
+// SpawnRequest is an agents.spawn call as the model wrote it, the shape a
+// before_spawn hook sees and may rewrite.
+type SpawnRequest struct {
+	Prompt       string           `json:"prompt"`
+	Name         string           `json:"name"`
+	Definition   string           `json:"definition"`
+	Capabilities []string         `json:"capabilities"`
+	Tools        []string         `json:"tools"`
+	Budgets      map[string]int64 `json:"budgets"`
+	Report       string           `json:"report"`
+	Model        string           `json:"model"`
+	Provider     string           `json:"provider"`
+	Effort       string           `json:"effort"`
+	// MCPTools is the raw mcp_tools narrowing, passed through unchanged.
+	MCPTools json.RawMessage `json:"mcp_tools,omitempty"`
+}
+
+// ResolvedChild is what a spawn request resolves to before narrowing is
+// enforced: the named child's defaults applied under the request.
+type ResolvedChild struct {
+	Definition   string           `json:"definition"`
+	Modules      []string         `json:"modules"`
+	Capabilities []string         `json:"capabilities"`
+	Tools        []string         `json:"tools"`
+	Budgets      map[string]int64 `json:"budgets"`
+	Report       string           `json:"report"`
+}
+
+// SpawnPreview is the before_spawn payload: the request and its resolution.
+type SpawnPreview struct {
+	Request  SpawnRequest  `json:"request"`
+	Resolved ResolvedChild `json:"resolved"`
+}
+
+// HookInvokeParams is the hook.invoke notification. Hook names the decision
+// point; Operation and Arguments are set for before_tool, Spawn for
+// before_spawn, Input for turn_start.
+type HookInvokeParams struct {
+	InvocationID   string          `json:"invocation_id"`
+	Definition     string          `json:"definition"`
+	Revision       string          `json:"revision"`
+	Generation     int64           `json:"generation,string"`
+	RootID         string          `json:"root_id"`
+	AgentID        string          `json:"agent_id"`
+	TurnID         string          `json:"turn_id"`
+	Hook           string          `json:"hook"`
+	Operation      string          `json:"operation,omitempty"`
+	Arguments      json.RawMessage `json:"arguments,omitempty"`
+	Spawn          *SpawnPreview   `json:"spawn,omitempty"`
+	Input          string          `json:"input,omitempty"`
+	PermissionMode string          `json:"permission_mode"`
+	DeadlineMillis int64           `json:"deadline_millis,string"`
+}
+
+// HookResultParams settles one hook invocation. Every field but the identity
+// is optional: an empty reply allows the operation unchanged. Error marks a
+// handler failure, which denies a required hook.
+type HookResultParams struct {
+	InvocationID string          `json:"invocation_id"`
+	Generation   int64           `json:"generation,string"`
+	Decision     string          `json:"decision,omitempty"`
+	Reason       string          `json:"reason,omitempty"`
+	Arguments    json.RawMessage `json:"arguments,omitempty"`
+	Spawn        *SpawnRequest   `json:"spawn,omitempty"`
+	Context      string          `json:"context,omitempty"`
+	Error        string          `json:"error,omitempty"`
 }
 
 // ToolInvokeParams is the tool.invoke notification: one admitted, validated

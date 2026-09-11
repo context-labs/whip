@@ -114,6 +114,7 @@ export function defineAgent(input: AgentInput): AgentDefinition {
     tools: tools.length > 0 ? tools : null,
     children,
     surface: { auto_title: input.surface?.autoTitle ?? true, goal_loop: input.surface?.goalLoop ?? false },
+    hooks: null,
   };
   return { document: Object.freeze(document), handlers };
 }

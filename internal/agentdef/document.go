@@ -87,7 +87,25 @@ func (d Definition) Normalize() Definition {
 		}
 	}
 	d.Children = children
+	d.Hooks = normalizeHooks(d.Hooks)
 	return d
+}
+
+// normalizeHooks copies declared hooks with empty filters as nil and drops an
+// empty hooks object entirely.
+func normalizeHooks(hooks *Hooks) *Hooks {
+	if hooks == nil || (hooks.BeforeTool == nil && hooks.BeforeSpawn == nil && hooks.TurnStart == nil) {
+		return nil
+	}
+	copyHook := func(hook *Hook) *Hook {
+		if hook == nil {
+			return nil
+		}
+		value := *hook
+		value.Operations = nilIfEmpty(hook.Operations)
+		return &value
+	}
+	return &Hooks{BeforeTool: copyHook(hooks.BeforeTool), BeforeSpawn: copyHook(hooks.BeforeSpawn), TurnStart: copyHook(hooks.TurnStart)}
 }
 
 func nilIfEmpty(values []string) []string {

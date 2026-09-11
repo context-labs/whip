@@ -1,0 +1,101 @@
+{
+  "type": "object",
+  "properties": {
+    "invocation_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "decision": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "arguments": true,
+    "spawn": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "definition": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "report": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "mcp_tools": true
+      },
+      "required": [
+        "prompt",
+        "name",
+        "definition",
+        "capabilities",
+        "tools",
+        "budgets",
+        "report",
+        "model",
+        "provider",
+        "effort"
+      ],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/HookResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HookResultParams",
+  "required": [
+    "invocation_id",
+    "generation"
+  ],
+  "additionalProperties": false
+}

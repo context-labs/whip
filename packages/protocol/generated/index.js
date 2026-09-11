@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 3,
+  "minor": 4,
   "operations": [
     {
       "name": "command.status",
@@ -140,6 +140,14 @@ export const manifest = {
       "permission": "root-agent-association",
       "params_type": "HistoryPageParams",
       "result_type": "BoundedTranscriptPage"
+    },
+    {
+      "name": "hook.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "executor-lease",
+      "params_type": "HookResultParams",
+      "result_type": "Accepted"
     },
     {
       "name": "host.attention",
@@ -1016,6 +1024,8 @@ export const manifest = {
   ],
   "events": {
     "event": "EventNotification",
+    "hook.cancel": "ToolCancelParams",
+    "hook.invoke": "HookInvokeParams",
     "subscription.failed": "SubscriptionFailure",
     "tool.cancel": "ToolCancelParams",
     "tool.invoke": "ToolInvokeParams"
@@ -1081,6 +1091,7 @@ export const manifest = {
     "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
     "stream.cell.host.started": "StreamEvent",
+    "stream.hook.decision": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",
     "stream.terminal.awaiting": "StreamEvent",

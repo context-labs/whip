@@ -14,5 +14,6 @@
   "mcp": { "servers": null },
   "tools": null,
   "children": {},
-  "surface": { "auto_title": true, "goal_loop": false }
+  "surface": { "auto_title": true, "goal_loop": false },
+  "hooks": null
 }

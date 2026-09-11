@@ -703,6 +703,23 @@ export interface DefinitionRecord {
       auto_title: boolean;
       goal_loop: boolean;
     };
+    hooks: null | {
+      before_tool: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      before_spawn: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      turn_start: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    };
   };
   revision: string;
   built_in: boolean;
@@ -770,6 +787,23 @@ export interface DefinitionRegisterParams {
       auto_title: boolean;
       goal_loop: boolean;
     };
+    hooks: null | {
+      before_tool: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      before_spawn: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      turn_start: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    };
   };
 }
 
@@ -806,11 +840,13 @@ export interface ExecutorBindParams {
   definition: string;
   revision: string;
   tools: null | string[];
+  hooks?: null | string[];
 }
 
 export interface ExecutorBindResult {
   generation: string;
   tools: null | string[];
+  hooks?: null | string[];
 }
 
 export interface ExecutorPendingParams {
@@ -832,6 +868,50 @@ export interface ExecutorPendingResult {
         turn_id: string;
         tool: string;
         input: unknown;
+        deadline_millis: string;
+      }[];
+  hooks?:
+    | null
+    | {
+        invocation_id: string;
+        definition: string;
+        revision: string;
+        generation: string;
+        root_id: string;
+        agent_id: string;
+        turn_id: string;
+        hook: string;
+        operation?: string;
+        arguments?: unknown;
+        spawn?: null | {
+          request: {
+            prompt: string;
+            name: string;
+            definition: string;
+            capabilities: null | string[];
+            tools: null | string[];
+            budgets: {
+              [k: string]: number;
+            };
+            report: string;
+            model: string;
+            provider: string;
+            effort: string;
+            mcp_tools?: unknown;
+          };
+          resolved: {
+            definition: string;
+            modules: null | string[];
+            capabilities: null | string[];
+            tools: null | string[];
+            budgets: {
+              [k: string]: number;
+            };
+            report: string;
+          };
+        };
+        input?: string;
+        permission_mode: string;
         deadline_millis: string;
       }[];
 }
@@ -860,6 +940,74 @@ export interface HistoryPageParams {
   limit: number;
   max_bytes: number;
   recent?: boolean;
+}
+
+export interface HookInvokeParams {
+  invocation_id: string;
+  definition: string;
+  revision: string;
+  generation: string;
+  root_id: string;
+  agent_id: string;
+  turn_id: string;
+  hook: string;
+  operation?: string;
+  arguments?: unknown;
+  spawn?: null | {
+    request: {
+      prompt: string;
+      name: string;
+      definition: string;
+      capabilities: null | string[];
+      tools: null | string[];
+      budgets: {
+        [k: string]: number;
+      };
+      report: string;
+      model: string;
+      provider: string;
+      effort: string;
+      mcp_tools?: unknown;
+    };
+    resolved: {
+      definition: string;
+      modules: null | string[];
+      capabilities: null | string[];
+      tools: null | string[];
+      budgets: {
+        [k: string]: number;
+      };
+      report: string;
+    };
+  };
+  input?: string;
+  permission_mode: string;
+  deadline_millis: string;
+}
+
+export interface HookResultParams {
+  invocation_id: string;
+  generation: string;
+  decision?: string;
+  reason?: string;
+  arguments?: unknown;
+  spawn?: null | {
+    prompt: string;
+    name: string;
+    definition: string;
+    capabilities: null | string[];
+    tools: null | string[];
+    budgets: {
+      [k: string]: number;
+    };
+    report: string;
+    model: string;
+    provider: string;
+    effort: string;
+    mcp_tools?: unknown;
+  };
+  context?: string;
+  error?: string;
 }
 
 export interface HostAttentionParams {
@@ -2950,6 +3098,8 @@ export interface ContractTypes {
   GoalContextParams: GoalContextParams;
   GoalResult: GoalResult;
   HistoryPageParams: HistoryPageParams;
+  HookInvokeParams: HookInvokeParams;
+  HookResultParams: HookResultParams;
   HostAttentionParams: HostAttentionParams;
   HostAttentionResult: HostAttentionResult;
   HostDirectoryParams: HostDirectoryParams;
@@ -3120,6 +3270,7 @@ export interface EventPayloadTypes {
   "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
   "stream.cell.host.started": StreamEvent | ContentEventPayload;
+  "stream.hook.decision": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;
   "stream.terminal.awaiting": StreamEvent | ContentEventPayload;
@@ -3159,6 +3310,7 @@ export interface RpcMethods {
   "executor.bind": { params: ExecutorBindParams; result: ExecutorBindResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
   "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult; execution: "query"; permission: "executor-lease"; sensitive: false };
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "hook.result": { params: HookResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult; execution: "query"; permission: "host-runtime"; sensitive: false };

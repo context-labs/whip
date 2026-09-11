@@ -137,3 +137,43 @@ func TestValidateRegistrationRules(t *testing.T) {
 		t.Fatalf("tool widening error = %v", err)
 	}
 }
+
+// Hooks are canonical too: absent hooks encode as null, an empty hooks object
+// normalizes to null, and an empty operation filter is null.
+func TestHooksAreCanonicalInTheDocument(t *testing.T) {
+	plain, err := Encode(JuniorDeveloper())
+	if err != nil || !strings.Contains(string(plain), `"hooks":null`) {
+		t.Fatalf("hooks absent encoding = %s %v", plain, err)
+	}
+	definition := JuniorDeveloper()
+	definition.ID = "hooked"
+	definition.Hooks = &Hooks{}
+	if definition.Normalize().Hooks != nil {
+		t.Fatal("empty hooks object survived normalization")
+	}
+	definition.Hooks = &Hooks{BeforeTool: &Hook{Operations: []string{}}, TurnStart: &Hook{Optional: true, TimeoutMillis: 500}}
+	encoded, err := Encode(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"hooks":{"before_tool":{"operations":null,"optional":false,"timeout_millis":0},"before_spawn":null,"turn_start":{"operations":null,"optional":true,"timeout_millis":500}}`) {
+		t.Fatalf("hooks encoding = %s", encoded)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil || !reflect.DeepEqual(decoded, definition.Normalize()) {
+		t.Fatalf("hooks did not round trip: %+v %v", decoded.Hooks, err)
+	}
+	bad, err := Decode([]byte(`{"id":"x","modules":["context"],"hooks":{"before_tool":{"operations":["shell.dance"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bad.ValidateRegistration(); err == nil || !strings.Contains(err.Error(), `unknown operation "shell.dance"`) {
+		t.Fatalf("unknown hook operation accepted: %v", err)
+	}
+	first, _ := Revision(definition)
+	definition.Hooks.TurnStart.Optional = false
+	second, _ := Revision(definition)
+	if first == second {
+		t.Fatal("hook changes did not change the revision")
+	}
+}

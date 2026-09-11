@@ -603,6 +603,12 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		return true, nil // the REPL panel consumes them; the transcript shows the cell
 	case "stream.tool.progress":
 		return true, nil // custom tool progress; the cell's completion carries the result
+	case "stream.hook.decision":
+		if event.Text == "deny" || event.Text == "skipped" {
+			message = noticeMsg(fmt.Sprintf("hook %s %s %s: %s", event.Name, event.Text, event.Args, event.Result))
+			break
+		}
+		return true, nil // rewrites ride with the cell; the event stream keeps the record
 	case "stream.text":
 		message = textMsg(event.Text)
 	case "stream.reasoning":

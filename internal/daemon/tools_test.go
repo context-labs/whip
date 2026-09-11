@@ -132,7 +132,7 @@ func bindFakeExecutor(t *testing.T, owner *Daemon, store *session.Store, tools .
 		t.Fatal(err)
 	}
 	conn := newFakeExecutorConn()
-	return conn, record.Revision, owner.executors.bind(conn, "tooling", record.Revision, tools)
+	return conn, record.Revision, owner.executors.bind(conn, "tooling", record.Revision, tools, nil)
 }
 
 type cellOutcome struct {
@@ -279,7 +279,7 @@ func TestCustomToolFailureSemantics(t *testing.T) {
 		t.Fatalf("disconnect error = %v", cell.err)
 	}
 	replacement := newFakeExecutorConn()
-	next := owner.executors.bind(replacement, "tooling", revision, []string{"lookup", "slow"})
+	next := owner.executors.bind(replacement, "tooling", revision, []string{"lookup", "slow"}, nil)
 	pending, err := owner.executors.pendingFor(replacement, protocol.ExecutorPendingParams{Definition: "tooling", Revision: revision, Generation: next})
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending after reconnect = %v %v", pending, err)
@@ -294,7 +294,7 @@ func TestCustomToolFailureSemantics(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].InvocationID != invoke.InvocationID {
 		t.Fatalf("pending = %+v %v", pending, err)
 	}
-	owner.executors.bind(newFakeExecutorConn(), "tooling", revision, []string{"lookup", "slow"})
+	owner.executors.bind(newFakeExecutorConn(), "tooling", revision, []string{"lookup", "slow"}, nil)
 	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), "replaced") {
 		t.Fatalf("replaced executor error = %v", cell.err)
 	}
@@ -350,13 +350,36 @@ func TestExecutorBindValidatesDefinitionAndHandlers(t *testing.T) {
 		"missing-handler":  {Definition: "tooling", Revision: record.Revision, Tools: []string{"lookup"}},
 		"extra-handler":    {Definition: "tooling", Revision: record.Revision, Tools: []string{"lookup", "other", "extra"}},
 	} {
-		if _, err := executorTools(t.Context(), store, params); err == nil {
+		if _, _, err := executorCoverage(t.Context(), store, params); err == nil {
 			t.Fatalf("%s bind accepted", name)
 		}
 	}
-	tools, err := executorTools(t.Context(), store, protocol.ExecutorBindParams{Definition: "tooling", Revision: record.Revision, Tools: []string{"other", "lookup"}})
-	if err != nil || !slices.Equal(tools, []string{"lookup", "other"}) {
-		t.Fatalf("bind tools = %v %v", tools, err)
+	tools, hooks, err := executorCoverage(t.Context(), store, protocol.ExecutorBindParams{Definition: "tooling", Revision: record.Revision, Tools: []string{"other", "lookup"}})
+	if err != nil || !slices.Equal(tools, []string{"lookup", "other"}) || hooks != nil {
+		t.Fatalf("bind coverage = %v %v %v", tools, hooks, err)
+	}
+	if _, _, err := executorCoverage(t.Context(), store, protocol.ExecutorBindParams{Definition: "tooling", Revision: record.Revision, Tools: []string{"other", "lookup"}, Hooks: []string{"before_tool"}}); err == nil {
+		t.Fatal("undeclared hook accepted")
+	}
+	// A definition with hooks and no tools binds on its hooks alone, and every
+	// declared hook must be covered.
+	hooked := agentdef.Coding()
+	hooked.ID = "hooked"
+	hooked.Hooks = &agentdef.Hooks{BeforeTool: &agentdef.Hook{}, TurnStart: &agentdef.Hook{Optional: true}}
+	document, err := agentdef.Encode(hooked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered, err := registerDefinition(t.Context(), store, document, "hooks-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := executorCoverage(t.Context(), store, protocol.ExecutorBindParams{Definition: "hooked", Revision: registered.Revision, Hooks: []string{"before_tool"}}); err == nil || !strings.Contains(err.Error(), `no handler for hook "turn_start"`) {
+		t.Fatalf("partial hook coverage = %v", err)
+	}
+	tools, hooks, err = executorCoverage(t.Context(), store, protocol.ExecutorBindParams{Definition: "hooked", Revision: registered.Revision, Hooks: []string{"turn_start", "before_tool"}})
+	if err != nil || len(tools) != 0 || !slices.Equal(hooks, []string{"before_tool", "turn_start"}) {
+		t.Fatalf("hook coverage = %v %v %v", tools, hooks, err)
 	}
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
