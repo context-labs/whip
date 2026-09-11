@@ -103,6 +103,10 @@ the Git exclusions and also excludes local research/acceptance records and
 credential files from cloud build uploads. Keep its shared exclusions in sync
 with `.gitignore`. Inspect an archive after changing workspace or ignore rules:
 
+Evaluation environments, caches, generated session traces and UI test captures
+are also excluded from mobile uploads. EAS does not inherit all nested
+`.gitignore` rules when the root `.easignore` is present; keep these explicit.
+
 ```sh
 npx --yes eas-cli@23.2.0 build:inspect --platform ios --profile preview-simulator --stage archive --output ../../.ai-docs/plans/mobile-app/artifacts/eas-archive-review
 ```

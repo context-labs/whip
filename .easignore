@@ -20,6 +20,7 @@ apps/desktop/.stage/
 apps/desktop/.dev/
 apps/web/renderer-manifest.json
 packages/ui/storybook-static/
+packages/ui/ui-test-results/
 test-results/
 playwright-report/
 *.tgz
@@ -39,6 +40,8 @@ apps/mobile/android/
 
 # Local research, native acceptance artifacts and credentials are not build inputs.
 .ai-docs/
+# Evaluation environments, caches and session traces are not mobile build inputs.
+/evals/
 .env
 .env.*
 *.p8
