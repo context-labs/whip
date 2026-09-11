@@ -6,7 +6,8 @@ import { SubmittedInputs } from '@whip/app/presentation';
 import type { CommandOperation, RuntimeOperations } from '@whip/protocol';
 import { serverOrigin } from './address';
 import type { CommandIntent, Draft, MobileStorage } from './storage';
-import { defaultAppearance, type Appearance } from '../theme/theme';
+import { defaultAppearance, appearanceRecord, type Appearance, type AppearanceRecord } from '../theme/preferences';
+import { validateTheme, type ThemeDefinition } from '@whip/ui/theme-data';
 import { DecisionStore } from './decisions';
 import { creationResultRecorded, type CreationWorkflow } from '../features/creation';
 
@@ -14,7 +15,7 @@ export type SavedHost = { id: string; name: string; url: string; clientId: strin
 export type CommandState = { record: RecoveryRecord; intent?: CommandIntent; status: string; message?: string; accepted: boolean; retryable?: boolean; outcome?: CommandOutcome };
 type RuntimeSnapshot = {
   hosts: readonly SavedHost[]; host?: SavedHost; client?: WhipClient; list?: SessionListView;
-  active: boolean; ready: boolean; connecting: boolean; error?: string; appearance: Appearance;
+  active: boolean; ready: boolean; connecting: boolean; error?: string; appearance: Appearance; customThemes?: readonly ThemeDefinition[];
   commands: readonly CommandState[]; revision: number; lastSync?: string; lastErrorCode?: string;
 };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -59,7 +60,10 @@ export class MobileRuntime {
       this.storage.list<Draft>('drafts'), this.storage.get<string>('settings', 'selectedHost'),
     ]);
     this.drafts = new Map(drafts.map(item => [item.key, item.value]));
-    this.update({ hosts: hosts.map(item => item.value), appearance: appearance ?? defaultAppearance });
+    let record: AppearanceRecord;
+    try { const saved = await this.storage.get<AppearanceRecord>('themes', 'appearance'); if (saved && saved.version !== 2) throw new Error('Unknown appearance version'); record = appearanceRecord(saved?.appearance ?? appearance ?? defaultAppearance, saved?.themes); }
+    catch { record = appearanceRecord(defaultAppearance); this.report(new Error('Saved appearance is unavailable. Using the default themes; saved data has been preserved.')); }
+    this.update({ hosts: hosts.map(item => item.value), appearance: record.appearance, customThemes: record.themes });
     const host = this.state.hosts.find(h => h.id === selected);
     if (host) await this.connect(host).catch(this.report);
   }
@@ -160,7 +164,15 @@ export class MobileRuntime {
     this.assertEpoch(epoch);
     this.update({ hosts: this.state.hosts.filter(h => h.id !== id) });
   }
-  async setAppearance(appearance: Appearance) { await this.storage.set('settings', 'appearance', appearance); this.update({ appearance }); }
+  private appearanceWrites: Promise<void> = Promise.resolve();
+  private saveAppearance(change: () => AppearanceRecord) {
+    const next = this.appearanceWrites.catch(() => {}).then(async () => { const record = change(); await this.storage.set('themes', 'appearance', record); this.update({ appearance: record.appearance, customThemes: record.themes }); });
+    this.appearanceWrites = next; return next;
+  }
+  setAppearance(appearance: Appearance) { return this.saveAppearance(() => appearanceRecord(appearance, this.state.customThemes)); }
+  addTheme(input: unknown) { const theme = validateTheme(input); return this.saveAppearance(() => appearanceRecord(this.state.appearance, [...(this.state.customThemes ?? []).filter(t => t.id !== theme.id), theme])); }
+  removeTheme(id: string) { return this.saveAppearance(() => appearanceRecord({ ...this.state.appearance, ...(this.state.appearance.light === id ? { light: defaultAppearance.light } : {}), ...(this.state.appearance.dark === id ? { dark: defaultAppearance.dark } : {}) }, (this.state.customThemes ?? []).filter(t => t.id !== id))); }
+
   setActive(active: boolean) {
     if (active === this.state.active) return;
     this.update({ active, ready: false });

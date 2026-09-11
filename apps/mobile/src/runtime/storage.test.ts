@@ -125,7 +125,7 @@ test('never initializes over unknown or newer schemas and retains unreadable rec
   database.exec('CREATE TABLE valuable (data TEXT); INSERT INTO valuable VALUES (\'keep\')');
   await expect(storage.initialize(true)).rejects.toMatchObject({ code: 'schema' });
   expect(database.prepare('SELECT data FROM valuable').get()?.data).toBe('keep');
-  database.exec('PRAGMA user_version = 2');
+  database.exec('PRAGMA user_version = 3');
   await expect(storage.initialize(true)).rejects.toMatchObject({ code: 'schema' });
   await storage.close();
   const other = fixture();
@@ -210,4 +210,18 @@ test('legacy plain bookmark values remain readable and are evicted before recent
   for (let index = 0; index < 64; index++) await storage.set('bookmarks', String(index), { ...legacy, messageId: String(index) });
   expect(await storage.get('bookmarks', 'legacy')).toBeUndefined();
   await storage.close();
+});
+
+test('v1 migrates without dropping drafts and appearance replacement stays atomic', async () => {
+  const f = fixture(); await f.storage.initialize(true);
+  await f.storage.setDraft('draft', { revision: '1', text: 'Keep my work' });
+  f.database.exec('PRAGMA user_version = 1');
+  await f.storage.initialize(false);
+  expect(f.database.prepare('PRAGMA user_version').get()?.user_version).toBe(2);
+  expect(await f.storage.get('drafts', 'draft')).toEqual({ revision: '1', text: 'Keep my work' });
+  await f.storage.set('themes', 'appearance', { themes: ['original'], appearance: 'original' });
+  f.failWrites();
+  await expect(f.storage.set('themes', 'appearance', { themes: [], appearance: 'new' })).rejects.toThrow();
+  expect(await f.storage.get('themes', 'appearance')).toEqual({ themes: ['original'], appearance: 'original' });
+  await f.storage.close();
 });

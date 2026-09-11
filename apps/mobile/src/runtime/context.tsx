@@ -9,7 +9,7 @@ import { AttentionProvider } from '../features/attention';
 const RuntimeContext = createContext<MobileRuntime | null>(null);
 export function RuntimeProvider({ runtime, children }: PropsWithChildren<{ runtime: MobileRuntime }>) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.query}><AttentionProvider runtime={runtime}><NativeTheme appearance={state.appearance}>{children}</NativeTheme></AttentionProvider></QueryClientProvider></RuntimeContext.Provider>;
+  return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.query}><AttentionProvider runtime={runtime}><NativeTheme appearance={state.appearance} themes={state.customThemes}>{children}</NativeTheme></AttentionProvider></QueryClientProvider></RuntimeContext.Provider>;
 }
 export function useRuntime() { const runtime = useContext(RuntimeContext); if (!runtime) throw new Error('Mobile runtime is not ready'); return runtime; }
 export function useRuntimeState() { const runtime = useRuntime(); return useSyncExternalStore(runtime.subscribe, runtime.getSnapshot); }

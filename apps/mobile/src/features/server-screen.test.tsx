@@ -10,7 +10,7 @@ const mockBack = jest.fn();
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot() }));
 jest.mock('../runtime/connection-test', () => ({ ...jest.requireActual('../runtime/connection-test'), testConnection: (...args: unknown[]) => mockProbe(...args) }));
 jest.mock('expo-router', () => ({ router: { replace: (...args: unknown[]) => mockReplace(...args), back: () => mockBack() }, useLocalSearchParams: () => ({}) }));
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ dark: true, colors: { foreground: '#fff', muted: '#aaa', panel: '#222', element: '#333', background: '#111', border: '#444', primary: '#55aaff', error: '#f55' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => {
   const React = require('react'); const { View, Text, Pressable } = require('react-native');
   return { Host: View, Column: View,

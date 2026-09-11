@@ -2,3 +2,5 @@
 export * from './conversation-rows';
 export * from './input-presentation';
 export { readingTarget, type ReadingBookmark } from './reading-positions';
+
+export { themeFromHost } from './theme-presentation';

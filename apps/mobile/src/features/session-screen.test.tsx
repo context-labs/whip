@@ -19,7 +19,7 @@ jest.mock('../components/conversation', () => ({ ConversationRow: () => null, Bo
 jest.mock('../components/requests', () => ({ Requests: () => null }));
 jest.mock('react-native-keyboard-controller', () => ({ KeyboardAvoidingView: require('react-native').View }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ dark: true, colors: { foreground: '#fff', muted: '#aaa', panel: '#222', element: '#333', background: '#111', border: '#444', primary: '#55aaff', error: '#f55', hover: '#333' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => {
   const React = require('react'); const { View, Text, Pressable } = require('react-native');
   return { BottomSheet: ({ isPresented, children }: { isPresented: boolean; children: React.ReactNode }) => isPresented ? React.createElement(View, {}, children) : null, RNHostView: View, Host: View, Column: View,

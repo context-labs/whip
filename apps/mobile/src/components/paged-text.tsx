@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo } from 'react';
-import { Platform, Pressable, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { useRecyclingState } from '@shopify/flash-list';
-import { fonts } from '../theme/fonts';
+import { useDisplay } from '../theme/theme';
 import { Label, Stack } from './primitives';
 import { Markdown } from './markdown';
 
@@ -31,6 +31,7 @@ export function textPreview(text: string): string {
 export const PagedText = memo(function PagedText({ text, identity, source = false, onPageChange }: {
   text: string; identity: string; source?: boolean; onPageChange?(): void;
 }) {
+  const display = useDisplay();
   const starts = useMemo(() => textPageStarts(text), [text]);
   const [selected, setSelected] = useRecyclingState(0, [identity]);
   const page = Math.min(selected, starts.length - 1);
@@ -40,7 +41,7 @@ export const PagedText = memo(function PagedText({ text, identity, source = fals
   return <Stack style={{ gap: 8 }}>
     {paged && <Label muted style={{ fontSize: 12 }}>Source text · Page {page + 1} of {starts.length}</Label>}
     {source || paged
-      ? <Label selectable testID="source-text-page" style={{ fontFamily: fonts.mono ?? (Platform.OS === 'ios' ? 'Menlo' : 'monospace'), fontSize: 13 }}>{visible}</Label>
+      ? <ScrollView horizontal={!display.wrapCode} scrollEnabled={!display.wrapCode}><Label selectable testID="source-text-page" style={{ fontFamily: display.mono, fontSize: display.codeSize, lineHeight: display.codeSize! * 1.6 }}>{visible}</Label></ScrollView>
       : <Markdown text={visible} />}
     {paged && <View style={{ flexDirection: 'row', gap: 24 }}>
       <Pressable accessibilityRole="button" accessibilityLabel="Previous text page" accessibilityState={{ disabled: page === 0 }} disabled={page === 0}

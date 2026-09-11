@@ -1,6 +1,6 @@
 import type { RecoveryRecord, RecoveryStorage } from '@whip/sdk';
 
-export type StorageBucket = 'hosts' | 'settings' | 'drafts' | 'bookmarks';
+export type StorageBucket = 'hosts' | 'settings' | 'drafts' | 'bookmarks' | 'themes';
 export interface Draft { text: string; revision: string }
 export interface CommandIntent {
   agentId?: string;
@@ -65,6 +65,7 @@ function bookmark(value: unknown): { savedAt: number; value: unknown } {
   return { savedAt: 0, value }; // Existing plain bookmarks predate retention metadata.
 }
 const limits: Record<Bucket, { count: number; bytes: number; entry: number }> = {
+  themes: { count: 1, bytes: 256 * 1024, entry: 256 * 1024 },
   hosts: { count: 4, bytes: 16 * 1024, entry: 4 * 1024 },
   settings: { count: 32, bytes: 16 * 1024, entry: 4 * 1024 },
   drafts: { count: 16, bytes: 512 * 1024, entry: 64 * 1024 },
@@ -75,7 +76,7 @@ const schema = `CREATE TABLE records (
   bucket TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
   PRIMARY KEY (bucket, key)
 ) WITHOUT ROWID;
-PRAGMA user_version = 1;`;
+PRAGMA user_version = 2;`;
 const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 const recoveryKey = (record: DurableRecord) => JSON.stringify([record.runtimeId, record.clientId, record.commandId]);
 function identifier(value: unknown, label: string): asserts value is string {
@@ -132,10 +133,12 @@ export class SqliteMobileStorage implements MobileStorage {
           if (tables.length) throw new StorageError('schema', 'Unrecognized database schema; existing data has been preserved');
           await this.db.execAsync(schema);
         });
-      } else if (version?.user_version !== 1) {
+      } else if (version?.user_version === 1) {
+        await this.transaction(() => this.db.execAsync('PRAGMA user_version = 2'));
+      } else if (version?.user_version !== 2) {
         throw new StorageError('schema', 'This app cannot read the saved database version; existing data has been preserved');
       }
-      const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery') LIMIT 1");
+      const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery', 'themes') LIMIT 1");
       if (unknown) throw new StorageError('schema', 'Unrecognized saved data; existing records have been preserved');
       for (const bucket of Object.keys(limits) as Bucket[]) await this.rows(bucket);
     });
@@ -175,7 +178,7 @@ export class SqliteMobileStorage implements MobileStorage {
     return this.db.getAllAsync<Row>('SELECT key, value FROM records WHERE bucket = ? ORDER BY key LIMIT ?', bucket, budget.count);
   }
   private validateBucket(bucket: StorageBucket): void {
-    if (!['hosts', 'settings', 'drafts', 'bookmarks'].includes(bucket)) throw new StorageError('corrupt', 'Unknown storage bucket');
+    if (!['hosts', 'settings', 'drafts', 'bookmarks', 'themes'].includes(bucket)) throw new StorageError('corrupt', 'Unknown storage bucket');
   }
   private async write(bucket: Bucket, key: string, value: unknown): Promise<void> {
     identifier(key, 'storage key');

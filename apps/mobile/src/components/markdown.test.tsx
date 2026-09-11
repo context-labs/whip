@@ -4,7 +4,7 @@ import { Markdown } from './markdown';
 
 const mockNativeMarkdown = jest.fn();
 jest.mock('react-native-enriched-markdown', () => ({ EnrichedMarkdownText: (props: unknown) => { mockNativeMarkdown(props); return null; } }));
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ colors: { foreground: '#fff', muted: '#aaa', link: '#aaf', element: '#222', border: '#444' }, code: { foreground: '#fff', background: '#222' }, markdown: { code: '#aaf', quote: '#aaa' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => ({ Host: require('react-native').View, Column: require('react-native').View, Button: () => null }));
 
 beforeEach(() => { mockNativeMarkdown.mockClear(); });

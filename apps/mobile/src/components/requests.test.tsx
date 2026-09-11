@@ -11,7 +11,7 @@ jest.mock('../runtime/context', () => ({
   useRuntime: () => mockRuntime,
   useRuntimeState: () => require('react').useSyncExternalStore(mockRuntime.subscribe, mockRuntime.getSnapshot),
 }));
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ dark: true, colors: { foreground: '#ffffff', muted: '#aaaaaa', panel: '#222222', element: '#333333', background: '#111111', border: '#444444', primary: '#55aaff', error: '#ff5555', hover: '#333333' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => {
   const React = require('react'); const { View, Text, Pressable } = require('react-native');
   return { Host: ({ children }: { children: React.ReactNode }) => React.createElement(View, {}, children), Column: ({ children }: { children: React.ReactNode }) => React.createElement(View, {}, children),
@@ -137,7 +137,7 @@ test('repeated send presses admit one command and failed outcomes retain the rev
   await fireEvent.changeText(screen.getByLabelText('Your answer'), 'authored answer');
   await fireEvent.press(screen.getByText('Review answers'));
   const before = f.drafts.get(key);
-  const send = mockNativeActions.get('Send answers')!;
+  const send = screen.getByRole('button', { name: 'Send answers' }).props.onPress;
   await act(() => { send(); send(); });
   expect(f.runtime.run).toHaveBeenCalledTimes(1);
   await act(() => { finish({ status: 'failed', result: {} }); });

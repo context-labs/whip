@@ -157,7 +157,10 @@ to route every piece of state through a framework.
 
 [`apps/mobile`](../apps/mobile) is a separate Expo Router renderer for iOS and
 Android. It shares daemon truth and portable presentation with the web app, while
-native SwiftUI/Compose controls come from Expo UI. React Native StyleSheet supplies
+native contextual sheets come from Expo UI. The native component library in
+`apps/mobile/src/ui` composes React Native text, input, press and switch primitives
+with explicit Whip semantic colors; a Compose seed palette is not a replacement
+for the selected Whip palette. React Native StyleSheet supplies
 layout; FlashList virtualizes conversation/catalog rows; Enriched Markdown renders
 selectable text; keyboard controller and safe-area providers own native insets.
 This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md)
@@ -228,7 +231,17 @@ explicitly inspected bodies as well as ordinary conversation text. Markdown with
 image syntax or raw HTML delimiters uses selectable source presentation so the
 native renderer cannot fetch embedded images; link previews are disabled, and
 links open only after a user tap through an external-scheme allowlist.
-Uploads, QR pairing, application auth and push notifications are deferred.
+Appearance has a dedicated native route with the generated theme catalog,
+preview/cancel, paired light/dark preferences, native text/code preferences,
+contrast and reduced motion. Custom JSON import uses the existing host resolver
+and the portable `themeFromHost` presentation helper, then shared validation.
+Resolved imports work offline. Schema v2 adds a separate 256 KiB `themes` bucket;
+one atomic record owns preferences and at most 16 custom themes so removing a
+selected import and repairing its selection cannot diverge. The v1 migration
+preserves existing device data and legacy appearance choices. Other storage quotas
+are unchanged. A development-only `/gallery` renders real controls for native
+theme/keyboard checks. Uploads in conversations, QR pairing, application auth and
+push notifications are deferred.
 
 ## Runtime construction and lifetimes
 

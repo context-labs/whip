@@ -1,7 +1,7 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { PagedText, TEXT_PAGE_SIZE, TEXT_PREVIEW_SIZE, textPageStarts, textPreview } from './paged-text';
 
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ colors: { foreground: '#fff', muted: '#aaa' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => ({ Host: require('react-native').View, Column: require('react-native').View, Button: () => null }));
 jest.mock('./markdown', () => ({ Markdown: ({ text }: { text: string }) => require('react').createElement(require('react-native').Text, { testID: 'native-markdown' }, text) }));
 

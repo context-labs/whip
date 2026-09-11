@@ -12,7 +12,7 @@ jest.mock('../runtime/context', () => ({ useRuntime: () => ({ report: mockReport
   useRuntimeState: () => ({ client: { content: mockContent }, host: { runtimeId: 'runtime' }, ready: true, active: true }) }));
 jest.mock('@tanstack/react-query', () => ({ useQuery: (options: unknown) => mockUseQuery(options) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => {}) }));
-jest.mock('../theme/theme', () => ({ useTheme: () => ({ colors: { foreground: '#fff', muted: '#aaa', panel: '#222' } }) }));
+jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
 jest.mock('@expo/ui', () => {
   const React = require('react'); const { View, Text, Pressable } = require('react-native');
   return { Host: View, Column: View, Button: ({ label, onPress }: { label: string; onPress(): void }) => React.createElement(Pressable, { accessibilityRole: 'button', onPress }, React.createElement(Text, {}, label)) };
