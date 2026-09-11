@@ -116,6 +116,11 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 		events.EphemeralSystem = strings.TrimSpace(events.EphemeralSystem + "\n" + notice)
 	}
+	// The definition's turn_start hook contributes ephemeral context for this
+	// turn; it rides with every request and never enters history.
+	if contribution := session.turnStart(ctx, input); contribution != "" {
+		events.EphemeralSystem = strings.TrimSpace(events.EphemeralSystem + "\n" + contribution)
+	}
 	if emit := session.emit; emit != nil {
 		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
 		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }

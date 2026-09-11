@@ -45,7 +45,7 @@ func (node *AgentSession) hookInvocation(ctx context.Context, hook *agentdef.Hoo
 func (node *AgentSession) askHook(ctx context.Context, hook *agentdef.Hook, invocation hookInvocation, callID string) (hookDecision, error) {
 	subject := invocation.Operation
 	if subject == "" {
-		subject = invocation.Hook
+		subject = "this turn"
 	}
 	var decision hookDecision
 	var err error
@@ -69,10 +69,38 @@ func (node *AgentSession) askHook(ctx context.Context, hook *agentdef.Hook, invo
 		node.addHookNotice(fmt.Sprintf("Hook %s was skipped for %s: %s", invocation.Hook, subject, err.Error()))
 		return hookDecision{Skipped: true, Reason: err.Error()}, nil
 	}
-	if decision.Deny {
+	if decision.Deny && invocation.Hook != agentdef.HookTurnStart {
 		node.emitHookDecision(callID, invocation, decision.InvocationID, "deny", decision.Reason)
 	}
 	return decision, nil
+}
+
+// maxTurnStartInputBytes bounds the input preview a turn_start hook receives.
+const maxTurnStartInputBytes = 2 << 10
+
+// turnStart asks the definition's turn_start hook for context to append to the
+// turn's ephemeral system text. It never gates: an unanswered or failing hook
+// skips with a notice, and a deny is ignored.
+func (node *AgentSession) turnStart(ctx context.Context, input string) string {
+	if node.root == nil {
+		return ""
+	}
+	hook := node.effectiveDefinition().Hook(agentdef.HookTurnStart)
+	if hook == nil {
+		return ""
+	}
+	contribution := *hook
+	contribution.Optional = true
+	invocation, err := node.hookInvocation(ctx, &contribution, agentdef.HookTurnStart)
+	if err != nil {
+		return ""
+	}
+	invocation.Input = utf8PrefixRuntime(input, maxTurnStartInputBytes)
+	decision, err := node.askHook(ctx, &contribution, invocation, "")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(decision.Context)
 }
 
 // beforeTool gates one host operation. It returns the arguments to run with,

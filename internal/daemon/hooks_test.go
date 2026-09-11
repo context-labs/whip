@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -175,9 +176,9 @@ func TestHookRegistrySettlesDecisions(t *testing.T) {
 
 // hookedRoot registers a coding-shaped definition with one custom tool and the
 // given hooks, opens a session on it, and returns the pieces a test drives.
-func hookedRoot(t *testing.T, hooks *agentdef.Hooks) (*session.Store, *Daemon, *Session, *RecursiveRuntime) {
+func hookedRoot(t *testing.T, hooks *agentdef.Hooks) (*session.Store, *Daemon, *Session, *RecursiveRuntime, <-chan llm.Request) {
 	t.Helper()
-	_, client := promptRuntimeProvider(t)
+	requests, client := promptRuntimeProvider(t)
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	definition := agentdef.Coding()
 	definition.ID = "hooked"
@@ -200,7 +201,7 @@ func hookedRoot(t *testing.T, hooks *agentdef.Hooks) (*session.Store, *Daemon, *
 	}
 	owner, root, runtime := openPromptRuntime(t, store, rootID, client)
 	owner.executors.bindWait = 100 * time.Millisecond
-	return store, owner, root, runtime
+	return store, owner, root, runtime, requests
 }
 
 // bindHookedExecutor binds a fake executor covering the hooked definition.
@@ -262,7 +263,7 @@ func awaitHookFromCell(t *testing.T, conn *fakeExecutorConn, outcome <-chan cell
 // without an executor, allows on an empty reply, denies with the reason,
 // rewrites through the normal validators, and follows children.
 func TestBeforeToolGatesEveryHostOperation(t *testing.T) {
-	store, owner, root, runtime := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{TimeoutMillis: 2000}})
+	store, owner, root, runtime, _ := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{TimeoutMillis: 2000}})
 	parent := runtime.rootNode
 	decisions := captureEvents(parent)
 	// No executor: fail closed with an error the model reads.
@@ -395,7 +396,7 @@ func TestBeforeToolGatesEveryHostOperation(t *testing.T) {
 // An optional, narrowed before_tool hook only asks about its operations and
 // proceeds with a notice when unanswered or failing.
 func TestBeforeToolOptionalAndNarrowed(t *testing.T) {
-	store, owner, _, runtime := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{Operations: []string{"shell.run"}, Optional: true, TimeoutMillis: 2000}})
+	store, owner, _, runtime, _ := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{Operations: []string{"shell.run"}, Optional: true, TimeoutMillis: 2000}})
 	parent := runtime.rootNode
 	decisions := captureEvents(parent)
 	// Unlisted operations never reach the hook, executor or not.
@@ -443,7 +444,7 @@ func TestBeforeToolOptionalAndNarrowed(t *testing.T) {
 // reason, rewrites through resolution so it cannot widen, and runs after
 // before_tool when both are declared.
 func TestBeforeSpawnSeesResolvedChildAndCannotWiden(t *testing.T) {
-	store, owner, root, runtime := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{Operations: []string{"agents.spawn"}, TimeoutMillis: 2000}, BeforeSpawn: &agentdef.Hook{TimeoutMillis: 2000}})
+	store, owner, root, runtime, _ := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{Operations: []string{"agents.spawn"}, TimeoutMillis: 2000}, BeforeSpawn: &agentdef.Hook{TimeoutMillis: 2000}})
 	parent := runtime.rootNode
 	decisions := captureEvents(parent)
 	conn, generation := bindHookedExecutor(t, owner, store, "before_tool", "before_spawn")
@@ -538,7 +539,7 @@ func TestBeforeSpawnSeesResolvedChildAndCannotWiden(t *testing.T) {
 
 // An optional before_spawn hook with nobody serving it proceeds with a notice.
 func TestBeforeSpawnOptionalProceedsUnanswered(t *testing.T) {
-	_, _, root, runtime := hookedRoot(t, &agentdef.Hooks{BeforeSpawn: &agentdef.Hook{Optional: true}})
+	_, _, root, runtime, _ := hookedRoot(t, &agentdef.Hooks{BeforeSpawn: &agentdef.Hook{Optional: true}})
 	parent := runtime.rootNode
 	decisions := captureEvents(parent)
 	cell := awaitCell(t, execCell(t.Context(), parent, `agents.spawn(prompt="go", name="solo", report="message")`))
@@ -553,5 +554,91 @@ func TestBeforeSpawnOptionalProceedsUnanswered(t *testing.T) {
 	}
 	if notices := parent.hookNotices(); !strings.Contains(notices, "Hook before_spawn was skipped for agents.spawn") {
 		t.Fatalf("skip notice = %q", notices)
+	}
+}
+
+// ephemeralSystem returns the ephemeral system message of a provider request,
+// which sits after the composed prompt and never enters history.
+func ephemeralSystem(request llm.Request) string {
+	if len(request.Messages) > 1 && request.Messages[1].Role == "system" {
+		return request.Messages[1].Content
+	}
+	return ""
+}
+
+// turn_start contributes to the turn's requests without entering history,
+// skips with a notice when unanswered, and runs for children too.
+func TestTurnStartContributesEphemeralContext(t *testing.T) {
+	store, owner, root, runtime, requests := hookedRoot(t, &agentdef.Hooks{TurnStart: &agentdef.Hook{TimeoutMillis: 1000}})
+	parent := runtime.rootNode
+	decisions := captureEvents(parent)
+	// No executor yet: the turn proceeds without the contribution.
+	request := submitPromptRoot(t, root, requests, "first question")
+	if ephemeral := ephemeralSystem(request); strings.Contains(ephemeral, "On call") {
+		t.Fatalf("unanswered hook contributed: %q", ephemeral)
+	}
+	if events := decisions(); len(events) != 1 || events[0].event.Name != "turn_start" || events[0].event.Text != "skipped" || !strings.Contains(events[0].event.Result, "no executor is bound") {
+		t.Fatalf("skip events = %+v", events)
+	}
+	conn, generation := bindHookedExecutor(t, owner, store, "turn_start")
+	answered := make(chan protocol.HookInvokeParams, 4)
+	answering := true
+	go func() {
+		for invoke := range conn.hooked {
+			answered <- invoke
+			if !answering {
+				continue
+			}
+			_ = owner.executors.settleHook(conn, protocol.HookResultParams{InvocationID: invoke.InvocationID, Generation: generation, Context: "On call: Sam. Open incidents: 2."})
+		}
+	}()
+	request = submitPromptRoot(t, root, requests, "second question with a long tail")
+	invoke := <-answered
+	if invoke.Hook != "turn_start" || invoke.Input != "second question with a long tail" || invoke.AgentID != parent.id || invoke.TurnID == "" || invoke.Operation != "" || invoke.Spawn != nil {
+		t.Fatalf("turn_start invocation = %+v", invoke)
+	}
+	if ephemeral := ephemeralSystem(request); !strings.Contains(ephemeral, "On call: Sam. Open incidents: 2.") {
+		t.Fatalf("contribution missing from the request: %q", ephemeral)
+	}
+	for _, message := range parent.agent.Messages {
+		if strings.Contains(message.Content, "On call: Sam") {
+			t.Fatalf("contribution entered history: %+v", message)
+		}
+	}
+	// A child turn asks under the child's identity.
+	cell := awaitCell(t, execCell(t.Context(), parent, `agents.spawn(prompt="go", name="kid", report="message")`))
+	if cell.err != nil {
+		t.Fatal(cell.err)
+	}
+	childID := cell.result.Value.(map[string]any)["id"].(string)
+	childRequest := readDaemonPromptRequest(t, requests)
+	childInvoke := <-answered
+	if childInvoke.AgentID != childID || childInvoke.Input != "go" && !strings.Contains(childInvoke.Input, "go") {
+		t.Fatalf("child turn_start invocation = %+v", childInvoke)
+	}
+	if ephemeral := ephemeralSystem(childRequest); !strings.Contains(ephemeral, "On call: Sam") {
+		t.Fatalf("child request lacks the contribution: %q", ephemeral)
+	}
+	runtime.mu.RLock()
+	child := runtime.agents[childID]
+	runtime.mu.RUnlock()
+	waitAgentIdle(t, child)
+	// Timeout: the turn proceeds after the hook's deadline with a skip notice.
+	answering = false
+	started := time.Now()
+	request = submitPromptRoot(t, root, requests, "third question")
+	<-answered
+	if elapsed := time.Since(started); elapsed < time.Second {
+		t.Fatalf("turn did not wait for the hook deadline: %s", elapsed)
+	}
+	if ephemeral := ephemeralSystem(request); strings.Contains(ephemeral, "On call") {
+		t.Fatalf("timed-out hook contributed: %q", ephemeral)
+	}
+	events := decisions()
+	if last := events[len(events)-1]; last.event.Text != "skipped" || !strings.Contains(last.event.Result, "timed out") {
+		t.Fatalf("timeout events = %+v", events)
+	}
+	if cancel := <-conn.cancelled; cancel.Reason != "timeout" {
+		t.Fatalf("cancel = %+v", cancel)
 	}
 }
