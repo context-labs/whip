@@ -4,6 +4,7 @@ import type { MobileRuntime } from '../runtime/runtime';
 import ServerScreen from '../app/server';
 
 let mockRuntime: MobileRuntime;
+jest.mock('../runtime/workspace-context', () => ({ useWorkspace: () => ({ ...mockRuntime, disconnect: mockRuntime.detach }), useWorkspaceState: () => mockRuntime.getSnapshot() }));
 const mockProbe = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();

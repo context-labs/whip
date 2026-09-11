@@ -54,7 +54,7 @@ export class MobileRuntime {
   }
   report = (error: unknown) => this.update({ error: message(error), lastErrorCode: error instanceof WhipError && /^[a-z_]{1,64}$/.test(error.kind) ? error.kind : 'local_error' });
   clearError = () => this.update({ error: undefined });
-  async start() {
+  async start(connectSaved = true) {
     const [hosts, appearance, drafts, selected] = await Promise.all([
       this.storage.list<SavedHost>('hosts'), this.storage.get<Appearance>('settings', 'appearance'),
       this.storage.list<Draft>('drafts'), this.storage.get<string>('settings', 'selectedHost'),
@@ -65,8 +65,9 @@ export class MobileRuntime {
     catch { record = appearanceRecord(defaultAppearance); this.report(new Error('Saved appearance is unavailable. Using the default themes; saved data has been preserved.')); }
     this.update({ hosts: hosts.map(item => item.value), appearance: record.appearance, customThemes: record.themes });
     const host = this.state.hosts.find(h => h.id === selected);
-    if (host) await this.connect(host).catch(this.report);
+    if (host && connectSaved) await this.connect(host).catch(this.report);
   }
+  setHostProfiles(hosts: readonly SavedHost[]) { this.update({ hosts }); }
   newHost(url: string, name = ''): SavedHost {
     const origin = serverOrigin(url, __DEV__);
     const existing = this.state.hosts.find(h => h.url === origin);
@@ -74,7 +75,7 @@ export class MobileRuntime {
       id: Crypto.randomUUID(), name: name.trim() || new URL(origin).hostname, url: origin, clientId: Crypto.randomUUID(),
     };
   }
-  async connect(host: SavedHost) {
+  async connect(host: SavedHost, options: { select?: boolean; list?: boolean } = {}) {
     if (this.disposed) throw new WhipError('closed', 'Mobile runtime is closed');
     const url = serverOrigin(host.url, __DEV__);
     const cleanup = this.detach();
@@ -104,9 +105,9 @@ export class MobileRuntime {
       host = { ...host, runtimeId: info.runtime_id };
       await this.storage.set('hosts', host.id, host);
       this.assertEpoch(epoch);
-      await this.storage.set('settings', 'selectedHost', host.id);
+      if (options.select !== false) await this.storage.set('settings', 'selectedHost', host.id);
       this.assertEpoch(epoch);
-      const list = createSessionListView(client);
+      const list = options.list === false ? undefined : createSessionListView(client, { maxBytes: 256 << 10 });
       const attached = client;
       this.connectingClient = undefined;
       this.update({ client, host, hosts: [...this.state.hosts.filter(h => h.id !== host.id), host], list, connecting: false });
@@ -116,7 +117,7 @@ export class MobileRuntime {
         if (attached.getSnapshot().state === 'connected' && this.state.active)
           void this.reconcile(epoch).catch(error => { if (epoch === this.epoch && this.state.active) this.report(error); });
       });
-      await list.start();
+      await list?.start();
       await this.reconcile(epoch);
     } catch (error) {
       if (error instanceof WhipError && error.kind === 'runtime_changed')
@@ -557,5 +558,5 @@ export class MobileRuntime {
     this.handles.delete(command.record.commandId); this.originalPayloads.delete(command.record.commandId); this.submitted.remove(command.record.commandId);
     this.update({ commands: this.state.commands.filter(c => namespace(c.record) !== namespace(command.record)) });
   }
-  async dispose() { this.disposed = true; await this.detach(); this.listeners.clear(); await this.storage.close(); }
+  async dispose(closeStorage = true) { this.disposed = true; await this.detach(); this.listeners.clear(); if (closeStorage) await this.storage.close(); }
 }

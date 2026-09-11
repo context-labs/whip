@@ -17,3 +17,10 @@ Branch: `codex/mobile-ui`
 - Schema v2 stores one atomic appearance/custom-theme record in a separate 256 KiB bucket (maximum 16 themes). This is simpler than separate imported rows and makes selected-theme removal atomic. Migration and failed-write preservation have regression coverage.
 - Mobile typecheck passes. Full mobile run reached 148/149 passing; the remaining test depended on the former Expo UI button mock. Updated it to exercise the real button handler, retaining its duplicate-send assertion. The targeted request suite is recorded at the phase commit.
 - All 14 shared UI tests pass. Native Android build and iOS build continue in the background; Homebrew CocoaPods fixed the obsolete system CocoaPods failure. Visual acceptance is still pending.
+
+## Phase 3 — host lifecycle
+
+- Added the device workspace coordinator, independent host runtime scopes, host management/edit/connect/remove, setup help, and dedicated settings navigation. Startup reconnects remembered hosts two at a time. Session routes resolve verified runtime identities; duplicate connections to the same runtime are rejected.
+- Kept the existing tested runtime command engine rather than splitting it into another duplicated class. Workspace preferences are separate from host commands. Child runtimes cannot close shared storage.
+- Three workspace lifecycle regression tests pass, nine host screen tests pass, and all eight request tests now pass, including repeated presses and retained failed-send drafts. Mobile typecheck passes.
+- Android debug APK builds and runs on API 36. iOS build is blocked before compilation by Xcode destination eligibility reporting the installed iOS 26.2 platform unavailable; this is not recorded as an iOS pass.

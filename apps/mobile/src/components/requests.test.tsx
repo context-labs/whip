@@ -137,8 +137,8 @@ test('repeated send presses admit one command and failed outcomes retain the rev
   await fireEvent.changeText(screen.getByLabelText('Your answer'), 'authored answer');
   await fireEvent.press(screen.getByText('Review answers'));
   const before = f.drafts.get(key);
-  const send = screen.getByRole('button', { name: 'Send answers' }).props.onPress;
-  await act(() => { send(); send(); });
+  await fireEvent.press(screen.getByText('Send answers'));
+  await fireEvent.press(screen.getByText('Sending answers…'));
   expect(f.runtime.run).toHaveBeenCalledTimes(1);
   await act(() => { finish({ status: 'failed', result: {} }); });
   expect(f.drafts.get(key)).toEqual(before);

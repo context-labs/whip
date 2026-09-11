@@ -1,3 +1,4 @@
+import { View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -5,7 +6,9 @@ import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../components/primitives';
 import { Connection } from '../components/connection';
-import { useRuntime, useRuntimeState } from '../runtime/context';
+import { RuntimeScope, useRuntime, useRuntimeState } from '../runtime/context';
+import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
+import { ListRow, Text, StatusBadge } from '../ui';
 import type { SavedHost } from '../runtime/runtime';
 import {
   advanceCreation, creationCommands, creationDraftKey, creationModels, creationSettingsKey,
@@ -14,11 +17,18 @@ import {
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 export default function NewSessionScreen() {
+  const workspace = useWorkspace(); const state = useWorkspaceState();
+  const [hostId, setHostId] = useState<string>();
+  const connection = workspace.runtime(hostId);
+  if (!connection?.getSnapshot().ready) return <Screen><Text variant="title">New session</Text><Text muted>Choose the computer that will run this session.</Text>{state.hosts.map(host => { const current = workspace.runtime(host.id)?.getSnapshot(); return <ListRow key={host.id} title={host.name} detail={current?.ready ? 'Connected' : current?.connecting ? 'Connecting…' : 'Connect this host to continue'} onPress={() => { if (current?.ready) setHostId(host.id); else router.push({ pathname: '/server', params: { hostId: host.id } }); }} />; })}<ListRow title="Add host" onPress={() => router.push('/server')} /></Screen>;
+  return <RuntimeScope runtime={connection}><SelectedHostCreation onChangeHost={() => setHostId(undefined)} /></RuntimeScope>;
+}
+function SelectedHostCreation({ onChangeHost }: { onChangeHost(): void }) {
   const { host, client } = useRuntimeState();
   const params = useLocalSearchParams<{ cwd?: string; runtimeId?: string }>();
   if (!host?.runtimeId || !client) return <Screen><Connection /><Notice>Connect to a Whip host to create a session.</Notice></Screen>;
-  return <CreationForm key={`${host.id}:${host.runtimeId}:${host.clientId}`} host={host} client={client}
-    initialPath={params.runtimeId === host.runtimeId && typeof params.cwd === 'string' ? params.cwd.slice(0, 2048) : ''} />;
+  return <><View style={{ paddingHorizontal: 20 }}><ListRow title={host.name} detail="Change host" onPress={onChangeHost} /></View><CreationForm key={`${host.id}:${host.runtimeId}:${host.clientId}`} host={host} client={client}
+    initialPath={params.runtimeId === host.runtimeId && typeof params.cwd === 'string' ? params.cwd.slice(0, 2048) : ''} /></>;
 }
 function CreationForm({ host, client, initialPath }: { host: SavedHost; client: WhipClient; initialPath: string }) {
   const runtime = useRuntime(); const state = useRuntimeState(); const focused = useIsFocused();

@@ -8,19 +8,20 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { openMobileStorage, resetMobileStorage } from '../runtime/storage';
 import { ResetContext } from '../runtime/reset-context';
-import { MobileRuntime } from '../runtime/runtime';
+import { MobileWorkspace } from '../runtime/workspace';
+import { WorkspaceProvider } from '../runtime/workspace-context';
 import { RuntimeProvider, useRuntime, useRuntimeState } from '../runtime/context';
 import { useTheme } from '../theme/theme';
 import { Actions, Notice } from '../components/primitives';
 import { loadFonts } from '../theme/fonts';
 
 // One bootstrap per JS process, including React StrictMode effect probes.
-let bootRuntime: MobileRuntime | undefined;
+let bootRuntime: MobileWorkspace | undefined;
 let bootDisposed = false;
 const appState = AppState.addEventListener('change', state => { if (state !== 'inactive') bootRuntime?.setActive(state === 'active'); });
 const createRuntime = () => Promise.all([openMobileStorage(), loadFonts()]).then(async ([storage]) => {
   if (bootDisposed) { await storage.close(); throw new Error('Bootstrap replaced'); }
-  const runtime = new MobileRuntime(storage); bootRuntime = runtime;
+  const runtime = new MobileWorkspace(storage); bootRuntime = runtime;
   runtime.setActive(AppState.currentState !== 'background');
   await runtime.start();
   return runtime;
@@ -36,7 +37,7 @@ hot?.dispose(() => {
 });
 void bootstrap.catch(() => {});
 export default function RootLayout() {
-  const [runtime, setRuntime] = useState<MobileRuntime>();
+  const [runtime, setRuntime] = useState<MobileWorkspace>();
   const [error, setError] = useState<string>();
   const resetting = useRef(false);
   async function reset() {
@@ -55,7 +56,7 @@ export default function RootLayout() {
     <Text style={{ color: '#bbbbbb', marginTop: 16 }}>Whip has kept the remaining local files. Reopen after resolving storage access, or explicitly erase local data to start over.</Text>
     <Pressable accessibilityRole="button" style={{ minHeight: 48, paddingVertical: 16 }} onPress={() => Alert.alert('Erase Whip data on this phone?', 'This permanently deletes saved servers, unsent drafts and recovery records on this phone. Work and history on your Whip hosts continue. Interrupted resets must be finished before Whip can reopen.', [{ text: 'Keep data', style: 'cancel' }, { text: 'Erase local data', style: 'destructive', onPress: () => { void reset(); } }])}><Text style={{ color: '#eeeeee', fontSize: 16 }}>Reset local data…</Text></Pressable>
   </>}</View>;
-  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><KeyboardProvider><ResetContext.Provider value={reset}><RuntimeProvider runtime={runtime}><Navigation /></RuntimeProvider></ResetContext.Provider></KeyboardProvider></SafeAreaProvider></GestureHandlerRootView>;
+  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><KeyboardProvider><ResetContext.Provider value={reset}><WorkspaceProvider workspace={runtime}><RuntimeProvider runtime={runtime.settings}><Navigation /></RuntimeProvider></WorkspaceProvider></ResetContext.Provider></KeyboardProvider></SafeAreaProvider></GestureHandlerRootView>;
 }
 function Navigation() {
   const theme = useTheme(); const runtime = useRuntime(); const state = useRuntimeState();
@@ -65,7 +66,7 @@ function Navigation() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="server" options={{ title: 'Connect to Whip', presentation: 'modal' }} />
       <Stack.Screen name="new-session" options={{ title: 'New session', presentation: 'modal' }} />
-      <Stack.Screen name="session/[rootId]" options={{ title: 'Session' }} />
+      <Stack.Screen name="session" options={{ headerShown: false }} />
     </Stack>
     {state.error && <View style={{ padding: 12 }}><Notice danger>{state.error}</Notice><Actions items={[{ label: 'Dismiss message', secondary: true, onPress: runtime.clearError }]} /></View>}
   </View>;

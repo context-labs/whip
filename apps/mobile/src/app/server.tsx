@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useRuntime, useRuntimeState } from '../runtime/context';
+import { useRuntime } from '../runtime/context';
+import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
+import { Button, ListRow, Text } from '../ui';
 import { serverOrigin } from '../runtime/address';
 import { connectionIssue, connectionStages, testConnection, type ConnectionIssue, type ConnectionProgress, type ConnectionTestResult } from '../runtime/connection-test';
 import { Actions, Field, Label, Notice, Screen, Stack } from '../components/primitives';
 
 type Attempt = { kind: 'test' | 'connect'; controller: AbortController; hostId?: string };
 export default function ServerScreen() {
-  const runtime = useRuntime(); const state = useRuntimeState();
+  const runtime = useRuntime(); const workspace = useWorkspace(); const state = useWorkspaceState();
   const { hostId } = useLocalSearchParams<{ hostId?: string }>();
   const existing = state.hosts.find(host => host.id === hostId);
   const [url, setURL] = useState(existing?.url ?? ''); const [name, setName] = useState(existing?.name ?? '');
@@ -21,7 +23,7 @@ export default function ServerScreen() {
     const current = attempt.current;
     attempt.current = undefined;
     current?.controller.abort();
-    if (current?.hostId && runtime.getSnapshot().host?.id === current.hostId) void runtime.detach().catch(runtime.report);
+    if (current?.hostId) void workspace.disconnect(current.hostId).catch(runtime.report);
   }
   useEffect(() => () => cancelAttempt(), [runtime]);
   useEffect(() => {
@@ -47,9 +49,9 @@ export default function ServerScreen() {
         if (attempt.current === current) { setResult(checked); setProgress(undefined); }
       } else {
         runtime.clearError();
-        const host = existing ? { ...existing, url: canonical, name: name.trim() || existing.name } : runtime.newHost(canonical, name);
+        const host = existing ? { ...existing, url: canonical, name: name.trim() || existing.name } : workspace.newHost(canonical, name);
         current.hostId = host.id;
-        await runtime.connect(host);
+        await workspace.connect(host);
         if (attempt.current !== current) return;
         attempt.current = undefined;
         router.replace('/');
@@ -61,7 +63,7 @@ export default function ServerScreen() {
     }
   }
   return <Screen>
-    <Stack><Label style={{ fontSize: 24, lineHeight: 30, fontWeight: '600' }}>Connect your computer</Label>
+    <Stack><Label style={{ fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{existing ? 'Edit host' : 'Connect your host'}</Label>
       <Label muted>Connect this phone and your computer to Tailscale, then enter Whip’s HTTPS address.</Label></Stack>
     <Field label="Server URL" value={url} onChangeText={changeURL} editable={!pending} maxLength={2048} placeholder="https://whip.example.ts.net" autoCapitalize="none" autoCorrect={false} keyboardType="url" textContentType="URL" testID="server-url" />
     <Field label="Name (optional)" value={name} onChangeText={setName} editable={!pending} placeholder="My computer" maxLength={80} />
@@ -84,6 +86,7 @@ export default function ServerScreen() {
         else router.back();
       } },
     ]} />
+    <ListRow title="Need help connecting?" detail="Set up Whip and Tailscale on your computer" onPress={() => router.push('/setup-help')} />
     <Label muted>The base address can also open the web app in Safari. That is expected: mobile uses the API and WebSocket at the same address. Do not add /api/v3/ws.</Label>
     <Notice>Access is controlled by your Tailscale network. Devices allowed to reach this server can direct Whip work. Keep the server private to your tailnet.</Notice>
   </Screen>;

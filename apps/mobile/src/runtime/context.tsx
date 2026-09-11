@@ -11,6 +11,7 @@ export function RuntimeProvider({ runtime, children }: PropsWithChildren<{ runti
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.query}><AttentionProvider runtime={runtime}><NativeTheme appearance={state.appearance} themes={state.customThemes}>{children}</NativeTheme></AttentionProvider></QueryClientProvider></RuntimeContext.Provider>;
 }
+export function RuntimeScope({ runtime, children }: PropsWithChildren<{ runtime: MobileRuntime }>) { return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.query}>{children}</QueryClientProvider></RuntimeContext.Provider>; }
 export function useRuntime() { const runtime = useContext(RuntimeContext); if (!runtime) throw new Error('Mobile runtime is not ready'); return runtime; }
 export function useRuntimeState() { const runtime = useRuntime(); return useSyncExternalStore(runtime.subscribe, runtime.getSnapshot); }
 const emptyList: DeepReadonly<SessionListSnapshot> = Object.freeze({ status: 'idle', truncated: false });
