@@ -83,6 +83,9 @@ Buttons accept `variant=primary|secondary|ghost|danger`, `size=sm|md|lg`,
 `neutral|success|warning|error|info`. Dialog/Sheet share `open`, `onOpenChange`,
 `title`, optional `description`, `children` and `footer`.
 
+`CopyButton` accepts `showLabel` to display its label beside the icon, including
+copy success or failure feedback. The default remains an icon button.
+
 Tooltip accepts `label`, a trigger child, optional `delay`, `disableHoverablePopup`,
 `xstyle`, and Base UI `side`, `align`, `sideOffset`, `collisionPadding`, and
 `collisionAvoidance` placement options. Rich tooltip content

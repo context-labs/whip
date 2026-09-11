@@ -36,3 +36,9 @@ Native launch and local transport failure are checked separately; this is not a 
 The native transport check reproduced the original `whip:openTransport` / `ENOENT daemon.sock` failure using only the isolated daemon. [Native host failure](screenshots/12-native-host-failure.png) shows that diagnostic once, under the host notice. The dependent local runtime setup displays availability and Retry connection without a second error alert.
 
 After restoring the private service, the native bridge reconnected, cleared the host notice, and restored the new-chat view: [native recovery](screenshots/12-native-recovered.png). Retry while the service remained stopped kept the error with its host. Daemon restart policy was not changed.
+
+Close-button follow-up: the shared error dismiss control uses a transparent ghost button and top alignment, retaining its standard icon-button dimensions when details expand. Computer verified collapsed/expanded layout and dismissal in the isolated desktop app: [corrected close button](screenshots/13-close-button-fixed.png). The four focused error/connection tests and app typecheck pass.
+
+Copy-button follow-up: “Copy Error” is a labeled control in the same wrapping footer row as recovery actions, available with details collapsed or expanded. Computer checked both layouts: [copy action row](screenshots/14-copy-error-action-row.png). App/UI typechecks and 24 focused error, connection, transcript, and existing clipboard tests pass.
+
+Action-placement follow-up: session action errors now follow the form fields and precede Save/Close, matching form-level validation placement. Computer verified a rejected rename retains its input with the error below it: [aligned action error](screenshots/15-action-error-placement.png). All 24 session-action/server-form tests pass.

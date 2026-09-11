@@ -583,6 +583,9 @@ what failed, not its technical cause. A timeout can belong to any of these owner
 | Action | Explicit mutation, recovery, copy or download; beside its control or inside its dialog |
 | Validation | Invalid input; at the field or immediately above form submission controls |
 
+In forms and action dialogs, place action errors after the fields and immediately
+above the submission controls, matching form-level validation errors.
+
 Show one primary error, with recovery controls and expandable technical details.
 Dependent surfaces show availability status instead of repeating a host failure.
 Do not send local failures to a global banner or a second toast. `runtime.run`

@@ -193,13 +193,13 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       footer={<><Button onClick={close} disabled={busy}>Close</Button>{selection?.action !== 'fork' && <Button variant={selection?.action === 'delete' ? 'danger' : 'primary'} loading={busy}
         disabled={busy || (selection?.action !== 'ssh' && !selection?.metadata) || (selection?.action !== 'delete' && !value.trim())}
         onClick={() => void submit()}>{selection?.action === 'delete' ? 'Delete session' : 'Save'}</Button>}</>}>
-      {selection?.error && <ErrorNotice type={selection.errorType ?? "action"} owner={`${selection.target.runtimeId}:${selection.target.rootId}`} error={selection.error}
-        action={selection.errorType === "resource" && <Button variant="ghost" onClick={() => void begin(selection.target, selection.action)}>Retry loading session</Button>} />}
       {selection && <p>{selection.target.title || 'Untitled session'} · {selection.hostName}</p>}
       {selection?.action !== 'ssh' && !selection?.metadata && !selection?.error && <p role="status">Loading session details…</p>}
       {(selection?.action === 'rename' && selection.metadata || selection?.action === 'ssh') && <Field label={selection.action === 'ssh' ? 'SSH host alias' : 'Session name'}><Input value={value} onChange={event => setValue(event.target.value)} maxLength={selection.action === 'ssh' ? 253 : 65536} disabled={busy} autoFocus onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && value.trim()) void submit(); }} /></Field>}
       {selection?.action === 'delete' && selection.metadata && <><p>{selection.metadata.title || 'Untitled session'}</p><p>Host: {selection.hostName}</p></>}
       {selection?.action === 'fork' && busy && <p role="status">Copying committed conversation history in the same working directory…</p>}
+      {selection?.error && <ErrorNotice type={selection.errorType ?? "action"} owner={`${selection.target.runtimeId}:${selection.target.rootId}`} error={selection.error}
+        action={selection.errorType === "resource" && <Button variant="ghost" onClick={() => void begin(selection.target, selection.action)}>Retry loading session</Button>} />}
     </Dialog>
     <Dialog open={!!failure} title={failure?.title ?? "Session action failed"} onOpenChange={open => { if (!open) setFailure(undefined); }}
       footer={<Button onClick={() => setFailure(undefined)}>Close</Button>}>

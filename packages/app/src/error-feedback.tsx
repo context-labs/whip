@@ -36,21 +36,24 @@ export function ErrorNotice({ type, owner, error, title, action, onDismiss, tone
   const message = errorMessage(error);
   const identity = `${type}:${owner}:${message}`;
   return <div data-error-type={type} data-error-owner={owner} {...stylex.props(styles.container)}>
-    <Alert tone={tone} title={title ?? titles[type]} action={onDismiss && <IconButton label={`Dismiss ${type} error`} onClick={onDismiss}><X size={14} /></IconButton>}>
+    <Alert tone={tone} title={title ?? titles[type]} action={onDismiss && <IconButton variant="ghost" xstyle={styles.dismiss} label={`Dismiss ${type} error`} onClick={onDismiss}><X size={14} /></IconButton>}>
       {type === 'validation' ? <p {...stylex.props(styles.message)}>{message}</p> : <details key={message} {...stylex.props(styles.details)}>
         <summary>Error details</summary>
         <pre {...stylex.props(styles.message)}>{message}</pre>
-        {runtime?.platform?.copy && <CopyButton text={message} label="Copy error" copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }}
-          onError={() => setCopyError(identity)} />}
-        {copyError === identity && <p role="status">Could not copy. Select the details to copy them manually.</p>}
       </details>}
-      {action && <div {...stylex.props(styles.actions)}>{action}</div>}
+      {(action || (type !== 'validation' && runtime?.platform?.copy)) && <div {...stylex.props(styles.actions)}>
+        {type !== 'validation' && runtime?.platform?.copy && <CopyButton key={identity} text={message} label="Copy Error" showLabel
+          copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={() => setCopyError(identity)} />}
+        {action}
+      </div>}
+      {copyError === identity && <p role="status">Could not copy. Select the details to copy them manually.</p>}
     </Alert>
   </div>;
 }
 
 const styles = stylex.create({
   container: { minWidth: 0, maxWidth: '100%', overflowWrap: 'anywhere' },
+  dismiss: { alignSelf: 'flex-start' },
   details: { marginTop: 6, fontSize: typography.size12 },
   message: { margin: '6px 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '30dvh', overflowY: 'auto', fontSize: typography.size12 },
   actions: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 },

@@ -35,8 +35,11 @@ export function ToggleGroup({value, onValueChange, items, label}: {value: string
 }
 export function Link({xstyle, ...props}: ComponentPropsWithRef<'a'> & Styled) {return <a {...mergeProps(stylex.props(styles.link, xstyle), props)}/>;}
 export function Kbd({children}: {children: ReactNode}) {return <kbd {...stylex.props(styles.kbd)}>{children}</kbd>;}
-export function CopyButton({text, label = 'Copy', copy, onError, xstyle}: Styled & {text: string; label?: string; copy?: (text: string) => Promise<void>; onError?: (error: unknown) => void}) {
+export function CopyButton({text, label = 'Copy', showLabel = false, copy, onError, xstyle}: Styled & {text: string; label?: string; showLabel?: boolean; copy?: (text: string) => Promise<void>; onError?: (error: unknown) => void}) {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  return <IconButton xstyle={xstyle} label={error ? 'Could not copy. Try again.' : copied === text ? 'Copied' : label} variant="ghost" onBlur={() => {setCopied(null); setError(false);}} onClick={() => {void Promise.resolve().then(() => (copy ?? (value => navigator.clipboard.writeText(value)))(text)).then(() => {setCopied(text); setError(false);}, error => {setCopied(null); setError(true); onError?.(error);});}}>{copied === text ? <Check size={14}/> : <Copy size={14}/>}</IconButton>;
+  const currentLabel = error ? 'Could not copy. Try again.' : copied === text ? 'Copied' : label;
+  const icon = copied === text ? <Check size={14}/> : <Copy size={14}/>;
+  const props: ButtonProps = { xstyle, variant: 'ghost', onBlur: () => {setCopied(null); setError(false);}, onClick: () => {void Promise.resolve().then(() => (copy ?? (value => navigator.clipboard.writeText(value)))(text)).then(() => {setCopied(text); setError(false);}, error => {setCopied(null); setError(true); onError?.(error);});} };
+  return showLabel ? <Button {...props}>{icon}{currentLabel}</Button> : <IconButton {...props} label={currentLabel}>{icon}</IconButton>;
 }
