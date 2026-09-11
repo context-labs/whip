@@ -228,3 +228,66 @@ step, the pinned whip version, and the tools. `.loupe.json` schema drops
 Confirm or redirect the four recommendations above (orchestration split,
 keep checkout and drop shell, keep materialization, unix socket). Steps 2
 through 8 assume them.
+
+## Implementation record (2026-09-11)
+
+Landed on `context-labs/loupe` branch `feature/whip-sdk` (local only):
+
+| Step | Commit | Notes |
+|---|---|---|
+| 1 Vendor the SDK | `0caf539` | `vendor/@whip/{protocol,sdk}` from `feature/agent-definition@e6afc468b`; `task vendor:whip`; `packages/whip` skeleton; resolution test. The whip version pin in the action waits for a release that contains this branch. |
+| 2 SDK runner | `4beca88` | `@loupe/whip` replaces `@loupe/harness`; Unix socket via `@whip/sdk/node` (already exported, no Whip change); `ensureDaemon` with throwaway home in CI and local-login fallback; claude/codex adapters removed. |
+| 3 `submit_review` | `7d90280` | Plus `submit_verdicts`; JSON scraper and jsonrepair removed. |
+| 4 Hooks | `3a12e2c` | Fixer `before_tool` deny table; reviewer write attempts logged. |
+| 5 `pr_*` tools | `55d0357` | Diff temp file removed. |
+| 6 Panel | `4eac731` | Named children, `before_spawn` cap and tool narrowing, `settle()` wait. |
+| 7 Project files | skipped | See below. |
+| 8 Docs | `5a5a9c6` | README, docs, example workflow, action.yml; stale `harness` key rejected; loupe's own configs drop the key. |
+
+Every step passed `task check`; steps 2, 3, 5, and 6 were also dry-run live
+against `context-labs/loupe#15` through the installed desktop daemon.
+
+### Deviations from the plan
+
+- **Follow-up nudge.** The daemon's `max_turns` cap ends a turn with a
+  no-tools answer, which cannot carry `submit_review`; under the JSON contract
+  that answer *was* the review. `runAgent` now waits for the session to go
+  quiet and, if nothing was submitted, sends one more prompt on the same
+  session with two tool rounds. Observed to recover the review every time.
+- **Content-addressed ids.** `session.create` takes an id's most recently
+  *created* revision and registration is idempotent on content, so the
+  agentic and one-shot variants sharing `loupe-code` handed the one-shot
+  session the agentic definition (its `files.read` succeeded). Ids are now
+  `loupe-<name>-<8 hex of the content>`.
+- **Severity stays a string.** The tool schema keeps severity permissive and
+  normalizes aliases in the handler, as before, rather than an `enum`: an
+  enum rejection costs a tool round on budgets as small as two cells.
+- **Step 7 skipped.** `fetchConventions` reads the docs at the exact PR head
+  and works without a checkout; daemon `project_files` discovery would read
+  whatever branch is checked out locally, and `skill_discovery` loads every
+  project skill rather than the configured subset. No gain for a semantic
+  drift; the API fetch stays.
+
+### Whip follow-ups this surfaced (no code written)
+
+1. **Pin a definition revision at session creation.** `CreateSessionParams`
+   has only `definition`; `latestDefinition` orders by `created_at`. An
+   executor is bound to `definition@revision`, so a session can land on a
+   revision no executor serves. A `definition_revision` field (or returning
+   the revision from `agents.serve` for `sessions.create` to pass) removes
+   the need for content-hashed ids.
+2. **Turn cap vs tool-borne output.** With `max_turns`, a final no-tools
+   answer is forced; an agent whose deliverable is a tool call has nothing
+   to deliver. Either let the cap's final round allow tools, or document
+   the follow-up pattern.
+3. **`files.read` result ergonomics.** GLM repeatedly treated the large-file
+   result (`{handle, preview, size}`) as a string, then passed the whole dict
+   to `context.read`. A guide line or a friendlier error would save cells.
+4. **Child turn failures.** A six-cell panel run showed repeated
+   `agent.turn.failed` for confirmers after minutes of exploration, most
+   likely the 200k token budget; the reason was not in the log at the time.
+   Loupe now logs it; worth a look at what the digest tells the parent.
+5. **Cost reporting.** `reported_cost_micros` is 0 for glm-5.3 on
+   inference-net; the estimate is populated. Loupe falls back to it.
+6. **Publishing.** `@whip/sdk` and `@whip/protocol` to npm, so Loupe's
+   `vendor/` can go.
