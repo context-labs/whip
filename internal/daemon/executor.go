@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,34 +35,78 @@ type executorLease struct {
 	hooks      []string
 }
 
-type toolOutcome struct {
-	output string
-	err    error
+// invocationOutcome settles one invocation: a tool's output or a hook's
+// decision, or the error that ended the wait.
+type invocationOutcome struct {
+	output   string
+	decision hookDecision
+	err      error
 }
 
-// toolInvocation is one in-flight call. The durable record is the ledger
-// operation row; this is the wait state that connects it to an executor.
-type toolInvocation struct {
+// pendingInvocation is one in-flight tool call or hook. For tools the durable
+// record is the ledger operation row; this is the wait state that connects an
+// invocation to an executor.
+type pendingInvocation struct {
 	lease    *executorLease
-	params   protocol.ToolInvokeParams
+	tool     *protocol.ToolInvokeParams
+	hook     *protocol.HookInvokeParams
 	progress func(string)
-	result   chan toolOutcome
+	result   chan invocationOutcome
 }
 
-// executorRegistry pairs bound executors with tool invocations. One lease per
-// definition revision; a later bind replaces the holder and its pending calls
-// fail rather than replay.
+func (p *pendingInvocation) deadline() int64 {
+	if p.tool != nil {
+		return p.tool.DeadlineMillis
+	}
+	return p.hook.DeadlineMillis
+}
+
+// hookInvocation is one hook call the daemon asks the executor to decide.
+type hookInvocation struct {
+	Definition     string
+	Revision       string
+	RootID         string
+	AgentID        string
+	TurnID         string
+	Hook           string
+	Operation      string
+	Arguments      json.RawMessage
+	Spawn          *protocol.SpawnPreview
+	Input          string
+	PermissionMode string
+	Timeout        time.Duration
+}
+
+// hookDecision is an answered hook. The zero value is allow, unchanged. Failed
+// marks a handler error: a deny for a required hook, a skip for an optional
+// one. An unanswered hook is an error from InvokeHook, never a decision.
+type hookDecision struct {
+	InvocationID string
+	Deny         bool
+	Failed       bool
+	Reason       string
+	Arguments    json.RawMessage
+	Spawn        *protocol.SpawnRequest
+	Context      string
+}
+
+// maxHookContextBytes bounds a turn_start contribution.
+const maxHookContextBytes = 4 << 10
+
+// executorRegistry pairs bound executors with tool and hook invocations. One
+// lease per definition revision; a later bind replaces the holder and its
+// pending calls fail rather than replay.
 type executorRegistry struct {
 	mu         sync.Mutex
 	leases     map[string]*executorLease
-	pending    map[string]*toolInvocation
+	pending    map[string]*pendingInvocation
 	generation int64
 	bound      chan struct{} // closed and replaced on every bind, waking waiters
 	bindWait   time.Duration
 }
 
 func newExecutorRegistry() *executorRegistry {
-	return &executorRegistry{leases: make(map[string]*executorLease), pending: make(map[string]*toolInvocation), bound: make(chan struct{}), bindWait: defaultExecutorBindWait}
+	return &executorRegistry{leases: make(map[string]*executorLease), pending: make(map[string]*pendingInvocation), bound: make(chan struct{}), bindWait: defaultExecutorBindWait}
 }
 
 func leaseKey(definition, revision string) string { return definition + "@" + revision }
@@ -99,7 +144,7 @@ func (r *executorRegistry) failLeaseLocked(lease *executorLease, err error) {
 	for id, invocation := range r.pending {
 		if invocation.lease == lease {
 			delete(r.pending, id)
-			invocation.result <- toolOutcome{err: err}
+			invocation.result <- invocationOutcome{err: err}
 		}
 	}
 }
@@ -115,40 +160,94 @@ func (r *executorRegistry) holder(conn executorConn, definition, revision string
 	return lease, nil
 }
 
-// pendingFor lists invocations awaiting the lease conn holds, oldest first.
-func (r *executorRegistry) pendingFor(conn executorConn, params protocol.ExecutorPendingParams) ([]protocol.ToolInvokeParams, error) {
+// pendingFor lists the tool and hook invocations awaiting the lease conn
+// holds, earliest deadline first.
+func (r *executorRegistry) pendingFor(conn executorConn, params protocol.ExecutorPendingParams) (protocol.ExecutorPendingResult, error) {
 	lease, err := r.holder(conn, params.Definition, params.Revision, params.Generation)
 	if err != nil {
-		return nil, err
+		return protocol.ExecutorPendingResult{}, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	result := make([]protocol.ToolInvokeParams, 0)
+	result := protocol.ExecutorPendingResult{Invocations: make([]protocol.ToolInvokeParams, 0)}
 	for _, invocation := range r.pending {
-		if invocation.lease == lease {
-			result = append(result, invocation.params)
+		if invocation.lease != lease {
+			continue
+		}
+		if invocation.tool != nil {
+			result.Invocations = append(result.Invocations, *invocation.tool)
+		} else {
+			result.Hooks = append(result.Hooks, *invocation.hook)
 		}
 	}
-	slices.SortFunc(result, func(a, b protocol.ToolInvokeParams) int { return int(a.DeadlineMillis - b.DeadlineMillis) })
+	slices.SortFunc(result.Invocations, func(a, b protocol.ToolInvokeParams) int { return int(a.DeadlineMillis - b.DeadlineMillis) })
+	slices.SortFunc(result.Hooks, func(a, b protocol.HookInvokeParams) int { return int(a.DeadlineMillis - b.DeadlineMillis) })
 	return result, nil
 }
 
-// settle accepts a result from the lease holder; anything else is rejected.
-func (r *executorRegistry) settle(conn executorConn, params protocol.ToolResultParams) error {
+// take removes and returns the pending invocation a reply names when the
+// reply comes from the lease holder at the right generation; anything else
+// is rejected, so late, duplicate, and foreign replies never settle a call.
+func (r *executorRegistry) take(conn executorConn, id string, generation int64, hook bool) (*pendingInvocation, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	invocation := r.pending[params.InvocationID]
-	if invocation == nil || invocation.lease.conn != conn || invocation.lease.generation != params.Generation {
-		return errors.New("invocation is unknown, settled, or held by another executor")
+	invocation := r.pending[id]
+	if invocation == nil || invocation.lease.conn != conn || invocation.lease.generation != generation {
+		return nil, errors.New("invocation is unknown, settled, or held by another executor")
 	}
-	delete(r.pending, params.InvocationID)
-	outcome := toolOutcome{output: string(params.Output)}
+	if (invocation.hook != nil) != hook {
+		return nil, errors.New("invocation kind does not match the reply")
+	}
+	delete(r.pending, id)
+	return invocation, nil
+}
+
+// settle accepts a tool result from the lease holder.
+func (r *executorRegistry) settle(conn executorConn, params protocol.ToolResultParams) error {
+	invocation, err := r.take(conn, params.InvocationID, params.Generation, false)
+	if err != nil {
+		return err
+	}
+	outcome := invocationOutcome{output: string(params.Output)}
 	if params.Error != "" {
-		outcome = toolOutcome{err: errors.New(params.Error)}
+		outcome = invocationOutcome{err: errors.New(params.Error)}
 	} else if len(params.Output) == 0 || !json.Valid(params.Output) {
-		outcome = toolOutcome{err: errors.New("tool returned no JSON result")}
+		outcome = invocationOutcome{err: errors.New("tool returned no JSON result")}
 	}
 	invocation.result <- outcome
+	return nil
+}
+
+// settleHook accepts a hook reply from the lease holder. Absent fields mean
+// allow, unchanged; malformed fields reject the reply so the call keeps
+// waiting for a valid one or its deadline.
+func (r *executorRegistry) settleHook(conn executorConn, params protocol.HookResultParams) error {
+	decision := hookDecision{InvocationID: params.InvocationID, Reason: params.Reason, Spawn: params.Spawn, Context: params.Context}
+	switch params.Decision {
+	case "", "allow":
+	case "deny":
+		decision.Deny = true
+	default:
+		return fmt.Errorf("hook decision must be allow or deny, not %q", params.Decision)
+	}
+	if len(params.Arguments) > 0 {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(params.Arguments, &object); err != nil || object == nil {
+			return errors.New("hook arguments must be a JSON object")
+		}
+		decision.Arguments = params.Arguments
+	}
+	if len(decision.Context) > maxHookContextBytes {
+		decision.Context = utf8PrefixRuntime(decision.Context, maxHookContextBytes)
+	}
+	if params.Error != "" {
+		decision = hookDecision{InvocationID: params.InvocationID, Deny: true, Failed: true, Reason: params.Error}
+	}
+	invocation, err := r.take(conn, params.InvocationID, params.Generation, true)
+	if err != nil {
+		return err
+	}
+	invocation.result <- invocationOutcome{decision: decision}
 	return nil
 }
 
@@ -157,7 +256,7 @@ func (r *executorRegistry) report(conn executorConn, params protocol.ToolProgres
 	r.mu.Lock()
 	invocation := r.pending[params.InvocationID]
 	r.mu.Unlock()
-	if invocation == nil || invocation.lease.conn != conn || invocation.lease.generation != params.Generation {
+	if invocation == nil || invocation.lease.conn != conn || invocation.lease.generation != params.Generation || invocation.tool == nil {
 		return errors.New("invocation is unknown, settled, or held by another executor")
 	}
 	if invocation.progress != nil {
@@ -184,33 +283,78 @@ func (r *executorRegistry) Invoke(ctx context.Context, invocation tools.ToolInvo
 		RootID: invocation.RootID, AgentID: invocation.AgentID, TurnID: invocation.TurnID, Tool: invocation.Tool, Input: invocation.Arguments,
 		DeadlineMillis: deadline.UnixMilli(),
 	}
-	pending := &toolInvocation{lease: lease, params: params, progress: invocation.Progress, result: make(chan toolOutcome, 1)}
+	pending := &pendingInvocation{lease: lease, tool: &params, progress: invocation.Progress, result: make(chan invocationOutcome, 1)}
+	outcome, err := r.await(ctx, lease, pending, params.InvocationID, "tool.invoke", "tool.cancel", params, deadline, func() error {
+		return fmt.Errorf("tool %s timed out after %s", invocation.Tool, timeout)
+	})
+	if err != nil {
+		return "", err
+	}
+	return outcome.output, outcome.err
+}
+
+// InvokeHook asks the bound executor for a hook decision. Like Invoke it
+// waits briefly for a lease and settles on the reply, the deadline, turn
+// cancellation, or the executor's disconnect; every error means the hook was
+// not answered, and the caller applies the hook's required or optional rule.
+func (r *executorRegistry) InvokeHook(ctx context.Context, invocation hookInvocation) (hookDecision, error) {
+	lease, err := r.awaitLease(ctx, invocation.Definition, invocation.Revision)
+	if err != nil {
+		return hookDecision{}, fmt.Errorf("hook %s: %w", invocation.Hook, err)
+	}
+	timeout := invocation.Timeout
+	if timeout <= 0 {
+		timeout = agentdef.DefaultHookTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	params := protocol.HookInvokeParams{
+		InvocationID: "hook-" + rand.Text(), Definition: invocation.Definition, Revision: invocation.Revision, Generation: lease.generation,
+		RootID: invocation.RootID, AgentID: invocation.AgentID, TurnID: invocation.TurnID, Hook: invocation.Hook, Operation: invocation.Operation,
+		Arguments: invocation.Arguments, Spawn: invocation.Spawn, Input: invocation.Input, PermissionMode: invocation.PermissionMode,
+		DeadlineMillis: deadline.UnixMilli(),
+	}
+	pending := &pendingInvocation{lease: lease, hook: &params, result: make(chan invocationOutcome, 1)}
+	outcome, err := r.await(ctx, lease, pending, params.InvocationID, "hook.invoke", "hook.cancel", params, deadline, func() error {
+		return fmt.Errorf("hook %s timed out after %s", invocation.Hook, timeout)
+	})
+	if err != nil {
+		return hookDecision{}, err
+	}
+	if outcome.err != nil {
+		return hookDecision{}, fmt.Errorf("hook %s: %w", invocation.Hook, outcome.err)
+	}
+	return outcome.decision, nil
+}
+
+// await records a pending invocation, notifies the executor, and waits for
+// one of the four ways it can end. A call that leaves here is never replayed.
+func (r *executorRegistry) await(ctx context.Context, lease *executorLease, pending *pendingInvocation, id, invoke, cancelMethod string, params any, deadline time.Time, timedOut func() error) (invocationOutcome, error) {
 	r.mu.Lock()
-	r.pending[params.InvocationID] = pending
+	r.pending[id] = pending
 	r.mu.Unlock()
-	if !lease.conn.notify("tool.invoke", params) {
-		r.abandon(params.InvocationID)
-		return "", errors.New("executor disconnected")
+	if !lease.conn.notify(invoke, params) {
+		r.abandon(id)
+		return invocationOutcome{}, errors.New("executor disconnected")
 	}
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	cancel := func(reason string) {
-		if r.abandon(params.InvocationID) {
-			lease.conn.notify("tool.cancel", protocol.ToolCancelParams{InvocationID: params.InvocationID, Generation: lease.generation, Reason: reason})
+		if r.abandon(id) {
+			lease.conn.notify(cancelMethod, protocol.ToolCancelParams{InvocationID: id, Generation: lease.generation, Reason: reason})
 		}
 	}
 	select {
 	case outcome := <-pending.result:
-		return outcome.output, outcome.err
+		return outcome, nil
 	case <-ctx.Done():
 		cancel("cancelled")
-		return "", ctx.Err()
+		return invocationOutcome{}, ctx.Err()
 	case <-timer.C:
 		cancel("timeout")
-		return "", fmt.Errorf("tool %s timed out after %s", invocation.Tool, timeout)
+		return invocationOutcome{}, timedOut()
 	case <-lease.conn.finished():
-		r.abandon(params.InvocationID)
-		return "", errors.New("executor disconnected")
+		r.abandon(id)
+		return invocationOutcome{}, errors.New("executor disconnected")
 	}
 }
 

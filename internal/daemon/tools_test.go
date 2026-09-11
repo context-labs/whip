@@ -96,12 +96,13 @@ func TestToolsGrantFollowsDefinitionAndChildNarrowing(t *testing.T) {
 // fakeExecutorConn stands in for an SDK executor's connection.
 type fakeExecutorConn struct {
 	invoked   chan protocol.ToolInvokeParams
+	hooked    chan protocol.HookInvokeParams
 	cancelled chan protocol.ToolCancelParams
 	done      chan struct{}
 }
 
 func newFakeExecutorConn() *fakeExecutorConn {
-	return &fakeExecutorConn{invoked: make(chan protocol.ToolInvokeParams, 8), cancelled: make(chan protocol.ToolCancelParams, 8), done: make(chan struct{})}
+	return &fakeExecutorConn{invoked: make(chan protocol.ToolInvokeParams, 8), hooked: make(chan protocol.HookInvokeParams, 8), cancelled: make(chan protocol.ToolCancelParams, 8), done: make(chan struct{})}
 }
 
 func (c *fakeExecutorConn) notify(method string, params any) bool {
@@ -114,7 +115,11 @@ func (c *fakeExecutorConn) notify(method string, params any) bool {
 		var invoke protocol.ToolInvokeParams
 		_ = json.Unmarshal(raw, &invoke)
 		c.invoked <- invoke
-	case "tool.cancel":
+	case "hook.invoke":
+		var invoke protocol.HookInvokeParams
+		_ = json.Unmarshal(raw, &invoke)
+		c.hooked <- invoke
+	case "tool.cancel", "hook.cancel":
 		var cancel protocol.ToolCancelParams
 		_ = json.Unmarshal(raw, &cancel)
 		c.cancelled <- cancel
@@ -281,7 +286,7 @@ func TestCustomToolFailureSemantics(t *testing.T) {
 	replacement := newFakeExecutorConn()
 	next := owner.executors.bind(replacement, "tooling", revision, []string{"lookup", "slow"}, nil)
 	pending, err := owner.executors.pendingFor(replacement, protocol.ExecutorPendingParams{Definition: "tooling", Revision: revision, Generation: next})
-	if err != nil || len(pending) != 0 {
+	if err != nil || len(pending.Invocations) != 0 || len(pending.Hooks) != 0 {
 		t.Fatalf("pending after reconnect = %v %v", pending, err)
 	}
 	if _, err := owner.executors.pendingFor(conn, protocol.ExecutorPendingParams{Definition: "tooling", Revision: revision, Generation: generation}); err == nil {
@@ -291,7 +296,7 @@ func TestCustomToolFailureSemantics(t *testing.T) {
 	outcome = execCell(t.Context(), parent, `tools.lookup()`)
 	invoke = awaitInvoke(t, replacement, outcome)
 	pending, err = owner.executors.pendingFor(replacement, protocol.ExecutorPendingParams{Definition: "tooling", Revision: revision, Generation: next})
-	if err != nil || len(pending) != 1 || pending[0].InvocationID != invoke.InvocationID {
+	if err != nil || len(pending.Invocations) != 1 || pending.Invocations[0].InvocationID != invoke.InvocationID {
 		t.Fatalf("pending = %+v %v", pending, err)
 	}
 	owner.executors.bind(newFakeExecutorConn(), "tooling", revision, []string{"lookup", "slow"}, nil)

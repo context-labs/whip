@@ -32,11 +32,11 @@ func (s *Server) handleExecutor(connection *serverConn, request rpcMessage) (any
 		if err := decodeProviderParams(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, err.Error()), true
 		}
-		invocations, err := registry.pendingFor(connection, params)
+		pending, err := registry.pendingFor(connection, params)
 		if err != nil {
 			return nil, rpcFailure(-32003, err.Error()), true
 		}
-		return protocol.ExecutorPendingResult{Invocations: invocations}, nil, true
+		return pending, nil, true
 	case "tool.result":
 		var params protocol.ToolResultParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {
@@ -52,6 +52,15 @@ func (s *Server) handleExecutor(connection *serverConn, request rpcMessage) (any
 			return nil, rpcFailure(-32602, err.Error()), true
 		}
 		if err := registry.report(connection, params); err != nil {
+			return nil, rpcFailure(-32009, err.Error()), true
+		}
+		return protocol.Accepted{Accepted: true}, nil, true
+	case "hook.result":
+		var params protocol.HookResultParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error()), true
+		}
+		if err := registry.settleHook(connection, params); err != nil {
 			return nil, rpcFailure(-32009, err.Error()), true
 		}
 		return protocol.Accepted{Accepted: true}, nil, true
