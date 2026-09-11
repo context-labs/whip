@@ -45,7 +45,7 @@ export function BodyInspector({ row, rootId, agentId }: { row: TimelineRow; root
     queryFn: ({ signal }) => client!.content(row.body!, { rootId, agentId }).readJSON({ maxBytes: 256 << 10, signal }),
   });
   const text = result.data && typeof result.data === 'object' && 'content' in result.data ? messagePresentation(result.data.content).text : undefined;
-  return <ScrollView ref={scroll} contentContainerStyle={{ padding: 20, gap: 16 }}><Label style={{ fontSize: 24, fontWeight: '600' }}>Full message</Label>
+  return <ScrollView ref={scroll} contentContainerStyle={{ padding: 20, gap: 16 }}>
     {result.isFetching ? <Loading /> : result.error ? <Notice danger>{textPreview(result.error.message)}</Notice> : text !== undefined ? <><PagedText text={text} identity={JSON.stringify([host?.runtimeId, rootId, agentId, row.id, row.body?.reference_id])} onPageChange={() => scroll.current?.scrollTo({ y: 0, animated: false })} /><Actions items={[{ label: 'Copy message', secondary: true, onPress: () => { void Clipboard.setStringAsync(text).catch(runtime.report); } }]} /></> : <Notice>{!ready ? 'Reconnect to read this message.' : 'The retained message body is unavailable.'}</Notice>}
     <Label muted>Content reads are limited to 256 KiB and verified against the host’s content hash.</Label>
   </ScrollView>;

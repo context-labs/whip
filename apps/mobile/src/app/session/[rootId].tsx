@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { conversationRows, type ReadingBookmark, type TimelineRow } from '@whip/app/presentation';
 import { useSessionView } from '@whip/sdk/react';
 import type { DeepReadonly, SessionView, SessionViewSnapshot } from '@whip/sdk/state';
-import { useRootView, useRuntime, useRuntimeState } from '../../runtime/context';
+import { RuntimeScope, useRootView, useRuntime, useRuntimeState } from '../../runtime/context';
+import { useWorkspace, useWorkspaceState } from '../../runtime/workspace-context';
 import { draftKey } from '../../runtime/address';
 import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../../components/primitives';
 import { BodyInspector, ConversationRow } from '../../components/conversation';
@@ -22,7 +23,15 @@ import { captureReadingBookmark, restoreReadingBookmark, validReadingBookmark } 
 import { creationModels } from '../../features/creation';
 import { idleRootSettings, pendingRootSetting, sessionEfforts } from '../../features/session-settings';
 
-export default function SessionScreen() {
+export default function SessionRoute() {
+  const params = useLocalSearchParams<{ runtimeId?: string; hostId?: string }>();
+  const workspace = useWorkspace(); useWorkspaceState(); const insets = useSafeAreaInsets();
+  const valid = typeof params.runtimeId === 'string' && params.runtimeId.length > 0 && params.runtimeId.length <= 512 && (params.hostId === undefined || typeof params.hostId === 'string' && params.hostId.length <= 512);
+  const runtime = valid ? workspace.sessionRuntime(params.runtimeId!, params.hostId) : undefined;
+  if (!runtime) return <Screen scroll={false}><View style={{ paddingTop: insets.top }}><ScreenHeader title="Session" onBack={() => router.back()} /></View><EmptyState title={valid ? 'Reconnect this host' : 'Session link unavailable'} description={valid ? 'Connect the host that owns this conversation. Your drafts and delivery records stay on this phone.' : 'Open this session from Sessions to include its host identity.'} action={{ label: valid ? 'Manage hosts' : 'Open sessions', onPress: () => router.push(valid ? '/settings/hosts' : '/') }} /></Screen>;
+  return <RuntimeScope runtime={runtime}><SessionScreen /></RuntimeScope>;
+}
+export function SessionScreen() {
   const params = useLocalSearchParams<{ rootId: string; runtimeId: string; agentId?: string; requests?: string }>();
   const rootId = typeof params.rootId === 'string' ? params.rootId : '';
   const runtimeId = typeof params.runtimeId === 'string' ? params.runtimeId : '';
@@ -60,9 +69,9 @@ function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view:
   return <Screen scroll={false}>
     <View style={{ paddingTop: insets.top }}><ScreenHeader title={root?.meta.title || 'New session'} onBack={() => router.back()} right={<IconButton label="Session menu" onPress={() => setSheet('menu')}><MoreHorizontal size={22} color={theme.colors.foreground} /></IconButton>} /></View>
     <Stack style={{ paddingHorizontal: 20, paddingBottom: 12, gap: 8 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}><Pressable accessibilityRole="button" accessibilityLabel={`Recipient: ${name}. Choose agent`} onPress={() => setSheet('agents')} style={{ minHeight: 44, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}><Text variant="caption" muted numberOfLines={1}>{isRoot ? `${state.host?.name} · ${root?.meta.cwd?.split('/').filter(Boolean).at(-1) || 'Project'}` : name}</Text><ChevronDown size={14} color={theme.colors.muted} /></Pressable><StatusBadge label={!state.ready ? 'Offline' : root?.active_turns?.[agentId] ? 'Working' : 'Ready'} tone={!state.ready ? 'warning' : root?.active_turns?.[agentId] ? 'primary' : 'muted'} pulse={!!root?.active_turns?.[agentId]} /></View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}><Pressable accessibilityRole="button" accessibilityLabel={`Recipient: ${name}. Choose agent`} onPress={() => setSheet('agents')} style={{ minHeight: 44, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}><Text variant="caption" muted numberOfLines={1}>{isRoot ? `${state.host?.name} · ${root?.meta.cwd?.split('/').filter(Boolean).at(-1) || 'Project'}` : name}</Text><ChevronDown size={14} color={theme.colors.muted} /></Pressable><StatusBadge label={!state.ready ? 'Offline' : root?.active_turns?.[agentId] ? 'Working' : 'Ready'} tone={!state.ready ? 'warning' : root?.active_turns?.[agentId] ? 'primary' : 'muted'} pulse={state.active && state.ready && !!root?.active_turns?.[agentId]} /></View>
       {!!root && !recipientExists && <Notice>This recipient is outside the current session snapshot. Choose an available agent before sending.</Notice>}
-      {(questions > 0 || permissions > 0 || root?.omitted?.questions || root?.omitted?.permissions) && <Actions items={[{ label: `${questions + permissions}${root?.omitted?.questions || root?.omitted?.permissions ? '+' : ''} requests need attention`, onPress: () => setSheet('requests'), testID: 'open-requests' }]} />}
+      {(questions > 0 || permissions > 0 || root?.omitted?.questions || root?.omitted?.permissions) && <Actions items={[{ label: `${questions + permissions}${root?.omitted?.questions || root?.omitted?.permissions ? '+' : ''} ${questions + permissions === 1 ? 'request needs' : 'requests need'} attention`, onPress: () => setSheet('requests'), testID: 'open-requests' }]} />}
     </Stack>
     {state.error && <Stack style={{ paddingHorizontal: 20 }}><Notice danger>{state.error}</Notice><Actions items={[{ label: 'Dismiss message', secondary: true, onPress: runtime.clearError }]} /></Stack>}
     {root?.meta.archived && <Notice>This session is archived. Open the session menu to restore it.</Notice>}
@@ -72,11 +81,11 @@ function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view:
     <Sheet title={sheet === 'menu' ? 'Session' : sheet === 'agents' ? 'Choose recipient' : sheet === 'requests' ? 'Needs you' : sheet === 'body' ? 'Full message' : 'Session details'} visible={!!sheet} onClose={() => setSheet(undefined)} full={sheet !== 'menu'}>
       <View style={{ flex: 1, backgroundColor: theme.colors.panel }}>
         {sheet === 'menu' ? <SessionMenu view={view} onDetails={() => setSheet('details')} onClose={() => setSheet(undefined)} /> : sheet === 'body' && inspection ? <BodyInspector row={inspection.row} rootId={view.session.rootId} agentId={inspection.agentId} /> : sheet === 'requests' && root ? <Requests root={root} view={view} disabled={!state.ready || snapshot.status !== 'live'} /> : <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-          {sheet === 'agents' ? <><Label style={{ fontSize: 24, fontWeight: '600' }}>Choose recipient</Label>
+          {sheet === 'agents' ? <>
             <RowButton title="Root agent" selected={agentId === view.session.rootId} onPress={() => { setAgent(view.session.rootId); setSheet(undefined); router.setParams({ agentId: view.session.rootId }); }} />
             {root?.agents?.filter(a => a.id !== root.root_id).map(a => <RowButton key={a.id} title={a.name || a.id} detail={`${a.status} · ${a.model}`} selected={a.id === agentId} onPress={() => { setAgent(a.id); setSheet(undefined); router.setParams({ agentId: a.id }); }} />)}
             {root?.omitted?.agents && <Notice>More agents exist than this snapshot contains. Use the web app to inspect the full tree.</Notice>}
-          </> : <><Label style={{ fontSize: 24, fontWeight: '600' }}>Session details</Label>
+          </> : <>
             {snapshot.truncated && <Notice>Some details are summarized in this session view. Earlier messages and full message content can be opened from the conversation. The web app can show larger outputs.</Notice>}<Label selectable>{root?.meta.title}</Label><Label muted>Directory</Label><Label selectable>{root?.meta.cwd}</Label>
             <Label muted>Model</Label><Label>{model ? `${model}${provider ? ` · ${provider}` : ''}` : 'Model unavailable'}</Label>
             <Label muted>Reasoning effort</Label><Label>{effort || 'Host default'}</Label>
@@ -86,7 +95,6 @@ function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view:
             <Label muted>Root ID</Label><Label selectable>{view.session.rootId}</Label><Label muted>Recipient ID</Label><Label selectable>{agentId}</Label>
           </>}
         </ScrollView>}
-        <View style={{ padding: 16 }}><Actions items={[{ label: 'Done', secondary: true, onPress: () => setSheet(undefined) }]} /></View>
       </View>
     </Sheet>
   </Screen>;

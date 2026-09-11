@@ -100,20 +100,28 @@ on 2026-09-08. Physical-phone workflows and model execution remain to be verifie
 
 ## Use the companion
 
-- **Sessions** browses the SDK catalog; search is a bounded host query. New session
-  chooses a host directory and optional model/effort/first prompt. Creation,
+- **Sessions** is home after a host is added. It combines connected hosts, with
+  search, host filters, archived sessions and local pins. The top-right plus and
+  empty-state New session button open the same host → folder → review flow.
+  Model, reasoning, execution language and advertised agent definitions are in
+  Session options; the first message is optional. Creation,
   effort selection and first input are independently journaled; partial failure
   retains the created root and requires an explicit next action.
 - A **conversation** names the host, root and current recipient. Select Root agent
   or a child, load older history, queue or steer input, or stop the exact displayed
   active turn. Drafts belong to that runtime/root/recipient. Losing connectivity
   preserves drafts and leaves accepted host work running.
-- **Attention** queries pending questions and permissions while foregrounded.
+- **Needs you** queries pending questions and permissions while foregrounded.
   Open a session to see authoritative requests, review batched answers, skip a
   question or choose Allow once/Deny. Another client may resolve a request first;
   the app refreshes rather than guessing its outcome.
-- **Settings** manages up to four saved servers, appearance and retained command
-  activity. Checking delivery uses original identity. Retrying requires confirmed
+- **Settings** manages up to four independently connected hosts, Appearance,
+  retained drafts and command activity. Renaming changes only the local label.
+  Appearance includes every generated web theme, paired light/dark choices,
+  live preview/cancel, JSON or host-theme import, text/code fonts and sizes,
+  wrapping, tool density, contrast and reduced motion. Custom imports need a
+  connected host for normalization and then work offline. Preferences stay on
+  this phone. Checking delivery uses original identity. Retrying requires confirmed
   missing status and the original in-memory body; restored records never send
   old text automatically. Resolve retained records before clearing them.
 

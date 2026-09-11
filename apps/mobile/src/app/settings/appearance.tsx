@@ -5,6 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { themeFromHost } from '@whip/app/presentation';
 import { type ThemeDefinition } from '@whip/ui/theme-data';
+import { waitForReady } from '../../runtime/wait-ready';
 import { useWorkspace, useWorkspaceState } from '../../runtime/workspace-context';
 import { useRuntime, useRuntimeState } from '../../runtime/context';
 import { defaultAppearance, nativeTheme, themeCatalog, useTheme, useThemePreview, type Appearance } from '../../theme/theme';
@@ -19,13 +20,14 @@ export default function AppearanceScreen() {
   const runtime = useRuntime(); const state = useRuntimeState(); const theme = useTheme(); const preview = useThemePreview();
   const [choosing, setChoosing] = useState<'light' | 'dark'>(); const [candidate, setCandidate] = useState<string>();
   const [importing, setImporting] = useState(false); const [hostThemes, setHostThemes] = useState<{ id: string; title: string }[]>(); const [error, setError] = useState('');
+  const pickingFile = useRef(false); const importLock = useRef(false);
   const request = useRef<AbortController | null>(null); const saving = useRef(false);
   const workspace = useWorkspace(); const workspaceState = useWorkspaceState(); const [sourceId, setSourceId] = useState<string>();
   const sourceRuntime = sourceId ? workspace.runtime(sourceId) : workspace.runtime(workspaceState.selectedHostId) ?? workspaceState.connections.find(r => r.getSnapshot().ready);
   const source = sourceRuntime?.getSnapshot();
   const all = [...themeCatalog, ...(state.customThemes ?? [])]; const appearance = { ...defaultAppearance, ...state.appearance };
   useEffect(() => () => { preview(); request.current?.abort(); }, [preview]);
-  useEffect(() => { if (!state.active) { request.current?.abort(); request.current = null; setImporting(false); } }, [state.active]);
+  useEffect(() => { if (!state.active && !pickingFile.current) { request.current?.abort(); request.current = null; setImporting(false); } }, [state.active]);
   const update = async (next: Appearance) => { if (saving.current) return; saving.current = true; setError(''); try { await runtime.setAppearance(next); return true; } catch (e) { setError(String(e instanceof Error ? e.message : e)); return false; } finally { saving.current = false; } };
   const close = () => { preview(); setChoosing(undefined); setCandidate(undefined); };
   async function loadHostThemes() {
@@ -34,23 +36,25 @@ export default function AppearanceScreen() {
     catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
   }
   async function importTheme(id?: string) {
-    if (importing) return; request.current?.abort(); const controller = new AbortController(); request.current = controller; setImporting(true); setError('');
+    if (importLock.current) return; importLock.current = true; request.current?.abort(); const controller = new AbortController(); request.current = controller; setImporting(true); setError('');
     try {
       const client = sourceRuntime!.requireReady(); const runtimeId = client.requireConnected().runtime_id;
       let resolved;
       if (id) resolved = await client.host.themes.resolve(id, { signal: controller.signal });
       else {
+        pickingFile.current = true;
         const result = await DocumentPicker.getDocumentAsync({ type: ['application/json', 'text/plain'], copyToCacheDirectory: true, multiple: false });
+        pickingFile.current = false;
         controller.signal.throwIfAborted(); if (result.canceled) return;
         const picked = result.assets[0]; const file = new File(picked.uri);
-        try { if (file.size > 64 * 1024) throw new Error('Choose a theme JSON file smaller than 64 KiB.'); const json = await file.text(); if (new TextEncoder().encode(json).length > 64 * 1024) throw new Error('This theme file is too large.'); controller.signal.throwIfAborted(); resolved = await client.host.themes.resolveJSON(json, { signal: controller.signal }); }
+        try { if (file.size > 64 * 1024) throw new Error('Choose a theme JSON file smaller than 64 KiB.'); const json = await file.text(); if (new TextEncoder().encode(json).length > 64 * 1024) throw new Error('This theme file is too large.'); controller.signal.throwIfAborted(); await waitForReady(sourceRuntime!, client, controller.signal); resolved = await client.host.themes.resolveJSON(json, { signal: controller.signal }); }
         finally { try { file.delete(); } catch { /* OS cache cleanup can retry later. */ } }
       }
       controller.signal.throwIfAborted(); if (sourceRuntime!.requireReady() !== client) throw new Error('Host changed before theme import completed.');
       const value = themeFromHost(resolved, id ? `host:${runtimeId}` : `import:${client.createId()}`);
       await runtime.addTheme(value); setHostThemes(undefined);
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
-    finally { if (request.current === controller) { setImporting(false); request.current = null; } }
+    finally { pickingFile.current = false; importLock.current = false; if (request.current === controller) { setImporting(false); request.current = null; } }
   }
   return <><RouterStack.Screen options={{ title: 'Appearance' }} /><Screen>
     <Text variant="title">Make Whip yours.</Text><Text muted>Choose the same palettes you use on desktop. Appearance stays on this phone.</Text>

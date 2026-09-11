@@ -67,7 +67,10 @@ export class MobileRuntime {
     const host = this.state.hosts.find(h => h.id === selected);
     if (host && connectSaved) await this.connect(host).catch(this.report);
   }
-  setHostProfiles(hosts: readonly SavedHost[]) { this.update({ hosts }); }
+  setHostProfiles(hosts: readonly SavedHost[]) {
+    const host = hosts.find(h => h.id === this.state.host?.id && h.url === this.state.host.url && h.runtimeId === this.state.host.runtimeId && h.clientId === this.state.host.clientId);
+    this.update({ hosts, ...(host ? { host } : {}) });
+  }
   newHost(url: string, name = ''): SavedHost {
     const origin = serverOrigin(url, __DEV__);
     const existing = this.state.hosts.find(h => h.url === origin);

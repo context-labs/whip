@@ -38,3 +38,54 @@ Branch: `codex/mobile-ui`
 - Session menu supports device-local pins (128 maximum), guarded rename/archive/restore, details and Copy ID. The protocol has no pin command, so pins explicitly stay on the phone; existing host pins remain visible. Local host errors are visible inside scoped conversations.
 - Tool density now controls initial disclosure and preview length. Theme imports remain scoped to the explicitly selected source and abort on a source change.
 - All 153 mobile tests pass, including native storage. A temporary fake-provider host connected from Android; its combined session list, empty chat, keyboard-open draft, send, automatic title and completed echo response were inspected. No real model or ordinary host was used for these mutation tests.
+
+## Phase 6 — native fixes and final verification
+
+- Fixed two failures found through Android use: native document picking backgrounds the app, so JSON imports now wait for the original host to resume; session identity resolution now lives in the leaf route because external-link query parameters were unavailable in the parent layout. Regression tests cover cancellation/source replacement and ambiguous or missing route identities.
+- Connected host renames preserve the command engine. Startup prioritizes the selected host. Storage migration validates records before advancing the schema version. Removed the obsolete single-host attention owner and replaced its tests with combined-index lifecycle, partial failure, identity, cancellation and page-window coverage.
+- Refined the folder step, sheet headings, composer capitalization, selected palette indicators and background working animation. Native session sheets expand by dragging to expose every action.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `npm run check:mobile` | Pass after final code changes |
+| `npm run test:mobile` | **25 suites, 160 tests pass**, including native-storage checks with normal filesystem metadata access |
+| `npm run export:mobile` | Pass; iOS and Android Hermes bundles generated after final route changes |
+| `task check` | Pass; required repository checks completed, with final mobile checks repeated after subsequent mobile-only fixes |
+| Shared UI tests / web checks | 14 UI tests, web typecheck/build passed during the shared-theme phase; repository checks also passed |
+| `git diff --check` | Pass |
+| Android native development APK | Build and launch pass; API 36 emulator, Expo SDK 57 |
+| iOS native build | **Blocked before compilation** by Xcode destination eligibility; not a pass |
+
+### Android flow evidence
+
+An isolated, time-limited fake-provider host was used for host connection, combined session home, empty conversation, keyboard draft, send/echo/title update, a reviewed single-choice question, an Allow once permission and completed tool result. Host → folder → options → review → session creation also completed. Local pin state and archive/restore actions were exercised through the native session menu. External links with verified runtime identity open the correct host-scoped conversation.
+
+Appearance selection, light-mode cold-start persistence and JSON import through the native file picker were exercised. The gallery rendered actual library controls, Markdown and composer for every generated theme: **66 captures, 66 matching titles**. This establishes Android rendering coverage, not exhaustive visual review of every pixel or accessibility acceptance. Claude Code, GitHub Light and Synthwave were inspected closely; semantic-role/contrast tests iterate the full generated catalog.
+
+- [Claude Code controls and composer](screenshots/claude-code.png)
+- [GitHub Light controls and composer](screenshots/github-light.png)
+- [Synthwave controls and composer](screenshots/synthwave84.png)
+- [Session creation review](screenshots/create-review.png) — captured before the final footer wording refinement.
+- [Conversation with keyboard](screenshots/chat-keyboard.png)
+- [All-theme capture manifest](screenshots/android-theme-results.json)
+
+The complete 66-image archive is available locally at `/Users/samheutmaker/.codex/visualizations/2026/09/11/01a09161-8e80-7711-8639-6b739c83b206/whip-mobile-android-themes.zip`. Representative captures above are committed so the evidence remains useful without that local archive. Captures use a development build and may include Expo's development overlay.
+
+### Remaining release acceptance
+
+Xcode 26.3 (17C529), iOS SDK/runtime 26.2 and a newly created iOS simulator are present, but both explicit-simulator and generic-simulator builds report the platform unavailable before compilation. Homebrew CocoaPods installation succeeded. Expo SDK 57 recommends Xcode 26.4 or newer; a working native iOS toolchain is required to complete that matrix. JavaScript export success does not establish native iOS build or layout success.
+
+Physical-device VoiceOver/TalkBack, small-phone/tablet/landscape and maximum system text sizing, cellular/background/resume behavior, and measured four-host/long-transcript streaming performance still require release acceptance. No frame-rate, physical-network or full accessibility pass is claimed from these emulator captures. Packaging, store distribution, pairing and push remain separate roadmap work.
+
+### Delivery decisions and commits
+
+The tested `MobileRuntime` engine is reused per host rather than copied into a new engine. Combined indexes use bounded replaceable pages instead of append pagination. Pins are device-local because the current protocol has no pin operation. Older component names remain thin aliases into the new library, with no competing style system.
+
+1. `457dce4f0` — baseline fixtures and runtime validation.
+2. `55310a79a` — native library, complete themes and Appearance.
+3. `809a13e3c` — independent host connections and management.
+4. `21a923e3c` — combined sessions and guided creation.
+5. `4f29f87e2` — conversation, composer and session actions.
+6. Final phase — native lifecycle/routing fixes, regression coverage, screenshots and canonical documentation (the commit containing this entry).

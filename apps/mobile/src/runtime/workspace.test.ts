@@ -35,3 +35,18 @@ test('disconnect cancels a late connect without affecting the healthy host', asy
   const pending = f.workspace.connect(host('b')); await Promise.resolve(); await Promise.resolve(); await f.workspace.disconnect('b'); release();
   await expect(pending).rejects.toThrow(/cancelled/); expect(f.workspace.sessionRuntime('runtime-a')).toBeDefined(); expect(f.workspace.sessionRuntime('runtime-b')).toBeUndefined(); await f.workspace.dispose();
 });
+
+test('renaming a connected profile keeps its existing command engine', async () => {
+  const f = fixture(); await f.workspace.start(); const a = await f.workspace.connect(host('a'));
+  const renamed = await f.workspace.connect({ ...host('a'), name: 'Office' });
+  expect(renamed).toBe(a); expect(a.dispose).not.toHaveBeenCalled();
+  expect(f.workspace.getSnapshot().hosts[0].name).toBe('Office'); await f.workspace.dispose();
+});
+test('pin edits serialize and store host-qualified identities', async () => {
+  const f = fixture(); await f.workspace.start();
+  await Promise.all([f.workspace.pin('one', 'same', true), f.workspace.pin('two', 'same', true)]);
+  expect(f.workspace.getSnapshot().pins).toEqual([JSON.stringify(['one', 'same']), JSON.stringify(['two', 'same'])]);
+  await f.workspace.pin('one', 'same', false);
+  expect(f.records.get('settings/mobilePins')).toEqual([JSON.stringify(['two', 'same'])]);
+  await f.workspace.dispose();
+});

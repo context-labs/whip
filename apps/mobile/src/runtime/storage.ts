@@ -133,14 +133,16 @@ export class SqliteMobileStorage implements MobileStorage {
           if (tables.length) throw new StorageError('schema', 'Unrecognized database schema; existing data has been preserved');
           await this.db.execAsync(schema);
         });
-      } else if (version?.user_version === 1) {
-        await this.transaction(() => this.db.execAsync('PRAGMA user_version = 2'));
-      } else if (version?.user_version !== 2) {
+      } else if (version?.user_version !== 1 && version?.user_version !== 2) {
         throw new StorageError('schema', 'This app cannot read the saved database version; existing data has been preserved');
       }
-      const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery', 'themes') LIMIT 1");
-      if (unknown) throw new StorageError('schema', 'Unrecognized saved data; existing records have been preserved');
-      for (const bucket of Object.keys(limits) as Bucket[]) await this.rows(bucket);
+      const validate = async () => {
+        const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery', 'themes') LIMIT 1");
+        if (unknown) throw new StorageError('schema', 'Unrecognized saved data; existing records have been preserved');
+        for (const bucket of Object.keys(limits) as Bucket[]) await this.rows(bucket);
+      };
+      if (version?.user_version === 1) await this.transaction(async () => { await validate(); await this.db.execAsync('PRAGMA user_version = 2'); });
+      else await validate();
     });
   }
   private enqueue<T>(task: () => Promise<T>): Promise<T> {

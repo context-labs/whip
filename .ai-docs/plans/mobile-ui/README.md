@@ -2,7 +2,7 @@
 
 Branch: `codex/mobile-ui` (from `feature/agent-definition`).
 
-Status: implementation started, 2026-09-11. User approved end-to-end execution with one commit per phase. Actual validation is recorded in [EVIDENCE.md](EVIDENCE.md).
+Status: implementation delivered, 2026-09-11, with one commit per phase. Android native flows and all 66 theme previews were exercised; 160 mobile tests, both platform exports and repository checks pass. iOS native, physical-device accessibility and performance acceptance remain release gates. Actual validation is recorded in [EVIDENCE.md](EVIDENCE.md).
 
 ## Goal
 
@@ -199,9 +199,11 @@ Update `docs/frontend.md` when implementing native component boundaries, per-hos
 - [x] Research existing architecture and primitives; inspect baseline checks.
 - [x] Define theme parity, complete screen coverage, file ownership and acceptance.
 - [x] Incorporate product answers; confirm final defaults in this plan.
-- [ ] Resolve baseline and validate native sheet/composer primitives.
-- [ ] Implement library, Appearance and custom-theme persistence.
-- [ ] Implement host runtime ownership and host flows.
-- [ ] Implement Sessions/search/attention and creation.
-- [ ] Implement conversation, request/menu/recovery and remaining settings.
-- [ ] Complete theme/device/performance acceptance and canonical documentation.
+- [x] Resolve baseline and validate native sheet/composer primitives on Android.
+- [x] Implement library, Appearance and custom-theme persistence.
+- [x] Implement host runtime ownership and host flows.
+- [x] Implement Sessions/search/attention and creation.
+- [x] Implement conversation, request/menu/recovery and remaining settings.
+- [x] Complete repository/mobile regression, Android theme captures and canonical documentation.
+- [ ] Complete iOS native acceptance after resolving Xcode destination eligibility.
+- [ ] Complete physical-device accessibility, layout and measured performance release matrix described above.

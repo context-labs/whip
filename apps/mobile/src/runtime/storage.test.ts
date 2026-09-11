@@ -225,3 +225,12 @@ test('v1 migrates without dropping drafts and appearance replacement stays atomi
   expect(await f.storage.get('themes', 'appearance')).toEqual({ themes: ['original'], appearance: 'original' });
   await f.storage.close();
 });
+
+test('a rejected migration preserves the old version and every existing row', async () => {
+  const f = fixture(); await f.storage.initialize(true);
+  f.database.exec("PRAGMA user_version = 1; INSERT INTO records(bucket, key, value) VALUES ('unknown', 'keep', 'null')");
+  await expect(f.storage.initialize(false)).rejects.toMatchObject({ code: 'schema' });
+  expect(f.database.prepare('PRAGMA user_version').get()?.user_version).toBe(1);
+  expect(f.database.prepare("SELECT value FROM records WHERE bucket = 'unknown'").get()?.value).toBe('null');
+  await f.storage.close();
+});

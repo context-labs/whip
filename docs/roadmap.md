@@ -159,6 +159,11 @@ in
   [canonical installation record](../.ai-docs/plans/canonical-whipcode/README.md).
 - [x] Mobile connection diagnostics: modal-local errors and explicit HTTPS,
   WebSocket and session API testing, with cancellation and native error details.
+- [x] Mobile UI implementation: native component library, complete generated
+  theme catalog and Appearance settings, independent hosts, combined sessions,
+  guided creation, chat and request/settings surfaces. Android UI exercised
+  against an isolated host; remaining iOS/device acceptance is recorded in the
+  [UI evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md).
 - [ ] Native mobile beta: Expo companion with manual Tailscale HTTPS setup,
   shared SDK WebSockets, messages, questions, permissions and session creation.
   Implementation is in `apps/mobile`; completion requires the physical iOS beta

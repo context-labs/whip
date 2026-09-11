@@ -20,7 +20,7 @@ export default function NewSessionScreen() {
   const workspace = useWorkspace(); const state = useWorkspaceState();
   const [hostId, setHostId] = useState<string>();
   const connection = workspace.runtime(hostId);
-  if (!connection?.getSnapshot().ready) return <Screen><Text variant="title">New session</Text><Text muted>Choose the computer that will run this session.</Text>{state.hosts.map(host => { const current = workspace.runtime(host.id)?.getSnapshot(); return <ListRow key={host.id} title={host.name} detail={current?.ready ? 'Connected' : current?.connecting ? 'Connecting…' : 'Connect this host to continue'} onPress={() => { if (current?.ready) setHostId(host.id); else router.push({ pathname: '/server', params: { hostId: host.id } }); }} />; })}<ListRow title="Add host" onPress={() => router.push('/server')} /></Screen>;
+  if (!connection) return <Screen><Text variant="title">New session</Text><Text muted>Choose the computer that will run this session.</Text>{state.hosts.map(host => { const current = workspace.runtime(host.id)?.getSnapshot(); return <ListRow key={host.id} title={host.name} detail={current?.ready ? 'Connected' : current?.connecting ? 'Connecting…' : 'Connect this host to continue'} onPress={() => { if (current?.ready) setHostId(host.id); else router.push({ pathname: '/server', params: { hostId: host.id } }); }} />; })}<ListRow title="Add host" onPress={() => router.push('/server')} /></Screen>;
   return <RuntimeScope runtime={connection}><SelectedHostCreation onChangeHost={() => setHostId(undefined)} /></RuntimeScope>;
 }
 function SelectedHostCreation({ onChangeHost }: { onChangeHost(): void }) {
@@ -78,7 +78,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const enabled = state.ready && state.active && focused;
   const directories = useQuery({ queryKey: [runtimeId, 'host.directories', path, after], enabled: enabled && browse,
     queryFn: ({ signal }) => client.host.directories({ path: path || undefined, after, limit: 64 }, { signal }) });
-  const definitions = useQuery({ queryKey: [runtimeId, 'definitions.list'], enabled: enabled && client.supports('rpc', 'definitions.list'), queryFn: ({ signal }) => client.call('definitions.list', {}, { signal }) });
+  const definitions = useQuery({ queryKey: [runtimeId, 'definitions.list'], enabled: enabled && client.supports('rpc', 'definitions.list'), queryFn: async ({ signal }) => { const result = await client.call('definitions.list', {}, { signal }); if (new TextEncoder().encode(JSON.stringify(result)).byteLength > 256 << 10) throw new Error('The agent catalog exceeds the mobile limit. Use the host default.'); return result; } });
   const catalogs = useQuery({ queryKey: [runtimeId, 'provider.catalogs'], enabled,
     queryFn: async ({ signal }) => {
       const response = await client.providers.catalogs({ signal });
@@ -147,29 +147,20 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
     <Stack><Text variant="title">{workflow.rootId ? 'Your session is created' : stage === 'folder' ? 'Choose a folder' : 'Start something.'}</Text><Text muted>{workflow.rootId ? workflow.cwd : stage === 'folder' ? 'Pick the project you want to work in.' : 'Everything is ready. Add a first message, or start with an empty session.'}</Text></Stack>
     {error && <Notice danger>{error}</Notice>}
     {stage === 'folder' && !workflow.rootId ? <>
-    <Field label="Working directory on host" value={workflow.cwd} onChangeText={cwd => update({ cwd })} editable={editable} autoCapitalize="none" autoCorrect={false} maxLength={2048} placeholder="/path/to/project" />
-    {!workflow.rootId && <Actions items={[{ label: browse ? 'Close folder browser' : 'Browse host folders', secondary: true, disabled: !enabled || locked,
-      onPress: () => { if (!browse) navigateFolder(workflow.cwd); setBrowse(!browse); } }]} />}
-    {browse && !workflow.rootId && <Stack>
-      <Field label="Browse a host path" value={typedPath} onChangeText={setTypedPath} editable={!locked} autoCapitalize="none" autoCorrect={false} maxLength={2048} onSubmitEditing={() => navigateFolder(typedPath.trim())} />
-      <Actions items={[{ label: 'Go to path', secondary: true, disabled: !enabled || locked, onPress: () => navigateFolder(typedPath.trim()) }]} />
+      <Field label="Folder path" value={typedPath} onChangeText={setTypedPath} editable={!locked} autoCapitalize="none" autoCorrect={false} maxLength={2048} placeholder="Enter a path on this host" onSubmitEditing={() => navigateFolder(typedPath.trim())} />
+      <Button label="Open folder" variant="secondary" disabled={!enabled || locked || directories.isFetching} onPress={() => navigateFolder(typedPath.trim())} />
       {directories.isFetching && <Loading label="Reading host folders…" />}
       {directories.error && <Notice danger>{directories.error.message}</Notice>}
-      {directories.data && <>
-        <Label muted>{directories.data.path}</Label>
-        {!!directories.data.parent && <Actions items={[{ label: 'Parent folder', secondary: true, disabled: !enabled || locked, onPress: () => navigateFolder(directories.data!.parent) }]} />}
-        {(directories.data.entries ?? []).slice(0, 64).map(entry => <RowButton key={entry.path} title={entry.name} detail={entry.path} disabled={!enabled || locked} onPress={() => navigateFolder(entry.path)} />)}
-        {!directories.data.entries?.length && !directories.isFetching && <Label muted>No subfolders here. You can use this folder.</Label>}
-        {(directories.data.truncated || directories.data.has_more) && <Notice>Folder listings are bounded. Browse a subfolder or enter its full path.</Notice>}
-        <Actions items={[
-          { label: 'Use this folder', disabled: !enabled || locked || directories.isFetching, onPress: () => { update({ cwd: directories.data!.path }); setBrowse(false); } },
-          ...(directories.data.has_more && directories.data.next_after ? [{ label: 'Next folders', secondary: true, disabled: !enabled || locked || directories.isFetching, onPress: () => setAfter(directories.data!.next_after) }] : []),
-          ...(after ? [{ label: 'First folders', secondary: true, disabled: !enabled || locked, onPress: () => setAfter(undefined) }] : []),
-        ]} />
-      </>}
-    </Stack>}
-
-      <Button label="Continue" disabled={!workflow.cwd.trim() || locked || !enabled} onPress={() => { setBrowse(false); setStage('review'); }} />
+      {directories.data && <Stack>
+        <Text variant="caption" muted selectable>{directories.data.path}</Text>
+        {!!directories.data.parent && <ListRow title="Parent folder" detail="Go up one level" disabled={!enabled || locked} onPress={() => navigateFolder(directories.data!.parent)} />}
+        {(directories.data.entries ?? []).slice(0, 64).map(entry => <ListRow key={entry.path} title={entry.name} disabled={!enabled || locked} onPress={() => navigateFolder(entry.path)} />)}
+        {!directories.data.entries?.length && !directories.isFetching && <Text muted>No subfolders. You can work in this folder.</Text>}
+        {(directories.data.truncated || directories.data.has_more) && <Notice>More folders are available. Open a subfolder, enter a path, or view the next page.</Notice>}
+        {directories.data.has_more && directories.data.next_after && <Button label="Next folders" variant="quiet" disabled={!enabled || locked || directories.isFetching} onPress={() => setAfter(directories.data!.next_after)} />}
+        {after && <Button label="First folders" variant="quiet" onPress={() => setAfter(undefined)} />}
+        <Button label="Use this folder" disabled={!enabled || locked || directories.isFetching} onPress={() => { update({ cwd: directories.data!.path }); setBrowse(false); setStage('review'); }} />
+      </Stack>}
     </> : <>
       <ListRow title={workflow.cwd.split('/').filter(Boolean).at(-1) || workflow.cwd} detail={workflow.cwd} onPress={workflow.rootId ? undefined : () => { setStage('folder'); setBrowse(true); }} />
       <ListRow title={workflow.model || 'Host default model'} detail={`${workflow.definition || 'Default agent'} · ${workflow.effort || 'Default reasoning'}`} onPress={() => setOptions(true)} />
@@ -222,6 +213,6 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
       {definitions.error && <Notice>{definitions.error.message} The host default remains available.</Notice>}</Stack>
       <Button label="Done" onPress={() => setOptions(false)} />
     </ScrollView></Sheet>
-    <Label muted>Drafts stay encrypted on this phone. Leaving the app keeps accepted work running; saved creation steps never continue automatically after a restart.</Label>
+    <Label muted>Your draft stays on this phone. Work continues on your host when you leave.</Label>
   </Screen>;
 }

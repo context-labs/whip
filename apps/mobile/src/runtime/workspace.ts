@@ -29,7 +29,7 @@ export class MobileWorkspace {
     this.update({ hosts, selectedHostId, pins: Array.isArray(pins) ? pins.filter(p => typeof p === 'string' && p.length <= 2048).slice(0, 128) : [] });
     const ids = new Set(remembered ?? (selectedHostId ? [selectedHostId] : []));
     void (async () => {
-      const selected = hosts.filter(h => ids.has(h.id));
+      const selected = hosts.filter(h => ids.has(h.id)).sort((a, b) => Number(b.id === selectedHostId) - Number(a.id === selectedHostId));
       for (let i = 0; i < selected.length && !this.disposed; i += 2) await Promise.all(selected.slice(i, i + 2).map(host => this.connect(host, false).catch(() => {})));
 
     })().catch(this.settings.report);
@@ -56,7 +56,8 @@ export class MobileWorkspace {
     if (!this.state.hosts.some(h => h.id === host.id) && new Set([...this.state.hosts.map(h => h.id), ...this.runtimes.keys(), ...this.attempts.keys()]).size >= 4) throw new Error('Keep up to four hosts on this phone.');
     if (this.state.hosts.some(h => h.id !== host.id && h.url === host.url)) throw new Error('This address is already saved. Edit the existing host.');
     const current = this.runtimes.get(host.id);
-    if (current?.getSnapshot().ready && current.getSnapshot().host?.url === host.url && current.getSnapshot().host?.name === host.name) {
+    if (current?.getSnapshot().ready && current.getSnapshot().host?.url === host.url) {
+      if (current.getSnapshot().host?.name !== host.name) { await this.storage.set('hosts', host.id, { ...current.getSnapshot().host!, name: host.name }); await this.refreshProfiles(); }
       if (select) await this.select(host.id); return current;
     }
     const generation = ++this.generation; this.attempts.set(host.id, generation);

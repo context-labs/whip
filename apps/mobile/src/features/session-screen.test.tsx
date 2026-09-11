@@ -1,7 +1,7 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
 import type { MobileRuntime } from '../runtime/runtime';
-import SessionScreen from '../app/session/[rootId]';
+import { SessionScreen } from '../app/session/[rootId]';
 
 let mockRuntime: MobileRuntime;
 let mockView: SessionView;

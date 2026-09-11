@@ -63,7 +63,6 @@ export function Requests({ root, view, disabled }: { root: DeepReadonly<RootSnap
   const questions = root.questions?.filter(q => q.question_id) ?? [];
   const unavailable = disabled || !runtimeId || state.client !== view.session.client;
   return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24 }}>
-    <Label style={{ fontSize: 24, fontWeight: '600' }}>Needs your attention</Label>
     {!permissions.length && !questions.length && <Label muted>No pending requests in this session.</Label>}
     {permissions.map(permission => {
       const prior = runtime.decisions.forRequest(permission.id, root.root_id);

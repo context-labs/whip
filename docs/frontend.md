@@ -163,7 +163,7 @@ with explicit Whip semantic colors; a Compose seed palette is not a replacement
 for the selected Whip palette. React Native StyleSheet supplies
 layout; FlashList virtualizes conversation/catalog rows; Enriched Markdown renders
 selectable text; keyboard controller and safe-area providers own native insets.
-This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md)
+This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md)
 records the remaining native and release gates. Setup belongs in [mobile.md](mobile.md).
 
 Native imports must use `@whip/app/presentation` (pure conversation rows,
@@ -173,13 +173,18 @@ entry point imports DOM controls, StyleX, web routing or browser providers.
 `timeline.tsx` remains the web renderer of the same projection. Do not import the
 web app/UI barrels into Metro or duplicate SDK stream reducers in mobile.
 
-The native runtime owns one SDK client, one QueryClient, one catalog and the
-selected root/child leases. A saved host pins its persistent runtime ID and stable
-human client ID. Replacement aborts local observations, releases views and clears
-host reads. Actual backgrounding pauses the SDK socket/heartbeat/reconnect and
-command ticks; foreground resume reconciles durable identity before applicable
-actions are enabled. Temporary `inactive` transitions do not detach. `close()` is
-terminal and reserved for disposal/replacement. Work continues on the daemon.
+The device `MobileWorkspace` owns up to four independent host runtimes and the
+shared encrypted storage connection. Each host runtime owns its SDK client,
+QueryClient, commands and selected root/child leases. Session routes resolve a
+verified host/runtime tuple through `RuntimeScope`; device Appearance stays with
+the settings owner. Renaming a connected host updates its profile without
+reconnecting. Removing or replacing one host leaves other hosts alone.
+Saved profiles pin persistent runtime IDs and stable human client IDs. Startup
+reconnects remembered profiles in pairs, prioritizing the last selected host.
+Backgrounding pauses all SDK clients and cancels reads; foreground resume
+reconciles durable identity before actions are enabled. Temporary `inactive`
+transitions do not detach. Only the workspace closes shared storage. Work
+continues on the daemon.
 
 The connection sheet owns its actionable errors so native modal presentation
 cannot hide the root layout's error banner. Its explicit Test Connection uses
@@ -190,15 +195,18 @@ Expo fetch. Completion, failure, leaving the sheet or backgrounding closes the
 probe. Native close details are bounded in the shared SDK and remain ephemeral;
 the diagnostic export continues to omit raw errors and addresses.
 
-The native [AttentionProvider](../apps/mobile/src/features/attention.tsx), mounted
-above route navigation inside the runtime QueryClient provider, owns the only
-foreground attention query and 10-second poll. The Attention screen and tab badge
-consume its context without separate query observers. Focus refresh joins an
-in-flight request; runtime reconnect and completed decisions invalidate the same
-query. Backgrounding cancels reads and disables polling; host replacement clears
-the cache. Reads retain at most four 64-entry / 128 KiB pages. The badge counts
-loaded sessions with human requests, qualifies incomplete indexes with `+`, and
-announces stale/unavailable data without implying a current zero count.
+[`WorkspaceAttentionProvider`](../apps/mobile/src/features/workspace-index.tsx)
+above navigation owns one foreground query and 10-second poll. Home and Needs you
+consume the same context. Session and attention indexes share a two-read device
+lane. Each host retains one bounded page: 128 sessions / 256 KiB or 64 attention
+entries / 128 KiB. Next replaces that host's page; old query windows have zero
+cache lifetime. Thus each index has at most four retained host pages, not four
+pages per host. Partial failures keep healthy hosts visible. Counts describe
+loaded human requests and show `+` or `?` when incomplete or unavailable.
+Completed commands invalidate these indexes. Lists never subscribe to root
+transcripts. Session search is debounced and supports active/archived and host
+filters. Device pins are explicitly local, bounded by the settings quota and
+128 identities; host-provided pins remain visible.
 
 Use the private SQLCipher database for four saved hosts, bounded preferences,
 16 revisioned drafts (64 KiB per record, 512 KiB total), 64 reading bookmarks
@@ -1596,9 +1604,3 @@ Historical [web](../.ai-docs/plans/web-app/README.md),
 history. Do not implement an old proposal merely because its checkbox is open.
 If source and this guide disagree, trace the behavior and resolve the discrepancy
 explicitly; do not quietly create another implementation to satisfy both.
-
-### Native workspace ownership
-
-`apps/mobile/src/runtime/workspace.ts` owns the device's saved host profiles and up to four independent `MobileRuntime` connections. The settings runtime owns device appearance; a session route mounts `RuntimeScope` for its verified host/runtime tuple. Connecting, cancelling, disconnecting or editing one profile never detaches another host. Startup reconnects remembered hosts in pairs without changing the selected profile. Child runtimes share the encrypted storage connection and only the workspace closes it. Draft and delivery identities remain runtime/root/agent qualified. The workspace disables each runtime's legacy session catalog so combined indexes have one owner rather than duplicate caches.
-
-Combined native indexes live in `features/workspace-index.tsx`. Session and attention pages share `ReadLane` (two reads); one foreground attention provider serves the home entry and attention route. Each host keeps one page, Next replaces it, and old query windows have zero cache lifetime. Per-host failures and partial counts stay visible. The limit is four host pages device-wide per index, not four pages per host. Session creation exposes a host/folder/review sequence while the durable creation workflow remains the mutation owner.

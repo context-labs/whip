@@ -952,7 +952,7 @@ Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`
 restart, and self-update).
 ## Native mobile companion (development)
 
-The Expo workspace in `apps/mobile` provides manual private-host setup, themed
+The Expo workspace in `apps/mobile` provides multi-host private setup, themed
 Sessions/Attention/Settings, root and child conversations, queued/steering input,
 turn-specific Stop, question forms and one-shot permission decisions. It consumes
 the existing SDK WebSocket protocol; execution stays on the host. Application auth,
@@ -974,9 +974,23 @@ QR pairing and push notifications remain outside this release.
 - Partial creation recovery: `apps/mobile/src/features/creation.ts` and
   `creation.test.ts`; separate create/effort/input identities preserve the created
   root without automatic continuation after restart.
-- Foreground Attention and its qualified tab badge:
-  `apps/mobile/src/features/attention.tsx` and `attention.test.tsx`; one observer
-  handles polling, bounded pagination, focus refresh and stale/partial counts.
+- Combined session home, search/host/archive filters and a single foreground
+  attention owner: `apps/mobile/src/features/workspace-index.tsx`,
+  `workspace-index.test.tsx`, `runtime/read-lane.ts` and its tests. Qualified host
+  identities, partial failures, two simultaneous reads and bounded page replacement
+  prevent one host from blocking or overwriting another.
+- Native design library and all generated web themes: `apps/mobile/src/ui`,
+  `theme/preferences.ts`, `theme/theme.tsx`, `app/settings/appearance.tsx`.
+  Catalog-wide contrast tests and storage migration/atomic-write tests cover
+  theme selection and the separate custom-theme bucket. JSON import uses the
+  existing host resolver; imports persist offline.
+- Host lifecycle and management: `runtime/workspace.ts`, `workspace.test.ts`,
+  `app/settings/hosts.tsx`; independent connections, cancellation, verified
+  identity deduplication, local names and shared database lifetime.
+- Guided host/folder/review creation and session options preserve the existing
+  creation journal. Chat adds a keyboard-aware composer, reduced-motion status,
+  native agent/request/detail sheets, local pins, rename and archive/restore.
+  `session-screen.test.tsx` retains reading-position and mutation guard tests.
 - Bounded native text: `apps/mobile/src/components/paged-text.tsx` and
   `conversation.tsx`; paging, recycling, full-copy and explicit body-read tests
   cover the rendering boundary. `markdown.test.tsx` covers source fallback for
@@ -989,7 +1003,7 @@ QR pairing and push notifications remain outside this release.
 
 Native device validation and distribution are not implied by this entry.
 [Mobile setup](mobile.md) and the
-[implementation evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md) track the actual
+[UI implementation evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md) track the actual
 build/device/release state.
 
 ## Canonical Frontier evaluations
