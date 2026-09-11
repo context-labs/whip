@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { WhipClient } from '../src/client.js';
-import { defineAgent, tool, type HooksInput } from '../src/agents.js';
+import { defineAgent, tool, type AgentOutput, type HooksInput } from '../src/agents.js';
 import type { StandardResult, StandardSchemaWithJSON } from '../src/schema.js';
 import { transportFixture } from './transport-fixture.js';
 
@@ -53,9 +53,10 @@ test('defineAgent produces the canonical JuniorDeveloper document', () => {
 test('tools land in the document and handlers stay local', () => {
   const lookup = tool({ name: 'lookup_ticket', description: 'Fetch a ticket by id', input: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, execute: async input => ({ id: (input as { id: string }).id }), timeoutMs: 1000 });
   const agent = defineAgent({ id: 'support-bot', modules: ['context'], tools: [lookup], children: { helper: { modules: ['context'], tools: ['lookup_ticket'], report: 'message' } } });
-  assert.deepEqual(agent.document.tools, [{ name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, timeout_millis: 1000 }]);
+  assert.deepEqual(agent.document.tools, [{ name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, output_schema: null, timeout_millis: 1000 }]);
+  assert.equal(agent.document.output, null);
   assert.equal(agent.handlers.get('lookup_ticket'), lookup);
-  assert.deepEqual(agent.document.children.helper, { instructions: null, modules: ['context'], capabilities: null, tools: ['lookup_ticket'], model: { model: '', provider: '', effort: '' }, budgets: {}, report: 'message' });
+  assert.deepEqual(agent.document.children.helper, { instructions: null, modules: ['context'], capabilities: null, tools: ['lookup_ticket'], model: { model: '', provider: '', effort: '' }, budgets: {}, report: 'message', output: null });
   assert.throws(() => defineAgent({ id: 'dup', modules: ['context'], tools: [lookup, lookup] }), /declared twice/);
   assert.throws(() => defineAgent({ id: 'none', modules: [] }), /at least one host module/);
   assert.throws(() => tool({ name: 'bad', description: 'd', input: [] as unknown as Record<string, unknown>, execute: () => 1 }), /Standard JSON Schema or a JSON Schema object/);
@@ -71,8 +72,18 @@ test('a Standard JSON Schema types the handler and derives the document schema',
   tool({ name: 'untyped', description: 'd', input: ticketInput, output: ticketOutput, execute: async ({ id }) => ({ id }) });
   // @ts-expect-error raw JSON Schema types the input unknown
   tool({ name: 'raw', description: 'd', input: { type: 'object' }, execute: input => input.id });
-  assert.deepEqual(lookup.spec, { name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, timeout_millis: 0 });
+  assert.deepEqual(lookup.spec, { name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    output_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } }, required: ['id', 'title'] }, timeout_millis: 0 });
   assert.equal(lookup.validate, true);
+  // The agent's output contract and a child's override derive the same way; a non-object contract is rejected.
+  const contract = standard<{ summary: string }>({ type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] }, value => ({ value: value as { summary: string } }));
+  const typed = defineAgent({ id: 'typed', modules: ['context'], tools: [lookup], output: contract, children: { terse: { modules: ['context'], output: contract }, plain: { modules: ['context'] } } });
+  assert.deepEqual(typed.document.output, { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] });
+  assert.deepEqual(typed.document.children.terse?.output, typed.document.output);
+  assert.equal(typed.document.children.plain?.output, null);
+  const summary: AgentOutput<typeof contract> = { summary: 'typed through defineAgent' };
+  assert.equal(summary.summary, 'typed through defineAgent');
+  assert.throws(() => defineAgent({ id: 'list', modules: ['context'], output: { type: 'array' } }), /output contract must describe an object/);
   const throwing: StandardSchemaWithJSON<{ id: string }> = { '~standard': { version: 1, vendor: 'hand-rolled', validate: () => ({ value: { id: '' } }),
     jsonSchema: { input: () => { throw new Error('unsupported target'); }, output: () => ({}) } } };
   assert.throws(() => tool({ name: 'nojson', description: 'd', input: throwing, execute: () => 1 }), /hand-rolled schema cannot produce draft-2020-12 JSON Schema/);

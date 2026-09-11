@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WhipClient } from '../src/client.js';
 import { scriptedDaemon } from '../src/testing.js';
+import { defineAgent, tool } from '../src/agents.js';
+import type { StandardSchemaWithJSON } from '../src/schema.js';
 import type { QuestionEvent, TurnEvent } from '../src/turn.js';
 
 test('a scripted turn drives session.run end to end without a daemon', async t => {
@@ -55,4 +57,27 @@ test('reply tables and emitted events compose with the legacy request callback',
   assert.equal(first.value?.seq, '1');
   await subscription.dispose();
   assert.equal(events.length, 0);
+});
+
+test('a served agent types its turn result by the output contract through the scripted daemon', async t => {
+  const contract: StandardSchemaWithJSON<{ ticket: string; escalatedTo: string | null }> = { '~standard': { version: 1, vendor: 'hand-rolled', validate: value => ({ value: value as { ticket: string; escalatedTo: string | null } }),
+    jsonSchema: { input: () => ({ type: 'object' }), output: () => ({ type: 'object', properties: { ticket: { type: 'string' }, escalatedTo: { type: ['string', 'null'] } }, required: ['ticket', 'escalatedTo'] }) } } };
+  const lookup = tool({ name: 'lookup_ticket', description: 'd', input: { type: 'object' }, execute: () => ({}) });
+  const agent = defineAgent({ id: 'support-triage', modules: ['context'], tools: [lookup], output: contract });
+  const daemon = scriptedDaemon().serveSessions();
+  const client = new WhipClient({ endpoint: daemon.factory, clientId: 'consumer', reconnect: false, commandPollMs: 5 });
+  t.after(() => client.close());
+  await client.connect();
+  const runtime = await client.agents.serve(agent);
+  assert.equal(runtime.revision, 'scripted-revision-support-triage');
+  const session = await runtime.sessions.create({ cwd: '/srv' });
+  assert.equal(session.rootId, 'root-1');
+  void daemon.turn(session.rootId, { steps: [{ text: 'Escalated.' }], text: 'Escalated.', output: { ticket: '42', escalatedTo: 'auth' } });
+  const result = await session.run('Triage ticket 42').result();
+  assert.equal(result.status, 'succeeded');
+  if (result.status === 'succeeded') {
+    const escalated: string | null = result.output.escalatedTo; // typed by the contract, no cast
+    assert.deepEqual([result.output.ticket, escalated], ['42', 'auth']);
+  }
+  await assert.rejects(runtime.sessions.open('root-9'), { kind: 'conflict' });
 });

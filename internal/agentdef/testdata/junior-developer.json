@@ -13,6 +13,7 @@
   "compaction": { "model": "", "provider": "", "threshold": 0 },
   "mcp": { "servers": null },
   "tools": null,
+  "output": null,
   "children": {},
   "surface": { "auto_title": true, "goal_loop": false },
   "hooks": null

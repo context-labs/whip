@@ -132,6 +132,7 @@
                 "type": "string"
               },
               "input_schema": true,
+              "output_schema": true,
               "timeout_millis": {
                 "type": "integer"
               }
@@ -140,11 +141,13 @@
               "name",
               "description",
               "input_schema",
+              "output_schema",
               "timeout_millis"
             ],
             "additionalProperties": false
           }
         },
+        "output": true,
         "children": {
           "type": "object",
           "additionalProperties": {
@@ -242,7 +245,8 @@
               },
               "report": {
                 "type": "string"
-              }
+              },
+              "output": true
             },
             "required": [
               "instructions",
@@ -251,7 +255,8 @@
               "tools",
               "model",
               "budgets",
-              "report"
+              "report",
+              "output"
             ],
             "additionalProperties": false
           }
@@ -383,6 +388,7 @@
         "compaction",
         "mcp",
         "tools",
+        "output",
         "children",
         "surface",
         "hooks"

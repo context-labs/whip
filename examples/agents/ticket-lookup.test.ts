@@ -10,6 +10,7 @@ test('the definition catalogs its tool and keeps the handler local', () => {
   assert.deepEqual(supportTriage.document.tools, [{
     name: 'lookup_ticket', description: 'Fetch a support ticket by id. Returns its title and status.',
     input_schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { id: { type: 'string', description: 'The ticket id' } }, required: ['id'] },
+    output_schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, status: { type: 'string', enum: ['open', 'closed'] } }, required: ['id', 'title', 'status'], additionalProperties: false },
     timeout_millis: 30_000,
   }]);
   assert.equal(supportTriage.handlers.get('lookup_ticket'), lookupTicket);

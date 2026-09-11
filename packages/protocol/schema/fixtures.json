@@ -141,6 +141,7 @@
           "servers": []
         },
         "tools": [],
+        "output": null,
         "children": {},
         "surface": {
           "auto_title": false,
@@ -188,6 +189,7 @@
           "servers": []
         },
         "tools": [],
+        "output": null,
         "children": {},
         "surface": {
           "auto_title": false,

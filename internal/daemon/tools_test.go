@@ -414,3 +414,34 @@ func TestExecutorBindValidatesDefinitionAndHandlers(t *testing.T) {
 		t.Fatalf("lease survived disconnect: %+v", failure)
 	}
 }
+
+// A tool's declared output schema is enforced on every result: a value that
+// does not match settles the call as an error the cell reads; a matching one
+// returns as usual.
+func TestCustomToolOutputSchemaIsEnforced(t *testing.T) {
+	_, client := promptRuntimeProvider(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createDefinitionRoot(t, store, toolingDefinition(t, store,
+		agentdef.Tool{Name: "lookup", Description: "Fetch a ticket", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"]}`)},
+	))
+	owner, _, runtime := openPromptRuntime(t, store, rootID, client)
+	parent := runtime.rootNode
+	conn, _, generation := bindFakeExecutor(t, owner, store, "lookup")
+	outcome := execCell(t.Context(), parent, `tools.lookup()`)
+	invoke := awaitInvoke(t, conn, outcome)
+	if err := owner.executors.settle(conn, protocol.ToolResultParams{InvocationID: invoke.InvocationID, Generation: generation, Output: json.RawMessage(`{"id":"42"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), "tool lookup returned a value that does not match its output schema") {
+		t.Fatalf("mismatch accepted: %#v %v", cell.result.Value, cell.err)
+	}
+	outcome = execCell(t.Context(), parent, `tools.lookup()`)
+	invoke = awaitInvoke(t, conn, outcome)
+	if err := owner.executors.settle(conn, protocol.ToolResultParams{InvocationID: invoke.InvocationID, Generation: generation, Output: json.RawMessage(`{"id":"42","title":"Login page times out"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	cell := awaitCell(t, outcome)
+	if value, _ := cell.result.Value.(map[string]any); cell.err != nil || value["title"] != "Login page times out" {
+		t.Fatalf("matching result rejected: %#v %v", cell.result.Value, cell.err)
+	}
+}

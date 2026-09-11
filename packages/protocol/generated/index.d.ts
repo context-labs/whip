@@ -674,8 +674,10 @@ export interface DefinitionRecord {
           name: string;
           description: string;
           input_schema: unknown;
+          output_schema: unknown;
           timeout_millis: number;
         }[];
+    output: unknown;
     children: {
       [k: string]: {
         instructions: null | {
@@ -697,6 +699,7 @@ export interface DefinitionRecord {
           [k: string]: number;
         };
         report: string;
+        output: unknown;
       };
     };
     surface: {
@@ -758,8 +761,10 @@ export interface DefinitionRegisterParams {
           name: string;
           description: string;
           input_schema: unknown;
+          output_schema: unknown;
           timeout_millis: number;
         }[];
+    output: unknown;
     children: {
       [k: string]: {
         instructions: null | {
@@ -781,6 +786,7 @@ export interface DefinitionRegisterParams {
           [k: string]: number;
         };
         report: string;
+        output: unknown;
       };
     };
     surface: {
@@ -3012,6 +3018,7 @@ export interface TextParams {
 
 export interface TextResult {
   text: string;
+  output?: unknown;
 }
 
 export interface TitleParams {

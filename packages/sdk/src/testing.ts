@@ -59,10 +59,10 @@ export interface ScriptedDaemon {
   readonly commands: ReadonlyMap<string, Record<string, unknown>>;
 }
 
-function snapshot(rootId: string, cursor: string) {
+function snapshot(rootId: string, cursor: string, pinned: { definition: string; revision: string } = { definition: 'coding', revision: '' }) {
   return {
     root_id: rootId, cursor, history_revision: '1', active_turns: {},
-    meta: { id: rootId, kind: 'agent', title: '', model: 'scripted-model', provider: 'scripted', cwd: '/scripted', execution_engine: 'starlark', definition: 'coding', definition_revision: '',
+    meta: { id: rootId, kind: 'agent', title: '', model: 'scripted-model', provider: 'scripted', cwd: '/scripted', execution_engine: 'starlark', definition: pinned.definition, definition_revision: pinned.revision,
       goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
     budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
@@ -82,7 +82,11 @@ export function scriptedDaemon(options: ScriptedDaemonOptions = {}): ScriptedDae
   const sequences = new Map<string, number>();
   const scripts = new Map<string, { script: TurnScript; resolve(): void }[]>();
   const turns = new Map<string, number>();
+  const roots = new Map<string, { definition: string; revision: string }>();
   let ingress = 0;
+  let generation = 0;
+  let created = 0;
+  const revisionOf = (id: string) => `scripted-revision-${id}`;
   let sessions = false;
   const info: InitializeResult = {
     protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'fixture-runtime', connection_id: 'fixture-connection',
@@ -134,7 +138,12 @@ export function scriptedDaemon(options: ScriptedDaemonOptions = {}): ScriptedDae
   };
   const defaults: Record<string, ReplyHandler> = {
     'daemon.ping': () => ({ generation: info.generation, build_id: info.build_id }),
-    'root.snapshot': request => snapshot(String(request.params.root_id), String(sequences.get(String(request.params.root_id)) ?? 0)),
+    'root.snapshot': request => snapshot(String(request.params.root_id), String(sequences.get(String(request.params.root_id)) ?? 0), roots.get(String(request.params.root_id))),
+    'definitions.register': request => ({ id: (request.params.definition as { id: string }).id, revision: revisionOf((request.params.definition as { id: string }).id), created: true }),
+    'executor.bind': request => ({ generation: String(++generation), tools: request.params.tools ?? [], ...(request.params.hooks ? { hooks: request.params.hooks } : {}) }),
+    'tool.result': () => ({ accepted: true }),
+    'tool.progress': () => ({ accepted: true }),
+    'hook.result': () => ({ accepted: true }),
     'events.subscribe': (request, connection) => {
       subscriptions.set(String(request.params.subscription_id), { rootId: String(request.params.root_id), connection });
       return { subscription_id: request.params.subscription_id, cursor: request.params.cursor };
@@ -146,6 +155,12 @@ export function scriptedDaemon(options: ScriptedDaemonOptions = {}): ScriptedDae
       const rootId = String(request.params.root_id ?? '');
       const ingressSeq = String(++ingress);
       const record: Record<string, unknown> = { operation, command_id: id, ingress_seq: ingressSeq, status: operation === 'submit' ? 'running' : 'succeeded', ...(operation === 'submit' ? {} : { result: {} }) };
+      if (operation === 'session.create') {
+        const payload = request.params.payload as { definition?: string };
+        const newRoot = `root-${++created}`;
+        roots.set(newRoot, { definition: payload.definition ?? 'coding', revision: payload.definition ? revisionOf(payload.definition) : '' });
+        record.result = { root_id: newRoot };
+      }
       commands.set(id, record);
       if (operation === 'submit') {
         const queued = scripts.get(rootId)?.shift();

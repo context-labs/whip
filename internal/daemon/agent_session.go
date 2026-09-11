@@ -85,6 +85,13 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
 	session.mu.Unlock()
 	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices}
+	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
+		check, err := session.outputContract(contract)
+		if err != nil {
+			return "", fmt.Errorf("%w: %w", sessionstore.ErrInvalidInput, err)
+		}
+		events.CheckFinal = check
+	}
 	events.OnMessage = session.recordTranscriptMessage
 	events.OnToolsComplete = session.recordToolMetadata
 	digest, receipts, err := session.mailboxDigest(ctx)
@@ -524,6 +531,7 @@ func (session *AgentSession) turnJournal() turnJournal {
 		DeliveredInbox:    append([]int64(nil), session.turn.DeliveredInbox...),
 		DeliveredMessages: append([]sessionstore.MailboxReceipt(nil), session.turn.DeliveredMessages...),
 		ClaimedInbox:      append([]int64(nil), session.turn.ClaimedInbox...),
+		Output:            slices.Clone(session.turn.Output),
 	}
 }
 
@@ -595,7 +603,7 @@ func (session *AgentSession) accountingStopError() error {
 func customTools(definition agentdef.Definition) []tools.CustomTool {
 	result := make([]tools.CustomTool, 0, len(definition.Tools))
 	for _, tool := range definition.Tools {
-		result = append(result, tools.CustomTool{Name: tool.Name, InputSchema: tool.InputSchema, Timeout: tool.Timeout()})
+		result = append(result, tools.CustomTool{Name: tool.Name, InputSchema: tool.InputSchema, OutputSchema: tool.OutputSchema, Timeout: tool.Timeout()})
 	}
 	return result
 }

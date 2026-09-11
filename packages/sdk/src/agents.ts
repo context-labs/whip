@@ -1,9 +1,10 @@
 import type {
-  CreateSessionParams, DefinitionList, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, HookInvokeParams, HookResultParams, ToolInvokeParams,
+  CreateSessionParams, DefinitionList, SubmitPayload, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, HookInvokeParams, HookResultParams, ToolInvokeParams,
 } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
-import type { Session } from './session.js';
+import { Session } from './session.js';
+import { Turn, type RunOptions } from './turn.js';
 import { WhipError, abortError, asError } from './errors.js';
 import { describesObject, formatIssues, isStandardSchema, toJsonSchema, validateWith, type InferInput, type InferOutput, type Schema } from './schema.js';
 
@@ -124,8 +125,12 @@ export interface ChildInput {
   model?: ModelInput;
   budgets?: Record<string, number>;
   report?: 'notice' | 'inline' | 'message';
+  /** Replaces the parent's output contract for this child. */
+  output?: Schema;
 }
-export interface AgentInput {
+/** The turn result type an agent's output contract implies: the schema's type, or unknown without one. */
+export type AgentOutput<O> = O extends Schema ? InferOutput<O> : unknown;
+export interface AgentInput<O extends Schema | undefined = undefined> {
   /** Lowercase id, letters, digits and hyphens; must not shadow a built-in. */
   id: string;
   instructions?: InstructionsInput;
@@ -140,14 +145,18 @@ export interface AgentInput {
   children?: Record<string, ChildInput>;
   surface?: { autoTitle?: boolean; goalLoop?: boolean };
   hooks?: HooksInput;
+  /** What a turn returns: an object schema the daemon enforces on the final message. It types the turn result. */
+  output?: O;
 }
 
 /** An authored agent: the document the daemon stores plus the tools and hooks an executor serves. */
-export interface AgentDefinition {
+export interface AgentDefinition<Output = unknown> {
   readonly document: Definition;
   /** Tool definitions by name; serve runs their execute and validates around it. */
   readonly handlers: ReadonlyMap<string, ToolDefinition>;
   readonly hooks: HookHandlers;
+  /** Carries the output contract's type; never set at runtime. */
+  readonly outputType?: Output;
 }
 
 /**
@@ -163,16 +172,22 @@ export function tool<I extends Schema, O extends Schema | undefined = undefined>
   if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0)) throw new TypeError(`tool ${name}: timeoutMs must be a non-negative integer`);
   const inputSchema = toJsonSchema(input, 'input', `tool ${name} input`);
   if (!describesObject(inputSchema)) throw new TypeError(`tool ${name}: input schema must describe an object; the cell passes keyword arguments`);
-  if (output !== undefined) toJsonSchema(output, 'output', `tool ${name} output`); // fail at definition time, before phase 6 sends it
-  return { spec: { name, description, input_schema: inputSchema, timeout_millis: timeoutMs ?? 0 }, input, output, validate, execute };
+  const outputSchema = output === undefined ? null : toJsonSchema(output, 'output', `tool ${name} output`);
+  return { spec: { name, description, input_schema: inputSchema, output_schema: outputSchema, timeout_millis: timeoutMs ?? 0 }, input, output, validate, execute };
 }
 
 /**
  * Build the canonical definition document from authoring input. The daemon is
  * the authority on validation; this only rejects shapes that cannot be sent.
  */
-export function defineAgent(input: AgentInput): AgentDefinition {
+export function defineAgent<O extends Schema | undefined = undefined>(input: AgentInput<O>): AgentDefinition<AgentOutput<O>> {
   if (!input.id.trim()) throw new TypeError('agent id is required');
+  const contract = (schema: Schema | undefined, subject: string) => {
+    if (schema === undefined) return null;
+    const derived = toJsonSchema(schema, 'output', subject);
+    if (!describesObject(derived)) throw new TypeError(`${subject}: output contract must describe an object`);
+    return derived;
+  };
   if (!Array.isArray(input.modules) || input.modules.length === 0) throw new TypeError(`agent ${input.id}: select at least one host module`);
   const handlers = new Map<string, ToolDefinition>();
   const tools: ToolSpec[] = [];
@@ -187,6 +202,7 @@ export function defineAgent(input: AgentInput): AgentDefinition {
       instructions: child.instructions ? instructions(child.instructions) : null,
       modules: list(child.modules), capabilities: list(child.capabilities), tools: list(child.tools),
       model: model(child.model), budgets: { ...(child.budgets ?? {}) }, report: child.report ?? '',
+      output: contract(child.output, `agent ${input.id} child ${name} output`),
     };
   }
   const hooks: HookHandlers = {};
@@ -213,6 +229,7 @@ export function defineAgent(input: AgentInput): AgentDefinition {
     compaction: { model: input.compaction?.model ?? '', provider: input.compaction?.provider ?? '', threshold: input.compaction?.threshold ?? 0 },
     mcp: { servers: list(input.mcp?.servers) },
     tools: tools.length > 0 ? tools : null,
+    output: contract(input.output, `agent ${input.id} output`),
     children,
     surface: { auto_title: input.surface?.autoTitle ?? true, goal_loop: input.surface?.goalLoop ?? false },
     hooks: Object.keys(hooks).length > 0 ? hookSpecs : null,
@@ -252,12 +269,19 @@ export interface ServeOptions { signal?: AbortSignal }
 /** Session creation on a served definition; the definition and its revision come from the runtime. */
 export type RuntimeSessionParams = Pick<CreateSessionParams, 'cwd'> & Partial<Omit<CreateSessionParams, 'cwd' | 'definition' | 'kind'>>;
 
+/** A session on a served definition: run() returns a turn typed by the agent's output contract. */
+export class AgentSession<Output = unknown> extends Session {
+  override run(input: string | SubmitPayload, options: RunOptions = {}): Turn<Output> {
+    return new Turn<Output>(this, typeof input === 'string' ? { text: input } : input, options);
+  }
+}
+
 /**
  * A served agent: this process answers its tools and hooks for one definition
  * revision, and the sessions created here pin that revision, so a runtime
  * never drives a session whose tools it does not serve.
  */
-export interface AgentRuntime {
+export interface AgentRuntime<Output = unknown> {
   readonly definition: string;
   readonly revision: string;
   /** Current lease generation; a reconnect re-binds and changes it. */
@@ -266,9 +290,9 @@ export interface AgentRuntime {
   readonly active: number;
   readonly sessions: {
     /** Create a session on this definition and return it once the daemon has admitted it and it pins this revision. */
-    create(params: RuntimeSessionParams, options?: CommandOptions): Promise<Session>;
+    create(params: RuntimeSessionParams, options?: CommandOptions): Promise<AgentSession<Output>>;
     /** Open an existing session after checking that it pins this definition and revision. */
-    open(rootId: string, options?: CallOptions): Promise<Session>;
+    open(rootId: string, options?: CallOptions): Promise<AgentSession<Output>>;
   };
   /** Stop serving. Running handlers are aborted; later invocations fail fast. Sessions outlive the runtime. */
   close(): void;
@@ -287,7 +311,7 @@ export class Agents {
    * executor fails after a short wait. The executor re-binds after a reconnect
    * and drains invocations that were pending for it.
    */
-  async serve(agent: AgentDefinition, options: ServeOptions = {}): Promise<AgentRuntime> {
+  async serve<Output>(agent: AgentDefinition<Output>, options: ServeOptions = {}): Promise<AgentRuntime<Output>> {
     const hookNames = (['before_tool', 'before_spawn', 'turn_start'] as const).filter(name => agent.hooks?.[name]);
     if (agent.handlers.size === 0 && hookNames.length === 0) throw new TypeError(`agent ${agent.document.id} declares no tools or hooks to serve`);
     options.signal?.throwIfAborted();
@@ -433,20 +457,20 @@ export class Agents {
     // Creation resolves the definition's latest revision; a registration that
     // raced ahead would leave the session pinned to tools this process does
     // not serve, so both paths read the pin back before handing out a session.
-    const pinned = async (session: Session, callOptions: CallOptions = {}): Promise<Session> => {
+    const pinned = async (session: AgentSession<Output>, callOptions: CallOptions = {}): Promise<AgentSession<Output>> => {
       const snapshot = await session.snapshot(callOptions);
       if (snapshot.meta.definition !== definition || snapshot.meta.definition_revision !== revision) {
         throw new WhipError('conflict', `session ${session.rootId} runs ${snapshot.meta.definition || 'coding'}@${snapshot.meta.definition_revision.slice(0, 12) || 'built-in'}, not ${definition}@${revision.slice(0, 12)} served here`);
       }
       return session;
     };
-    const sessions: AgentRuntime['sessions'] = {
+    const sessions: AgentRuntime<Output>['sessions'] = {
       create: async (params, commandOptions = {}) => {
         const outcome = await client.sessions.create({ ...params, definition }, commandOptions).result();
         if (outcome.status !== 'succeeded' || !outcome.result) throw new WhipError('execution_failed', `session creation ${outcome.status}: ${outcome.failure?.message ?? 'no root was returned'}`, { cause: outcome.failure ?? undefined });
-        return pinned(client.session(outcome.result.root_id));
+        return pinned(new AgentSession<Output>(client, outcome.result.root_id));
       },
-      open: (rootId, callOptions = {}) => pinned(client.session(rootId), callOptions),
+      open: (rootId, callOptions = {}) => pinned(new AgentSession<Output>(client, rootId), callOptions),
     };
     return { definition, revision, get generation() { return generation; }, get active() { return running.size; }, sessions, close, done };
   }

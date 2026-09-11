@@ -6,6 +6,7 @@
 package agentdef
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +44,11 @@ type Definition struct {
 	// Tools are custom operations served by an executor. A non-empty list
 	// implies the reserved tools module; the cell calls tools.<name>.
 	Tools []Tool `json:"tools"`
+	// Output is the JSON Schema a turn's final assistant message must match.
+	// Nil means free text. The guide states the contract; the daemon validates
+	// the message, returns one mismatch for correction, and fails the turn on
+	// a second.
+	Output json.RawMessage `json:"output"`
 	// Children are named child definitions a spawn may select. Unnamed spawns
 	// inherit the parent definition.
 	Children map[string]Child `json:"children"`
@@ -167,6 +173,10 @@ type Tool struct {
 	Description string `json:"description"`
 	// InputSchema is a JSON Schema object for the keyword arguments.
 	InputSchema json.RawMessage `json:"input_schema"`
+	// OutputSchema, when set, is the JSON Schema the tool's result must match.
+	// The guide shows the model what the tool returns; the daemon rejects a
+	// result from any executor that does not match.
+	OutputSchema json.RawMessage `json:"output_schema"`
 	// TimeoutMillis bounds one invocation; zero uses DefaultToolTimeout. A
 	// running handler holds the cell's kernel slot, so MaxToolTimeout caps it.
 	TimeoutMillis int64 `json:"timeout_millis"`
@@ -194,6 +204,26 @@ type Child struct {
 	Model        ModelDefaults    `json:"model"`
 	Budgets      map[string]int64 `json:"budgets"`
 	Report       string           `json:"report"`
+	// Output replaces the parent's output contract when set; null inherits.
+	Output json.RawMessage `json:"output"`
+}
+
+// schemaPresent reports a JSON Schema that is set: non-empty and not null.
+func schemaPresent(schema json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(schema)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
+}
+
+// validateSchemaObject checks that a present schema is a JSON object.
+func validateSchemaObject(schema json.RawMessage, subject string) error {
+	if !schemaPresent(schema) {
+		return nil
+	}
+	var object map[string]any
+	if err := json.Unmarshal(schema, &object); err != nil || object == nil {
+		return fmt.Errorf("%s must be a JSON Schema object", subject)
+	}
+	return nil
 }
 
 // Surface toggles root-only behaviors the daemon runs around turns.
@@ -259,6 +289,9 @@ func (d Definition) Validate() error {
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil || schema == nil {
 			return fmt.Errorf("agent definition %q tool %q input schema must be a JSON object", d.ID, tool.Name)
 		}
+		if err := validateSchemaObject(tool.OutputSchema, fmt.Sprintf("agent definition %q tool %q output schema", d.ID, tool.Name)); err != nil {
+			return err
+		}
 		if tool.TimeoutMillis < 0 || time.Duration(tool.TimeoutMillis)*time.Millisecond > MaxToolTimeout {
 			return fmt.Errorf("agent definition %q tool %q timeout must be between 0 and %s", d.ID, tool.Name, MaxToolTimeout)
 		}
@@ -266,9 +299,15 @@ func (d Definition) Validate() error {
 	if err := d.validateHooks(known); err != nil {
 		return err
 	}
+	if err := validateSchemaObject(d.Output, fmt.Sprintf("agent definition %q output", d.ID)); err != nil {
+		return err
+	}
 	for name, child := range d.Children {
 		if name == "" {
 			return fmt.Errorf("agent definition %q has a child without a name", d.ID)
+		}
+		if err := validateSchemaObject(child.Output, fmt.Sprintf("agent definition %q child %q output", d.ID, name)); err != nil {
+			return err
 		}
 		if _, err := d.Child(name, ChildOverrides{}); err != nil {
 			return err
@@ -353,6 +392,9 @@ func (d Definition) Child(name string, overrides ChildOverrides) (Definition, er
 			return Definition{}, err
 		}
 		child.Model = merge(child.Model, named.Model)
+		if schemaPresent(named.Output) {
+			child.Output = slices.Clone(named.Output)
+		}
 	}
 	var err error
 	if child.Modules, err = narrow("module", child.Modules, overrides.Modules); err != nil {

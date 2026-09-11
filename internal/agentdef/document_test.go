@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -175,5 +176,75 @@ func TestHooksAreCanonicalInTheDocument(t *testing.T) {
 	second, _ := Revision(definition)
 	if first == second {
 		t.Fatal("hook changes did not change the revision")
+	}
+}
+
+// Output contracts are canonical fields: absent ones encode as null, present
+// ones compact, a child's override applies through Child, and a schema that
+// is not an object is rejected.
+func TestOutputContractsAreCanonical(t *testing.T) {
+	plain := Coding().Normalize()
+	encoded, err := Encode(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"output":null`) {
+		t.Fatalf("absent output contract not null: %s", encoded)
+	}
+	definition := Coding()
+	definition.ID = "contract"
+	definition.Tools = []Tool{{Name: "lookup", InputSchema: json.RawMessage(`{ "type": "object" }`), OutputSchema: json.RawMessage("{ \"type\": \"object\",\n \"properties\": {\"id\": {\"type\": \"string\"}} }")}}
+	definition.Output = json.RawMessage("{\n  \"type\": \"object\", \"required\": [\"summary\"] }")
+	definition.Children = map[string]Child{
+		"terse":    {Modules: []string{"context"}, Output: json.RawMessage(`{"type":"object","required":["line"]}`)},
+		"inherits": {Modules: []string{"context"}},
+		"explicit": {Modules: []string{"context"}, Output: json.RawMessage(`null`)},
+	}
+	if err := definition.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	canonical := definition.Normalize()
+	if string(canonical.Tools[0].OutputSchema) != `{"type":"object","properties":{"id":{"type":"string"}}}` || string(canonical.Output) != `{"type":"object","required":["summary"]}` {
+		t.Fatalf("schemas not compacted: %s / %s", canonical.Tools[0].OutputSchema, canonical.Output)
+	}
+	if canonical.Children["inherits"].Output != nil || canonical.Children["explicit"].Output != nil {
+		t.Fatalf("absent child outputs must normalize to nil: %+v", canonical.Children)
+	}
+	encoded, err = Encode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, canonical) {
+		t.Fatalf("round trip changed the definition:\n%+v\n%+v", decoded, canonical)
+	}
+	terse, err := definition.Child("terse", ChildOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(terse.Output) != `{"type":"object","required":["line"]}` {
+		t.Fatalf("child override not applied: %s", terse.Output)
+	}
+	inherits, err := definition.Child("inherits", ChildOverrides{})
+	if err != nil || string(inherits.Output) != string(definition.Output) {
+		t.Fatalf("child did not inherit the output contract: %s %v", inherits.Output, err)
+	}
+	for name, mutate := range map[string]func(*Definition){
+		"tool output":  func(d *Definition) { d.Tools[0].OutputSchema = json.RawMessage(`["string"]`) },
+		"agent output": func(d *Definition) { d.Output = json.RawMessage(`"string"`) },
+		"child output": func(d *Definition) {
+			d.Children["terse"] = Child{Modules: []string{"context"}, Output: json.RawMessage(`[1]`)}
+		},
+	} {
+		broken := definition
+		broken.Tools = slices.Clone(definition.Tools)
+		broken.Children = map[string]Child{"terse": definition.Children["terse"]}
+		mutate(&broken)
+		if err := broken.Validate(); err == nil || !strings.Contains(err.Error(), "must be a JSON Schema object") {
+			t.Fatalf("%s accepted a non-object schema: %v", name, err)
+		}
 	}
 }

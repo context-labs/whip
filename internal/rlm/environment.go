@@ -1,6 +1,7 @@
 package rlm
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,8 @@ type PromptOptions struct {
 	Modules []string
 	// Tools are the definition's custom tools the runtime guide catalogs.
 	Tools []CustomTool
+	// Output is the definition's output contract, stated in the guide.
+	Output json.RawMessage
 	// ProjectFiles are read at each directory of the authorized project chain
 	// in this order. Empty disables project instruction discovery.
 	ProjectFiles []string
@@ -135,7 +138,7 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 		snapshot.Sources = append(snapshot.Sources, PromptSource{Kind: kind, Path: path, Scope: scope, Bytes: len(text)})
 		return nil
 	}
-	guide, err := SystemPrompt(options.Engine, options.Persona, options.Modules, options.Tools, cwd, nil)
+	guide, err := SystemPrompt(options.Engine, options.Persona, options.Modules, options.Tools, options.Output, cwd, nil)
 	if err != nil {
 		return PromptSnapshot{}, err
 	}

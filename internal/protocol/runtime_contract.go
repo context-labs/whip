@@ -101,6 +101,9 @@ type GoalResult struct {
 }
 type TextResult struct {
 	Text string `json:"text"`
+	// Output is the final message validated against the definition's output
+	// contract, when the definition declares one.
+	Output json.RawMessage `json:"output,omitempty"`
 }
 type EffortResult struct {
 	Effort string `json:"effort"`

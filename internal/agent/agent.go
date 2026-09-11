@@ -27,6 +27,10 @@ type Events struct {
 	// appended to EphemeralSystem, so notices raised mid-turn (a hook rewrote or
 	// denied an operation) reach the model on its next request.
 	EphemeralNotices func() string
+	// CheckFinal, when set, inspects the model's final message before the turn
+	// returns it. Returning retry runs one more round (the caller queues the
+	// correction as an ephemeral notice); returning an error fails the turn.
+	CheckFinal func(text string) (retry bool, err error)
 	// Prefix messages are appended to the durable transcript immediately
 	// before this turn's input message (a mailbox digest riding along with a
 	// user submit, for example). They are ordinary unauthored user messages.
@@ -594,6 +598,15 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			a.appendTurnMessages(ev, injected...)
 		}
 		if len(msg.ToolCalls) == 0 && len(injected) == 0 {
+			if ev.CheckFinal != nil {
+				retry, err := ev.CheckFinal(msg.Content)
+				if err != nil {
+					return "", err
+				}
+				if retry {
+					continue
+				}
+			}
 			// Final round: the response that just landed may have pushed the real
 			// context over the threshold without a later maybeCompact running, so
 			// fold now rather than paying for an over-threshold prefix next request.

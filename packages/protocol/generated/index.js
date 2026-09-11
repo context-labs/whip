@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 5,
+  "minor": 6,
   "operations": [
     {
       "name": "command.status",

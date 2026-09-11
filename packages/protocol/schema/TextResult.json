@@ -3,7 +3,8 @@
   "properties": {
     "text": {
       "type": "string"
-    }
+    },
+    "output": true
   },
   "$id": "https://whip.dev/protocol/v6/TextResult",
   "$schema": "http://json-schema.org/draft-07/schema#",

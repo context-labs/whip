@@ -117,7 +117,8 @@ type turnCompaction struct {
 type turnJournal struct {
 	TurnID            string
 	BaseSeq           int
-	HookNotices       []string // ephemeral lines a hook raised this turn
+	HookNotices       []string        // ephemeral lines a hook raised this turn
+	Output            json.RawMessage // the final message validated against the definition's output contract
 	Messages          []llm.Message
 	Compactions       []turnCompaction
 	DeliveredInbox    []int64
@@ -979,7 +980,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 		WorkspaceSeq: completion.workspaceSeq, WorkspaceRef: completion.workspaceRef,
 		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
 		Model: s.meta.Model, Provider: s.meta.Provider, Status: status, Error: errorText,
-		Outcome: sessionstore.RuntimePayload{Data: encodeCommandOutcome("submit", outcome, completion.err), MediaType: "application/json", Source: "command outcome"},
+		Outcome: sessionstore.RuntimePayload{Data: encodeTurnOutcome(outcome, completion.journal.Output, completion.err), MediaType: "application/json", Source: "command outcome"},
 	}); err != nil {
 		return err
 	}

@@ -19,6 +19,9 @@ import (
 type CustomTool struct {
 	Name        string
 	InputSchema json.RawMessage
+	// OutputSchema, when set, is what every result must match; a mismatch
+	// from any executor fails the call.
+	OutputSchema json.RawMessage
 	// Timeout bounds one invocation; the daemon supplies the definition's
 	// effective value.
 	Timeout time.Duration
@@ -95,6 +98,16 @@ func (s *Services) customRegistrations() ([]capability.Registration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("custom tool %q input schema: %w", tool.Name, err)
 		}
+		var resolvedOutput *jsonschema.Resolved
+		if len(bytes.TrimSpace(tool.OutputSchema)) > 0 && string(bytes.TrimSpace(tool.OutputSchema)) != "null" {
+			var outputSchema jsonschema.Schema
+			if err := json.Unmarshal(tool.OutputSchema, &outputSchema); err != nil {
+				return nil, fmt.Errorf("custom tool %q output schema: %w", tool.Name, err)
+			}
+			if resolvedOutput, err = outputSchema.Resolve(nil); err != nil {
+				return nil, fmt.Errorf("custom tool %q output schema: %w", tool.Name, err)
+			}
+		}
 		registrations = append(registrations, capability.Registration{
 			Operation: "tools." + tool.Name, Mutation: capability.MutationNone,
 			Handler: func(ctx context.Context, call capability.Call) (string, error) {
@@ -112,11 +125,22 @@ func (s *Services) customRegistrations() ([]capability.Registration, error) {
 					return "", errors.New("custom tools have no executor in this daemon")
 				}
 				turnID, _ := ctx.Value(toolTurnKey{}).(string)
-				return executor.Invoke(ctx, ToolInvocation{
+				output, err := executor.Invoke(ctx, ToolInvocation{
 					Definition: definition, Revision: revision, RootID: call.Request.RootID, AgentID: call.Request.AgentID, TurnID: turnID,
 					OperationID: call.Request.OperationID, TraceID: call.Request.TraceID, Tool: tool.Name, Arguments: call.Arguments,
 					Timeout: tool.Timeout, Progress: OnUpdate(ctx),
 				})
+				if err != nil || resolvedOutput == nil {
+					return output, err
+				}
+				var value any
+				if err := json.Unmarshal([]byte(output), &value); err != nil {
+					return "", fmt.Errorf("tool %s returned a value that does not match its output schema: not JSON", tool.Name)
+				}
+				if err := resolvedOutput.Validate(value); err != nil {
+					return "", fmt.Errorf("tool %s returned a value that does not match its output schema: %w", tool.Name, err)
+				}
+				return output, nil
 			},
 		})
 	}

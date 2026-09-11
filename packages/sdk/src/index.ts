@@ -17,8 +17,8 @@ export { WhipError, RpcError, DeliveryUncertainError } from './errors.js';
 export type { RpcMethods, RuntimeOperations, RpcMethod, RuntimeOperation, CommandOperation, QueryOperation, EphemeralOperation } from '@whip/protocol';
 
 export type { PermissionDecisionStatus } from './services.js';
-export { Agents } from './agents.js';
+export { Agents, AgentSession } from './agents.js';
 export type {
-  Definition, AgentDefinition, ToolDefinition, ToolHandler, ToolContext, Executor, AgentRuntime, RuntimeSessionParams, ServeOptions, HookName, HookContext, HookHandler, HookOptions, HooksInput, HookHandlers, BeforeToolEvent, BeforeToolResult, BeforeSpawnEvent, BeforeSpawnResult, TurnStartEvent, TurnStartResult, SpawnRequest, ResolvedChild, ToolOptions, ToolReturn,
+  Definition, AgentDefinition, AgentOutput, ToolDefinition, ToolHandler, ToolContext, Executor, AgentRuntime, RuntimeSessionParams, ServeOptions, HookName, HookContext, HookHandler, HookOptions, HooksInput, HookHandlers, BeforeToolEvent, BeforeToolResult, BeforeSpawnEvent, BeforeSpawnResult, TurnStartEvent, TurnStartResult, SpawnRequest, ResolvedChild, ToolOptions, ToolReturn,
 } from './agents.js';
 export type { Schema, JsonSchema, StandardSchemaWithJSON, InferInput, InferOutput } from './schema.js';

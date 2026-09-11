@@ -41,6 +41,19 @@ func encodeCommandOutcome(operation, output string, failure error) []byte {
 	return body
 }
 
+// encodeTurnOutcome writes a submit turn's result: the final text and, when
+// the definition declares an output contract, the validated JSON value.
+func encodeTurnOutcome(text string, output json.RawMessage, failure error) []byte {
+	if failure != nil || len(output) == 0 {
+		return encodeCommandOutcome("submit", text, failure)
+	}
+	body, err := json.Marshal(protocol.TextResult{Text: text, Output: output})
+	if err != nil {
+		return []byte(`{"code":-32603,"message":"cannot encode command outcome"}`)
+	}
+	return body
+}
+
 // decodeCommandPresentation formats only v2 structured outcomes for existing
 // text presenters. It never accepts an old plain-text stored outcome.
 func decodeCommandPresentation(operation string, body []byte, status string) (string, string) {

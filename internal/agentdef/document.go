@@ -60,13 +60,12 @@ func (d Definition) Normalize() Definition {
 		tools := make([]Tool, len(d.Tools))
 		for i, tool := range d.Tools {
 			tools[i] = tool
-			var compact bytes.Buffer
-			if err := json.Compact(&compact, tool.InputSchema); err == nil {
-				tools[i].InputSchema = json.RawMessage(compact.Bytes())
-			}
+			tools[i].InputSchema = compactSchema(tool.InputSchema)
+			tools[i].OutputSchema = compactSchema(tool.OutputSchema)
 		}
 		d.Tools = tools
 	}
+	d.Output = compactSchema(d.Output)
 	children := make(map[string]Child, len(d.Children))
 	for name, child := range d.Children {
 		child.Modules = nilIfEmpty(child.Modules)
@@ -77,6 +76,7 @@ func (d Definition) Normalize() Definition {
 			budgets[kind] = limit
 		}
 		child.Budgets = budgets
+		child.Output = compactSchema(child.Output)
 		{
 			if child.Instructions != nil {
 				instructions := *child.Instructions
@@ -106,6 +106,19 @@ func normalizeHooks(hooks *Hooks) *Hooks {
 		return &value
 	}
 	return &Hooks{BeforeTool: copyHook(hooks.BeforeTool), BeforeSpawn: copyHook(hooks.BeforeSpawn), TurnStart: copyHook(hooks.TurnStart)}
+}
+
+// compactSchema compacts a present schema and turns an absent or null one into
+// nil, which encodes as null.
+func compactSchema(schema json.RawMessage) json.RawMessage {
+	if !schemaPresent(schema) {
+		return nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, schema); err != nil {
+		return slices.Clone(schema)
+	}
+	return json.RawMessage(compact.Bytes())
 }
 
 func nilIfEmpty(values []string) []string {
