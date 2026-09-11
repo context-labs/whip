@@ -2,13 +2,13 @@ import { ReadLane } from './read-lane';
 import { MobileRuntime, type SavedHost } from './runtime';
 import type { MobileStorage } from './storage';
 
-export type WorkspaceSnapshot = { hosts: readonly SavedHost[]; connections: readonly MobileRuntime[]; selectedHostId?: string; active: boolean; revision: number };
+export type WorkspaceSnapshot = { hosts: readonly SavedHost[]; connections: readonly MobileRuntime[]; selectedHostId?: string; active: boolean; revision: number; pins: readonly string[] };
 /** Device owner. Each existing MobileRuntime retains its isolated command/view engine. */
 export class MobileWorkspace {
   readonly settings: MobileRuntime;
   readonly reads = new ReadLane();
   connectionKey(id: string) { return this.attempts.get(id) ?? 0; }
-  private state: WorkspaceSnapshot = { hosts: [], connections: [], active: true, revision: 0 };
+  private state: WorkspaceSnapshot = { hosts: [], connections: [], active: true, revision: 0, pins: [] };
   private listeners = new Set<() => void>();
   private runtimes = new Map<string, MobileRuntime>();
   private unsubscribers = new Map<string, () => void>();
@@ -25,7 +25,8 @@ export class MobileWorkspace {
     const hosts = this.settings.getSnapshot().hosts;
     const selectedHostId = await this.storage.get<string>('settings', 'selectedHost');
     const remembered = await this.storage.get<string[]>('settings', 'connectedHosts');
-    this.update({ hosts, selectedHostId });
+    const pins = await this.storage.get<string[]>('settings', 'mobilePins');
+    this.update({ hosts, selectedHostId, pins: Array.isArray(pins) ? pins.filter(p => typeof p === 'string' && p.length <= 2048).slice(0, 128) : [] });
     const ids = new Set(remembered ?? (selectedHostId ? [selectedHostId] : []));
     void (async () => {
       const selected = hosts.filter(h => ids.has(h.id));
@@ -76,6 +77,15 @@ export class MobileWorkspace {
       if (select) await this.select(host.id);
       return runtime;
     } finally { await this.refreshProfiles(); }
+  }
+  private pinWrites: Promise<void> = Promise.resolve();
+  pin(runtimeId: string, rootId: string, pinned: boolean) {
+    const key = JSON.stringify([runtimeId, rootId]);
+    const work = this.pinWrites.catch(() => {}).then(async () => {
+      const pins = this.state.pins.filter(p => p !== key);
+      if (pinned) { if (pins.length >= 128) throw new Error('Unpin a session before adding another.'); pins.push(key); }
+      await this.storage.set('settings', 'mobilePins', pins); this.update({ pins });
+    }); this.pinWrites = work; return work;
   }
   async select(id: string) { if (!this.runtimes.has(id)) throw new Error('Connect this host first.'); await this.storage.set('settings', 'selectedHost', id); this.update({ selectedHostId: id }); }
   async disconnect(id: string) {

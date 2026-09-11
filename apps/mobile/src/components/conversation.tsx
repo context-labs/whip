@@ -7,12 +7,12 @@ import { messagePresentation, type TimelineRow } from '@whip/app/presentation';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { Actions, Label, Loading, Notice, Stack } from './primitives';
 import { PagedText, textPreview } from './paged-text';
-import { useTheme } from '../theme/theme';
+import { useDisplay, useTheme } from '../theme/theme';
 
 /** Recycling must reset disclosure state; scrolling can never trigger a body read. */
 export const ConversationRow = memo(function ConversationRow({ row, onInspect, onPageChange }: { row: TimelineRow; onInspect(row: TimelineRow): void; onPageChange?(): void }) {
-  const runtime = useRuntime(); const theme = useTheme();
-  const [expanded, setExpanded] = useRecyclingState(false, [row.id]);
+  const runtime = useRuntime(); const theme = useTheme(); const display = useDisplay();
+  const [expanded, setExpanded] = useRecyclingState(display.toolDensity === 'detailed', [row.id, display.toolDensity]);
   const [copied, setCopied] = useRecyclingState(false, [row.id]);
   const currentRow = useRef(row.id); currentRow.current = row.id;
   const detail = row.role === 'tool' || row.role === 'reasoning' || row.role === 'mailbox';
@@ -21,10 +21,10 @@ export const ConversationRow = memo(function ConversationRow({ row, onInspect, o
   const empty = retained ?? (row.live ? 'Waiting for output…' : 'No text output was retained.');
   const user = row.role === 'user';
   const heading = `${user ? 'You' : row.label ?? (row.role === 'assistant' ? 'Whip' : row.role)}${row.live ? ' · Live' : ''}${row.delivery ? ` · ${row.delivery}` : ''}`;
-  return <Stack style={{ paddingHorizontal: 16, paddingVertical: user ? 12 : 16, gap: 6, marginVertical: 8,
-    ...(user ? { backgroundColor: theme.colors.panel, borderRadius: 16, alignSelf: 'flex-end', maxWidth: '92%', marginRight: 16, marginLeft: 24 } : {}) }}>
-    <Label muted style={{ fontSize: 12, fontWeight: '600' }}>{textPreview(heading)}</Label>
-    {detail && !expanded ? <Label muted numberOfLines={2} testID="collapsed-message-preview">{textPreview(row.text || row.args || empty)}</Label>
+  return <Stack style={{ paddingHorizontal: 20, paddingVertical: user ? 12 : detail ? 6 : 16, gap: 6, marginVertical: 8,
+    ...(user ? { backgroundColor: theme.colors.element, borderRadius: 18, alignSelf: 'flex-end', maxWidth: '92%', marginRight: 20, marginLeft: 40 } : {}) }}>
+    {(!user || row.delivery) && <Label muted style={{ fontSize: 12, fontWeight: '600' }}>{textPreview(heading)}</Label>}
+    {detail && !expanded ? <Label muted numberOfLines={display.toolDensity === 'compact' ? 1 : 2} testID="collapsed-message-preview">{textPreview(row.text || row.args || empty)}</Label>
       : text ? <><PagedText text={text} identity={row.id} source={row.role === 'tool'} onPageChange={onPageChange} />{retained && <Notice>{retained}</Notice>}</>
         : <Notice>{empty}</Notice>}
     {!!row.images?.length && <Notice>{row.images.length} image attachment{row.images.length === 1 ? '' : 's'} available in the web app.</Notice>}

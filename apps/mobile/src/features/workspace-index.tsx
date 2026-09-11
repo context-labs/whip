@@ -13,7 +13,7 @@ export function useWorkspaceIndex(kind: 'sessions' | 'attention', search = '', s
   const enabled = state.active && focused && state.connections.some(r => r.getSnapshot().ready);
   const result = useQuery({ queryKey: ['workspace-index', kind, key, search, status, cursors], enabled,
     gcTime: 0, staleTime: 10_000, refetchInterval: enabled ? 10_000 : false,
-    queryFn: ({ signal }) => Promise.all(state.connections.map(async (runtime): Promise<Page> => {
+    queryFn: ({ signal }) => Promise.all(state.connections.filter(r => r.getSnapshot().host).map(async (runtime): Promise<Page> => {
       const connection = runtime.getSnapshot(); const host = connection.host!; const client = connection.client;
       if (!connection.ready || !client) return { host, error: connection.connecting ? 'Connecting…' : 'Host disconnected' };
       try {

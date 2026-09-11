@@ -2,7 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { AppState, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Stack as RouteStack, router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { BottomSheet, RNHostView } from '@expo/ui';
+import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
+import { Composer } from '../../components/composer';
+import { SessionMenu } from '../../components/session-menu';
+import { EmptyState, IconButton, ScreenHeader, Sheet, StatusBadge, Text } from '../../ui';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +17,7 @@ import { draftKey } from '../../runtime/address';
 import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../../components/primitives';
 import { BodyInspector, ConversationRow } from '../../components/conversation';
 import { Requests } from '../../components/requests';
-import { useTheme } from '../../theme/theme';
+import { useDisplay, useTheme } from '../../theme/theme';
 import { captureReadingBookmark, restoreReadingBookmark, validReadingBookmark } from '../../features/reading';
 import { creationModels } from '../../features/creation';
 import { idleRootSettings, pendingRootSetting, sessionEfforts } from '../../features/session-settings';
@@ -34,10 +37,10 @@ export default function SessionScreen() {
     : <Loading label="Opening session…" />;
 }
 function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view: SessionView; runtimeId: string; initialAgent?: string; showRequests: boolean }) {
-  const runtime = useRuntime(); const state = useRuntimeState(); const theme = useTheme();
+  const runtime = useRuntime(); const state = useRuntimeState(); const theme = useTheme(); const insets = useSafeAreaInsets();
   const snapshot = useSessionView(view); const root = snapshot.root;
   const [agentId, setAgent] = useState(initialAgent || view.session.rootId);
-  const [sheet, setSheet] = useState<'agents' | 'requests' | 'details' | 'body' | undefined>(showRequests ? 'requests' : undefined);
+  const [sheet, setSheet] = useState<'agents' | 'requests' | 'details' | 'body' | 'menu' | undefined>(showRequests ? 'requests' : undefined);
   const [inspection, setInspection] = useState<{ row: TimelineRow; agentId: string }>();
   const agent = root?.agents?.find(a => a.id === agentId);
   const isRoot = agentId === view.session.rootId;
@@ -53,31 +56,28 @@ function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view:
   const effort = isRoot ? root?.meta.effort : agent?.effort;
   const questions = root?.questions?.length ?? 0;
   const permissions = root?.permissions?.filter(p => p.status === 'pending').length ?? 0;
-  const enabled = state.ready && snapshot.status === 'live' && !!root && (agentId === root.root_id || !!agent);
+  const enabled = state.ready && snapshot.status === 'live' && !!root && !root.meta.archived && (agentId === root.root_id || !!agent);
   return <Screen scroll={false}>
-    <RouteStack.Screen options={{ title: root?.meta.title || 'Session' }} />
-    <Stack style={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
-      <Label muted numberOfLines={1} style={{ fontSize: 12 }}>{state.host?.name} · {root?.meta.cwd ?? view.session.rootId}</Label>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Recipient: ${name}. Choose agent`} onPress={() => setSheet('agents')} style={{ paddingVertical: 10, flex: 1 }}><Label style={{ fontWeight: '600' }}>{name} ▾</Label></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Session details" onPress={() => setSheet('details')} style={{ padding: 10 }}><Label muted>Details</Label></Pressable>
-      </View>
-      <Label muted numberOfLines={1} style={{ fontSize: 12 }}>{model ? `${model}${provider ? ` · ${provider}` : ''}` : 'Model unavailable'}</Label>
+    <View style={{ paddingTop: insets.top }}><ScreenHeader title={root?.meta.title || 'New session'} onBack={() => router.back()} right={<IconButton label="Session menu" onPress={() => setSheet('menu')}><MoreHorizontal size={22} color={theme.colors.foreground} /></IconButton>} /></View>
+    <Stack style={{ paddingHorizontal: 20, paddingBottom: 12, gap: 8 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}><Pressable accessibilityRole="button" accessibilityLabel={`Recipient: ${name}. Choose agent`} onPress={() => setSheet('agents')} style={{ minHeight: 44, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}><Text variant="caption" muted numberOfLines={1}>{isRoot ? `${state.host?.name} · ${root?.meta.cwd?.split('/').filter(Boolean).at(-1) || 'Project'}` : name}</Text><ChevronDown size={14} color={theme.colors.muted} /></Pressable><StatusBadge label={!state.ready ? 'Offline' : root?.active_turns?.[agentId] ? 'Working' : 'Ready'} tone={!state.ready ? 'warning' : root?.active_turns?.[agentId] ? 'primary' : 'muted'} pulse={!!root?.active_turns?.[agentId]} /></View>
       {!!root && !recipientExists && <Notice>This recipient is outside the current session snapshot. Choose an available agent before sending.</Notice>}
       {(questions > 0 || permissions > 0 || root?.omitted?.questions || root?.omitted?.permissions) && <Actions items={[{ label: `${questions + permissions}${root?.omitted?.questions || root?.omitted?.permissions ? '+' : ''} requests need attention`, onPress: () => setSheet('requests'), testID: 'open-requests' }]} />}
     </Stack>
+    {state.error && <Stack style={{ paddingHorizontal: 20 }}><Notice danger>{state.error}</Notice><Actions items={[{ label: 'Dismiss message', secondary: true, onPress: runtime.clearError }]} /></Stack>}
+    {root?.meta.archived && <Notice>This session is archived. Open the session menu to restore it.</Notice>}
     {snapshot.status !== 'live' && <Notice>{snapshot.unavailable ? 'This session is unavailable on the host.' : snapshot.error?.message ?? 'Reconnecting… Last observed messages remain visible.'}</Notice>}
-    {snapshot.truncated && <Notice>Some history is outside the retained window. Load earlier messages or open the web app for larger output.</Notice>}
-    {root ? <Conversation key={agentId} view={view} runtimeId={runtimeId} snapshot={snapshot} agentId={agentId} name={name} enabled={enabled} onInspect={row => { setInspection({ row, agentId }); setSheet('body'); }} /> : <Loading />}
-    <BottomSheet isPresented={!!sheet} onDismiss={() => setSheet(undefined)} snapPoints={['full']} containerColor={theme.colors.background} contentPadding={0}>
-      <RNHostView><View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        {sheet === 'body' && inspection ? <BodyInspector row={inspection.row} rootId={view.session.rootId} agentId={inspection.agentId} /> : sheet === 'requests' && root ? <Requests root={root} view={view} disabled={!state.ready || snapshot.status !== 'live'} /> : <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    {snapshot.truncated && <Pressable accessibilityRole="button" accessibilityLabel="View summarized session details" onPress={() => setSheet('details')} style={{ paddingHorizontal: 20, minHeight: 44, justifyContent: 'center' }}><Text muted variant="caption">More session details available →</Text></Pressable>}
+    {root ? <Conversation key={agentId} view={view} runtimeId={runtimeId} snapshot={snapshot} agentId={agentId} name={name} enabled={enabled} onOptions={() => setSheet('details')} onInspect={row => { setInspection({ row, agentId }); setSheet('body'); }} /> : <Loading />}
+    <Sheet title={sheet === 'menu' ? 'Session' : sheet === 'agents' ? 'Choose recipient' : sheet === 'requests' ? 'Needs you' : sheet === 'body' ? 'Full message' : 'Session details'} visible={!!sheet} onClose={() => setSheet(undefined)} full={sheet !== 'menu'}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.panel }}>
+        {sheet === 'menu' ? <SessionMenu view={view} onDetails={() => setSheet('details')} onClose={() => setSheet(undefined)} /> : sheet === 'body' && inspection ? <BodyInspector row={inspection.row} rootId={view.session.rootId} agentId={inspection.agentId} /> : sheet === 'requests' && root ? <Requests root={root} view={view} disabled={!state.ready || snapshot.status !== 'live'} /> : <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
           {sheet === 'agents' ? <><Label style={{ fontSize: 24, fontWeight: '600' }}>Choose recipient</Label>
             <RowButton title="Root agent" selected={agentId === view.session.rootId} onPress={() => { setAgent(view.session.rootId); setSheet(undefined); router.setParams({ agentId: view.session.rootId }); }} />
             {root?.agents?.filter(a => a.id !== root.root_id).map(a => <RowButton key={a.id} title={a.name || a.id} detail={`${a.status} · ${a.model}`} selected={a.id === agentId} onPress={() => { setAgent(a.id); setSheet(undefined); router.setParams({ agentId: a.id }); }} />)}
             {root?.omitted?.agents && <Notice>More agents exist than this snapshot contains. Use the web app to inspect the full tree.</Notice>}
           </> : <><Label style={{ fontSize: 24, fontWeight: '600' }}>Session details</Label>
-            <Label selectable>{root?.meta.title}</Label><Label muted>Directory</Label><Label selectable>{root?.meta.cwd}</Label>
+            {snapshot.truncated && <Notice>Some details are summarized in this session view. Earlier messages and full message content can be opened from the conversation. The web app can show larger outputs.</Notice>}<Label selectable>{root?.meta.title}</Label><Label muted>Directory</Label><Label selectable>{root?.meta.cwd}</Label>
             <Label muted>Model</Label><Label>{model ? `${model}${provider ? ` · ${provider}` : ''}` : 'Model unavailable'}</Label>
             <Label muted>Reasoning effort</Label><Label>{effort || 'Host default'}</Label>
             {agentId === view.session.rootId && root && <RootSettings view={view} />}
@@ -87,8 +87,8 @@ function SessionContent({ view, runtimeId, initialAgent, showRequests }: { view:
           </>}
         </ScrollView>}
         <View style={{ padding: 16 }}><Actions items={[{ label: 'Done', secondary: true, onPress: () => setSheet(undefined) }]} /></View>
-      </View></RNHostView>
-    </BottomSheet>
+      </View>
+    </Sheet>
   </Screen>;
 }
 function RootSettings({ view }: { view: SessionView }) {
@@ -154,8 +154,8 @@ function RootSettings({ view }: { view: SessionView }) {
       onPress: () => { void catalogs.refetch(); } }]} />
   </Stack>;
 }
-function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onInspect }: { view: SessionView; runtimeId: string; snapshot: DeepReadonly<SessionViewSnapshot>; agentId: string; name: string; enabled: boolean; onInspect(row: TimelineRow): void }) {
-  const runtime = useRuntime(); const state = useRuntimeState(); const theme = useTheme(); const insets = useSafeAreaInsets();
+function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onInspect, onOptions }: { view: SessionView; runtimeId: string; snapshot: DeepReadonly<SessionViewSnapshot>; agentId: string; name: string; enabled: boolean; onInspect(row: TimelineRow): void; onOptions(): void }) {
+  const runtime = useRuntime(); const state = useRuntimeState(); const theme = useTheme(); const display = useDisplay(); const insets = useSafeAreaInsets();
   const rootId = view.session.rootId; const root = snapshot.root!;
   const key = draftKey(runtimeId, rootId, agentId);
   const draft = runtime.draft(key);
@@ -279,18 +279,17 @@ function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onIns
     {bookmark === undefined ? <Loading label="Restoring your reading place…" /> : <FlashList ref={listRef} data={rows} keyExtractor={row => row.id} getItemType={row => row.role} keyboardShouldPersistTaps="handled"
       renderItem={({ item }) => <ConversationRow row={item} onInspect={onInspect}
         onPageChange={() => { void readTextPage(item.id).catch(runtime.report); }} />}
-      maintainVisibleContentPosition={{ autoscrollToBottomThreshold: follow ? 0.2 : undefined, animateAutoScrollToBottom: false, startRenderingFromBottom: !bookmark || bookmark.follow }}
+      maintainVisibleContentPosition={{ autoscrollToBottomThreshold: follow ? 0.2 : undefined, animateAutoScrollToBottom: false, startRenderingFromBottom: rows.length > 12 && (!bookmark || bookmark.follow) }}
       onLoad={() => { listLoaded.current = true; void restore(); }} onScroll={scroll} scrollEventThrottle={100} onMomentumScrollEnd={() => savePlace.current()} onScrollEndDrag={() => savePlace.current()}
       ListHeaderComponent={<Stack style={{ paddingHorizontal: 16 }}>{history?.hasMore && <Actions items={[{ label: history.loading ? 'Loading earlier messages…' : 'Load earlier messages', secondary: true, disabled: !enabled || history.loading, onPress: () => { void view.loadOlder(agentId).catch(runtime.report); } }]} />}{history?.error && <Notice danger>{history.error.message}</Notice>}</Stack>}
-      ListEmptyComponent={<Stack style={{ padding: 24 }}>{history?.loading ? <Loading /> : <Label muted>Send a message to {name.toLowerCase()} to begin.</Label>}</Stack>} />}
+      ListEmptyComponent={<View style={{ minHeight: 300 }}>{history?.loading ? <Loading /> : <EmptyState title="What are we working on?" description="Ask a question, plan a change, or give your agent something to build." />}</View>} />}
     {!follow && <View style={{ paddingHorizontal: 16 }}><Actions items={[{ label: 'Jump to latest', secondary: true, onPress: () => {
       restoreEpoch.current++; restoring.current = false; followRef.current = true; setFollow(true); setPlaceNotice('');
       if (historyReady) appliedRevision.current = history?.revision;
       if (anchor.current) anchor.current = { ...anchor.current, follow: true };
-      list.current?.scrollToEnd({ animated: true }); savePlace.current();
+      list.current?.scrollToEnd({ animated: !display.reducedMotion }); savePlace.current();
     } }]} /></View>}
-    <Stack style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: Math.max(12, insets.bottom), gap: 8, backgroundColor: theme.colors.panel }}>
-      <Field label={`Message to ${name}`} value={draft.text} onChangeText={text => { try { runtime.setDraft(key, text); } catch (error) { runtime.report(error); } }} multiline placeholder={enabled ? 'Send a message…' : 'Draft while disconnected…'} style={{ maxHeight: 160, minHeight: 56 }} testID="message-input" />
+    <Stack style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: Math.max(12, insets.bottom), gap: 8 }}>
       {!!draft.text && <Label muted={draftStatus !== 'failed'} accessibilityLiveRegion="polite" style={{ fontSize: 12, ...(draftStatus === 'failed' ? { color: theme.colors.error } : {}) }}>
         {draftStatus === 'saving' ? 'Saving draft…' : draftStatus === 'failed' ? 'Draft not saved. Copy your text before leaving.' : 'Draft saved on this phone.'}
       </Label>}
@@ -298,10 +297,7 @@ function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onIns
         {(['queued', 'steer'] as const).map(mode => <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: delivery === mode }} onPress={() => setDelivery(mode)} style={{ minHeight: 44, justifyContent: 'center' }}><Label style={{ color: delivery === mode ? theme.colors.primary : theme.colors.muted, fontSize: 13 }}>{mode === 'queued' ? 'Queue message' : 'Steer current work'}</Label></Pressable>)}
       </View>}
       {blocked && <Notice>Checking the previous delivery. Your new draft is retained.</Notice>}
-      <Actions items={[
-        { label: activeTurn && delivery === 'steer' ? 'Send steering message' : 'Send message', disabled: !enabled || !supported || blocked || !draft.text.trim(), onPress: () => { void send(); }, testID: 'send-message' },
-        ...(activeTurn ? [{ label: 'Stop this turn', secondary: true, disabled: !enabled || !state.client?.supports('runtime', agentId === rootId ? 'cancel' : 'agent.turn.cancel'), onPress: stop, testID: 'stop-turn' }] : []),
-      ]} />
+      <Composer value={draft.text} onChangeText={text => { try { runtime.setDraft(key, text); } catch (error) { runtime.report(error); } }} onSend={() => { void send(); }} disabled={!enabled || !supported || blocked || !draft.text.trim()} offline={!state.ready} model={root.meta.model || 'Host default'} onOptions={onOptions} onStop={activeTurn && enabled && state.client?.supports('runtime', agentId === rootId ? 'cancel' : 'agent.turn.cancel') ? stop : undefined} />
     </Stack>
   </KeyboardAvoidingView>;
 }

@@ -31,3 +31,10 @@ Branch: `codex/mobile-ui`
 - Added a single foreground workspace attention owner. Session and attention reads share a two-request device lane. Each host retains one bounded page (128 sessions/256 KiB or 64 attention entries/128 KiB); Next replaces that host's page rather than growing memory. This explicit page-window implementation differs from append pagination in the proposal and keeps partial counts honest. Old query windows are immediately garbage-collected.
 - New session is host → folder → review, with model/provider/reasoning/execution language/advertised agent definitions in a native options sheet. The existing journaled creation state machine remains responsible for creation and recovery.
 - Mobile typecheck and 13 targeted creation/workspace/read-lane tests pass. Android home and the native filter sheet were visually inspected; the sheet bridge uses Expo's RNHostView on both platforms.
+
+## Phase 5 — conversation and settings
+
+- Added a keyboard-aware rounded composer, compact host/recipient header, working status pulse, semantic user bubbles, quieter activity previews, and reduced-motion-aware navigation. Agent selection, full-content inspection, questions and permissions use the shared native sheet.
+- Session menu supports device-local pins (128 maximum), guarded rename/archive/restore, details and Copy ID. The protocol has no pin command, so pins explicitly stay on the phone; existing host pins remain visible. Local host errors are visible inside scoped conversations.
+- Tool density now controls initial disclosure and preview length. Theme imports remain scoped to the explicitly selected source and abort on a source change.
+- All 153 mobile tests pass, including native storage. A temporary fake-provider host connected from Android; its combined session list, empty chat, keyboard-open draft, send, automatic title and completed echo response were inspected. No real model or ordinary host was used for these mutation tests.

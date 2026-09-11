@@ -21,7 +21,7 @@ export default function AppearanceScreen() {
   const [importing, setImporting] = useState(false); const [hostThemes, setHostThemes] = useState<{ id: string; title: string }[]>(); const [error, setError] = useState('');
   const request = useRef<AbortController | null>(null); const saving = useRef(false);
   const workspace = useWorkspace(); const workspaceState = useWorkspaceState(); const [sourceId, setSourceId] = useState<string>();
-  const sourceRuntime = workspace.runtime(sourceId ?? workspaceState.selectedHostId) ?? workspaceState.connections.find(r => r.getSnapshot().ready);
+  const sourceRuntime = sourceId ? workspace.runtime(sourceId) : workspace.runtime(workspaceState.selectedHostId) ?? workspaceState.connections.find(r => r.getSnapshot().ready);
   const source = sourceRuntime?.getSnapshot();
   const all = [...themeCatalog, ...(state.customThemes ?? [])]; const appearance = { ...defaultAppearance, ...state.appearance };
   useEffect(() => () => { preview(); request.current?.abort(); }, [preview]);
@@ -60,7 +60,7 @@ export default function AppearanceScreen() {
     </Section>
     <Surface><Stack><Text variant="caption" muted>LIVE PREVIEW · {theme.name}</Text><Surface tone="element" style={{ alignSelf: 'flex-end', maxWidth: '90%', borderBottomRightRadius: 6 }}><Text>Make the session list easier to scan.</Text></Surface><Markdown text={'### A quieter workspace\nYour hosts, sessions, and ideas.\n\n```typescript\nconst session = await host.create();\n```'} /><ListRow title="Explored 6 files" detail="Ready for your next idea" /><Button label="Continue" variant="secondary" disabled onPress={() => {}} /></Stack></Surface>
     <Section title="CUSTOM THEMES"><Text muted>Import a Whip JSON theme or choose one from the connected host. Saved imports work offline.</Text><ListRow title="Theme source" detail={source?.host?.name ?? 'Connect a host to import'} />
-      {workspaceState.connections.filter(r => r.getSnapshot().ready).length > 1 && workspaceState.connections.filter(r => r.getSnapshot().ready).map(r => <ListRow key={r.getSnapshot().host!.id} title={r.getSnapshot().host!.name} selected={r === sourceRuntime} onPress={() => { request.current?.abort(); setSourceId(r.getSnapshot().host!.id); }} />)}
+      {workspaceState.connections.filter(r => r.getSnapshot().ready).length > 1 && workspaceState.connections.filter(r => r.getSnapshot().ready).map(r => <ListRow key={r.getSnapshot().host!.id} title={r.getSnapshot().host!.name} selected={r === sourceRuntime} onPress={() => { request.current?.abort(); setImporting(false); setHostThemes(undefined); setSourceId(r.getSnapshot().host!.id); }} />)}
       <Button label="Import theme JSON" variant="secondary" disabled={!source?.ready || importing} loading={importing} onPress={() => { void importTheme(); }} /><Button label="Browse host themes" variant="quiet" disabled={!source?.ready || importing} onPress={() => { void loadHostThemes(); }} />
       {(state.customThemes ?? []).map(t => <ListRow key={t.id} title={t.name} detail={`${t.dark ? 'Dark' : 'Light'} · Saved on this phone`} trailing={<Swatch theme={t} />} onPress={() => Alert.alert(`Remove ${t.name}?`, 'A selected theme will return to its default. Your other themes stay saved.', [{ text: 'Keep', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { void runtime.removeTheme(t.id).catch(e => setError(String(e.message))); } }])} />)}
     </Section>

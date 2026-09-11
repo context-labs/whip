@@ -16,10 +16,10 @@ export function NativeTheme({ appearance, themes = [], children }: PropsWithChil
   const system = useColorScheme(); const [reduce, setReduce] = useState(false); const [contrast, setContrast] = useState(false); const [preview, setPreview] = useState<string>();
   useEffect(() => {
     let live = true, motionEvent = false, contrastEvent = false;
-    void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (live && !motionEvent) setReduce(value); });
+    void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (live && !motionEvent) setReduce(value); }).catch(() => {});
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', value => { motionEvent = true; setReduce(value); });
     const high = AccessibilityInfo.addEventListener('highTextContrastChanged', value => { contrastEvent = true; setContrast(value); });
-    if (Platform.OS === 'android') void AccessibilityInfo.isHighTextContrastEnabled().then(value => { if (live && !contrastEvent) setContrast(value); });
+    if (Platform.OS === 'android') void AccessibilityInfo.isHighTextContrastEnabled().then(value => { if (live && !contrastEvent) setContrast(value); }).catch(() => {});
     return () => { live = false; motion.remove(); high.remove(); };
   }, []);
   const preferences = { ...defaultAppearance, ...appearance };
