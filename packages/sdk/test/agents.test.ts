@@ -3,7 +3,21 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { WhipClient } from '../src/client.js';
 import { defineAgent, tool, type HooksInput } from '../src/agents.js';
+import type { StandardResult, StandardSchemaWithJSON } from '../src/schema.js';
 import { transportFixture } from './transport-fixture.js';
+
+/** A Standard JSON Schema built by hand, so the SDK's typing and validation are tested without a schema library. */
+function standard<I, O = I>(json: Record<string, unknown>, validate: (value: unknown) => StandardResult<O>): StandardSchemaWithJSON<I, O> {
+  return { '~standard': { version: 1, vendor: 'hand-rolled', validate, jsonSchema: { input: () => json, output: () => json } } };
+}
+const ticketInput = standard<{ id: string }>({ type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, value => {
+  const id = (value as { id?: unknown }).id;
+  return typeof id === 'string' && id !== 'bad' ? { value: { id } } : { issues: [{ message: id === 'bad' ? 'id "bad" is reserved' : 'expected a string', path: ['id'] }] };
+});
+const ticketOutput = standard<{ id: string; title: string }>({ type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } }, required: ['id', 'title'] }, value => {
+  const record = value as { id?: unknown; title?: unknown };
+  return typeof record.title === 'string' ? { value: { id: String(record.id), title: record.title } } : { issues: [{ message: 'title is required' }] };
+});
 
 // The Go test loads the same fixture and requires it to equal the built-in
 // JuniorDeveloper. This side requires that defineAgent produces it.
@@ -37,14 +51,69 @@ test('defineAgent produces the canonical JuniorDeveloper document', () => {
 });
 
 test('tools land in the document and handlers stay local', () => {
-  const lookup = tool('lookup_ticket', 'Fetch a ticket by id', { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, async ({ id }: { id: string }) => ({ id }), { timeoutMs: 1000 });
+  const lookup = tool({ name: 'lookup_ticket', description: 'Fetch a ticket by id', input: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, execute: async input => ({ id: (input as { id: string }).id }), timeoutMs: 1000 });
   const agent = defineAgent({ id: 'support-bot', modules: ['context'], tools: [lookup], children: { helper: { modules: ['context'], tools: ['lookup_ticket'], report: 'message' } } });
   assert.deepEqual(agent.document.tools, [{ name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, timeout_millis: 1000 }]);
-  assert.equal(agent.handlers.get('lookup_ticket'), lookup.handler);
+  assert.equal(agent.handlers.get('lookup_ticket'), lookup);
   assert.deepEqual(agent.document.children.helper, { instructions: null, modules: ['context'], capabilities: null, tools: ['lookup_ticket'], model: { model: '', provider: '', effort: '' }, budgets: {}, report: 'message' });
   assert.throws(() => defineAgent({ id: 'dup', modules: ['context'], tools: [lookup, lookup] }), /declared twice/);
   assert.throws(() => defineAgent({ id: 'none', modules: [] }), /at least one host module/);
-  assert.throws(() => tool('bad', 'd', [] as unknown as Record<string, unknown>, () => 1), /JSON Schema object/);
+  assert.throws(() => tool({ name: 'bad', description: 'd', input: [] as unknown as Record<string, unknown>, execute: () => 1 }), /Standard JSON Schema or a JSON Schema object/);
+  assert.throws(() => tool({ name: 'list', description: 'd', input: { type: 'array' }, execute: () => 1 }), /must describe an object/);
+  assert.throws(() => tool({ name: 'slow', description: 'd', input: { type: 'object' }, execute: () => 1, timeoutMs: -1 }), /timeoutMs/);
+});
+
+test('a Standard JSON Schema types the handler and derives the document schema', () => {
+  const lookup = tool({ name: 'lookup_ticket', description: 'Fetch a ticket by id', input: ticketInput, output: ticketOutput, execute: async ({ id }, context) => ({ id, title: `ticket ${id} for ${context.agentId}` }) });
+  // The input type is the schema's; a return that does not match the output schema does not compile.
+  tool({ name: 'typed', description: 'd', input: ticketInput, execute: ({ id }) => { const text: string = id; return text; } });
+  // @ts-expect-error the output schema requires a title
+  tool({ name: 'untyped', description: 'd', input: ticketInput, output: ticketOutput, execute: async ({ id }) => ({ id }) });
+  // @ts-expect-error raw JSON Schema types the input unknown
+  tool({ name: 'raw', description: 'd', input: { type: 'object' }, execute: input => input.id });
+  assert.deepEqual(lookup.spec, { name: 'lookup_ticket', description: 'Fetch a ticket by id', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }, timeout_millis: 0 });
+  assert.equal(lookup.validate, true);
+  const throwing: StandardSchemaWithJSON<{ id: string }> = { '~standard': { version: 1, vendor: 'hand-rolled', validate: () => ({ value: { id: '' } }),
+    jsonSchema: { input: () => { throw new Error('unsupported target'); }, output: () => ({}) } } };
+  assert.throws(() => tool({ name: 'nojson', description: 'd', input: throwing, execute: () => 1 }), /hand-rolled schema cannot produce draft-2020-12 JSON Schema/);
+});
+
+test('serve validates typed tool inputs and outputs locally around execute', async t => {
+  const revision = 'c'.repeat(64);
+  const calls: string[] = [];
+  const lookup = tool({ name: 'lookup_ticket', description: 'Fetch a ticket by id', input: ticketInput, output: ticketOutput, execute: async ({ id }) => {
+    calls.push(id);
+    return id === 'untitled' ? { id } as unknown as { id: string; title: string } : { id, title: `ticket ${id}` };
+  } });
+  const unchecked = tool({ name: 'unchecked', description: 'd', input: ticketInput, output: ticketOutput, validate: false, execute: async ({ id }) => ({ id } as unknown as { id: string; title: string }) });
+  const agent = defineAgent({ id: 'support-bot', modules: ['context'], tools: [lookup, unchecked] });
+  const fixture = transportFixture({ request(request, connection) {
+    switch (request.method) {
+      case 'definitions.register': connection.reply(request, { id: 'support-bot', revision, created: true }); break;
+      case 'executor.bind': connection.reply(request, { generation: '1', tools: ['lookup_ticket', 'unchecked'] }); break;
+      case 'tool.result': connection.reply(request, { accepted: true }); break;
+    }
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'executor', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  await client.agents.serve(agent);
+  const invoke = (id: string, tool: string, input: unknown) => fixture.current.notify('tool.invoke', {
+    invocation_id: id, definition: 'support-bot', revision, generation: '1', root_id: 'root', agent_id: 'root', turn_id: 'turn-1',
+    tool, input, deadline_millis: String(Date.now() + 60_000),
+  });
+  const results = () => fixture.current.requests.filter(request => request.method === 'tool.result').map(request => request.params);
+  invoke('inv-1', 'lookup_ticket', { id: '42' });
+  invoke('inv-2', 'lookup_ticket', { id: 'bad' });
+  invoke('inv-3', 'lookup_ticket', { id: 'untitled' });
+  invoke('inv-4', 'unchecked', { id: 'untitled' });
+  await until(() => results().length === 4, 'four results');
+  const byId = Object.fromEntries(results().map(result => [result.invocation_id, result]));
+  assert.deepEqual(byId['inv-1'], { invocation_id: 'inv-1', generation: '1', output: { id: '42', title: 'ticket 42' } });
+  assert.deepEqual(byId['inv-2'], { invocation_id: 'inv-2', generation: '1', error: 'tool lookup_ticket rejected its input: id: id "bad" is reserved' });
+  assert.deepEqual(byId['inv-3'], { invocation_id: 'inv-3', generation: '1', error: 'tool lookup_ticket returned a value that does not match its output schema (the handler already ran): title is required' });
+  assert.deepEqual(byId['inv-4'], { invocation_id: 'inv-4', generation: '1', output: { id: 'untitled' } });
+  assert.deepEqual(calls, ['42', 'untitled'], 'a rejected input never reaches execute');
 });
 
 test('the registry round-trips through the protocol', async t => {
@@ -76,13 +145,14 @@ async function until(check: () => boolean, what: string): Promise<void> {
 
 test('serve binds the executor, runs handlers, honors cancellation, re-binds after reconnect, and fails fast once closed', async t => {
   const revision = 'b'.repeat(64);
-  const lookup = tool('lookup_ticket', 'Fetch a ticket by id', { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-    async ({ id }: { id: string }, context) => {
+  const lookup = tool({ name: 'lookup_ticket', description: 'Fetch a ticket by id', input: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    execute: async (input, context) => {
+      const { id } = input as { id: string };
       context.progress(`looking up ${id}`);
       if (id === 'boom') throw new Error('upstream unavailable');
       if (id === 'hang') await new Promise((_, reject) => context.signal.addEventListener('abort', () => reject(context.signal.reason), { once: true }));
       return { id, invocation: context.invocationId, turn: context.turnId, agent: context.agentId };
-    });
+    } });
   const agent = defineAgent({ id: 'support-bot', modules: ['context'], tools: [lookup] });
   let generation = 0;
   const pending: unknown[] = [];

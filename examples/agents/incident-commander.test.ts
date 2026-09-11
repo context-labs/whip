@@ -16,6 +16,11 @@ test('the document declares every primitive', () => {
   assert.equal(document.compaction.threshold, 0.75);
   assert.deepEqual(document.mcp, { servers: ['statuspage'] });
   assert.deepEqual(document.tools?.map(tool => tool.name), ['search_incidents', 'fetch_runbook', 'page_oncall', 'record_timeline']);
+  // The wire schema is derived from zod at 2020-12; a zod upgrade that changes it changes the revision, and shows here first.
+  assert.deepEqual(document.tools?.[2]?.input_schema, {
+    $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object',
+    properties: { team: { type: 'string' }, message: { type: 'string', maxLength: 500 } }, required: ['team', 'message'],
+  });
   assert.deepEqual(Object.keys(document.children), ['investigator', 'scribe']);
   assert.deepEqual(document.children.investigator.tools, ['search_incidents', 'fetch_runbook']);
   assert.equal(document.children.investigator.report, 'message');
@@ -31,12 +36,12 @@ test('the document declares every primitive', () => {
 test('tools and hooks behave in-process', async () => {
   const { agent, state } = createIncidentCommander();
   const search = agent.handlers.get('search_incidents')!;
-  assert.deepEqual(((await search({ query: 'auth', status: 'open' }, toolContext)) as { id: string }[]).map(incident => incident.id), ['INC-101']);
+  assert.deepEqual(((await search.execute({ query: 'auth', status: 'open' }, toolContext)) as { id: string }[]).map(incident => incident.id), ['INC-101']);
   const page = agent.handlers.get('page_oncall')!;
-  await page({ team: 'auth', message: 'sev2' }, toolContext);
-  await page({ team: 'auth', message: 'sev2' }, toolContext);
+  await page.execute({ team: 'auth', message: 'sev2' }, toolContext);
+  await page.execute({ team: 'auth', message: 'sev2' }, toolContext);
   assert.equal(state.pages.size, 1, 'a retried invocation pages once');
-  await assert.rejects(Promise.resolve(agent.handlers.get('record_timeline')!({ incident: 'INC-999', entry: 'x' }, toolContext)), /unknown incident/);
+  await assert.rejects(Promise.resolve(agent.handlers.get('record_timeline')!.execute({ incident: 'INC-999', entry: 'x' }, toolContext)), /unknown incident/);
   const beforeTool = agent.hooks.before_tool!;
   assert.deepEqual(await beforeTool({ ...hookContext, operation: 'shell.run', arguments: { command: 'git push --force' } }), { decision: 'deny', reason: 'destructive shell commands are not allowed during incidents' });
   assert.deepEqual(await beforeTool({ ...hookContext, operation: 'files.read', arguments: { path: 'config/.env' } }), { arguments: { path: 'config/.env.example' }, reason: 'secrets are redacted' });

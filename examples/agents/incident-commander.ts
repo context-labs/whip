@@ -3,8 +3,10 @@
 // process that calls client.agents.serve. Everything below is exercised end to
 // end against a live daemon by incident-commander.acceptance.mjs.
 import { defineAgent, tool, type AgentDefinition, type ModelInput } from '@whip/sdk/agents';
+import { z } from 'zod';
 
-export interface Incident { id: string; service: string; title: string; status: 'open' | 'mitigated' | 'closed'; severity: 1 | 2 | 3 }
+const Incident = z.object({ id: z.string(), service: z.string(), title: z.string(), status: z.enum(['open', 'mitigated', 'closed']), severity: z.union([z.literal(1), z.literal(2), z.literal(3)]) });
+export type Incident = z.infer<typeof Incident>;
 
 /** Everything the handlers touch, exposed so tests can observe the process side. */
 export interface CommanderState {
@@ -35,62 +37,62 @@ export function createIncidentCommander(options: CommanderOptions = {}): { agent
   const record = (tool: string, context: { agentId: string; rootId: string; turnId: string; invocationId: string }) =>
     state.toolCalls.push({ tool, agentId: context.agentId, rootId: context.rootId, turnId: context.turnId, invocationId: context.invocationId });
 
-  const searchIncidents = tool(
-    'search_incidents',
-    'Search incidents by free text over id, service, and title; optionally filter by status.',
-    {
-      type: 'object',
-      properties: { query: { type: 'string' }, status: { type: 'string', enum: ['open', 'mitigated', 'closed'] } },
-      required: ['query'], additionalProperties: false,
-    },
-    async ({ query, status }: { query: string; status?: Incident['status'] }, context) => {
+  const searchIncidents = tool({
+    name: 'search_incidents',
+    description: 'Search incidents by free text over id, service, and title; optionally filter by status.',
+    input: z.object({ query: z.string(), status: z.enum(['open', 'mitigated', 'closed']).optional() }),
+    output: z.array(Incident),
+    execute: async ({ query, status }, context) => {
       record('search_incidents', context);
       const needle = query.toLowerCase();
       return [...state.incidents.values()]
         .filter(incident => !status || incident.status === status)
         .filter(incident => `${incident.id} ${incident.service} ${incident.title}`.toLowerCase().includes(needle));
     },
-  );
+  });
 
   // Runbooks are large: the daemon returns them to the cell as a content handle
   // with a preview, and the cell reads bounded slices with context.read.
-  const fetchRunbook = tool(
-    'fetch_runbook',
-    'Fetch the operational runbook for a service. Large; returned as a handle.',
-    { type: 'object', properties: { service: { type: 'string' } }, required: ['service'], additionalProperties: false },
-    async ({ service }: { service: string }, context) => {
+  const fetchRunbook = tool({
+    name: 'fetch_runbook',
+    description: 'Fetch the operational runbook for a service. Large; returned as a handle.',
+    input: z.object({ service: z.string() }),
+    output: z.object({ service: z.string(), runbook: z.string() }),
+    execute: async ({ service }, context) => {
       record('fetch_runbook', context);
       const steps = Array.from({ length: 400 }, (_, index) => `Step ${index + 1}: check ${service} component ${index % 7} and record the outcome in the incident timeline.`);
       return { service, runbook: `RUNBOOK ${service.toUpperCase()}\n${steps.join('\n')}` };
     },
-    { timeoutMs: 20_000 },
-  );
+    timeoutMs: 20_000,
+  });
 
   // A side effect keyed by invocation id: a retried invocation pages once.
-  const pageOncall = tool(
-    'page_oncall',
-    'Page the on-call engineer for a team with a message.',
-    { type: 'object', properties: { team: { type: 'string' }, message: { type: 'string', maxLength: 500 } }, required: ['team', 'message'], additionalProperties: false },
-    async ({ team, message }: { team: string; message: string }, context) => {
+  const pageOncall = tool({
+    name: 'page_oncall',
+    description: 'Page the on-call engineer for a team with a message.',
+    input: z.object({ team: z.string(), message: z.string().max(500) }),
+    output: z.object({ paged: z.literal(true), team: z.string(), acknowledgedBy: z.string(), invocationId: z.string() }),
+    execute: async ({ team, message }, context) => {
       record('page_oncall', context);
       context.progress(`paging ${team} on-call`);
       if (!state.pages.has(context.invocationId)) state.pages.set(context.invocationId, { team, message, agentId: context.agentId });
       context.progress(`page acknowledged by ${state.onCall}`);
-      return { paged: true, team, acknowledgedBy: state.onCall, invocationId: context.invocationId };
+      return { paged: true as const, team, acknowledgedBy: state.onCall, invocationId: context.invocationId };
     },
-  );
+  });
 
-  const recordTimeline = tool(
-    'record_timeline',
-    'Append an entry to an incident timeline.',
-    { type: 'object', properties: { incident: { type: 'string' }, entry: { type: 'string' } }, required: ['incident', 'entry'], additionalProperties: false },
-    async ({ incident, entry }: { incident: string; entry: string }, context) => {
+  const recordTimeline = tool({
+    name: 'record_timeline',
+    description: 'Append an entry to an incident timeline.',
+    input: z.object({ incident: z.string(), entry: z.string() }),
+    output: z.object({ incident: z.string(), entries: z.number().int() }),
+    execute: async ({ incident, entry }, context) => {
       record('record_timeline', context);
       if (!state.incidents.has(incident)) throw new Error(`unknown incident ${incident}`);
       state.timeline.push({ incident, entry, invocationId: context.invocationId });
       return { incident, entries: state.timeline.filter(item => item.incident === incident).length };
     },
-  );
+  });
 
   const agent = defineAgent({
     id: options.id ?? 'incident-commander',

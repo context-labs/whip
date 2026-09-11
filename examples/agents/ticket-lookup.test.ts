@@ -6,17 +6,19 @@ import { auditLog, lookupTicket, supportTriage } from './ticket-lookup.js';
 const context: ToolContext = { invocationId: 'inv', rootId: 'root', agentId: 'agent', turnId: 'turn', deadline: Date.now() + 1000, signal: new AbortController().signal, progress: () => {} };
 
 test('the definition catalogs its tool and keeps the handler local', () => {
+  // Derived from the zod input at draft 2020-12; a zod upgrade that changes this changes the definition's revision.
   assert.deepEqual(supportTriage.document.tools, [{
     name: 'lookup_ticket', description: 'Fetch a support ticket by id. Returns its title and status.',
-    input_schema: { type: 'object', properties: { id: { type: 'string', description: 'The ticket id' } }, required: ['id'], additionalProperties: false },
+    input_schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { id: { type: 'string', description: 'The ticket id' } }, required: ['id'] },
     timeout_millis: 30_000,
   }]);
-  assert.equal(supportTriage.handlers.get('lookup_ticket'), lookupTicket.handler);
+  assert.equal(supportTriage.handlers.get('lookup_ticket'), lookupTicket);
+  assert.equal(lookupTicket.validate, true);
 });
 
 test('the handler resolves known tickets and rejects unknown ones', async () => {
-  assert.deepEqual(await lookupTicket.handler({ id: '42' }, context), { id: '42', title: 'Login page times out on mobile', status: 'open' });
-  await assert.rejects(Promise.resolve(lookupTicket.handler({ id: '99' }, context)), /ticket 99 not found/);
+  assert.deepEqual(await lookupTicket.execute({ id: '42' }, context), { id: '42', title: 'Login page times out on mobile', status: 'open' });
+  await assert.rejects(Promise.resolve(lookupTicket.execute({ id: '99' }, context)), /ticket 99 not found/);
 });
 
 const hookContext: HookContext = { invocationId: 'hook', rootId: 'root', agentId: 'agent', turnId: 'turn', permissionMode: 'automatic', deadline: Date.now() + 1000, signal: new AbortController().signal };

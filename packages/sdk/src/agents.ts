@@ -3,6 +3,9 @@ import type {
 } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { WhipError, abortError, asError } from './errors.js';
+import { describesObject, formatIssues, isStandardSchema, toJsonSchema, validateWith, type InferInput, type InferOutput, type Schema } from './schema.js';
+
+export type { InferInput, InferOutput, JsonSchema, Schema, StandardSchemaWithJSON } from './schema.js';
 
 /** The wire document the daemon validates and stores. Generated from the Go definition. */
 export type Definition = DefinitionRegisterParams['definition'];
@@ -23,11 +26,32 @@ export interface ToolContext {
   /** Report intermediate output; the daemon streams it to the session. */
   progress(text: string): void;
 }
-export type ToolHandler<I = Record<string, unknown>> = (input: I, context: ToolContext) => Promise<unknown> | unknown;
+/** What execute must return: the output schema's type when one is declared, otherwise anything JSON. */
+export type ToolReturn<O> = O extends Schema ? InferOutput<O> : unknown;
+export type ToolHandler<I extends Schema = Schema, O extends Schema | undefined = Schema | undefined> =
+  (input: InferInput<I>, context: ToolContext) => ToolReturn<O> | Promise<ToolReturn<O>>;
 
-export interface ToolDefinition<I = Record<string, unknown>> {
+export interface ToolOptions<I extends Schema, O extends Schema | undefined = undefined> {
+  /** Lowercase identifier; the cell calls tools.<name>. */
+  name: string;
+  description: string;
+  /** Keyword arguments the cell passes. A Standard JSON Schema (zod, ArkType, Valibot) infers the handler's input type; raw JSON Schema types it unknown. */
+  input: I;
+  /** What execute returns. Typed at compile time and validated locally before the result is posted. */
+  output?: O;
+  execute(input: InferInput<I>, context: ToolContext): ToolReturn<O> | Promise<ToolReturn<O>>;
+  /** Default 5 minutes, ceiling 15. */
+  timeoutMs?: number;
+  /** Run the schemas' own validation around execute (default true); raw JSON Schema has none. */
+  validate?: boolean;
+}
+
+export interface ToolDefinition<I extends Schema = Schema, O extends Schema | undefined = Schema | undefined> {
   readonly spec: ToolSpec;
-  readonly handler: ToolHandler<I>;
+  readonly input: I;
+  readonly output: O | undefined;
+  readonly validate: boolean;
+  execute(input: InferInput<I>, context: ToolContext): ToolReturn<O> | Promise<ToolReturn<O>>;
 }
 
 /** Wire shapes a before_spawn hook sees: the request as the model wrote it and what it resolved to. */
@@ -110,27 +134,35 @@ export interface AgentInput {
   compaction?: CompactionInput;
   /** Named MCP servers from host configuration; omit for every configured server. Requires the mcp capability. */
   mcp?: { servers?: string[] };
-  tools?: ToolDefinition<never>[] | ToolDefinition[];
+  tools?: readonly ToolDefinition[];
   children?: Record<string, ChildInput>;
   surface?: { autoTitle?: boolean; goalLoop?: boolean };
   hooks?: HooksInput;
 }
 
-/** An authored agent: the document the daemon stores plus the handlers an executor serves. */
+/** An authored agent: the document the daemon stores plus the tools and hooks an executor serves. */
 export interface AgentDefinition {
   readonly document: Definition;
-  readonly handlers: ReadonlyMap<string, ToolHandler>;
+  /** Tool definitions by name; serve runs their execute and validates around it. */
+  readonly handlers: ReadonlyMap<string, ToolDefinition>;
   readonly hooks: HookHandlers;
 }
 
-/** Declare one custom tool. The schema is JSON Schema for the keyword arguments. */
-export function tool<I = Record<string, unknown>>(
-  name: string, description: string, inputSchema: Record<string, unknown>, handler: ToolHandler<I>, options: { timeoutMs?: number } = {},
-): ToolDefinition<I> {
-  if (!name.trim()) throw new TypeError('tool name is required');
-  if (typeof inputSchema !== 'object' || inputSchema === null || Array.isArray(inputSchema)) throw new TypeError(`tool ${name}: input schema must be a JSON Schema object`);
-  if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 0)) throw new TypeError(`tool ${name}: timeoutMs must be a non-negative integer`);
-  return { spec: { name, description, input_schema: inputSchema, timeout_millis: options.timeoutMs ?? 0 }, handler };
+/**
+ * Declare one custom tool. The input schema's JSON Schema goes to the daemon,
+ * which validates every call against it before the handler runs; the output
+ * schema types execute's return and is checked before the result is posted.
+ */
+export function tool<I extends Schema, O extends Schema | undefined = undefined>(options: ToolOptions<I, O>): ToolDefinition<I, O> {
+  const { name, description, input, output, execute, timeoutMs, validate = true } = options;
+  if (typeof name !== 'string' || !name.trim()) throw new TypeError('tool name is required');
+  if (typeof description !== 'string') throw new TypeError(`tool ${name}: description is required`);
+  if (typeof execute !== 'function') throw new TypeError(`tool ${name}: execute is required`);
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0)) throw new TypeError(`tool ${name}: timeoutMs must be a non-negative integer`);
+  const inputSchema = toJsonSchema(input, 'input', `tool ${name} input`);
+  if (!describesObject(inputSchema)) throw new TypeError(`tool ${name}: input schema must describe an object; the cell passes keyword arguments`);
+  if (output !== undefined) toJsonSchema(output, 'output', `tool ${name} output`); // fail at definition time, before phase 6 sends it
+  return { spec: { name, description, input_schema: inputSchema, timeout_millis: timeoutMs ?? 0 }, input, output, validate, execute };
 }
 
 /**
@@ -140,11 +172,11 @@ export function tool<I = Record<string, unknown>>(
 export function defineAgent(input: AgentInput): AgentDefinition {
   if (!input.id.trim()) throw new TypeError('agent id is required');
   if (!Array.isArray(input.modules) || input.modules.length === 0) throw new TypeError(`agent ${input.id}: select at least one host module`);
-  const handlers = new Map<string, ToolHandler>();
+  const handlers = new Map<string, ToolDefinition>();
   const tools: ToolSpec[] = [];
-  for (const definition of (input.tools ?? []) as ToolDefinition[]) {
+  for (const definition of input.tools ?? []) {
     if (handlers.has(definition.spec.name)) throw new TypeError(`agent ${input.id}: tool ${definition.spec.name} is declared twice`);
-    handlers.set(definition.spec.name, definition.handler);
+    handlers.set(definition.spec.name, definition);
     tools.push(definition.spec);
   }
   const children: Definition['children'] = {};
@@ -292,8 +324,8 @@ export class Agents {
     };
     const run = async (invocation: ToolInvokeParams) => {
       if (closed) { await settle(invocation, { error: 'executor closed' }); return; }
-      const handler = agent.handlers.get(invocation.tool);
-      if (!handler) { await settle(invocation, { error: `no handler for tool ${invocation.tool}` }); return; }
+      const definition = agent.handlers.get(invocation.tool);
+      if (!definition) { await settle(invocation, { error: `no handler for tool ${invocation.tool}` }); return; }
       const controller = new AbortController();
       running.set(invocation.invocation_id, controller);
       const deadline = Number(invocation.deadline_millis);
@@ -312,7 +344,25 @@ export class Agents {
         },
       };
       try {
-        const output = await handler((invocation.input ?? {}) as Record<string, unknown>, context);
+        // The daemon validated the input against the same JSON Schema; the
+        // library's own check adds refinements the schema cannot express and
+        // applies its defaults and transforms.
+        let input: unknown = invocation.input ?? {};
+        if (definition.validate && isStandardSchema(definition.input)) {
+          const checked = await validateWith(definition.input, input);
+          if (checked.issues) { await settle(invocation, { error: `tool ${invocation.tool} rejected its input: ${formatIssues(checked.issues)}` }); return; }
+          input = checked.value;
+        }
+        let output: unknown = await definition.execute(input, context);
+        if (definition.validate && isStandardSchema(definition.output)) {
+          const checked = await validateWith(definition.output, output);
+          if (checked.issues) {
+            await reports;
+            if (!controller.signal.aborted) await settle(invocation, { error: `tool ${invocation.tool} returned a value that does not match its output schema (the handler already ran): ${formatIssues(checked.issues)}` });
+            return;
+          }
+          output = checked.value;
+        }
         await reports;
         if (!controller.signal.aborted) await settle(invocation, { output: output === undefined ? null : output });
       } catch (error) {

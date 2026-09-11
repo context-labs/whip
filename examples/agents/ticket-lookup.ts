@@ -1,28 +1,31 @@
 // A support triage agent with one custom tool. The tool runs in this process:
-// the daemon validates the model's arguments against the schema, records the
-// call in its ledger, and hands it to whichever process called
-// client.agents.serve for this definition revision.
+// the daemon validates the model's arguments against the schema derived from
+// the zod input, records the call in its ledger, and hands it to whichever
+// process called client.agents.serve for this definition revision.
 import { defineAgent, tool } from '@whip/sdk/agents';
+import { z } from 'zod';
 
-interface Ticket { id: string; title: string; status: 'open' | 'closed' }
+const Ticket = z.object({ id: z.string(), title: z.string(), status: z.enum(['open', 'closed']) });
+type Ticket = z.infer<typeof Ticket>;
 
 const tickets = new Map<string, Ticket>([
   ['42', { id: '42', title: 'Login page times out on mobile', status: 'open' }],
   ['43', { id: '43', title: 'Export button disabled after refresh', status: 'closed' }],
 ]);
 
-export const lookupTicket = tool(
-  'lookup_ticket',
-  'Fetch a support ticket by id. Returns its title and status.',
-  { type: 'object', properties: { id: { type: 'string', description: 'The ticket id' } }, required: ['id'], additionalProperties: false },
-  async ({ id }: { id: string }, context) => {
+export const lookupTicket = tool({
+  name: 'lookup_ticket',
+  description: 'Fetch a support ticket by id. Returns its title and status.',
+  input: z.object({ id: z.string().describe('The ticket id') }),
+  output: Ticket,
+  execute: async ({ id }, context) => {            // id: string, inferred from the schema
     context.progress(`looking up ticket ${id}`);
     const ticket = tickets.get(id);
     if (!ticket) throw new Error(`ticket ${id} not found`);
-    return ticket;
+    return ticket;                                 // must match Ticket; validated before it is posted
   },
-  { timeoutMs: 30_000 },
-);
+  timeoutMs: 30_000,
+});
 
 export const supportTriage = defineAgent({
   id: 'support-triage',
