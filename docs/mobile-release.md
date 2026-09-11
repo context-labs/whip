@@ -27,10 +27,13 @@ direct installation, so installation is still pending. Use the
 on the phone. The prior preview does not gain these changes automatically.
 Detailed artifact and installation results are in the evidence record.
 
-Local Xcode 26.3 still fails in ExpoModulesJSI with Swift/C++ annotation errors.
-Expo 57 requires Xcode 26.4+; the license/first-launch check passes, but local
-compilation needs a supported toolchain. Do not patch dependencies to conceal
-that mismatch. EAS is linked to the owner's `@inference/whipcode` project.
+Local Xcode was upgraded to 26.6 on 2026-09-11. The current mobile UI now compiles
+and launches as a Release app on the iOS 26.5 simulator, including encrypted
+storage initialization. Keep normal simulator signing enabled: explicitly
+disabling signing can omit the application entitlement required by SecureStore.
+The current UI's signed phone installation and interactive acceptance remain
+pending; see the [UI follow-up evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md).
+Expo 57 requires Xcode 26.4+. EAS is linked to the owner's `@inference/whipcode` project.
 Existing local Apple API credentials registered the development bundle ID and
 provisioned an Apple Distribution certificate and ad hoc profile for the owner's
 selected iPhone. These signing assets are managed by EAS.

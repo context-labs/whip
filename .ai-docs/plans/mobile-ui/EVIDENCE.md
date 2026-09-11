@@ -89,3 +89,42 @@ The tested `MobileRuntime` engine is reused per host rather than copied into a n
 4. `21a923e3c` — combined sessions and guided creation.
 5. `4f29f87e2` — conversation, composer and session actions.
 6. Final phase — native lifecycle/routing fixes, regression coverage, screenshots and canonical documentation (the commit containing this entry).
+
+## iOS follow-up — 2026-09-11
+
+The owner upgraded Xcode and requested installation on their iPhone. The source
+baseline is `9bb095f74`, after merging `feature/agent-definition` into
+`codex/mobile-ui`.
+
+- Xcode **26.6 (17F113)** now builds the current native app successfully with
+  iOS SDK 26.5. The earlier destination/toolchain block is resolved.
+- Local Release simulator compilation passed. The first attempt explicitly
+  disabled signing and reached the secure-storage error screen because the
+  simulator app lacked its application entitlement. Rebuilding with normal
+  simulator ad hoc signing (`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`)
+  fixed startup without changing product source, weakening storage, or deleting
+  app data.
+- The signed Release app installed and launched on iPhone 17 Pro / iOS 26.5
+  simulator. SecureStore and encrypted storage initialized, and the new
+  [onboarding screen](screenshots/ios-onboarding.png) rendered. The app contains
+  its Hermes bundle and does not require Metro. Bundle SHA-256:
+  `f8d8972dfd32437920b6875c95c40e8e45dc8165a7af3d152a24521b29cae377`.
+- Full interactive iOS UI acceptance is not established by this launch. The
+  computer-use service timed out while selecting Simulator; an external
+  Appearance link reached iOS's Open in Whip confirmation and was not recorded
+  as an Appearance pass.
+- The previously selected iPhone 16 Pro is still reported unavailable by
+  `devicectl`. The owner has been asked to connect and unlock it.
+- Existing Expo ownership was verified (`@inference/whipcode`). The local
+  keychain has a macOS Developer ID identity, not an iPhone signing identity;
+  the existing phone distribution credentials are managed by EAS.
+- The signed EAS preview request was rejected by automatic approval review
+  before execution because uploading project source requires explicit approval.
+  The owner was asked to approve uploading the current source to the existing
+  Expo project and using its existing signing credentials. No new remote build
+  or phone installation is claimed. Signing and physical-device installation
+  remain pending that response and phone availability.
+
+Local build logs: `/tmp/whip-ios-ui-release.log` and
+`/tmp/whip-ios-ui-signed-simulator.log`. No application source changed during
+this follow-up; the existing regression results above remain the code baseline.
