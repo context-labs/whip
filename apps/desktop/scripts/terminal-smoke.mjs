@@ -89,6 +89,27 @@ try {
   await reattach();
   await page.screenshot({ path: path.join(artifacts, 'desktop-terminal.png') });
 
+  // Copy: select by dragging across the first rows, then copy through the native Edit
+  // menu (what Cmd+C triggers on macOS) and through the terminal's context menu.
+  const canvas = await page.locator('[data-terminal-view] canvas').boundingBox();
+  await page.mouse.move(canvas.x + 2, canvas.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + canvas.width - 4, canvas.y + 60, { steps: 8 });
+  await page.mouse.up();
+  await eventually(async () => (await view.getAttribute('data-terminal-selection')) === 'true', 'terminal selection made by dragging');
+  await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
+  await electron.evaluate(({ Menu }) => {
+    const edit = Menu.getApplicationMenu().items.find(item => item.role === 'editmenu' || item.label === 'Edit');
+    edit.submenu.items.find(item => item.role === 'copy').click();
+  });
+  await eventually(async () => (await electron.evaluate(({ clipboard }) => clipboard.readText())).includes('whip-42'), 'Edit > Copy put the terminal selection on the clipboard');
+  await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
+  await view.click({ button: 'right', position: { x: 40, y: 20 } });
+  await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+  await eventually(async () => (await electron.evaluate(({ clipboard }) => clipboard.readText())).includes('whip-42'), 'context menu Copy put the terminal selection on the clipboard');
+  checks.push('Cmd+C through the Edit menu and right-click Copy both copy the terminal selection');
+  await view.click();
+
   // Paste goes through the renderer's native paste command; the window denies
   // clipboard-read permission, so this is the only path and only a real host proves it.
   await electron.evaluate(({ clipboard }) => clipboard.writeText('echo paste-$((50+5))'));

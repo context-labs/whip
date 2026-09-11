@@ -1,11 +1,12 @@
 {
   "purpose": "Staged desktop terminal tab on This Mac; not signed installed-app acceptance",
-  "recordedAt": "2026-09-11T07:26:14.672Z",
-  "terminalId": "term-u4x752hrlklpb6tow4fggys3jv",
+  "recordedAt": "2026-09-11T16:17:51.908Z",
+  "terminalId": "term-6q35ghfrebovbqxfylz32n7e5c",
   "shell": "/bin/zsh",
   "checks": [
     "palette opens a shell on This Mac over the Unix socket",
     "typed keystrokes reach the shell and the daemon retains its output",
+    "Cmd+C through the Edit menu and right-click Copy both copy the terminal selection",
     "Cmd+V pastes through the native paste event",
     "reload restores the tab and reattaches the same shell",
     "Cmd+W closes the tab and ends the shell"

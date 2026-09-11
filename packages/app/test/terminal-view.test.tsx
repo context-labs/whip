@@ -33,6 +33,7 @@ const ghostty = vi.hoisted(() => {
     onData = this.on('data'); onResize = this.on('resize'); onTitleChange = this.on('title');
     hasSelection() { return this.selection !== ''; }
     getSelection() { return this.selection; }
+    onSelectionChange = this.on('selection');
     emit(name: string, value: unknown) { for (const listener of this.handlers.get(name) ?? []) listener(value); }
   }
   class FitAddon { fit = vi.fn(); }
@@ -155,6 +156,29 @@ it('keeps one write in flight and coalesces keystrokes typed meanwhile, in order
   failing.push('lost'); failing.push('too');
   await waitFor(() => expect(errors).toHaveLength(1));
   expect(failing.pendingBytes).toBe(0);
+});
+
+it('answers the native copy command with the canvas selection and offers Copy on right-click', async () => {
+  const fake = fakeClient();
+  const { view } = mount(fake.client);
+  const instance = await ready();
+  const surface = view.container.querySelector('[data-terminal-view] > div, [data-terminal-view] div') as HTMLElement;
+  const clipboard = { setData: vi.fn() };
+  const copyEvent = () => Object.assign(new Event('copy', { bubbles: true, cancelable: true }), { clipboardData: clipboard });
+  const beforeCopy = () => new Event('beforecopy', { bubbles: true, cancelable: true });
+  // Nothing selected: the events pass through untouched.
+  expect(surface.dispatchEvent(beforeCopy())).toBe(true);
+  expect(surface.dispatchEvent(copyEvent())).toBe(true);
+  expect(clipboard.setData).not.toHaveBeenCalled();
+  instance.selection = 'whip-42';
+  act(() => instance.emit('selection', undefined));
+  expect(view.container.querySelector('[data-terminal-view]')!.getAttribute('data-terminal-selection')).toBe('true');
+  expect(surface.dispatchEvent(beforeCopy())).toBe(false);
+  expect(surface.dispatchEvent(copyEvent())).toBe(false);
+  expect(clipboard.setData).toHaveBeenCalledWith('text/plain', 'whip-42');
+  instance.selection = '';
+  act(() => instance.emit('selection', undefined));
+  expect(view.container.querySelector('[data-terminal-view]')!.getAttribute('data-terminal-selection')).toBe('false');
 });
 
 it('turns wheel travel into SGR mouse reports at the cell under the pointer', () => {

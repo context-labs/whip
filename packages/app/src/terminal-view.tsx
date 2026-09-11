@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { matchesKeyboardEvent, type Hotkey } from '@tanstack/react-hotkeys';
 import * as stylex from '@stylexjs/stylex';
-import { Button } from '@whip/ui';
+import { Button, ContextMenu } from '@whip/ui';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 import { useTheme } from '@whip/ui/themes';
 import type { WhipClient } from '@whip/sdk';
@@ -130,6 +130,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
   const [status, setStatus] = useState<TerminalStatus>({ kind: 'loading' });
   /** The renderer exists; output arriving earlier waits in pending. */
   const [ready, setReady] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
   const [attachEpoch, setAttachEpoch] = useState(0);
   const shortcuts = [preferences.commandShortcut, preferences.composerShortcut, preferences.terminalShortcut];
   const shortcutsRef = useRef(shortcuts);
@@ -145,6 +146,12 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     cursor.current = -1;
     pending.current = [];
     let disposed = false;
+    const allowCopy = (event: Event) => { if (terminal?.hasSelection()) event.preventDefault(); };
+    const copySelection = (event: ClipboardEvent) => {
+      if (!terminal?.hasSelection()) return;
+      event.preventDefault();
+      event.clipboardData?.setData('text/plain', terminal.getSelection());
+    };
     let observer: ResizeObserver | undefined;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     let terminal: Terminal | undefined;
@@ -190,6 +197,12 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
         return true;
       });
       terminal.onTitleChange(title => runtime.tabs.updateTerminal(tab.id, { titleHint: title }));
+      terminal.onSelectionChange(() => setHasSelection(terminal?.hasSelection() ?? false));
+      // The selection lives on the canvas, so the native copy command (the Edit menu's
+      // Cmd+C on macOS Electron, or a browser's default) finds no DOM selection. Answer
+      // the clipboard events instead: beforecopy enables the command, copy supplies the text.
+      element.addEventListener('beforecopy', allowCopy);
+      element.addEventListener('copy', copySelection);
       terminal.onResize(({ cols, rows }) => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => { void client.terminals.resize(terminalId, cols, rows).catch(() => {}); }, 100);
@@ -209,9 +222,12 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       disposed = true;
       clearTimeout(resizeTimer);
       observer?.disconnect();
+      element.removeEventListener('beforecopy', allowCopy);
+      element.removeEventListener('copy', copySelection);
       terminal?.dispose();
       term.current = null;
       setReady(false);
+      setHasSelection(false);
     };
     // Theme changes remount through the strip's key; colors are read once here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -283,8 +299,11 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     : status.kind === 'detached' ? 'Attached in another window.'
     : status.kind === 'reconnecting' ? 'Reconnecting to the host…'
     : status.kind === 'loading' ? 'Starting terminal…' : undefined;
-  return <div {...stylex.props(styles.frame)} data-terminal-view={terminalId} data-terminal-status={status.kind}>
-    <div ref={container} {...stylex.props(styles.surface)} />
+  const copySelected = () => { const text = term.current?.getSelection(); if (text) void runtime.platform.copy(text).catch(error => runtime.reportWorkspace(error)); };
+  return <div {...stylex.props(styles.frame)} data-terminal-view={terminalId} data-terminal-status={status.kind} data-terminal-selection={hasSelection ? 'true' : 'false'}>
+    <ContextMenu items={[{ id: 'copy', label: 'Copy', disabled: !hasSelection, onSelect: copySelected }]}>
+      <div ref={container} {...stylex.props(styles.surface)} />
+    </ContextMenu>
     {status.kind === 'error' && <div {...stylex.props(styles.bar)}><ErrorNotice type="resource" owner={`terminal:${terminalId}`} title="Terminal is unavailable" error={status.message} action={<Button variant="ghost" onClick={() => setAttachEpoch(value => value + 1)}>Try again</Button>} /></div>}
     {notice && <div role="status" {...stylex.props(styles.bar)}>
       <span {...stylex.props(layout.grow)}>{notice}</span>

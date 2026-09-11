@@ -423,6 +423,13 @@ reader of the plan is not misled:
   cell under the pointer, one per line, accumulating trackpad pixels across events. Otherwise
   ghostty-web's defaults stand (arrows in the alternate screen, scrollback in the primary one).
   The fixture runs `cat -v` with mouse tracking enabled and asserts the reports arrive.
+- **Copy on macOS Electron.** The Edit menu's Copy item consumes Cmd+C before the page sees a
+  keydown and runs the native copy command, which found no DOM selection because ghostty draws
+  its selection on the canvas. The view answers the `beforecopy` and `copy` clipboard events on its
+  surface with the terminal selection, which is how the native command, browsers' default Cmd+C
+  and Edit > Copy all resolve; a right-click context menu offers Copy as well. Paste stays on the
+  native paste event (Cmd+V, Edit > Paste); the context menu has no Paste because the renderer
+  cannot read the clipboard. The desktop smoke drags a selection and copies through both paths.
 - **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
   round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
   (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in
