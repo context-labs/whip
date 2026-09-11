@@ -8,9 +8,9 @@
       "another connection can take the shell over and the tab can reattach",
       "closing the tab ends the shell"
     ],
-    "terminalId": "term-xjkqme7jrywln4wbrhvbyfawvj",
+    "terminalId": "term-jzl2yjclhk4a4pb4buwpp6tdzm",
     "writes": 2,
-    "outputs": 51
+    "outputs": 52
   },
   "firefox": {
     "browser": "155.0",
@@ -21,7 +21,7 @@
       "another connection can take the shell over and the tab can reattach",
       "closing the tab ends the shell"
     ],
-    "terminalId": "term-s4feh2g5xbi3u5a7vzd5xkaovj",
+    "terminalId": "term-fnr3bxfohago3dflpci5lcopev",
     "writes": 20,
     "outputs": 96
   }

@@ -402,6 +402,15 @@ reader of the plan is not misled:
   ones supply the glyphs per character, absent ones are skipped. The view also waits for
   `document.fonts.ready` (2 s cap) because ghostty-web sizes cells from one measurement at open.
   The fixture prints the glyphs and saves `*-glyphs.png` for visual review.
+- **Renderer dependency is OpenCode's ghostty-web fork, pinned by commit.** Upstream
+  `ghostty-web@0.4.0` draws every cell with the font, so block elements such as `░▒▓` come
+  out as the font's dot patterns and powerline shapes need a Nerd Font. The `anomalyco/ghostty-web`
+  fork (`83c0a07b`, the commit OpenCode ships) exposes Ghostty's sprite font from the WASM and
+  rasterizes box drawing, block elements and powerline glyphs procedurally, which is how OpenCode
+  renders the same prompt as smooth bands and solid triangles. `packages/app/package.json` pins
+  `github:anomalyco/ghostty-web#83c0a07b…`; the fork commits its `dist/`, so installs need no Zig
+  or Bun. Its WASM is 968 KB instead of 423 KB. The Nerd Font fallback stays for glyphs outside the
+  sprite set, such as icon code points. Move back to the npm release when upstream ships sprites.
 - **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
   round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
   (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in
