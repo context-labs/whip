@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -171,4 +172,48 @@ func (node *AgentSession) hookNotices() string {
 		fmt.Fprintf(&b, "\n(%d more hook notices omitted)", len(notices)-shown)
 	}
 	return b.String()
+}
+
+// beforeSpawn gates one spawn. It returns the request and resolution to use,
+// which are the originals unless the hook rewrote the request, in which case
+// the rewrite has been resolved and narrowed again.
+func (node *AgentSession) beforeSpawn(ctx context.Context, request spawnRequest, resolved resolvedSpawn) (spawnRequest, resolvedSpawn, error) {
+	hook := node.effectiveDefinition().Hook(agentdef.HookBeforeSpawn)
+	if hook == nil {
+		return request, resolved, nil
+	}
+	invocation, err := node.hookInvocation(ctx, hook, agentdef.HookBeforeSpawn)
+	if err != nil {
+		return request, resolved, err
+	}
+	invocation.Operation = "agents.spawn"
+	invocation.Spawn = &protocol.SpawnPreview{Request: request, Resolved: resolved.preview()}
+	callID := tools.ToolCallID(ctx)
+	decision, err := node.askHook(ctx, hook, invocation, callID)
+	if err != nil {
+		return request, resolved, err
+	}
+	if decision.Deny {
+		reason := decision.Reason
+		if reason == "" {
+			reason = "denied by the agent's before_spawn hook"
+		}
+		return request, resolved, fmt.Errorf("hook before_spawn denied agents.spawn: %s", reason)
+	}
+	if decision.Spawn == nil {
+		return request, resolved, nil
+	}
+	rewritten := *decision.Spawn
+	resolved, err = resolveSpawn(node, rewritten)
+	if err != nil {
+		return request, resolved, fmt.Errorf("hook before_spawn rewrite rejected: %w", err)
+	}
+	node.emitHookDecision(callID, invocation, decision.InvocationID, "rewrite", decision.Reason)
+	summary, _ := json.Marshal(rewritten)
+	notice := fmt.Sprintf("Hook before_spawn rewrote the spawn request to %s", utf8PrefixRuntime(string(summary), 512))
+	if decision.Reason != "" {
+		notice += " (reason: " + decision.Reason + ")"
+	}
+	node.addHookNotice(notice)
+	return rewritten, resolved, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/schedule"
 	sessionstore "github.com/context-labs/whip/internal/session"
@@ -1201,38 +1202,22 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 			return nil, fmt.Errorf("agents.spawn does not accept %s; descendants inherit session execution engine %s", key, runtime.engine)
 		}
 	}
-	requested, err := requestedCapabilities(arguments["capabilities"])
+	request, err := parseSpawnRequest(name, prompt, arguments)
 	if err != nil {
 		return nil, err
 	}
-	requestedTools, err := requestedNames(arguments["tools"], "tools")
+	resolved, err := resolveSpawn(parent, request)
 	if err != nil {
 		return nil, err
 	}
-	modelName, _ := stringArgument(arguments, "model")
-	providerName, _ := stringArgument(arguments, "provider")
-	requestedEffort, _ := stringArgument(arguments, "effort")
-	// definition selects a named child of the parent's definition; explicit
-	// arguments still narrow it.
-	childName, _ := stringArgument(arguments, "definition")
-	definition, err := parent.definition.Child(childName, agentdef.ChildOverrides{
-		Capabilities: requested, Tools: requestedTools, Model: agentdef.ModelDefaults{Model: modelName, Provider: providerName, Effort: requestedEffort},
-	})
-	if err != nil {
+	// The before_spawn hook sees the request and its resolution; a rewrite is
+	// resolved again, so it narrows exactly as a model's request would.
+	if request, resolved, err = parent.beforeSpawn(ctx, request, resolved); err != nil {
 		return nil, err
 	}
-	capabilities := definition.Capabilities
-	budgets, err := requestedBudgets(arguments["budgets"])
-	if err != nil {
-		return nil, err
-	}
-	report, _ := stringArgument(arguments, "report")
-	if named, ok := parent.definition.Children[childName]; ok && childName != "" {
-		budgets = namedChildBudgets(named.Budgets, budgets)
-		if report == "" {
-			report = named.Report
-		}
-	}
+	name, prompt, childName := request.Name, request.Prompt, request.Definition
+	definition, capabilities, budgets, report := resolved.definition, resolved.definition.Capabilities, resolved.budgets, resolved.report
+	arguments = spawnArguments(request)
 	id := sessionstore.NewAgentID()
 	authority := capability.Authority{
 		RootID: parent.root.ID(), AgentID: id,
@@ -1265,14 +1250,6 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	if err != nil {
 		services.Close()
 		return nil, err
-	}
-	switch report {
-	case "":
-		report = "notice"
-	case "notice", "message", "inline":
-	default:
-		node.close(true)
-		return nil, fmt.Errorf("unknown report mode %q (notice, message, or inline)", report)
 	}
 	node.id, node.root, node.report = id, parent.root, report
 	child.SetSessionID(parent.root.ID() + "/" + id)
@@ -1837,6 +1814,125 @@ func requestedCapabilities(value any) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// spawnRequest is protocol.SpawnRequest with the runtime's parsing attached.
+type spawnRequest = protocol.SpawnRequest
+
+// parseSpawnRequest decodes the raw agents.spawn arguments into the wire
+// shape a before_spawn hook sees. Absent lists stay nil, meaning inherit.
+func parseSpawnRequest(name, prompt string, arguments map[string]any) (spawnRequest, error) {
+	capabilities, err := requestedCapabilities(arguments["capabilities"])
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	toolNames, err := requestedNames(arguments["tools"], "tools")
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	limits, err := requestedBudgets(arguments["budgets"])
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	var budgets map[string]int64
+	if limits != nil {
+		budgets = make(map[string]int64, len(limits))
+		for _, limit := range limits {
+			budgets[string(limit.Kind)] = limit.Limit
+		}
+	}
+	request := spawnRequest{Prompt: prompt, Name: name, Capabilities: capabilities, Tools: toolNames, Budgets: budgets}
+	request.Definition, _ = stringArgument(arguments, "definition")
+	request.Report, _ = stringArgument(arguments, "report")
+	request.Model, _ = stringArgument(arguments, "model")
+	request.Provider, _ = stringArgument(arguments, "provider")
+	request.Effort, _ = stringArgument(arguments, "effort")
+	if raw, ok := arguments["mcp_tools"]; ok && raw != nil {
+		encoded, err := json.Marshal(raw)
+		if err != nil {
+			return spawnRequest{}, err
+		}
+		request.MCPTools = encoded
+	}
+	return request, nil
+}
+
+// spawnArguments rebuilds the argument map the agent clone and MCP delegation
+// read, from a request that may have been rewritten.
+func spawnArguments(request spawnRequest) map[string]any {
+	arguments := map[string]any{}
+	for key, value := range map[string]string{"model": request.Model, "provider": request.Provider, "effort": request.Effort} {
+		if value != "" {
+			arguments[key] = value
+		}
+	}
+	if len(request.MCPTools) > 0 {
+		var value any
+		if json.Unmarshal(request.MCPTools, &value) == nil {
+			arguments["mcp_tools"] = value
+		}
+	}
+	return arguments
+}
+
+// resolvedSpawn is a request after the named child's defaults apply and
+// narrowing is checked.
+type resolvedSpawn struct {
+	definition agentdef.Definition
+	budgets    []sessionstore.BudgetLimit
+	report     string
+}
+
+// preview is the wire view a before_spawn hook receives.
+func (r resolvedSpawn) preview() protocol.ResolvedChild {
+	budgets := make(map[string]int64, len(r.budgets))
+	for _, limit := range r.budgets {
+		budgets[string(limit.Kind)] = limit.Limit
+	}
+	return protocol.ResolvedChild{
+		Definition: r.definition.ID, Modules: r.definition.Modules, Capabilities: r.definition.Capabilities,
+		Tools: r.definition.ToolNames(), Budgets: budgets, Report: r.report,
+	}
+}
+
+// resolveSpawn applies the named child and its defaults under the request and
+// enforces narrowing. It runs again after a hook rewrite.
+func resolveSpawn(parent *AgentSession, request spawnRequest) (resolvedSpawn, error) {
+	if request.Prompt == "" {
+		return resolvedSpawn{}, errors.New("prompt is required")
+	}
+	if request.Name == "" {
+		return resolvedSpawn{}, errors.New("name is required")
+	}
+	definition, err := parent.definition.Child(request.Definition, agentdef.ChildOverrides{
+		Capabilities: request.Capabilities, Tools: request.Tools, Model: agentdef.ModelDefaults{Model: request.Model, Provider: request.Provider, Effort: request.Effort},
+	})
+	if err != nil {
+		return resolvedSpawn{}, err
+	}
+	kinds := slices.Sorted(maps.Keys(request.Budgets))
+	budgets := make([]sessionstore.BudgetLimit, 0, len(kinds))
+	for _, kind := range kinds {
+		if request.Budgets[kind] < 0 || request.Budgets[kind] == math.MaxInt64 {
+			return resolvedSpawn{}, fmt.Errorf("budget %q must be a non-negative integer", kind)
+		}
+		budgets = append(budgets, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(kind), Limit: request.Budgets[kind]})
+	}
+	report := request.Report
+	if named, ok := parent.definition.Children[request.Definition]; ok && request.Definition != "" {
+		budgets = namedChildBudgets(named.Budgets, budgets)
+		if report == "" {
+			report = named.Report
+		}
+	}
+	switch report {
+	case "":
+		report = "notice"
+	case "notice", "message", "inline":
+	default:
+		return resolvedSpawn{}, fmt.Errorf("unknown report mode %q (notice, message, or inline)", report)
+	}
+	return resolvedSpawn{definition: definition, budgets: budgets, report: report}, nil
 }
 
 // namedChildBudgets applies a named child's budgets as defaults under the

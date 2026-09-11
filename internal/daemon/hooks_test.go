@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -181,6 +182,9 @@ func hookedRoot(t *testing.T, hooks *agentdef.Hooks) (*session.Store, *Daemon, *
 	definition := agentdef.Coding()
 	definition.ID = "hooked"
 	definition.Tools = []agentdef.Tool{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+	definition.Children = map[string]agentdef.Child{
+		"researcher": {Modules: []string{"context", "files", "agents"}, Capabilities: []string{"read"}, Tools: []string{"lookup"}, Budgets: map[string]int64{"tokens": 5000}, Report: "message"},
+	}
 	definition.Hooks = hooks
 	document, err := agentdef.Encode(definition)
 	if err != nil {
@@ -432,5 +436,122 @@ func TestBeforeToolOptionalAndNarrowed(t *testing.T) {
 	}
 	if notices := parent.hookNotices(); strings.Count(notices, "\n") > maxHookNotices || !strings.Contains(notices, "more hook notices omitted") {
 		t.Fatalf("notices unbounded:\n%s", notices)
+	}
+}
+
+// before_spawn sees the parsed request and the resolved child, denies with a
+// reason, rewrites through resolution so it cannot widen, and runs after
+// before_tool when both are declared.
+func TestBeforeSpawnSeesResolvedChildAndCannotWiden(t *testing.T) {
+	store, owner, root, runtime := hookedRoot(t, &agentdef.Hooks{BeforeTool: &agentdef.Hook{Operations: []string{"agents.spawn"}, TimeoutMillis: 2000}, BeforeSpawn: &agentdef.Hook{TimeoutMillis: 2000}})
+	parent := runtime.rootNode
+	decisions := captureEvents(parent)
+	conn, generation := bindHookedExecutor(t, owner, store, "before_tool", "before_spawn")
+	reply := func(invoke protocol.HookInvokeParams, params protocol.HookResultParams) {
+		t.Helper()
+		params.InvocationID, params.Generation = invoke.InvocationID, generation
+		if err := owner.executors.settleHook(conn, params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Order: before_tool on the raw call, then before_spawn on the resolution.
+	outcome := execCell(t.Context(), parent, `agents.spawn(prompt="research x", name="scout", definition="researcher", budgets={"tokens": 100})`)
+	first := awaitHookFromCell(t, conn, outcome)
+	if first.Hook != "before_tool" || first.Operation != "agents.spawn" || first.Spawn != nil || !strings.Contains(string(first.Arguments), `"definition":"researcher"`) {
+		t.Fatalf("first hook = %+v", first)
+	}
+	reply(first, protocol.HookResultParams{})
+	second := awaitHookFromCell(t, conn, outcome)
+	if second.Hook != "before_spawn" || second.Operation != "agents.spawn" || second.Spawn == nil || second.Arguments != nil {
+		t.Fatalf("second hook = %+v", second)
+	}
+	request, resolved := second.Spawn.Request, second.Spawn.Resolved
+	if request.Prompt != "research x" || request.Name != "scout" || request.Definition != "researcher" || request.Budgets["tokens"] != 100 || request.Capabilities != nil {
+		t.Fatalf("spawn request = %+v", request)
+	}
+	if resolved.Definition != "hooked/researcher" || !slices.Equal(resolved.Modules, []string{"context", "files", "agents"}) || !slices.Equal(resolved.Capabilities, []string{"read"}) || !slices.Equal(resolved.Tools, []string{"lookup"}) || resolved.Budgets["tokens"] != 100 || resolved.Report != "message" {
+		t.Fatalf("resolved child = %+v", resolved)
+	}
+	// Deny admits nothing.
+	reply(second, protocol.HookResultParams{Decision: "deny", Reason: "no children today"})
+	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), "hook before_spawn denied agents.spawn: no children today") {
+		t.Fatalf("deny = %v", cell.err)
+	}
+	if relatives, err := root.ListAgentRelatives(t.Context(), parent.id); err != nil || len(relatives.Children) != 0 {
+		t.Fatalf("denied spawn admitted a child: %+v %v", relatives, err)
+	}
+	if events := decisions(); len(events) != 1 || events[0].event.Name != "before_spawn" || events[0].event.Text != "deny" {
+		t.Fatalf("deny events = %+v", events)
+	}
+	// A rewrite is resolved again: a plain request becomes the named child.
+	outcome = execCell(t.Context(), parent, `agents.spawn(prompt="go", name="plain")`)
+	reply(awaitHookFromCell(t, conn, outcome), protocol.HookResultParams{})
+	second = awaitHookFromCell(t, conn, outcome)
+	if second.Spawn.Resolved.Definition != "hooked" {
+		t.Fatalf("plain resolution = %+v", second.Spawn.Resolved)
+	}
+	rewritten := second.Spawn.Request
+	rewritten.Definition, rewritten.Name = "researcher", "scout"
+	reply(second, protocol.HookResultParams{Spawn: &rewritten, Reason: "all children research"})
+	cell := awaitCell(t, outcome)
+	if cell.err != nil {
+		t.Fatalf("rewritten spawn failed: %v", cell.err)
+	}
+	receipt := cell.result.Value.(map[string]any)
+	runtime.mu.RLock()
+	child := runtime.agents[receipt["id"].(string)]
+	runtime.mu.RUnlock()
+	if receipt["name"] != "scout" || receipt["report"] != "message" || child == nil || child.definition.ID != "hooked/researcher" || !slices.Equal(child.definition.Capabilities, []string{"read"}) {
+		t.Fatalf("rewritten child = %+v / %+v", receipt, child)
+	}
+	if name, err := store.AgentDefinitionName(t.Context(), root.ID(), child.id); err != nil || name != "researcher" {
+		t.Fatalf("stored child definition = %q %v", name, err)
+	}
+	if events := decisions(); len(events) != 2 || events[1].event.Text != "rewrite" || events[1].event.Name != "before_spawn" {
+		t.Fatalf("rewrite events = %+v", events)
+	}
+	if notices := parent.hookNotices(); !strings.Contains(notices, "Hook before_spawn rewrote the spawn request to") || !strings.Contains(notices, "(reason: all children research)") {
+		t.Fatalf("rewrite notice = %q", notices)
+	}
+	waitAgentIdle(t, child)
+	// A rewrite that widens fails exactly as a widening request would.
+	outcome = execCell(t.Context(), parent, `agents.spawn(prompt="go", name="wider", definition="researcher")`)
+	reply(awaitHookFromCell(t, conn, outcome), protocol.HookResultParams{})
+	second = awaitHookFromCell(t, conn, outcome)
+	widened := second.Spawn.Request
+	widened.Capabilities = []string{"shell"}
+	reply(second, protocol.HookResultParams{Spawn: &widened})
+	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), `capability "shell" is not available to the parent`) {
+		t.Fatalf("widening rewrite = %v", cell.err)
+	}
+	// The child inherits both hooks and is gated under its own identity.
+	outcome = execCell(t.Context(), child, `agents.spawn(prompt="deeper", name="grandchild")`)
+	first = awaitHookFromCell(t, conn, outcome)
+	if first.AgentID != child.id || first.Hook != "before_tool" {
+		t.Fatalf("child hook = %+v", first)
+	}
+	reply(first, protocol.HookResultParams{Decision: "deny", Reason: "no grandchildren"})
+	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), "no grandchildren") {
+		t.Fatalf("child deny = %v", cell.err)
+	}
+}
+
+// An optional before_spawn hook with nobody serving it proceeds with a notice.
+func TestBeforeSpawnOptionalProceedsUnanswered(t *testing.T) {
+	_, _, root, runtime := hookedRoot(t, &agentdef.Hooks{BeforeSpawn: &agentdef.Hook{Optional: true}})
+	parent := runtime.rootNode
+	decisions := captureEvents(parent)
+	cell := awaitCell(t, execCell(t.Context(), parent, `agents.spawn(prompt="go", name="solo", report="message")`))
+	if cell.err != nil {
+		t.Fatalf("optional spawn failed: %v", cell.err)
+	}
+	if relatives, err := root.ListAgentRelatives(t.Context(), parent.id); err != nil || len(relatives.Children) != 1 {
+		t.Fatalf("spawn did not admit the child: %+v %v", relatives, err)
+	}
+	if events := decisions(); len(events) != 1 || events[0].event.Name != "before_spawn" || events[0].event.Text != "skipped" || !strings.Contains(events[0].event.Result, "no executor is bound") {
+		t.Fatalf("skip events = %+v", events)
+	}
+	if notices := parent.hookNotices(); !strings.Contains(notices, "Hook before_spawn was skipped for agents.spawn") {
+		t.Fatalf("skip notice = %q", notices)
 	}
 }
