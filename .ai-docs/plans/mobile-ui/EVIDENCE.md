@@ -128,3 +128,37 @@ baseline is `9bb095f74`, after merging `feature/agent-definition` into
 Local build logs: `/tmp/whip-ios-ui-release.log` and
 `/tmp/whip-ios-ui-signed-simulator.log`. No application source changed during
 this follow-up; the existing regression results above remain the code baseline.
+
+## Signed iPhone installation — 2026-09-11
+
+The owner explicitly approved the Expo source upload and use of the existing
+signing credentials. The initial upload was stopped before build submission:
+archive inspection found generated evaluation environments, caches and session
+traces that were unnecessary for mobile. Commit `6b6e2175a` explicitly excludes
+`evals/` and UI test captures from EAS uploads. Local archive inspection verified
+the app, lockfile, shared workspace sources and native storage module were
+retained, with zero credential/database files or evaluation/native build output
+files. The revised compressed upload was **17.7 MB**, down from 455 MB, and
+succeeded. No app source or signing configuration changed in this phase.
+
+| Verification | Result |
+| --- | --- |
+| EAS build | [`24d9cfee-e5e7-407a-9ddd-c00674115249`](https://expo.dev/accounts/inference/projects/whipcode/builds/24d9cfee-e5e7-407a-9ddd-c00674115249), FINISHED |
+| Source | `6b6e2175a7aa66432bc8a6bc67f5ced747754500` |
+| Profile | `preview`, INTERNAL, physical iOS device |
+| Native builder | macOS Tahoe 26.5.2 / Xcode 26.6 (17F113) |
+| Bundle | `dev.contextlabs.whip.mobile`, version 0.1.0 / build 1 |
+| IPA SHA-256 | `3ee2a3e4fb2d0009226e5c22b8b1f74a3f7d5bc139a008a3a51c565cd86045dd` |
+| Signature | `codesign --verify --deep --strict` passed |
+| Provisioning | Existing Apple team; exactly the approved iPhone is included; expires 2027-09-08 |
+| Embedded app | 8,674,162-byte Hermes bundle; new Appearance and local-pin controls present; no Metro dependency |
+| Physical device | Previously approved iPhone 16 Pro, iOS 26.6.1 (23G83), Developer Mode enabled |
+| Installation | `devicectl device install app` succeeded at 16:29 MDT, updating the existing bundle ID without uninstall/reset |
+| Launch | `devicectl device process launch` succeeded; subsequent process inspection found Whip still running |
+
+Local artifact: `/tmp/whip-ios-24d9cfee.ipa`. Installation and launch records are
+`/tmp/whip-ios-phone-install.json` and `/tmp/whip-ios-phone-launch.json`.
+The phone installation objective is complete. This verifies packaging,
+provisioning, installation and process launch; it does not claim a full physical
+host/chat/accessibility/performance acceptance pass. The preceding pending
+signing/connection notes are historical and resolved by this entry.

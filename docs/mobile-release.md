@@ -6,6 +6,15 @@ This is the runbook for producing and accepting Whip mobile artifacts. See
 The initial release is iOS first, with Android following. Manual Tailscale HTTPS
 connection remains the scope; app authentication, QR and notifications are deferred.
 
+The redesigned mobile UI is now installed on the owner's iPhone 16 Pro
+(iOS 26.6.1). The current signed preview is
+[`24d9cfee-e5e7-407a-9ddd-c00674115249`](https://expo.dev/accounts/inference/projects/whipcode/builds/24d9cfee-e5e7-407a-9ddd-c00674115249),
+built from `6b6e2175a`. Its signature, registered-device profile and embedded
+bundle were verified; direct installation and launch succeeded on 2026-09-11,
+and the Whip process remained running afterward. This build supersedes the
+earlier previews discussed below. Full physical-device workflow acceptance
+and TestFlight remain separate. See the [current UI evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md).
+
 EAS has compiled simulator and signed internal iPhone artifacts using Xcode
 26.6. Native simulator acceptance found and corrected an iOS SQLite path bug;
 the corrected app reconnects and restores an unsent draft after force-quit.
@@ -101,11 +110,12 @@ UUID `fa9874ce-4324-474f-86ef-a8749cf8fa91`. The Expo slug follows the project;
 the installed app name remains Whip. The root [.easignore](../.easignore) preserves
 the Git exclusions and also excludes local research/acceptance records and
 credential files from cloud build uploads. Keep its shared exclusions in sync
-with `.gitignore`. Inspect an archive after changing workspace or ignore rules:
+with `.gitignore`.
 
 Evaluation environments, caches, generated session traces and UI test captures
 are also excluded from mobile uploads. EAS does not inherit all nested
 `.gitignore` rules when the root `.easignore` is present; keep these explicit.
+Inspect an archive after changing workspace or ignore rules:
 
 ```sh
 npx --yes eas-cli@23.2.0 build:inspect --platform ios --profile preview-simulator --stage archive --output ../../.ai-docs/plans/mobile-app/artifacts/eas-archive-review

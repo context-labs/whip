@@ -206,5 +206,6 @@ Update `docs/frontend.md` when implementing native component boundaries, per-hos
 - [x] Implement conversation, request/menu/recovery and remaining settings.
 - [x] Complete repository/mobile regression, Android theme captures and canonical documentation.
 - [x] Resolve iOS toolchain eligibility; compile and launch the signed Release simulator app with Xcode 26.6.
-- [ ] Complete interactive iOS native acceptance and signed phone installation; see the iOS follow-up in EVIDENCE.md.
+- [x] Build, verify, install and launch the signed preview on the owner's iPhone 16 Pro; see EVIDENCE.md.
+- [ ] Complete the full interactive iOS workflow acceptance matrix.
 - [ ] Complete physical-device accessibility, layout and measured performance release matrix described above.
