@@ -1,6 +1,6 @@
 # SDK ergonomics: typed tools, a runtime handle, and turns
 
-Status: proposed plan, September 10, 2026. No implementation yet.
+Status: final plan, September 11, 2026. Ready to implement; no code yet.
 
 Written against `feature/agent-definition` at `6fdd4b65d`, which landed
 [TypeScript-authored agents](../typescript-agents/PLAN.md) and
@@ -57,6 +57,19 @@ veto during review:
     result locally before it is posted; in phase 6 it travels on the wire as
     `output_schema`, the runtime guide shows the model what a tool returns,
     and the daemon validates results from any executor. (September 11.)
+11. **Field names are `input`, `output`, and `execute`.** They mirror
+    `defineAgent({ output })` in the same SDK and read cleanly in the object
+    form; `execute` is what Vercel, OpenAI, and Mastra call the handler. The
+    longer `inputSchema`/`outputSchema` was considered and passed over as a
+    rename with no other consequence. (September 11.)
+12. **Derived schemas target JSON Schema draft 2020-12.** It is the Standard
+    JSON Schema spec's first-class target, every implementer supports it, and
+    the daemon's validator (`google/jsonschema-go`) accepts both 2020-12 and
+    draft-07, so raw JSON Schema written by hand in either draft still
+    works. The protocol contract's own draft-07 is a TypeScript-generation
+    choice and is unaffected. (September 11.)
+
+No open questions remain; every default above was accepted in review.
 
 ## Why this matters
 
@@ -195,9 +208,12 @@ through 5 touch only `packages/sdk`, `examples`, and docs.
   document and gains `execute` plus the two schemas for local validation;
   `AgentDefinition.handlers` keys stay tool names.
 - The document's `input_schema` is `input['~standard'].jsonSchema.input({
-  target: 'draft-07' })`, compacted, or the raw object as given. `output`
-  is kept SDK-side in this phase (it reaches the wire in phase 6), so the
-  canonical document does not change and no revision moves.
+  target: 'draft-2020-12' })`, compacted, or the raw object as given.
+  `output` is kept SDK-side in this phase (it reaches the wire in phase 6),
+  so the canonical document does not change and no revision moves. A
+  library that throws for the 2020-12 target is a definition-time
+  `TypeError` naming the tool; there is no silent fallback to another draft,
+  because the document's bytes are its revision.
 - `tool()` rejects at definition time, naming the tool: an `input` whose
   derived root is not an object (the daemon requires keyword arguments), a
   schema that cannot produce JSON Schema, and a bad `timeoutMs`.
@@ -217,7 +233,7 @@ through 5 touch only `packages/sdk`, `examples`, and docs.
 Tests: a hand-rolled Standard Schema object (no library) infers the handler
 input and constrains its return type (compile-time assertions through
 `satisfies` and `@ts-expect-error`); the derived document `input_schema` is
-compacted draft-07; a non-object input root is rejected; raw JSON Schema
+compacted 2020-12 JSON Schema; a non-object input root is rejected; raw JSON Schema
 still works and types `unknown`; the incident commander's document is
 byte-identical before and after the change (pin the derived `input_schema`);
 input validation failure posts an error and never calls `execute`; output
@@ -268,10 +284,10 @@ New `packages/sdk/src/turn.ts`; `Session.run` in `session.ts`.
   | `text` (`delta`) | `stream.text` |
   | `reasoning` (`delta`) | `stream.reasoning` |
   | `cell` (`id`, `code`, status) | `stream.tool.call/started/completed` where `name === 'rlm_exec'` |
-  | `host` (`operation`, `summary`, status, `error`) | `stream.cell.host.started`, `stream.cell.host` |
+  | `host` (`operation` from `name`, `summary` from `args`, `status`: running, completed, failed, cancelled; `error` from `result`) | `stream.cell.host.started`, `stream.cell.host` |
   | `progress` (`operation`, `text`) | `stream.tool.progress` |
-  | `hook` (`hook`, `operation`, `decision`, `reason`) | `stream.hook.decision` |
-  | `question` (`id`, `question`, `options`, `multiple`, `answer()`, `dismiss()`) | `question.pending` |
+  | `hook` (`hook` from `name`, `operation` from `args`, `decision` from `text`: deny, rewrite, skipped; `reason` from `result`) | `stream.hook.decision` |
+  | `question` (`id`, `question`, `options: {label, description?, recommended?}[]`, `multiple`, `questions?` for a batch, `answer()`, `dismiss()`) | `question.pending` |
   | `permission` (`id`, `operation`, `command`, `allow(remember?)`, `deny(reason?)`) | `permission.pending` |
   | `child` (`agentId`, `name`, status) | `agent.admitted`, `agent.turn.*`, `agent.subtree.*` |
   | `notice` (`text`) | `stream.notice` |
@@ -281,10 +297,20 @@ New `packages/sdk/src/turn.ts`; `Session.run` in `session.ts`.
 
   Unknown future kinds surface as `raw`. Each mapped type is a plain object
   with `seq`, `agentId`, and `turnId`.
-- `TurnResult` is `{ status, text, failure?, usage?, turnId, output?:
-  unknown }` where `text` comes from the submit command's terminal outcome
-  (`result.text`), `usage` is the last `usage` event, and `status` is the
-  command status. `result()` resolves when both the command is terminal and
+- `TurnResult<Output = unknown>` is a discriminated union on the command
+  status, so a `succeeded` branch narrows `output` to present:
+
+  ```ts
+  type TurnResult<Output = unknown> =
+    | { status: 'succeeded'; turnId: string; text: string; output: Output; usage?: Usage }
+    | { status: 'failed' | 'cancelled' | 'interrupted'; turnId?: string; text?: string; failure: Failure; usage?: Usage };
+  ```
+
+  `text` comes from the submit command's terminal outcome (`result.text`),
+  `usage` is the last `usage` event, `failure` is the command's failure
+  envelope, and `output` is `unknown` until phase 6 types it (a session
+  opened raw keeps `unknown` afterwards). `text()` resolves to the same
+  `text` or rejects with the failure. `result()` resolves when both the command is terminal and
   the `end` event has been seen, or the command is terminal and the
   subscription has drained to the command's `ingress_seq`, whichever first
   completes; it never waits on events the command's failure made impossible.
@@ -399,11 +425,43 @@ the second; the submit result carries `output`; the SDK types infer through
   beneath it. A short "Testing" section for `@whip/sdk/testing`.
 - `docs/features.md` SDK bullets; `docs/rlm-runtime.md` gains an "Output
   contract" paragraph beside the hooks section; `docs/protocol-v2.md` 6.5.
+- `examples/agents/support-triage.ts` replaces `ticket-lookup.ts`. It is
+  the README program verbatim (two typed tools with outputs, one named
+  child, all three hooks, an agent `output`), with a unit test that pins its
+  document and drives one `session.run` loop through the scripted daemon
+  from `@whip/sdk/testing`, and a live acceptance that runs one real turn
+  and reads `result.output`. See "The support-triage fixture" below.
 - `examples/agents/incident-commander.ts` and its acceptance move to typed
   tools, `runtime.sessions.create`, and `session.run`; the acceptance's
   hand-rolled event filtering is replaced by turn events, which is the proof
   that the layer covers a real consumer.
 - This plan's implementation record.
+
+## The support-triage fixture
+
+The typescript-agents plan proved its abstraction with JuniorDeveloper: a
+document written two ways that had to compose the same prompt. This plan's
+proof is a program written once that has to work at every layer. The
+support-triage example is the target-state program from the top of this
+document, and it is exercised three ways:
+
+- **At compile time.** `tsc` on the example is the type test: `execute`
+  receives inferred inputs, a return that does not match `output` is a
+  compile error (asserted with `@ts-expect-error` in the test), and
+  `turn.result()` narrows `output` on `status === 'succeeded'`.
+- **Against the scripted daemon.** The unit test pins the canonical document
+  (so a schema library upgrade that changes derived JSON Schema shows as a
+  diff, not a surprise revision), then plays a `turn(...)` script through
+  `session.run`: text deltas, one hook decision, one question answered from
+  the event, and the `end`, asserting the loop the README shows.
+- **Against a live daemon.** The acceptance serves the agent with the SDK
+  fixture's scripted model, creates a session through the runtime, runs one
+  turn that calls `tools.lookup_ticket`, and asserts the typed `output` and
+  the hook decision events. From phase 6 it also asserts that a malformed
+  tool result is rejected by the daemon.
+
+If those three hold, the layer is complete for a real consumer, and the
+incident commander migration is a second consumer rather than the only one.
 
 ## Preserved, changed, not built
 
@@ -427,6 +485,7 @@ the second; the submit result carries `output`; the SDK types infer through
   tool return shapes; the daemon validates tool results and final messages;
   the turn outcome and submit result carry the validated value; protocol
   minor 6.5.
+- `examples/agents/ticket-lookup.ts` is replaced by `support-triage.ts`.
 
 **Not built**
 
