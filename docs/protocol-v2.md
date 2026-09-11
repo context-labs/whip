@@ -53,6 +53,18 @@ accepted only from the lease holder at the quoted generation; `executor.pending`
 `stream.tool.progress` event kind carries handler progress. Schema 18 records a
 retained child's named definition. All additions are additive.
 
+Protocol **6.4** adds hooks. A definition declares `hooks.before_tool`,
+`before_spawn`, and `turn_start`, each with an `optional` flag, a timeout, and
+for `before_tool` an operation filter; `executor.bind` must cover them as it
+covers tools. `hook.invoke` is a notification on the executor's connection
+carrying the invocation id, identity, hook name, and either the operation and
+arguments, the spawn request with its resolved child, or the turn input
+preview; `hook.result` (ephemeral) answers it with optional `decision`,
+`reason`, `arguments`, `spawn`, `context`, or `error` fields, and an empty
+reply allows unchanged; `hook.cancel` mirrors `tool.cancel`. `executor.pending`
+lists pending hooks beside tool invocations. The `stream.hook.decision` event
+kind carries every deny, rewrite, and skip. All additions are additive.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

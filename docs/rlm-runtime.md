@@ -400,6 +400,39 @@ operation and sends `tool.cancel`; a disconnected or replaced executor's calls
 fail and are never replayed, so handlers should be idempotent on the
 invocation id.
 
+## Hooks
+
+A definition's `hooks` are served by the same executor as its custom tools and
+run in three places. `before_tool` runs in `recursiveHost.Call`, the single
+entry from a kernel into the host, before any module handles the call: it sees
+`module.operation` and the arguments (optionally narrowed to named operations),
+and may deny with a reason, which the cell raises as an error, or rewrite the
+arguments, which then fall through to the same handler fresh arguments reach,
+so path canonicalization, schema validation, ledger checks, and permission
+prompts run on what actually executes. `before_spawn` runs in `spawnAttempt`
+after the request is parsed and a named child's defaults are applied: it sees
+the request as the model wrote it and the resolved child (definition, modules,
+capabilities, tools, budgets, report), and a rewrite is resolved again, so it
+cannot widen. When both are declared, `before_tool` sees the raw `agents.spawn`
+call first and `before_spawn` the resolution after. `turn_start` runs in
+`RunTurn` with a bounded preview of the input; its context joins the turn's
+ephemeral system text and never enters history.
+
+Every reply field is optional; an empty reply allows unchanged. A required
+hook (the default) that goes unanswered, whether no executor is bound, the
+timeout passes (30 seconds default, 60 ceiling), or the executor disconnects,
+denies the operation with an error the model reads, and a handler that throws
+denies with its message. An `optional` hook proceeds instead, with a notice.
+`turn_start` never gates. Hooks only narrow: they cannot grant authority the
+ledger denies and a hook `allow` does not skip the user's permission mode.
+Children inherit their parent's hooks and are gated under their own agent id.
+
+Deny, rewrite, and skip emit `stream.hook.decision` (hook name, operation,
+decision, reason). Rewrites and skips also append one line to the turn's
+ephemeral system text before the model's next request, bounded to eight
+notices and 2 KiB per turn, so the model knows what ran without any operation
+changing its result shape.
+
 ## Limits
 
 Omitted or zero values use these defaults:

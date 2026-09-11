@@ -48,6 +48,21 @@ contract easier to locate.
   `tools=[...]` narrows custom tools like `capabilities` narrows authority; the
   narrowing is a grant and survives restart (`TestNamedChildDefinitionsApplyAndRestore`,
   `TestCustomToolChildNarrowingIsEnforced`).
+- A definition's `hooks` let its executor observe and gate what sessions do.
+  `before_tool` runs before every host operation a cell calls (narrowable to
+  named operations) and may deny with a reason or rewrite the arguments, which
+  then take the same validated path fresh arguments do; `before_spawn` runs
+  after a spawn request is parsed and resolved and may deny or rewrite the
+  request, which is resolved again so it cannot widen; `turn_start` contributes
+  ephemeral context to each turn and never gates. Every reply field is
+  optional and an empty reply allows unchanged. A required hook that goes
+  unanswered (no executor, timeout, disconnect) or whose handler throws denies
+  the operation; an `optional` hook proceeds with a notice. Hooks only
+  narrow: they never grant authority the ledger denies and never skip the
+  user's permission mode. Deny, rewrite, and skip emit `stream.hook.decision`,
+  and rewrites and skips add a bounded notice to the turn's next provider
+  request so the model learns what ran (`TestBeforeToolGatesEveryHostOperation`,
+  `TestBeforeSpawnSeesResolvedChildAndCannotWiden`, `TestTurnStartContributesEphemeralContext`).
 - JuniorDeveloper is a deliberately limited agent for exercising those seams:
   seven modules (`context`, `files`, `shell`, `state`, `artifacts`,
   `permissions`, `user`), the `read`, `write`, and `shell` capabilities, no
@@ -478,7 +493,9 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   `client.agents.register/get/list/serve` register definitions and run an
   executor that serves tool invocations for one definition revision, re-binding
   after reconnect. Handlers receive the invocation id, root, agent, turn,
-  deadline, an `AbortSignal`, and a progress reporter (`examples/agents`).
+  deadline, an `AbortSignal`, and a progress reporter. `hooks.beforeTool`,
+  `beforeSpawn`, and `turnStart` are served by the same executor; returning
+  nothing allows unchanged (`examples/agents`).
 - Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed

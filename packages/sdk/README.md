@@ -422,6 +422,38 @@ wait with an error the model reads. `client.agents.register/get/list` manage
 definitions without serving tools. `agents.spawn(definition="researcher")` in a
 cell selects a named child. See `examples/agents`.
 
+Hooks let the same process observe and gate what the agent's sessions do:
+
+```ts
+const support = defineAgent({
+  id: 'support-triage',
+  modules: ['context', 'files', 'shell', 'agents'],
+  hooks: {
+    beforeTool: async ({ operation, arguments: args }) => {          // every host operation
+      audit.log(operation, args);                                       // return nothing: allow, unchanged
+      if (operation === 'shell.run' && /rm -rf/.test(String(args.command))) return { decision: 'deny', reason: 'destructive' };
+      if (operation === 'files.read' && String(args.path).endsWith('.env')) return { arguments: { ...args, path: `${args.path}.example` } };
+    },
+    beforeSpawn: async ({ spawn, resolved }) => {                      // the request and what it resolved to
+      if (resolved.capabilities?.includes('shell')) return { decision: 'deny', reason: 'children may not hold shell' };
+    },
+    turnStart: async () => ({ context: `On call: ${await roster.current()}` }), // ephemeral, never in history
+  },
+});
+```
+
+Every result field is optional and an empty result allows unchanged. A
+rewrite takes the same validated path the original arguments would, so it
+cannot widen anything. A hook is required by default: if nothing answers it
+(no executor, timeout, disconnect) or the handler throws, the operation is
+denied with an error the model reads; pass `{ optional: true, handler }` for
+an advisory hook that proceeds with a notice instead. `beforeTool` accepts
+`operations: ['shell.run', ...]` to narrow which calls it sees; timeouts
+default to 30 seconds with a 60-second ceiling. Hooks only narrow: they never
+grant authority the ledger denies and never bypass the user's permission
+mode. Denials, rewrites, and skips appear in the session stream as
+`stream.hook.decision`.
+
 ## React example and validation
 
 Host bootstrap reads do not create sessions:
