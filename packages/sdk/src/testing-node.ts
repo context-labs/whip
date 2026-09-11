@@ -1,0 +1,178 @@
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export * from './testing.js';
+
+/** The repository root; the live daemon is built from its Go sources. */
+export const repository = fileURLToPath(new URL('../../../', import.meta.url));
+
+export function fixtureExternalOrigin(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    if (typeof value !== 'string' || value.length > 2048) throw new TypeError();
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || value !== parsed.origin || parsed.hostname.includes('*')) throw new TypeError();
+    return value;
+  } catch {
+    throw new TypeError('externalOrigin must be an exact HTTPS origin without credentials, path, query, fragment or wildcards');
+  }
+}
+
+export async function run(command: string, args: string[], options: SpawnOptions = {}): Promise<void> {
+  const child = spawn(command, args, { cwd: repository, stdio: 'inherit', ...options });
+  const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
+  if (code !== 0) throw new Error(`${command} exited with ${code ?? signal}`);
+}
+
+export async function eventually<T>(check: () => T | Promise<T>, { timeout = 15_000, interval = 25, description = 'condition' } = {}): Promise<NonNullable<T>> {
+  const deadline = Date.now() + timeout;
+  let last: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const value = await check();
+      if (value) return value as NonNullable<T>;
+    } catch (error) { last = error; }
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+  throw new Error(`Timed out waiting for ${description}`, { cause: last });
+}
+
+/** What the daemon fixture writes once it is serving. */
+export interface LiveDaemonInfo {
+  generation: number;
+  endpoint: string;
+  frontend: string;
+  [key: string]: unknown;
+}
+export interface LiveDaemonOptions {
+  allowedOrigins?: string[];
+  retainOnFailure?: boolean;
+  /** Fixture lifetime; four minutes by default, at most thirty. */
+  lifetimeMs?: number;
+  externalOrigin?: string;
+  /** Extra environment for the daemon process, such as WHIP_SDK_AGENTS_FIXTURE=1 for the recursive runtime behind a scripted model. */
+  env?: Record<string, string>;
+}
+export interface LiveDaemon {
+  readonly info: LiveDaemonInfo;
+  readonly exited: Promise<unknown[]>;
+  readonly directory: string;
+  readonly pid: number | undefined;
+  readonly output: string;
+  crashAndRestart(options?: { beforeRestart?: () => Promise<void> | void }): Promise<LiveDaemonInfo>;
+  release(key: string): Promise<void>;
+  effects(): Promise<unknown[]>;
+  close(): Promise<void>;
+}
+
+/**
+ * A real daemon for acceptance tests: the integration test binary serving the
+ * WHIP protocol from an isolated home, attach-only from the SDK's perspective.
+ * Keeping the binary lets restart tests kill the daemon process itself. Node
+ * only; it builds and spawns Go.
+ */
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 4 * 60_000, externalOrigin, env = {} }: LiveDaemonOptions = {}): Promise<LiveDaemon> {
+  if (!Number.isInteger(lifetimeMs) || lifetimeMs <= 0 || lifetimeMs > 30 * 60_000) {
+    throw new RangeError('Fixture lifetimeMs must be a positive integer no greater than 1800000 (30 minutes)');
+  }
+  const origin = fixtureExternalOrigin(externalOrigin);
+  const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-'));
+  const binary = join(directory, 'daemon.test');
+  await mkdir(join(directory, 'public'));
+  let child: ChildProcess | undefined;
+  let exit!: Promise<unknown[]>;
+  let info!: LiveDaemonInfo;
+  let output = '';
+  let finished = false;
+  const start = async () => {
+    const generation = (info?.generation ?? 0) + 1;
+    child = spawn(binary, ['-test.run=^TestV2SDKBridge$', `-test.timeout=${lifetimeMs + 60_000}ms`, '-test.v'], {
+      cwd: repository,
+      env: {
+        ...process.env,
+        WHIP_HOME: join(directory, 'home'),
+        WHIP_SDK_FIXTURE_DIR: directory,
+        WHIP_SDK_FIXTURE_LIFETIME: `${lifetimeMs}ms`,
+        WHIP_SDK_FIXTURE_ORIGIN: origin ?? '',
+        WHIP_SDK_FIXTURE_ALLOWED_ORIGINS: JSON.stringify(allowedOrigins),
+        ...env,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout!.on('data', data => { output += data; });
+    child.stderr!.on('data', data => { output += data; });
+    exit = once(child, 'exit');
+    if (retainOnFailure) await writeFile(join(directory, 'fixture-process.json'), JSON.stringify({ pid: child.pid, binary, generation, home: join(directory, 'home') }, null, 2));
+    const process_ = child;
+    info = await eventually(async () => {
+      if (process_.exitCode !== null) throw new Error(`Fixture exited: ${output}`);
+      const candidate = JSON.parse(await readFile(join(directory, 'bridge.json'), 'utf8')) as LiveDaemonInfo;
+      if (candidate.generation !== generation) return undefined;
+      return candidate;
+    }, { timeout: 30_000, description: `daemon generation ${generation}` });
+  };
+  const close = async () => {
+    if (finished) return;
+    finished = true;
+    let failed = false;
+    try {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        await fetch(info.frontend + '/done', { method: 'POST', signal: AbortSignal.timeout(3_000) }).catch(() => {});
+        const timer = setTimeout(() => child?.kill('SIGKILL'), 5_000);
+        await exit;
+        clearTimeout(timer);
+      }
+      const [code, signal] = await exit;
+      if (code !== 0 || output.includes('WARNING: DATA RACE')) throw new Error(`SDK fixture failed (${String(code ?? signal)}): ${output}`);
+    } catch (error) {
+      failed = true;
+      if (retainOnFailure) await writeFile(join(directory, 'fixture-failure.log'), `${(error as Error).stack ?? String(error)}\n${output}`).catch(() => {});
+      throw error;
+    } finally {
+      if (process.env.WHIP_SDK_KEEP_FIXTURE || (failed && retainOnFailure)) console.log(`SDK fixture retained: ${directory}`);
+      else await rm(directory, { recursive: true, force: true });
+    }
+  };
+  try {
+    await run('go', ['test', '-c', ...(process.env.WHIP_SDK_RACE ? ['-race'] : []), '-tags=integration', '-o', binary, './internal/daemon']);
+    await start();
+  } catch (error) {
+    if (child) child.kill('SIGKILL');
+    if (retainOnFailure) {
+      await writeFile(join(directory, 'fixture-failure.log'), `${(error as Error).stack ?? String(error)}\n${output}`).catch(() => {});
+      console.error(`SDK fixture retained: ${directory}`);
+    } else await rm(directory, { recursive: true, force: true });
+    throw new Error(`Cannot start SDK fixture: ${output}`, { cause: error });
+  }
+  return {
+    get info() { return info; },
+    get exited() { return exit; },
+    directory,
+    get pid() { return child?.pid; },
+    get output() { return output; },
+    async crashAndRestart({ beforeRestart }: { beforeRestart?: () => Promise<void> | void } = {}) {
+      child!.kill('SIGKILL');
+      const [, signal] = await exit;
+      if (signal !== 'SIGKILL') throw new Error(`Fixture did not crash: ${output}`);
+      try { await beforeRestart?.(); } finally { await start(); }
+      return info;
+    },
+    async release(key: string) {
+      const response = await fetch(info.frontend + '/control/release?key=' + encodeURIComponent(key), { method: 'POST' });
+      if (!response.ok) throw new Error(`Release failed: ${response.status}`);
+    },
+    async effects() {
+      const response = await fetch(info.frontend + '/control/effects');
+      const text = await response.text();
+      return text.trim() ? text.trim().split('\n').map(line => JSON.parse(line) as unknown) : [];
+    },
+    close,
+  };
+}
+
+/** A live daemon under the name the plan uses. */
+export const liveDaemon = startFixture;
