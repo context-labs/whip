@@ -411,6 +411,10 @@ reader of the plan is not misled:
   `github:anomalyco/ghostty-web#83c0a07b…`; the fork commits its `dist/`, so installs need no Zig
   or Bun. Its WASM is 968 KB instead of 423 KB. The Nerd Font fallback stays for glyphs outside the
   sprite set, such as icon code points. Move back to the npm release when upstream ships sprites.
+- **No browser caret.** ghostty-web focuses a `contenteditable` container for keyboard input, and a
+  focused contenteditable draws the browser's own text caret at its start, beside the shell's
+  cursor. The surface sets `caret-color: transparent`, which inherits into that container and the
+  hidden textarea; the fixture asserts the computed value while the terminal holds focus.
 - **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
   round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
   (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in

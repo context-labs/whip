@@ -73,6 +73,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.keyboard.press('Enter');
     await eventually(() => outputText(terminalId).includes('glyphs-ok'), { description: 'glyph line printed' });
     await terminalView().screenshot({ path: join(directory, `${name}-glyphs.png`) });
+    // Only the shell's cursor may show: the focused contenteditable must not draw the browser caret.
+    const caret = await page.evaluate(() => {
+      const input = document.querySelector('[data-terminal-view] [contenteditable]');
+      return { focused: document.activeElement === input, caretColor: input && getComputedStyle(input).caretColor };
+    });
+    assert.equal(caret.focused, true, 'terminal input keeps focus');
+    assert.equal(caret.caretColor, 'rgba(0, 0, 0, 0)', 'browser caret hidden inside the terminal');
+    const box = await terminalView().boundingBox();
+    await page.screenshot({ path: join(directory, `${name}-corner.png`), clip: { x: box.x, y: box.y, width: 160, height: 48 } });
     checks.push('typing reaches the shell and its output returns in cursor order under the production CSP');
 
     // Reload: the tab is restored from window storage and the daemon replays.

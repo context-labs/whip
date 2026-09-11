@@ -266,6 +266,8 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
 
 const styles = stylex.create({
   frame: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, backgroundColor: colors.background },
-  surface: { flex: 1, minHeight: 0, minWidth: 0, padding: 4, overflow: 'hidden', fontFamily: typography.mono },
+  // ghostty-web focuses a contenteditable container for keyboard input; the browser
+  // would draw its own caret there beside the shell's cursor. caret-color inherits.
+  surface: { flex: 1, minHeight: 0, minWidth: 0, padding: 4, overflow: 'hidden', fontFamily: typography.mono, caretColor: 'transparent' },
   bar: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, backgroundColor: surface.navigation, color: colors.foreground, fontSize: typography.size12, flexShrink: 0 },
 });

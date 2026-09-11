@@ -1,17 +1,4 @@
 {
-  "chromium": {
-    "browser": "153.0.8010.12",
-    "checks": [
-      "pane menu opens a shell on the host and attaches the tab",
-      "typing reaches the shell and its output returns in cursor order under the production CSP",
-      "reload reattaches the same shell and replays earlier output",
-      "another connection can take the shell over and the tab can reattach",
-      "closing the tab ends the shell"
-    ],
-    "terminalId": "term-jzl2yjclhk4a4pb4buwpp6tdzm",
-    "writes": 2,
-    "outputs": 52
-  },
   "firefox": {
     "browser": "155.0",
     "checks": [
@@ -21,8 +8,8 @@
       "another connection can take the shell over and the tab can reattach",
       "closing the tab ends the shell"
     ],
-    "terminalId": "term-fnr3bxfohago3dflpci5lcopev",
+    "terminalId": "term-ugnfi6ssytk3jpvaqxv3lavaxj",
     "writes": 20,
-    "outputs": 96
+    "outputs": 99
   }
 }
