@@ -4,6 +4,7 @@ import type {
 } from '@whip/protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import type { CommandOptions } from './command.js';
+import { Turn, type RunOptions } from './turn.js';
 import { encodeBase64 } from './util.js';
 
 /** Root-bound handle. Merely constructing it causes no I/O. */
@@ -21,6 +22,10 @@ export class Session {
     return this.client.invoke(operation, payload, { ...options, rootId: this.rootId });
   }
   submit(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('submit', payload, options); }
+  /** Submit one turn and observe it: an async iterable of typed events plus a typed result. */
+  run(input: string | SubmitPayload, options: RunOptions = {}): Turn {
+    return new Turn(this, typeof input === 'string' ? { text: input } : input, options);
+  }
   steer(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('steer', payload, options); }
   rename(title: string) { return this.command('session.rename', { title }); }
   archive(archived: boolean) { return this.command('session.archive', { archived }); }
