@@ -395,6 +395,18 @@ reader of the plan is not misled:
   redraws the new canvas from the ring instead of leaving it blank until the next output.
   Found in the adversarial pass; the initial mount therefore attaches twice (cursor 0, then
   the last seen cursor), which the daemon treats as a same-connection re-attach.
+- **Fonts.** Chromium never falls back to system fonts for Private Use Area code points, so
+  powerline separators (U+E0B0…) drew as hollow boxes with the UI's JetBrains Mono stack.
+  `terminalFontFamily` appends Nerd Font families (`Symbols Nerd Font Mono`, `JetBrainsMono
+  Nerd Font Mono`, `MesloLGS NF`, `Hack Nerd Font Mono`, `FiraCode Nerd Font Mono`); installed
+  ones supply the glyphs per character, absent ones are skipped. The view also waits for
+  `document.fonts.ready` (2 s cap) because ghostty-web sizes cells from one measurement at open.
+  The fixture prints the glyphs and saves `*-glyphs.png` for visual review.
+- **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
+  round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
+  (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in
+  flight per terminal, coalesces what arrives meanwhile, splits pastes at 16 KiB in order, and
+  drops pending bytes when a write fails rather than replaying stale keystrokes after reconnect.
 - **Browser fixture daemon** (`internal/daemon/v2_sdk_test.go`) enables terminals for network
   clients, because Playwright reaches it over WebSocket like a URL host would.
 - **Plan document paths**: research and plan were copied into the worktree so the branch

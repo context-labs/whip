@@ -5,7 +5,7 @@ import type { WhipClient } from '@whip/sdk';
 import { RpcError } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
-import { TerminalView, passesToApp } from '../src/terminal-view';
+import { TerminalView, createWriteQueue, passesToApp, terminalFontFamily } from '../src/terminal-view';
 import { localProfile, resolveURLConnection } from '../src/platform';
 
 const routing = vi.hoisted(() => ({ navigate: vi.fn(async () => {}) }));
@@ -90,13 +90,19 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   const instance = await ready();
   expect(instance.open).toHaveBeenCalledTimes(1);
   expect(instance.focus).toHaveBeenCalled();
+  // Powerline prompts need PUA glyphs; Chromium only tries fonts that are named.
+  expect(String(instance.options.fontFamily)).toContain("'Symbols Nerd Font Mono'");
+  expect(String(instance.options.fontFamily)).toContain("'MesloLGS NF'");
+  expect(terminalFontFamily("Menlo, monospace").startsWith('Menlo, monospace, ')).toBe(true);
+  expect(terminalFontFamily('')).toContain("'JetBrains Mono Variable'");
   fake.emitOutput('term-1', 0, '$ ');
   fake.emitOutput('other', 0, 'ignored');
   fake.emitOutput('term-1', 2, 'ls\r\n');
   expect(instance.write.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes as Uint8Array))).toEqual(['$ ', 'ls\r\n']);
   expect(instance.reset).not.toHaveBeenCalled();
   instance.emit('data', 'echo hi\r');
-  expect(fake.terminals.write).toHaveBeenCalledWith('term-1', 'echo hi\r');
+  await waitFor(() => expect(fake.terminals.write).toHaveBeenCalledTimes(1));
+  expect(new TextDecoder().decode(fake.terminals.write.mock.calls[0]![1] as Uint8Array)).toBe('echo hi\r');
   instance.emit('title', 'zsh — project');
   expect(tab()).toMatchObject({ kind: 'terminal', titleHint: 'zsh — project' });
   instance.emit('resize', { cols: 100, rows: 40 });
@@ -105,6 +111,36 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   expect(fake.terminals.resize).toHaveBeenCalledTimes(1);
   expect(fake.terminals.close).not.toHaveBeenCalled();
   expect(runtime.getSnapshot().workspaceError).toBeUndefined();
+});
+
+it('keeps one write in flight and coalesces keystrokes typed meanwhile, in order', async () => {
+  const sent: string[] = [];
+  const resolvers: (() => void)[] = [];
+  const send = vi.fn((bytes: Uint8Array) => new Promise<void>(resolve => { sent.push(new TextDecoder().decode(bytes)); resolvers.push(resolve); }));
+  const errors: unknown[] = [];
+  const queue = createWriteQueue(send, error => errors.push(error));
+  queue.push('a'); queue.push('b'); queue.push('c');
+  expect(sent).toEqual(['a']);
+  expect(queue.pendingBytes).toBe(2);
+  resolvers.shift()!();
+  await waitFor(() => expect(sent).toEqual(['a', 'bc']));
+  queue.push('');
+  resolvers.shift()!();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(send).toHaveBeenCalledTimes(2);
+  // Large pastes split at the daemon's per-write bound without reordering.
+  queue.push('x'.repeat(20_000)); queue.push('tail');
+  await waitFor(() => expect(sent.length).toBe(3));
+  expect(sent[2]!.length).toBe(16_384);
+  resolvers.shift()!();
+  await waitFor(() => expect(sent.length).toBe(4));
+  expect(sent[3]).toBe('x'.repeat(20_000 - 16_384) + 'tail');
+  resolvers.shift()!();
+  // A failed write drops what was pending instead of replaying stale keystrokes later.
+  const failing = createWriteQueue(() => Promise.reject(new Error('gone')), error => errors.push(error));
+  failing.push('lost'); failing.push('too');
+  await waitFor(() => expect(errors).toHaveLength(1));
+  expect(failing.pendingBytes).toBe(0);
 });
 
 it('redraws when the daemon replays from a different cursor than the view saw', async () => {

@@ -58,8 +58,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.keyboard.press('Enter');
     await eventually(() => outputText(terminalId).includes('whip-42'), { description: 'shell echoed the command result' });
     const writes = sent.filter(frame => frame.method === 'terminal.write' && frame.params.id === terminalId);
-    assert.ok(writes.some(frame => decode(frame.params.bytes).includes('e')), 'keystrokes reached the daemon as terminal.write');
-    assert.ok(writes.some(frame => decode(frame.params.bytes) === '\r'), 'Enter was sent as a carriage return');
+    // Keystrokes coalesce into as few writes as the round trip allows; the bytes stay in order.
+    assert.ok(writes.map(frame => decode(frame.params.bytes)).join('').includes('echo whip-$((40+2))\r'), 'keystrokes and Enter reached the daemon in order');
     // Cursors are contiguous per terminal.
     let expected = -1;
     for (const item of outputs().filter(item => item.id === terminalId)) {
@@ -68,6 +68,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     assert.deepEqual(await page.evaluate(() => window.cspErrors), [], 'no CSP violations while rendering the terminal');
     await page.screenshot({ path: join(directory, `${name}-terminal.png`) });
+    // Powerline separators, shade blocks and box drawing: a visual check saved for review.
+    await page.keyboard.type("printf '\\ue0b0\\ue0b2 \\u2591\\u2592\\u2593 \\u2500\\u2502 glyphs-ok\\n'");
+    await page.keyboard.press('Enter');
+    await eventually(() => outputText(terminalId).includes('glyphs-ok'), { description: 'glyph line printed' });
+    await terminalView().screenshot({ path: join(directory, `${name}-glyphs.png`) });
     checks.push('typing reaches the shell and its output returns in cursor order under the production CSP');
 
     // Reload: the tab is restored from window storage and the daemon replays.

@@ -6,7 +6,7 @@ import { Button } from '@whip/ui';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 import { useTheme } from '@whip/ui/themes';
 import type { WhipClient } from '@whip/sdk';
-import { RpcError } from '@whip/sdk';
+import { MAX_TERMINAL_WRITE_BYTES, RpcError } from '@whip/sdk';
 import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { useAppState, useRuntime } from './context';
@@ -30,6 +30,64 @@ type TerminalStatus =
   | { kind: 'ended' }
   | { kind: 'detached' }
   | { kind: 'error'; message: string };
+
+/**
+ * The terminal draws with the UI's mono stack, then Nerd Font families for the
+ * Private Use Area glyphs powerline prompts use. Chromium never falls back to
+ * system fonts for PUA code points, so a family must be named to be tried;
+ * families that are not installed are skipped per glyph.
+ */
+export function terminalFontFamily(uiFamily: string): string {
+  const base = uiFamily.trim() || "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace";
+  return `${base}, 'Symbols Nerd Font Mono', 'JetBrainsMono Nerd Font Mono', 'MesloLGS NF', 'Hack Nerd Font Mono', 'FiraCode Nerd Font Mono'`;
+}
+
+/**
+ * Keystrokes leave as one write at a time. Each key is its own RPC, so fast typing
+ * or key repeat would otherwise exceed the connection's in-flight request cap and
+ * drop characters; coalescing what arrives while a write is outstanding keeps
+ * order and bounds the outstanding requests to one per terminal.
+ */
+export function createWriteQueue(send: (bytes: Uint8Array) => Promise<void>, onError: (error: unknown) => void = () => {}) {
+  const encoder = new TextEncoder();
+  let pending: Uint8Array[] = [];
+  let inFlight = false;
+  const flush = async () => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      while (pending.length) {
+        let chunk: Uint8Array;
+        if (pending[0]!.byteLength > MAX_TERMINAL_WRITE_BYTES) {
+          // A paste larger than one write goes out in order, head first.
+          chunk = pending[0]!.slice(0, MAX_TERMINAL_WRITE_BYTES);
+          pending[0] = pending[0]!.slice(MAX_TERMINAL_WRITE_BYTES);
+        } else {
+          let size = 0;
+          let count = 0;
+          while (count < pending.length && size + pending[count]!.byteLength <= MAX_TERMINAL_WRITE_BYTES) size += pending[count++]!.byteLength;
+          chunk = new Uint8Array(size);
+          let offset = 0;
+          for (const part of pending.splice(0, count)) { chunk.set(part, offset); offset += part.byteLength; }
+        }
+        await send(chunk);
+      }
+    } catch (error) {
+      // A failed write means the connection is gone; stale keystrokes are not replayed.
+      pending = [];
+      onError(error);
+    } finally { inFlight = false; }
+  };
+  return {
+    push(data: string | Uint8Array) {
+      const bytes = typeof data === 'string' ? encoder.encode(data) : data;
+      if (!bytes.byteLength) return;
+      pending.push(bytes);
+      void flush();
+    },
+    get pendingBytes() { return pending.reduce((total, part) => total + part.byteLength, 0); },
+  };
+}
 
 /** App shortcuts the shell must not swallow; everything else reaches the PTY. */
 export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]): boolean {
@@ -73,11 +131,14 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     let terminal: Terminal | undefined;
     const themeColors = resolvedTheme.colors;
-    void loadGhostty().then(ghostty => {
+    const fontFamily = terminalFontFamily(getComputedStyle(element).fontFamily);
+    // ghostty-web sizes every cell from one measurement at open; a web font that
+    // finishes loading afterwards would leave glyphs misaligned in Menlo-sized cells.
+    const fonts = typeof document.fonts?.ready === 'object' ? Promise.race([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 2000))]) : Promise.resolve();
+    void Promise.all([loadGhostty(), fonts]).then(([ghostty]) => {
       if (disposed) return;
       terminal = new Terminal({
-        ghostty, scrollback: 10_000, fontSize: 13,
-        fontFamily: "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
+        ghostty, scrollback: 10_000, fontSize: 13, fontFamily,
         theme: { background: themeColors.background, foreground: themeColors.foreground, cursor: themeColors.primary, cursorAccent: themeColors.background, selectionBackground: themeColors.element, selectionForeground: themeColors.foreground },
       });
       const fit = new FitAddon();
@@ -96,7 +157,8 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
         }
         return false;
       });
-      terminal.onData(data => { void client.terminals.write(terminalId, data).catch(() => { /* A disconnected write is reported by the connection state, not per keystroke. */ }); });
+      const writes = createWriteQueue(bytes => client.terminals.write(terminalId, bytes));
+      terminal.onData(data => writes.push(data));
       terminal.onTitleChange(title => runtime.tabs.updateTerminal(tab.id, { titleHint: title }));
       terminal.onResize(({ cols, rows }) => {
         clearTimeout(resizeTimer);
