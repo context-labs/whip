@@ -135,6 +135,55 @@ test('the registry round-trips through the protocol', async t => {
   assert.deepEqual(fixtureConnection.current.requests.at(-1)?.params, { id: 'junior-developer-ts', revision: 'a'.repeat(64) });
 });
 
+/** A minimal valid root snapshot pinned to a definition revision. */
+function pinnedSnapshot(rootId: string, definition: string, revision: string) {
+  return {
+    root_id: rootId, cursor: '3', history_revision: '1', active_turns: {},
+    meta: { id: rootId, kind: 'agent', title: '', model: 'm', provider: 'p', cwd: '/srv', execution_engine: 'starlark', definition, definition_revision: revision,
+      goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
+    messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
+    budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
+  };
+}
+
+test('the runtime creates and opens only sessions pinned to the served revision', async t => {
+  const revision = 'd'.repeat(64);
+  const lookup = tool({ name: 'lookup_ticket', description: 'd', input: ticketInput, execute: async ({ id }) => ({ id }) });
+  const agent = defineAgent({ id: 'support-bot', modules: ['context'], tools: [lookup] });
+  let creations = 0;
+  const fixture = transportFixture({ request(request, connection) {
+    switch (request.method) {
+      case 'definitions.register': connection.reply(request, { id: 'support-bot', revision, created: false }); break;
+      case 'executor.bind': connection.reply(request, { generation: '1', tools: ['lookup_ticket'] }); break;
+      case 'command.submit': {
+        creations++;
+        const failed = creations === 2;
+        connection.reply(request, { operation: 'session.create', command_id: request.params.command_id, ingress_seq: String(creations), status: failed ? 'failed' : 'succeeded',
+          ...(failed ? { failure: { code: -32000, message: 'workspace is not a directory', data: { kind: 'invalid_arguments' } } } : { result: { root_id: `root-${creations}` } }) });
+        break;
+      }
+      case 'root.snapshot': {
+        const rootId = String(request.params.root_id);
+        connection.reply(request, pinnedSnapshot(rootId, rootId === 'stale' ? 'support-bot' : 'support-bot', rootId === 'stale' ? 'e'.repeat(64) : revision));
+        break;
+      }
+    }
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'runtime', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  const runtime = await client.agents.serve(agent);
+  const session = await runtime.sessions.create({ cwd: '/srv', permission_mode: 'automatic' });
+  assert.equal(session.rootId, 'root-1');
+  const creation = fixture.current.requests.find(request => request.method === 'command.submit')!;
+  assert.deepEqual(creation.params.payload, { kind: 'agent', model: '', provider: '', cwd: '/srv', permission_mode: 'automatic', definition: 'support-bot' });
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, { root_id: 'root-1' }, 'the pin is read back before the session is handed out');
+  await assert.rejects(runtime.sessions.create({ cwd: '/missing' }), { kind: 'execution_failed', message: /workspace is not a directory/ });
+  const opened = await runtime.sessions.open('root-9');
+  assert.equal(opened.rootId, 'root-9');
+  await assert.rejects(runtime.sessions.open('stale'), { kind: 'conflict', message: /runs support-bot@eeeeeeeeeeee, not support-bot@dddddddddddd/ });
+});
+
 async function until(check: () => boolean, what: string): Promise<void> {
   const deadline = Date.now() + 5000;
   while (!check()) {

@@ -1,7 +1,9 @@
 import type {
-  DefinitionList, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, HookInvokeParams, HookResultParams, ToolInvokeParams,
+  CreateSessionParams, DefinitionList, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, HookInvokeParams, HookResultParams, ToolInvokeParams,
 } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
+import type { CommandOptions } from './command.js';
+import type { Session } from './session.js';
 import { WhipError, abortError, asError } from './errors.js';
 import { describesObject, formatIssues, isStandardSchema, toJsonSchema, validateWith, type InferInput, type InferOutput, type Schema } from './schema.js';
 
@@ -247,19 +249,34 @@ function list(values: string[] | undefined): null | string[] {
 
 export interface ServeOptions { signal?: AbortSignal }
 
-/** A running executor: this process serves the agent's tools and hooks for one definition revision. */
-export interface Executor {
+/** Session creation on a served definition; the definition and its revision come from the runtime. */
+export type RuntimeSessionParams = Pick<CreateSessionParams, 'cwd'> & Partial<Omit<CreateSessionParams, 'cwd' | 'definition' | 'kind'>>;
+
+/**
+ * A served agent: this process answers its tools and hooks for one definition
+ * revision, and the sessions created here pin that revision, so a runtime
+ * never drives a session whose tools it does not serve.
+ */
+export interface AgentRuntime {
   readonly definition: string;
   readonly revision: string;
   /** Current lease generation; a reconnect re-binds and changes it. */
   readonly generation: string;
   /** Tool and hook handlers currently running. */
   readonly active: number;
-  /** Stop serving. Running handlers are aborted; later invocations fail fast. */
+  readonly sessions: {
+    /** Create a session on this definition and return it once the daemon has admitted it and it pins this revision. */
+    create(params: RuntimeSessionParams, options?: CommandOptions): Promise<Session>;
+    /** Open an existing session after checking that it pins this definition and revision. */
+    open(rootId: string, options?: CallOptions): Promise<Session>;
+  };
+  /** Stop serving. Running handlers are aborted; later invocations fail fast. Sessions outlive the runtime. */
   close(): void;
   /** Settles when serving stops. */
   readonly done: Promise<void>;
 }
+/** The pre-runtime name; kept as an alias for one release. */
+export type Executor = AgentRuntime;
 
 /** Registry operations. Registration is idempotent on content: the same document yields the same revision. */
 export class Agents {
@@ -270,7 +287,7 @@ export class Agents {
    * executor fails after a short wait. The executor re-binds after a reconnect
    * and drains invocations that were pending for it.
    */
-  async serve(agent: AgentDefinition, options: ServeOptions = {}): Promise<Executor> {
+  async serve(agent: AgentDefinition, options: ServeOptions = {}): Promise<AgentRuntime> {
     const hookNames = (['before_tool', 'before_spawn', 'turn_start'] as const).filter(name => agent.hooks?.[name]);
     if (agent.handlers.size === 0 && hookNames.length === 0) throw new TypeError(`agent ${agent.document.id} declares no tools or hooks to serve`);
     options.signal?.throwIfAborted();
@@ -413,7 +430,25 @@ export class Agents {
     options.signal?.addEventListener('abort', close, { once: true });
     try { await bind(); } catch (error) { close(); throw error; }
     if (options.signal?.aborted) { close(); throw abortError(options.signal); }
-    return { definition, revision, get generation() { return generation; }, get active() { return running.size; }, close, done };
+    // Creation resolves the definition's latest revision; a registration that
+    // raced ahead would leave the session pinned to tools this process does
+    // not serve, so both paths read the pin back before handing out a session.
+    const pinned = async (session: Session, callOptions: CallOptions = {}): Promise<Session> => {
+      const snapshot = await session.snapshot(callOptions);
+      if (snapshot.meta.definition !== definition || snapshot.meta.definition_revision !== revision) {
+        throw new WhipError('conflict', `session ${session.rootId} runs ${snapshot.meta.definition || 'coding'}@${snapshot.meta.definition_revision.slice(0, 12) || 'built-in'}, not ${definition}@${revision.slice(0, 12)} served here`);
+      }
+      return session;
+    };
+    const sessions: AgentRuntime['sessions'] = {
+      create: async (params, commandOptions = {}) => {
+        const outcome = await client.sessions.create({ ...params, definition }, commandOptions).result();
+        if (outcome.status !== 'succeeded' || !outcome.result) throw new WhipError('execution_failed', `session creation ${outcome.status}: ${outcome.failure?.message ?? 'no root was returned'}`, { cause: outcome.failure ?? undefined });
+        return pinned(client.session(outcome.result.root_id));
+      },
+      open: (rootId, callOptions = {}) => pinned(client.session(rootId), callOptions),
+    };
+    return { definition, revision, get generation() { return generation; }, get active() { return running.size; }, sessions, close, done };
   }
   register(agent: AgentDefinition | Definition, options: CallOptions = {}): Promise<DefinitionRegisterResult> {
     const definition = 'document' in agent ? agent.document : agent;
