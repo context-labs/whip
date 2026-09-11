@@ -2,7 +2,7 @@
 
 Date: 2026-09-10
 
-Status: implementation, signing controls, automated tests, and live desktop execution are complete. Final notarization and installation are in progress. See [RESULTS.md](RESULTS.md) for evidence and the completion record.
+Status: completed on 2026-09-10. Signing controls, automated tests, live desktop execution, final-archive acceptance, notarization, and the normal desktop installation passed. See [RESULTS.md](RESULTS.md) for evidence and the completion record.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Keep hardened runtime, Developer ID signing, notarization, signature verificatio
 
 The accepted tradeoff is executable-wide permission: daemon, CLI, Starlark worker, and QuickJS worker processes launched from this signed executable receive the same executable-memory exception. Existing process separation, WASM isolation, host-tool permissions, and resource controls remain in place. This exception relaxes a macOS defense; it does not grant new application-level tool permissions.
 
-## Evidence and remaining uncertainty
+## Initial investigation evidence
 
 - QuickJS's `quickjs.wasm` is embedded in `internal/rlm/engine/quickjs/bridge.go`; the factory explicitly selects `wazero.NewRuntimeConfigCompiler()`.
 - `internal/rlm/kernel.go` launches the current executable with `_kernel`; QuickJS already runs outside the daemon process.
@@ -95,13 +95,13 @@ At initial inspection, `apps/desktop/src/runtime.ts`, `apps/desktop/tsconfig.jso
 Run the focused Go runtime tests, the race checks covering worker lifecycle changes, and `npm run test:desktop`. Run `npm run check:desktop` if TypeScript changes are required. Then complete the signed artifact and installed-app checks; ordinary unit tests cannot substitute for them.
 
 - [x] Hardened backend without the entitlement reproduces the failure; the same build with the intended entitlement executes QuickJS.
-- [ ] Production backend has the intended entitlement and retains hardened runtime, valid Developer ID signing, and notarization.
-- [ ] Both engines execute successfully from the final distribution and installed backend.
+- [x] Production backend has the intended entitlement and retains hardened runtime, valid Developer ID signing, and notarization.
+- [x] Both engines execute successfully from the final distribution and installed backend.
 - [x] Host calls, persistent state, checkpoint restore, cancellation, and worker recovery pass.
 - [x] Unexpected worker exits produce actionable errors without masking cancellation or inventing a cause.
 - [x] Release verification rejects a missing entitlement and missing, failed, or mismatched runtime execution evidence.
-- [ ] Fresh install and update exercise the fixed backend through the normal desktop path.
+- [x] Fresh install and update exercise the fixed backend through the normal desktop path.
 - [x] A real Kimi K3 desktop session completes QuickJS work and resumes successfully.
-- [ ] Results record the tested artifact identities and any remaining limitations; no unexplained performance regression remains.
+- [x] Results record the tested artifact identities and any remaining limitations; no unexplained performance regression remains.
 
 If acceptance fails, retain the failure evidence and keep the candidate out of release promotion. Do not silently select Starlark or interpreter mode, or broaden the signing exceptions. The delivered result should be the same QuickJS runtime, packaged as today, with the required permission and proof that the shipped application can execute it.

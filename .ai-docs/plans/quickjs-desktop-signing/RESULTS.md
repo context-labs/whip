@@ -1,6 +1,6 @@
 # QuickJS desktop signing validation
 
-Implementation and signed execution validated on 2026-09-10. Final distribution notarization and installation are still in progress; see the completion record below.
+Completed on 2026-09-10. The signed and notarized build is installed at `/Applications/Whip.app`, with its matching backend at `/usr/local/bin/whipcode`. Both engines passed execution from the final ZIP, a fresh installation, and the normal installed backend. Whip reopened and reconnected successfully.
 
 ## Change
 
@@ -44,6 +44,8 @@ The validated backend SHA-256 is `dfc63cb8e56a651f6c0c25b60486d9508853eba4ee006d
 
 Machine-readable observations, exact cell messages, signing controls, update identity, and model usage are in [validation.json](evidence/validation.json). The report excludes provider configuration and credentials.
 
+The normal daemon now runs `local-quickjs-signing-20260910` (generation 19). The previous app and executable were retained at `/Applications/.whip-local-update-FYINtO`. Existing failed turns retain their historical error messages; replacing the backend does not rewrite session history.
+
 ## Tests
 
 - `go test -race ./internal/rlm`: passed.
@@ -51,17 +53,23 @@ Machine-readable observations, exact cell messages, signing controls, update ide
 - Distribution/release and related script suite: 92/92 tests passed, zero skipped.
 - Startup probe self-test: passed.
 - Effective entitlement parsing verified against the real signed binary.
+- Final ZIP and fresh-install acceptance: both engines passed; QuickJS host calls, persistent state, checkpoint restoration, cancellation, and recovery passed.
+- Normal installed backend: the same execution acceptance passed, and its entitlement and hardened-runtime flag were verified.
 - Formatting/whitespace checks: passed.
 
 ## Notarization and completion
 
 The package build successfully signed the app and created Apple submission `1e4c7486-c300-4b5c-89e7-e29e993fc71f`. The local Apple `notarytool` process then crashed with excessive recursion / `SIGBUS`. Although the submission continued to report `In Progress`, subsequent inspection found a network disconnect immediately before the crash and no confirmed upload completion. The submission ID alone was insufficient evidence that the archive had arrived. The same signed application was preserved and a recovery upload started with `--no-wait --no-progress --no-s3-acceleration` so upload success could be observed separately from processing.
 
+Recovery submission `565ad57d-56a7-4994-bd88-fe08e899e356` explicitly completed its upload and was accepted with no issues. The app was stapled, then the existing distribution pipeline produced and verified the final ZIP and DMG. DMG submission `81462f74-184c-48bf-af5f-c270220f6cb2` was accepted and stapled successfully. The upload incident required no runtime or signing-policy changes.
+
+Final archive identities and signing policy are recorded in [package.json](evidence/package.json); execution evidence bound to that package is in [signed-runtime.json](evidence/signed-runtime.json). Local build artifacts are under `apps/desktop/out/release`. This is a local working-tree build; no public release was published.
+
 - [x] Signing control reproduces the issue and confirms the entitlement fix.
 - [x] Runtime diagnostics, tests, and release gates implemented.
 - [x] Live QuickJS execution, file host call, and resume after restart verified through the signed desktop app.
 - [x] Live Starlark regression check and isolated backend upgrade passed.
-- [ ] Apple accepts the app and DMG; final package is stapled and verified.
-- [ ] Final-archive and fresh-install runtime acceptance passes.
-- [ ] Verified build installed into the normal desktop installation.
+- [x] Apple accepts the app and DMG; final package is stapled and verified.
+- [x] Final-archive and fresh-install runtime acceptance passes.
+- [x] Verified build installed into the normal desktop installation.
 - [x] Test processes stopped and temporary provider credentials removed.

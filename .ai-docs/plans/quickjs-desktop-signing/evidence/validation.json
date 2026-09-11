@@ -210,7 +210,15 @@
     "recovery": {
       "submissionId": "565ad57d-56a7-4994-bd88-fe08e899e356",
       "uploadConfirmed": true,
-      "status": "In Progress"
+      "status": "Accepted",
+      "statusSummary": "Ready for distribution",
+      "uploadDate": "2026-09-10T23:56:52.372Z",
+      "sha256": "472372dac6e39192e6a8edc39f8abced6b1a0b4b46fcb04165fc4cdc54746b4d",
+      "issues": null
+    },
+    "dmg": {
+      "submissionId": "81462f74-184c-48bf-af5f-c270220f6cb2",
+      "status": "Accepted"
     }
   },
   "signingControls": {
@@ -866,5 +874,118 @@
         "residentBytes": 35192832
       }
     }
-  }
+  },
+  "normalInstallation": {
+    "buildId": "local-quickjs-signing-20260910",
+    "app": "/Applications/Whip.app",
+    "executable": "/usr/local/bin/whipcode",
+    "backup": "/Applications/.whip-local-update-FYINtO",
+    "status": {
+      "state": "running",
+      "network_endpoint": "http://127.0.0.1:8080",
+      "pid": 70304,
+      "generation": 19,
+      "daemon_build": "local-quickjs-signing-20260910",
+      "client_build": "local-quickjs-signing-20260910",
+      "build_match": true,
+      "started_at": "2026-09-11T00:01:28.297639Z",
+      "socket": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.sock",
+      "database": "/Users/samheutmaker/.whipcode/runtime-v2/sessions.db",
+      "log": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.log"
+    },
+    "desktopReconnected": true,
+    "execution": {
+      "sha256": "dfc63cb8e56a651f6c0c25b60486d9508853eba4ee006d60aa74f40f48c3181c",
+      "architecture": "arm64",
+      "engines": {
+        "quickjs": {
+          "descriptor": {
+            "bridge_sha256": "cdec212203a787c609049bb76d1fd3f4be8b16439653e1c57832c6562a4883de",
+            "guide_sha256": "0f08ce07999adb6d4987e8d5474d8bb63f5f9729a7eb9abc4cea3fa916d4ae5b",
+            "features": [
+              "host_modules",
+              "settled_checkpoints",
+              "worker_isolation",
+              "top_level_await",
+              "concurrent_host_calls",
+              "lossless_host_numbers",
+              "whole_heap_restore"
+            ],
+            "limits": {
+              "cell_watchdog_nanoseconds": 600000000000,
+              "checkpoint_bytes": 41943040,
+              "concurrent_host_calls": 16,
+              "default_compute_nanoseconds": 30000000000,
+              "frame_bytes": 1048576,
+              "guest_memory_bytes": 33554432,
+              "host_requests_per_cell": 1024,
+              "jobs_per_cell": 100000,
+              "output_bytes": 65536,
+              "outstanding_host_calls": 16,
+              "process_memory_bytes": 268435456,
+              "wasm_memory_pages": 1024
+            },
+            "id": "quickjs",
+            "language": "javascript",
+            "label": "JavaScript (QuickJS)",
+            "build": "b006d95d9475edf7c6648cc3eb391d3b780efdd99022fbfbb470f2359da460ff",
+            "abi": "whip-quickjs-v1-host-v2",
+            "profile": "settled-v1",
+            "fidelity": "whole-image"
+          },
+          "checks": [
+            "execution",
+            "output",
+            "host-call",
+            "persistent-state",
+            "checkpoint-restore",
+            "cancellation",
+            "recovery"
+          ],
+          "startupMillis": 211.728,
+          "cellMillis": 10.68,
+          "residentBytes": 81231872
+        },
+        "starlark": {
+          "descriptor": {
+            "guide_sha256": "9d96eb4ada66049f0d4491dddec4a23bc01c286a439be5bc656439970e14afb4",
+            "features": [
+              "host_modules",
+              "settled_checkpoints",
+              "worker_isolation"
+            ],
+            "limits": {
+              "checkpoint_bytes": 41943040,
+              "concurrent_host_calls": 1,
+              "default_compute_nanoseconds": 30000000000,
+              "frame_bytes": 1048576,
+              "host_requests_per_cell": 1024,
+              "output_bytes": 65536,
+              "process_memory_bytes": 268435456,
+              "starlark_steps_per_cell": 1000000
+            },
+            "id": "starlark",
+            "language": "starlark",
+            "label": "Starlark",
+            "build": "starlark-6dd8f160a37f",
+            "abi": "whip-host-v2",
+            "profile": "settled-v1",
+            "fidelity": "tagged-partial"
+          },
+          "checks": [
+            "execution",
+            "output",
+            "host-call",
+            "persistent-state",
+            "checkpoint-restore"
+          ],
+          "startupMillis": 45.745,
+          "cellMillis": 0.602,
+          "residentBytes": 34881536
+        }
+      }
+    }
+  },
+  "completed": true,
+  "completedAt": "2026-09-11T00:02:19.803Z"
 }
