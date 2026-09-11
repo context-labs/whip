@@ -21,7 +21,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 function rootSnapshot(): RootSnapshot {
   return {
     root_id: 'root', cursor: '10', history_revision: '1', active_turns: {},
-    meta: { execution_engine: 'starlark', id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0,
+    meta: { execution_engine: 'starlark', definition: '', definition_revision: '', id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0,
       tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
     budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
