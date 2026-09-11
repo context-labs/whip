@@ -5079,7 +5079,21 @@ func (m *model) View() string {
 	if m.height > 0 {
 		m.viewH = lipgloss.Height(v)
 		if m.uiMode == opencodeMode {
-			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
+			// Bottom-anchor the altscreen view: the transcript viewport is
+			// shrunk to minTranscriptRows while a response streams (streamCap
+			// reserves the rest for the live tail), then snaps to its natural
+			// height when the final markdown flushes and the live tail drops.
+			// Top-anchoring (viewTop=0) makes that delta a visible jump — the
+			// input and status bar slide down the instant markdown lands.
+			// Prepend blank rows so the content's bottom sits at the terminal
+			// bottom in both phases; inputTop stays pinned. The altscreen
+			// repaints from row 0 every frame, so (unlike the inline branch)
+			// no high-water mark is needed — lead = height - viewH each paint.
+			lead := max(m.height-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = lead // content's real screen row; mouse Y maps through it
 		} else {
 			m.frameH = min(max(m.frameH, m.viewH), m.height)
 			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
