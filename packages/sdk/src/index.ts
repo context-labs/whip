@@ -14,4 +14,8 @@ export type { RpcMethods, RuntimeOperations, RpcMethod, RuntimeOperation, Comman
 
 export type { PermissionDecisionStatus } from './services.js';
 export { Agents } from './agents.js';
-export type { Definition, AgentDefinition, ToolDefinition, ToolHandler, ToolContext, Executor, ServeOptions } from './agents.js';
+export type {
+  Definition, AgentDefinition, ToolDefinition, ToolHandler, ToolContext, Executor, ServeOptions,
+  HookName, HookContext, HookHandler, HookOptions, HooksInput, HookHandlers,
+  BeforeToolEvent, BeforeToolResult, BeforeSpawnEvent, BeforeSpawnResult, TurnStartEvent, TurnStartResult, SpawnRequest, ResolvedChild,
+} from './agents.js';

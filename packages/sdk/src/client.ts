@@ -3,7 +3,7 @@ import {
   type CommandOperation, type CommandResult, type EphemeralOperation,
   type InitializeResult, type QueryOperation, type QueryResult,
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
-  type ToolCancelParams, type ToolInvokeParams,
+  type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
@@ -17,7 +17,10 @@ import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from 
 
 export type SdkEvent = RootEvent;
 /** Notifications the daemon sends to the connection holding an executor lease. */
-export interface ExecutorNotifications { 'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams }
+export interface ExecutorNotifications {
+  'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams;
+  'hook.invoke': HookInvokeParams; 'hook.cancel': ToolCancelParams;
+}
 export type ExecutorNotification = keyof ExecutorNotifications;
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'incompatible' | 'paused' | 'closed';
 export interface ConnectionSnapshot {
@@ -350,8 +353,8 @@ export class WhipClient {
         assertValid('SubscriptionFailure', envelope.params, 'response');
         const failure = envelope.params;
         this.streams.get(failure.subscription_id)?.fail(failure.error ? new RpcError(failure.error) : new WhipError('resynchronization_required', 'Subscription failed'));
-      } else if (envelope.method === 'tool.invoke' || envelope.method === 'tool.cancel') {
-        assertValid(envelope.method === 'tool.invoke' ? 'ToolInvokeParams' : 'ToolCancelParams', envelope.params, 'response');
+      } else if (envelope.method === 'tool.invoke' || envelope.method === 'tool.cancel' || envelope.method === 'hook.invoke' || envelope.method === 'hook.cancel') {
+        assertValid(envelope.method === 'tool.invoke' ? 'ToolInvokeParams' : envelope.method === 'hook.invoke' ? 'HookInvokeParams' : 'ToolCancelParams', envelope.params, 'response');
         const listeners = this.notificationListeners.get(envelope.method);
         if (listeners) notify(listeners, frozen(envelope.params));
       }

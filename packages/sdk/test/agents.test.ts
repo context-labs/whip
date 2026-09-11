@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { WhipClient } from '../src/client.js';
-import { defineAgent, tool } from '../src/agents.js';
+import { defineAgent, tool, type HooksInput } from '../src/agents.js';
 import { transportFixture } from './transport-fixture.js';
 
 // The Go test loads the same fixture and requires it to equal the built-in
@@ -143,4 +143,92 @@ test('serve binds the executor, runs handlers, honors cancellation, re-binds aft
   fixture.current.notify('tool.invoke', invoke('inv-7', { id: '42' }));
   await until(() => requests('tool.result').length === 2, 'closed result');
   assert.deepEqual(requests('tool.result')[1]?.params, { invocation_id: 'inv-7', generation: '2', error: 'executor closed' });
+});
+
+test('hooks are declared in the document and served beside tools', async t => {
+  const revision = 'c'.repeat(64);
+  const seen: string[] = [];
+  const agent = defineAgent({
+    id: 'guarded',
+    modules: ['context', 'files', 'shell', 'agents'],
+    hooks: {
+      beforeTool: { operations: ['shell.run', 'files.read'], timeoutMs: 5000, handler: async event => {
+        seen.push(`${event.operation}:${event.agentId}:${event.permissionMode}`);
+        if (event.operation === 'shell.run' && String(event.arguments.command).includes('rm -rf')) return { decision: 'deny', reason: 'destructive' };
+        if (event.operation === 'files.read' && String(event.arguments.path).endsWith('.env')) return { arguments: { ...event.arguments, path: 'README.md' }, reason: 'redacted' };
+        if (event.operation === 'files.read' && event.arguments.path === 'boom') throw new Error('hook crashed');
+        if (event.operation === 'files.read' && event.arguments.path === 'hang') await new Promise((_, reject) => event.signal.addEventListener('abort', () => reject(event.signal.reason), { once: true }));
+      } },
+      beforeSpawn: { optional: true, handler: async ({ spawn, resolved }) => {
+        seen.push(`spawn:${spawn.definition}:${resolved.definition}`);
+        if (resolved.capabilities?.includes('shell')) return { decision: 'deny', reason: 'children may not hold shell' };
+        return { spawn: { ...spawn, definition: 'researcher' }, reason: 'all children research' };
+      } },
+      turnStart: async ({ input }) => ({ context: `Turn context for: ${input}` }),
+    },
+  });
+  assert.deepEqual(agent.document.hooks, {
+    before_tool: { operations: ['shell.run', 'files.read'], optional: false, timeout_millis: 5000 },
+    before_spawn: { operations: null, optional: true, timeout_millis: 0 },
+    turn_start: { operations: null, optional: false, timeout_millis: 0 },
+  });
+  assert.equal(agent.handlers.size, 0);
+  const filtered = { operations: ['shell.run'], handler: () => {} } as unknown as HooksInput['turnStart'];
+  assert.throws(() => defineAgent({ id: 'x', modules: ['context'], hooks: { turnStart: filtered } }), /only before_tool accepts operations/);
+  assert.throws(() => defineAgent({ id: 'x', modules: ['context'], hooks: { beforeTool: { timeoutMs: -1, handler: () => {} } } }), /non-negative/);
+  assert.equal(defineAgent({ id: 'plain', modules: ['context'] }).document.hooks, null);
+
+  const fixture = transportFixture({ request(request, connection) {
+    switch (request.method) {
+      case 'definitions.register': connection.reply(request, { id: 'guarded', revision, created: true }); break;
+      case 'executor.bind': connection.reply(request, { generation: '1', tools: [], hooks: ['before_tool', 'before_spawn', 'turn_start'] }); break;
+      case 'hook.result': connection.reply(request, { accepted: true }); break;
+    }
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'hooks' });
+  t.after(() => client.close());
+  await client.connect();
+  const executor = await client.agents.serve(agent);
+  assert.deepEqual(fixture.current.requests.find(request => request.method === 'executor.bind')?.params, { definition: 'guarded', revision, tools: [], hooks: ['before_tool', 'before_spawn', 'turn_start'] });
+  const results = () => fixture.current.requests.filter(request => request.method === 'hook.result').map(request => request.params);
+  const invoke = (id: string, hook: string, extra: Record<string, unknown>) => ({
+    invocation_id: id, definition: 'guarded', revision, generation: '1', root_id: 'root', agent_id: 'agent-1', turn_id: 'turn-1', hook,
+    permission_mode: 'automatic', deadline_millis: String(Date.now() + 60_000), ...extra,
+  });
+
+  fixture.current.notify('hook.invoke', invoke('h1', 'before_tool', { operation: 'files.list', arguments: { path: '.' } }));
+  fixture.current.notify('hook.invoke', invoke('h2', 'before_tool', { operation: 'shell.run', arguments: { command: 'rm -rf /' } }));
+  fixture.current.notify('hook.invoke', invoke('h3', 'before_tool', { operation: 'files.read', arguments: { path: 'secret.env' } }));
+  fixture.current.notify('hook.invoke', invoke('h4', 'before_tool', { operation: 'files.read', arguments: { path: 'boom' } }));
+  await until(() => results().length === 4, 'four hook results');
+  assert.deepEqual(results(), [
+    { invocation_id: 'h1', generation: '1' },
+    { invocation_id: 'h2', generation: '1', decision: 'deny', reason: 'destructive' },
+    { invocation_id: 'h3', generation: '1', reason: 'redacted', arguments: { path: 'README.md' } },
+    { invocation_id: 'h4', generation: '1', error: 'hook crashed' },
+  ]);
+  assert.deepEqual(seen, ['files.list:agent-1:automatic', 'shell.run:agent-1:automatic', 'files.read:agent-1:automatic', 'files.read:agent-1:automatic']);
+
+  fixture.current.notify('hook.invoke', invoke('h5', 'before_tool', { operation: 'files.read', arguments: { path: 'hang' } }));
+  await until(() => executor.active === 1, 'running hook');
+  fixture.current.notify('hook.cancel', { invocation_id: 'h5', generation: '1', reason: 'timeout' });
+  await until(() => executor.active === 0, 'cancelled hook');
+  assert.equal(results().some(result => result.invocation_id === 'h5'), false);
+
+  const spawn = { prompt: 'go', name: 'kid', definition: '', capabilities: null, tools: null, budgets: {}, report: '', model: '', provider: '', effort: '' };
+  fixture.current.notify('hook.invoke', invoke('h6', 'before_spawn', { operation: 'agents.spawn', spawn: { request: spawn, resolved: { definition: 'guarded', modules: ['context'], capabilities: ['read'], tools: null, budgets: {}, report: 'notice' } } }));
+  fixture.current.notify('hook.invoke', invoke('h7', 'before_spawn', { operation: 'agents.spawn', spawn: { request: spawn, resolved: { definition: 'guarded', modules: ['context'], capabilities: ['shell'], tools: null, budgets: {}, report: 'notice' } } }));
+  fixture.current.notify('hook.invoke', invoke('h8', 'turn_start', { input: 'hello' }));
+  fixture.current.notify('hook.invoke', invoke('h9', 'nope', {}));
+  await until(() => results().length === 8, 'spawn and turn results');
+  // The missing-handler reply posts without awaiting a handler, so order by id.
+  assert.deepEqual(results().slice(4).sort((a, b) => String(a.invocation_id).localeCompare(String(b.invocation_id))), [
+    { invocation_id: 'h6', generation: '1', reason: 'all children research', spawn: { ...spawn, definition: 'researcher' } },
+    { invocation_id: 'h7', generation: '1', decision: 'deny', reason: 'children may not hold shell' },
+    { invocation_id: 'h8', generation: '1', context: 'Turn context for: hello' },
+    { invocation_id: 'h9', generation: '1', error: 'no handler for hook nope' },
+  ]);
+  assert.deepEqual(seen.slice(5), ['spawn::guarded', 'spawn::guarded']); // h5 recorded before it hung
+  executor.close();
+  await executor.done;
 });
