@@ -73,9 +73,12 @@ Design from these principles:
 
 Current scope is a React web application with basic mobile support, designed to
 share its renderer with the macOS Electron host in `apps/desktop`. File editing,
-code review, interactive terminal UI, hosted authentication, and
-custom-agent authoring are separate milestones. Read-only code/tool output is
-in scope. The session REPL viewer and Executions inspector show retained and live
+code review, interactive terminal UI, and hosted authentication are separate
+milestones. Data-only agent definitions (persona, rules, discovery, modules,
+capabilities, surface flags) are authored in Settings and selected on the
+welcome page; agents with custom tools or hooks are authored with the SDK,
+because their handlers are code the renderer cannot host. Read-only code/tool
+output is in scope. The session REPL viewer and Executions inspector show retained and live
 execution evidence; neither executes user-entered code or inspects raw VM globals.
 
 ## Packages and dependency direction
@@ -937,7 +940,14 @@ exit clears the record. Composer drafts, attachments, split layout and reading
 positions retain their existing owners.
 
 The category modules live under `settings/`: General, Appearance, Providers &
-models, Agents & execution, Servers, Recovery, and About & updates. Every category
+models, Agents & execution, Servers, Recovery, and About & updates. Agents &
+execution also hosts the agent editor (`settings/agents.tsx`): it lists the
+host's definitions from `definitions.list`, derives the module and capability
+catalog from the built-in coding definition, builds the canonical document with
+the SDK's `defineAgent`, and registers it; registering an existing id adds a
+revision and never changes running sessions. The welcome page's Agent picker
+reads the same query (`definitions.ts`) and sends `definition` with
+`session.create`; hosts that do not advertise the registry hide the picker. Every category
 uses the Settings heading and shared groups; no category shows the Attention
 button. Dialog and AlertDialog bodies use the configurable size13 typography
 token, with size17 titles and size12 supporting text.

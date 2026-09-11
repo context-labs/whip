@@ -20,9 +20,13 @@ export interface NewChatTab {
   readonly cwd: string;
   readonly permissionMode: PermissionMode;
   readonly executionEngine?: 'starlark' | 'quickjs';
+  /** Agent definition id the session runs; absent means the host's default (coding). */
+  readonly definition?: string;
 }
 export type SessionTab = SessionBackedTab | NewChatTab;
-export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition'>>;
+/** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
+export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 export interface SessionPane {
   readonly type: 'pane';
   readonly id: string;
@@ -134,9 +138,11 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
       (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
       (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
+      (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
       (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
       ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
+      ...(value.definition === undefined ? {} : { definition: value.definition as string }),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
       ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
   }

@@ -22,6 +22,7 @@ import { welcomeDraftKey } from './welcome-submission';
 import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
 import { WelcomeRecovery } from './welcome-recovery';
+import { definitionOptions, useDefinitions } from './definitions';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
   const runtime = useRuntime();
@@ -108,6 +109,12 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
   const engineOptions = (engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs')
     .map(engine => ({ value: engine.id, label: engine.label }));
   const engineAvailable = engineOptions.some(engine => engine.value === executionEngine);
+  // The agent definition the session runs. Older hosts do not advertise the
+  // registry; they run the coding agent and the picker stays hidden.
+  const definitions = useDefinitions(client, connected);
+  const definition = recovery?.params?.definition ?? tab.definition ?? 'coding';
+  const definitionChoices = definitionOptions(definitions.query.data?.items);
+  const definitionAvailable = !definitions.supported || definitionChoices.some(choice => choice.value === definition);
   const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
   function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
@@ -115,12 +122,13 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
     if (!connected || busy) return;
     if (mode === 'start' && requiresUpdate) return;
     if (mode === 'start' && !engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
+    if (mode === 'start' && definitions.query.data && !definitionAvailable) { setError(`This host has no agent definition named ${definition}. Choose an available agent.`); return; }
     if (mode === 'start' && !ready) { openProviders(); return; }
     if (mode === 'start' && !cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
     setBusy(true); setError('');
     try {
       mode === 'start'
-        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model: selection!.model, provider: selection!.provider, permission_mode: permission, execution_engine: executionEngine })
+        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model: selection!.model, provider: selection!.provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) })
         : await runtime.welcome.resume(tab.id, client, mode === 'retry');
     } catch (error) { if (mounted.current) setError(errorMessage(error)); }
     finally { if (mounted.current) setBusy(false); }
@@ -142,6 +150,12 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
           onValueChange={executionEngine => updateSetup({ executionEngine: executionEngine as NewChatTab['executionEngine'] })} />
         <span {...stylex.props(styles.note)}>Fixed for this session and its child agents.</span>
       </div>
+      {definitions.supported && <div {...stylex.props(styles.toolbar)}>
+        <Select label="Agent" value={definition} disabled={!connected || busy || !!recovery || !!recoveryError || !definitionChoices.length}
+          options={definitionAvailable ? definitionChoices : [...definitionChoices, { value: definition, label: `${definition} (unavailable)`, disabled: true }]}
+          onValueChange={definition => updateSetup({ definition })} />
+        <span {...stylex.props(styles.note)}>Its persona, tools, and children define this session. Manage agents in Settings.</span>
+      </div>}
       <div {...stylex.props(styles.toolbar)}>
         <Button variant="ghost" disabled={!connected || busy} onClick={() => showProviders ? setShowProviders(false) : openProviders()} aria-label={ready ? 'Change provider or model' : 'Connect a provider'}>
           {ready && <ProviderLogo id={selection.provider} size={14} />}<span {...stylex.props(layout.ellipsis)}>{ready ? `${selection.model} · ${selection.provider}` : 'Connect a provider'}</span>

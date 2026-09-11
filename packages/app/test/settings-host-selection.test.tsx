@@ -17,7 +17,7 @@ function host(id: string, runtimeId: string) {
   const configuration = { revision: 'v1', default_model: 'model-a', default_provider: 'openrouter', default_effort: 'high', compact_model: 'small', compact_provider: 'inference', compact_percent: 75, goal_max_rounds: 8, max_retries: 2, import_claude: true, import_codex: false };
   const get = vi.fn(async () => configuration);
   const update = vi.fn(async () => configuration);
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: runtimeId } }), configuration: { get, update } } as unknown as WhipClient;
+  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: runtimeId } }), supports: () => false, configuration: { get, update } } as unknown as WhipClient;
   return { record: { id, runtimeId, client, name: id === 'local' ? 'Local Mac' : 'Remote A', state: 'connected', profile: { target: { kind: 'url', endpoint: `https://${id}.example` } } } as HostConnection, get, update };
 }
 function fixture(loading = false) {

@@ -26,7 +26,8 @@ function fixture(ready = true, entries = [provider('inference-net', ready), prov
   const execution_engines = [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }];
   const snapshot = { state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'starlark', execution_engines } };
   const inventory: ProviderList = { revision: '1', default_provider: 'inference-net', selection: selectionMissing ? undefined : { ready, model: 'coding-model', provider: 'inference-net', reason: ready ? 'ready' : 'provider_required' }, providers: entries };
-  const client = { subscribe: () => () => {}, getSnapshot: () => snapshot,
+  const client = { subscribe: () => () => {}, getSnapshot: () => snapshot, supports: () => true,
+    agents: { list: vi.fn(async () => ({ items: [{ id: 'coding', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'junior-developer', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'support-triage', revision: 'b'.repeat(64), built_in: false, registered_by: 'app', created_at: '' }] })) },
     configuration: { get: vi.fn(async () => ({ default_execution_engine: 'starlark' })), update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
     providers: {
       list: vi.fn(async () => ({ ...inventory })), catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
@@ -205,4 +206,17 @@ it('retries accepted journal retirement from recovery even when its tab is alrea
   await waitFor(() => expect(completeAccepted).toHaveBeenCalledExactlyOnceWith(promoted.id));
   await waitFor(() => expect(route.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'host', rootId: 'accepted-root' } })));
   expect(f.start).not.toHaveBeenCalled();
+});
+
+it('offers the host’s agent definitions and sends the chosen one with the first message', async () => {
+  const f = fixture();
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Triage the queue' } });
+  const picker = await screen.findByRole('combobox', { name: 'Agent' });
+  fireEvent.click(picker);
+  const option = await screen.findByRole('option', { name: 'support-triage' });
+  fireEvent.pointerDown(option); fireEvent.click(option);
+  await waitFor(() => expect((f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as { definition?: string }).definition).toBe('support-triage'));
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledOnce());
+  expect(f.start.mock.calls[0][2]).toMatchObject({ cwd: '/repo', definition: 'support-triage', execution_engine: 'starlark' });
 });

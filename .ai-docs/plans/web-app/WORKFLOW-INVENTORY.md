@@ -16,9 +16,9 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
 | `rpc:daemon.stop` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
-| `rpc:definitions.get` | SDK-only | Headless definition registry read through client.agents.get; retrieves a built-in definition or a registered content revision. No desktop definition editor. |
-| `rpc:definitions.list` | SDK-only | Headless definition registry read through client.agents.list; lists built-ins and registrations. No desktop registry browser. |
-| `rpc:definitions.register` | SDK-only | Headless authoring through client.agents.register or serve; validates and stores a definition by content revision. No desktop registration flow. |
+| `rpc:definitions.get` | Web | Settings › Agents & execution opens a built-in or registered definition into the agent editor (`settings/agents.tsx`); the coding definition also supplies the module and capability catalog. |
+| `rpc:definitions.list` | Web | Settings lists the host's definitions and the welcome page's Agent picker offers them for a new session (`definitions.ts`). Hidden on hosts that do not advertise it. |
+| `rpc:definitions.register` | Web | The agent editor registers data-only definitions (persona, rules, discovery, modules, capabilities, surface) built with the SDK's defineAgent; registering an existing id adds a revision. Tools and hooks stay SDK-only because their handlers are code. |
 | `rpc:events.replay` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:events.subscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:events.unsubscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
@@ -63,6 +63,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
 | `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
+| `rpc:hook.result` | SDK-only | Headless executor hook handlers answer before_tool, before_spawn, and turn_start invocations for their lease generation; an empty reply allows unchanged. The desktop observes stream.hook.decision events rather than sending this RPC. |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.finish` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |

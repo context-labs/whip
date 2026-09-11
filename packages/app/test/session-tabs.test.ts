@@ -8,6 +8,15 @@ function storage(): AppStorage {
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
 describe('window session tabs', () => {
+  it('keeps a valid agent definition on new-chat tabs and rejects malformed ids', () => {
+    const state = new SessionTabs();
+    const tab = state.openNew({ definition: 'junior-developer' });
+    expect(tab.definition).toBe('junior-developer');
+    expect(state.updateNew(tab.id, { definition: 'support-triage' })).toBe(true);
+    expect((state.workspace().tabs.find(item => item.id === tab.id) as { definition?: string }).definition).toBe('support-triage');
+    expect(() => state.updateNew(tab.id, { definition: 'Not Valid' })).toThrow('Invalid New Chat options');
+    expect(state.openNew({}).definition).toBeUndefined();
+  });
   it('deduplicates roots while preserving separate hosts and selected child context', () => {
     const state = new SessionTabs();
     state.open('mac', 'root', 'Review'); state.visit('mac', 'root', { agent: 'child', panel: 'execution' }); state.open('mac', 'root', 'ignored');

@@ -8,7 +8,7 @@ import { useAppState, useRuntime } from './context';
 import { HostSelector } from './host-selector';
 import { layout } from './styles';
 import { AppearanceSettings } from './settings/appearance';
-import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, RecoverySettings, ConnectionsSettings } from './settings/sections';
+import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, RecoverySettings, ConnectionsSettings, AgentsSettings } from './settings/sections';
 import { SettingsEditsProvider } from './settings/unsaved';
 import { settingsCategories, searchSettings, settingsBackDestination, type SettingsSearch, type SettingsSection } from './settings/navigation';
 
@@ -124,6 +124,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
           {section === 'general' && <GeneralSettings />}
           {section === 'providers' && host?.client && <ProvidersSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
+          {section === 'execution' && host?.client && <AgentsSettings key={`agents:${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'connections' && <ConnectionsSettings />}
           {section === 'recovery' && <RecoverySettings key={`${host?.id}:${host?.runtimeId}`} client={host?.client} enabled={enabled} />}
           {section === 'about' && <AboutSettings />}
