@@ -1,31 +1,30 @@
 import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
+import { View } from 'react-native';
+import { router, useIsFocused } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useQuery } from '@tanstack/react-query';
-import { useIsFocused } from 'expo-router';
-import { useRuntime, useRuntimeState, useSessionList } from '../../runtime/context';
-import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../../components/primitives';
-import { Connection } from '../../components/connection';
-
+import { Bell, ChevronDown, Monitor, Plus, Search, Settings, Pin, ArrowUpRight } from 'lucide-react-native';
+import { useTheme } from '../../theme/theme';
+import { useWorkspaceState } from '../../runtime/workspace-context';
+import { useWorkspaceAttention, useWorkspaceIndex } from '../../features/workspace-index';
+import { Button, ChoiceGroup, EmptyState, IconButton, ListRow, Loading, Notice, Screen, ScreenHeader, SearchField, Sheet, Stack, Text } from '../../ui';
 export default function SessionsScreen() {
-  const runtime = useRuntime(); const { client, host, list, ready, active } = useRuntimeState();
-  const catalog = useSessionList(); const focused = useIsFocused();
-  const [text, setText] = useState(''); const [search, setSearch] = useState('');
+  const { colors } = useTheme(); const state = useWorkspaceState(); const focused = useIsFocused();
+  const [text, setText] = useState(''); const [search, setSearch] = useState(''); const [searching, setSearching] = useState(false);
+  const [filter, setFilter] = useState(false); const [hostId, setHostId] = useState<string>(); const [status, setStatus] = useState<'active' | 'archived'>('active');
   useEffect(() => { const timer = setTimeout(() => setSearch(text.trim()), 300); return () => clearTimeout(timer); }, [text]);
-  const result = useQuery({ queryKey: [host?.runtimeId, 'sessions.search', search], enabled: !!search && ready && active && focused && !!client,
-    queryFn: ({ signal }) => client!.sessions.list({ search, limit: 128, max_bytes: 256 << 10 }, { signal }) });
-  const page = search ? result.data : catalog.page;
-  const error = search ? result.error : catalog.error;
-  return <Screen scroll={false}><Connection />
-    {host && <Stack style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-      <Actions items={[{ label: 'New session', disabled: !ready, onPress: () => router.push('/new-session') }]} />
-      <Field label="Search sessions" value={text} onChangeText={value => { setText(value); if (!value) setSearch(''); }} maxLength={256} placeholder="Title or working directory" returnKeyType="search" onSubmitEditing={() => setSearch(text.trim())} />
-    </Stack>}
-    {error && <Notice danger>{error.message}</Notice>}
-    <FlashList data={page?.items ?? []} keyExtractor={item => item.id} onRefresh={() => { if (ready) void (search ? result.refetch() : list?.refresh().catch(runtime.report)); }} refreshing={search ? result.isRefetching : catalog.status === 'loading'}
-      renderItem={({ item }) => <RowButton title={item.title || 'Untitled session'} detail={`${item.cwd}\n${item.model || 'Host default'} · ${new Date(item.updated_at).toLocaleDateString()}`}
-        onPress={() => router.push({ pathname: '/session/[rootId]', params: { rootId: item.id, runtimeId: host!.runtimeId! } })} />}
-      ListEmptyComponent={host ? catalog.status === 'loading' || result.isFetching ? <Loading /> : <Stack style={{ padding: 24 }}><Label>{!ready || error ? 'Sessions are unavailable' : search ? 'No matching sessions' : 'No sessions yet'}</Label><Label muted>{!ready ? 'Connect to this host to refresh its sessions.' : error ? 'Refresh after the connection recovers.' : search ? 'Try a different title or directory.' : 'Start a session on this host to begin.'}</Label></Stack> : null}
-      ListFooterComponent={<Stack style={{ padding: 16 }}>{(page?.has_more || catalog.truncated) && <Notice>{search ? 'Showing the first 128 matches. Narrow the search to see more.' : catalog.truncated ? 'The list has reached its memory limit. Refresh to start a new window.' : 'More sessions are available.'}</Notice>}{!search && page?.has_more && <Actions items={[{ label: 'Load more sessions', disabled: !ready || catalog.truncated, secondary: true, onPress: () => { void list?.loadMore().catch(runtime.report); } }]} />}</Stack>} />
-  </Screen>;
+  const index = useWorkspaceIndex('sessions', search, status, focused); const attention = useWorkspaceAttention();
+  const newSession = () => router.push('/new-session');
+  const items = index.pages.filter(p => !hostId || p.host.id === hostId).flatMap(p => (p.sessions?.items ?? []).map(item => ({ ...item, host: p.host }))).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updated_at.localeCompare(a.updated_at));
+  if (!state.hosts.length) return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><Screen scroll={false}><ScreenHeader left={<Text variant="heading">whip</Text>} right={<IconButton label="Settings" onPress={() => router.push('/settings')}><Settings size={22} color={colors.foreground} /></IconButton>} /><View style={{ flex: 1, padding: 28, justifyContent: 'center', gap: 24 }}><View style={{ width: 88, height: 88, borderRadius: 26, backgroundColor: colors.panel, alignItems: 'center', justifyContent: 'center' }}><Monitor size={38} strokeWidth={1.4} color={colors.primary} /></View><Text variant="title">{'Your work.\nWherever you are.'}</Text><Text muted>Start a session, check on your agents, and keep things moving from your phone.</Text><Text muted>Connect a computer running Whip to get started.</Text></View><Stack style={{ padding: 24 }}><Button label="Connect a host" onPress={() => router.push('/server')} icon={<Plus size={20} color={colors.onPrimary} />} /><Button label="How it works" variant="quiet" onPress={() => router.push('/setup-help')} /></Stack></Screen></SafeAreaView>;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><Screen scroll={false}>
+    <ScreenHeader left={<IconButton label="Settings" onPress={() => router.push('/settings')}><Settings size={22} color={colors.foreground} /></IconButton>} right={<View style={{ flexDirection: 'row', gap: 10 }}><IconButton label="Search sessions" onPress={() => setSearching(!searching)}><Search size={22} color={colors.foreground} /></IconButton><IconButton label="New session" onPress={newSession}><Plus size={24} color={colors.foreground} /></IconButton></View>} />
+    <Stack style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20, gap: 16 }}><Text variant="title">{status === 'archived' ? 'Archived' : 'Sessions'}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><View style={{ flex: 1 }}><Button label={hostId ? state.hosts.find(h => h.id === hostId)?.name ?? 'Host' : 'All hosts'} variant="quiet" onPress={() => setFilter(true)} icon={<ChevronDown size={16} color={colors.muted} />} /></View>{attention.badge && <Button label={`Needs you ${attention.badge}`} variant="secondary" onPress={() => router.push('/attention')} icon={<Bell size={16} color={colors.warning} />} />}</View>{searching && <SearchField value={text} onChangeText={value => { setText(value); index.first(); }} placeholder="Search sessions or folders" autoFocus />}</Stack>
+    <FlashList data={items} keyExtractor={item => JSON.stringify([item.host.id, item.host.runtimeId, item.id])} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} onRefresh={() => { void index.refetch(); }} refreshing={index.isRefetching}
+      ListHeaderComponent={<Stack>{index.unavailable.length > 0 && <ListRow title={`${index.unavailable.length} host${index.unavailable.length > 1 ? 's' : ''} offline`} detail="Sessions on connected hosts are still available" onPress={() => router.push('/settings/hosts')} />}{index.pages.filter(p => p.error && (!hostId || p.host.id === hostId)).map(p => <Notice key={p.host.id}>{p.host.name}: {p.error}</Notice>)}</Stack>}
+      renderItem={({ item }) => <ListRow title={item.title || 'Untitled session'} detail={`${item.host.name} · ${item.cwd.split('/').filter(Boolean).at(-1) || item.cwd}\n${new Date(item.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${item.archived ? ' · Archived' : ''}`} leading={item.pinned ? <Pin size={18} color={colors.primary} /> : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }} />} trailing={<ArrowUpRight size={17} color={colors.muted} />} onPress={() => router.push({ pathname: '/session/[rootId]', params: { rootId: item.id, runtimeId: item.host.runtimeId!, hostId: item.host.id } })} />}
+      ListEmptyComponent={index.isFetching ? <Loading label="Finding your sessions…" /> : <View style={{ minHeight: 340 }}><EmptyState title={search ? 'No matches' : status === 'archived' ? 'No archived sessions' : index.enabled ? 'Ready when you are' : 'Your hosts are offline'} description={search ? 'Try another title or folder.' : index.enabled ? 'Give your next idea a place to start.' : 'Reconnect a host to see its sessions.'} action={index.enabled && !search && status === 'active' ? { label: 'New session', onPress: newSession } : !index.enabled ? { label: 'Manage hosts', onPress: () => router.push('/settings/hosts') } : undefined} /></View>}
+      ListFooterComponent={<Stack style={{ paddingTop: 20 }}>{index.pages.filter(p => p.sessions?.has_more && p.sessions.next_cursor && (!hostId || p.host.id === hostId)).map(p => <Button key={p.host.id} label={`Next sessions · ${p.host.name}`} variant="quiet" disabled={index.isFetching} onPress={() => index.next(p.host.id, p.sessions!.next_cursor!)} />)}{index.hasPrevious && <Button label="Back to latest sessions" variant="quiet" onPress={index.first} />}</Stack>} />
+    <Sheet title="Show sessions" visible={filter} onClose={() => setFilter(false)}><Stack style={{ paddingHorizontal: 20 }}><ChoiceGroup label="Session status" value={status} options={[{ value: 'active', label: 'Active' }, { value: 'archived', label: 'Archived' }]} onChange={value => { setStatus(value); index.first(); }} /><ListRow title="All hosts" selected={!hostId} onPress={() => { setHostId(undefined); setFilter(false); }} />{state.hosts.map(host => <ListRow key={host.id} title={host.name} selected={hostId === host.id} onPress={() => { setHostId(host.id); setFilter(false); }} />)}</Stack></Sheet>
+  </Screen></SafeAreaView>;
 }

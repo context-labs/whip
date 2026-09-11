@@ -1,3 +1,4 @@
+import { ReadLane } from './read-lane';
 import { MobileRuntime, type SavedHost } from './runtime';
 import type { MobileStorage } from './storage';
 
@@ -5,6 +6,8 @@ export type WorkspaceSnapshot = { hosts: readonly SavedHost[]; connections: read
 /** Device owner. Each existing MobileRuntime retains its isolated command/view engine. */
 export class MobileWorkspace {
   readonly settings: MobileRuntime;
+  readonly reads = new ReadLane();
+  connectionKey(id: string) { return this.attempts.get(id) ?? 0; }
   private state: WorkspaceSnapshot = { hosts: [], connections: [], active: true, revision: 0 };
   private listeners = new Set<() => void>();
   private runtimes = new Map<string, MobileRuntime>();

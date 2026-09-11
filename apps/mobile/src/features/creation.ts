@@ -12,6 +12,7 @@ export interface CreationWorkflow {
   cwd: string;
   model?: string;
   provider?: string;
+  definition?: string;
   effort?: string;
   executionEngine?: string;
   rootId?: string;
@@ -26,7 +27,7 @@ export function validateWorkflow(value: CreationWorkflow, runtimeId: string, cli
   if (!value || value.version !== 1 || value.runtimeId !== runtimeId || value.clientId !== clientId || !value.id || typeof value.cwd !== 'string' || typeof value.effortDone !== 'boolean' || typeof value.promptSent !== 'boolean') {
     throw new Error('The saved creation workflow belongs to an unavailable identity or version. Its draft and recovery have been preserved.');
   }
-  for (const key of ['id', 'model', 'provider', 'effort', 'rootId'] as const) {
+  for (const key of ['id', 'model', 'provider', 'definition', 'effort', 'rootId'] as const) {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key]!.length > 2048)) throw new Error('The saved creation settings are unreadable; existing data has been preserved.');
   }
   if (value.pendingStep && !['create', 'effort', 'submit'].includes(value.pendingStep)) throw new Error('The saved creation step is unreadable; existing data has been preserved.');
@@ -105,7 +106,7 @@ export async function advanceCreation(initial: CreationWorkflow, runner: Creatio
     if (!runner.current()) return workflow;
     const intent = { workflowId: workflow.id, step };
     if (step === 'create') {
-      const outcome = await runner.run('session.create', { cwd: workflow.cwd.trim(), kind: 'agent', model: workflow.model ?? '', provider: workflow.provider ?? '', execution_engine: workflow.executionEngine }, { intent });
+      const outcome = await runner.run('session.create', { cwd: workflow.cwd.trim(), kind: 'agent', model: workflow.model ?? '', provider: workflow.provider ?? '', execution_engine: workflow.executionEngine, ...(workflow.definition ? { definition: workflow.definition } : {}) }, { intent });
       requireCreationSuccess(step, outcome);
       if (!outcome.result?.root_id) throw new Error('Session creation succeeded without a session identity. Check the original command before continuing.');
       workflow = { ...workflow, rootId: outcome.result.root_id, pendingStep: undefined };

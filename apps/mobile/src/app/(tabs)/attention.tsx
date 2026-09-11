@@ -1,19 +1,13 @@
 import { router } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
-import { Actions, Label, Loading, Notice, RowButton, Screen, Stack } from '../../components/primitives';
-import { Connection } from '../../components/connection';
-import { useAttention, useAttentionFocus } from '../../features/attention';
+import { useWorkspaceAttention } from '../../features/workspace-index';
+import { Button, EmptyState, ListRow, Loading, Notice, Screen, Stack, Text } from '../../ui';
 export default function AttentionScreen() {
-  const attention = useAttention(); useAttentionFocus();
-  return <Screen scroll={false}><Connection /><FlashList data={attention.items} keyExtractor={item => item.root_id}
-    ListHeaderComponent={<Stack style={{ padding: 16 }}>
-      {attention.status !== 'loading' && attention.status !== 'unavailable' && <Label muted>{attention.countLabel} among {attention.items.length} loaded sessions. Ordered by session ID.</Label>}
-      {attention.statusMessage && <Notice>{attention.statusMessage}{attention.status === 'stale' ? ' Showing the last observed index.' : ''}</Notice>}
-      <Actions items={[{ label: 'Refresh attention', secondary: true, disabled: !attention.enabled || attention.isFetching, onPress: () => { void attention.refresh(); } }]} />
-    </Stack>}
-    renderItem={({ item }) => <RowButton title={item.title || 'Untitled session'} detail={`${item.questions?.length ?? 0} questions · ${item.pending_permissions} permissions · ${item.active_agents} active agents`}
-      onPress={() => router.push({ pathname: '/session/[rootId]', params: { rootId: item.root_id, runtimeId: attention.runtimeId!, requests: 'true' } })} />}
-    onRefresh={() => { void attention.refresh(); }} refreshing={attention.isRefreshing}
-    ListEmptyComponent={attention.isFetching ? <Loading /> : <Stack style={{ padding: 24 }}><Label>{attention.status === 'current' ? attention.partial ? 'No human requests in this partial index' : 'Nothing needs your attention' : 'Attention is unavailable'}</Label></Stack>}
-    ListFooterComponent={<Stack style={{ padding: 16 }}>{attention.partial && <Notice>This is a partial attention index; the count is a lower bound. Open a session for authoritative requests.</Notice>}{attention.atPageLimit && <Notice>Showing at most 256 sessions. Use Sessions to find another root.</Notice>}{attention.hasNextPage && <Actions items={[{ label: 'Load more', disabled: !attention.enabled || attention.isFetching, secondary: true, onPress: () => { void attention.loadMore(); } }]} />}</Stack>} /></Screen>;
+  const attention = useWorkspaceAttention();
+  return <Screen scroll={false}><FlashList data={attention.items} keyExtractor={item => JSON.stringify([item.host.id, item.root_id])} contentContainerStyle={{ padding: 20 }}
+    ListHeaderComponent={<Stack style={{ marginBottom: 16 }}><Text variant="title">Needs you</Text><Text muted>Questions and permissions from your connected hosts.</Text>{attention.partial && <Notice>This is a partial view. Some hosts or earlier pages may have more requests.</Notice>}{attention.pages.filter(p => p.error).map(p => <Notice key={p.host.id}>{p.host.name}: {p.error}</Notice>)}</Stack>}
+    renderItem={({ item }) => <ListRow title={item.title || 'Untitled session'} detail={`${item.host.name} · ${item.questions?.length ?? 0} questions · ${item.pending_permissions} permissions`} onPress={() => router.push({ pathname: '/session/[rootId]', params: { rootId: item.root_id, runtimeId: item.host.runtimeId!, hostId: item.host.id, requests: 'true' } })} />}
+    onRefresh={() => { void attention.refetch(); }} refreshing={attention.isRefetching}
+    ListEmptyComponent={attention.isFetching ? <Loading /> : <EmptyState title={attention.enabled ? 'All caught up here' : 'Connect a host'} description={attention.partial ? 'No requests on the loaded pages. Other hosts or pages may still need you.' : attention.enabled ? 'Questions and permission requests will appear here.' : 'Reconnect a host to check its requests.'} />}
+    ListFooterComponent={<Stack style={{ paddingTop: 20 }}>{attention.pages.filter(p => p.attention?.has_more && p.attention.next_after_id).map(p => <Button key={p.host.id} label={`Next requests · ${p.host.name}`} variant="quiet" onPress={() => attention.next(p.host.id, p.attention!.next_after_id!)} />)}{attention.hasPrevious && <Button label="First requests" variant="quiet" onPress={attention.first} />}</Stack>} /></Screen>;
 }

@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -8,7 +8,7 @@ import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from
 import { Connection } from '../components/connection';
 import { RuntimeScope, useRuntime, useRuntimeState } from '../runtime/context';
 import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
-import { ListRow, Text, StatusBadge } from '../ui';
+import { Button, ListRow, Sheet, Text } from '../ui';
 import type { SavedHost } from '../runtime/runtime';
 import {
   advanceCreation, creationCommands, creationDraftKey, creationModels, creationSettingsKey,
@@ -38,7 +38,9 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const [busy, setBusy] = useState(false); const busyRef = useRef(false);
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
-  const [browse, setBrowse] = useState(false); const [path, setPath] = useState('');
+  const [stage, setStage] = useState<'folder' | 'review'>('folder');
+  const [options, setOptions] = useState(false);
+  const [browse, setBrowse] = useState(true); const [path, setPath] = useState('');
   const [typedPath, setTypedPath] = useState(''); const [after, setAfter] = useState<string>();
   const [showModels, setShowModels] = useState(false); const [modelSearch, setModelSearch] = useState('');
   const mounted = useRef(true); const visible = useRef(focused); visible.current = focused;
@@ -62,7 +64,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
       };
       if (cancelled) return;
       if (!saved) await runtime.storage.set('settings', creationSettingsKey(host.id), next);
-      if (!cancelled) { workflowRef.current = next; setWorkflow(next); }
+      if (!cancelled) { workflowRef.current = next; setWorkflow(next); setPath(next.cwd); setTypedPath(next.cwd); if (next.rootId) setStage('review'); }
     })().catch(e => { if (!cancelled) setLoadError(errorText(e)); });
     return () => { cancelled = true; mounted.current = false; controller.abort(); };
   }, [runtime, host.id, runtimeId, host.clientId, initialPath]);
@@ -76,6 +78,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const enabled = state.ready && state.active && focused;
   const directories = useQuery({ queryKey: [runtimeId, 'host.directories', path, after], enabled: enabled && browse,
     queryFn: ({ signal }) => client.host.directories({ path: path || undefined, after, limit: 64 }, { signal }) });
+  const definitions = useQuery({ queryKey: [runtimeId, 'definitions.list'], enabled: enabled && client.supports('rpc', 'definitions.list'), queryFn: ({ signal }) => client.call('definitions.list', {}, { signal }) });
   const catalogs = useQuery({ queryKey: [runtimeId, 'provider.catalogs'], enabled,
     queryFn: async ({ signal }) => {
       const response = await client.providers.catalogs({ signal });
@@ -100,7 +103,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const navigateFolder = (target: string) => { setPath(target); setTypedPath(target); setAfter(undefined); };
   const openCreated = () => {
     const rootId = workflowRef.current?.rootId;
-    if (rootId && runtime.getSnapshot().client === client) router.replace({ pathname: '/session/[rootId]', params: { rootId, runtimeId } });
+    if (rootId && runtime.getSnapshot().client === client) router.replace({ pathname: '/session/[rootId]', params: { rootId, runtimeId, hostId: host.id } });
   };
   const start = async () => {
     if (busyRef.current || !current() || locked) return;
@@ -140,11 +143,10 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const step = nextCreationStep(workflow, draft);
   const proceedLabel = !workflow.rootId ? 'Create session' : step === 'effort' ? 'Apply reasoning and continue' : 'Send first message';
   return <Screen>
-    <Connection />
-    <Stack><Label style={{ fontSize: 24, lineHeight: 32, fontWeight: '600' }}>{workflow.rootId ? 'Your session is created' : 'What would you like to work on?'}</Label>
-      <Label muted>{workflow.rootId ? `${workflow.cwd} · ${workflow.rootId}` : 'Choose a folder on your Whip host. The host runs your session.'}</Label></Stack>
+    {!state.ready && <Connection />}
+    <Stack><Text variant="title">{workflow.rootId ? 'Your session is created' : stage === 'folder' ? 'Choose a folder' : 'Start something.'}</Text><Text muted>{workflow.rootId ? workflow.cwd : stage === 'folder' ? 'Pick the project you want to work in.' : 'Everything is ready. Add a first message, or start with an empty session.'}</Text></Stack>
     {error && <Notice danger>{error}</Notice>}
-    {workflow.rootId && <Actions items={[{ label: 'Open created session', onPress: openCreated }]} />}
+    {stage === 'folder' && !workflow.rootId ? <>
     <Field label="Working directory on host" value={workflow.cwd} onChangeText={cwd => update({ cwd })} editable={editable} autoCapitalize="none" autoCorrect={false} maxLength={2048} placeholder="/path/to/project" />
     {!workflow.rootId && <Actions items={[{ label: browse ? 'Close folder browser' : 'Browse host folders', secondary: true, disabled: !enabled || locked,
       onPress: () => { if (!browse) navigateFolder(workflow.cwd); setBrowse(!browse); } }]} />}
@@ -166,6 +168,27 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
         ]} />
       </>}
     </Stack>}
+
+      <Button label="Continue" disabled={!workflow.cwd.trim() || locked || !enabled} onPress={() => { setBrowse(false); setStage('review'); }} />
+    </> : <>
+      <ListRow title={workflow.cwd.split('/').filter(Boolean).at(-1) || workflow.cwd} detail={workflow.cwd} onPress={workflow.rootId ? undefined : () => { setStage('folder'); setBrowse(true); }} />
+      <ListRow title={workflow.model || 'Host default model'} detail={`${workflow.definition || 'Default agent'} · ${workflow.effort || 'Default reasoning'}`} onPress={() => setOptions(true)} />
+      {workflow.rootId && <Button label="Open created session" onPress={openCreated} />}
+    {!workflow.promptSent && <Field label="First message (optional)" value={draft.text} multiline textAlignVertical="top" style={{ minHeight: 144 }} editable={!busy && !activeCommand && workflow.pendingStep !== 'submit'}
+      placeholder="Describe the work to start…" onChangeText={text => { try { runtime.setDraft(draftKey, text); } catch (e) { setError(errorText(e)); } }} />}
+    {workflow.promptSent && <Notice>Your first message was submitted to the created session.</Notice>}
+    {workflow.pendingStep && <Stack><Notice>{pending ? `Previous ${workflow.pendingStep} step: ${pending.status}. ${pending.message ?? 'Check its original command before continuing.'}` : 'No command record is available for this prepared step. Review the saved settings before clearing the preparation and continuing.'}</Notice>
+      <Actions items={[
+        ...(pending ? [{ label: 'Check original command', secondary: true, disabled: !enabled || busy, onPress: () => { void runtime.checkCommand(pending).catch(e => setError(errorText(e))); } }] : []),
+        ...(!activeCommand && (!pending || ['failed', 'cancelled', 'interrupted', 'not_found'].includes(pending.status)) ? [{ label: pending?.status === 'not_found' ? 'Resolve missing attempt' : pending ? 'Resolve failed attempt' : 'Review and clear preparation', secondary: true, disabled: !enabled || busy, onPress: () => { void resolve(); } }] : []),
+      ]} />
+      <Label muted>Resolving preserves your draft. Continuing uses a new command ID for this step and keeps any session already created.</Label>
+    </Stack>}
+    {!workflow.pendingStep && activeCommand && <Notice>The previous step is still {activeCommand.status}. Whip will keep its result here.</Notice>}
+    {step && <Actions items={[{ label: busy ? 'Starting your session…' : proceedLabel, disabled: !enabled || locked || !workflow.cwd.trim() || !workflow.rootId && !engineAvailable, onPress: () => { void start(); }, testID: 'create-session' }]} />}
+    {workflow.rootId && !locked && (!draft.text.trim() || workflow.promptSent) && <Actions items={[{ label: 'Prepare another session', secondary: true, onPress: () => { void startAnother(); } }]} />}
+    </>}
+    <Sheet title="Session options" visible={options} onClose={() => setOptions(false)} full><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24 }}>
     <Stack><Label muted>Model</Label><Label>{workflow.model ? `${workflow.model} · ${workflow.provider}` : 'Use the host’s default model and provider'}</Label>
       {!workflow.rootId && <Actions items={[{ label: showModels ? 'Close model selection' : 'Choose model', secondary: true, disabled: locked, onPress: () => setShowModels(!showModels) }]} />}
       {catalogs.error && <Notice>{catalogs.error.message} Host defaults are still available.</Notice>}
@@ -194,19 +217,11 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
         {!selected?.efforts.length && <Label muted>Select a catalog model with reasoning support to choose an effort level.</Label>}
       </>}
     </Stack>
-    {!workflow.promptSent && <Field label="First message (optional)" value={draft.text} multiline textAlignVertical="top" style={{ minHeight: 144 }} editable={!busy && !activeCommand && workflow.pendingStep !== 'submit'}
-      placeholder="Describe the work to start…" onChangeText={text => { try { runtime.setDraft(draftKey, text); } catch (e) { setError(errorText(e)); } }} />}
-    {workflow.promptSent && <Notice>Your first message was submitted to the created session.</Notice>}
-    {workflow.pendingStep && <Stack><Notice>{pending ? `Previous ${workflow.pendingStep} step: ${pending.status}. ${pending.message ?? 'Check its original command before continuing.'}` : 'No command record is available for this prepared step. Review the saved settings before clearing the preparation and continuing.'}</Notice>
-      <Actions items={[
-        ...(pending ? [{ label: 'Check original command', secondary: true, disabled: !enabled || busy, onPress: () => { void runtime.checkCommand(pending).catch(e => setError(errorText(e))); } }] : []),
-        ...(!activeCommand && (!pending || ['failed', 'cancelled', 'interrupted', 'not_found'].includes(pending.status)) ? [{ label: pending?.status === 'not_found' ? 'Resolve missing attempt' : pending ? 'Resolve failed attempt' : 'Review and clear preparation', secondary: true, disabled: !enabled || busy, onPress: () => { void resolve(); } }] : []),
-      ]} />
-      <Label muted>Resolving preserves your draft. Continuing uses a new command ID for this step and keeps any session already created.</Label>
-    </Stack>}
-    {!workflow.pendingStep && activeCommand && <Notice>The previous step is still {activeCommand.status}. Whip will keep its result here.</Notice>}
-    {step && <Actions items={[{ label: busy ? 'Starting your session…' : proceedLabel, disabled: !enabled || locked || !workflow.cwd.trim() || !workflow.rootId && !engineAvailable, onPress: () => { void start(); }, testID: 'create-session' }]} />}
-    {workflow.rootId && !locked && (!draft.text.trim() || workflow.promptSent) && <Actions items={[{ label: 'Prepare another session', secondary: true, onPress: () => { void startAnother(); } }]} />}
+      <Stack><Label muted>Agent definition</Label><RowButton title="Host default agent" selected={!workflow.definition} disabled={!editable} onPress={() => update({ definition: undefined })} />
+      {definitions.data?.items?.slice(0, 64).map(item => <RowButton key={item.id} title={item.id} detail={item.built_in ? 'Built in' : 'Registered on host'} selected={workflow.definition === item.id} disabled={!editable} onPress={() => update({ definition: item.id })} />)}
+      {definitions.error && <Notice>{definitions.error.message} The host default remains available.</Notice>}</Stack>
+      <Button label="Done" onPress={() => setOptions(false)} />
+    </ScrollView></Sheet>
     <Label muted>Drafts stay encrypted on this phone. Leaving the app keeps accepted work running; saved creation steps never continue automatically after a restart.</Label>
   </Screen>;
 }

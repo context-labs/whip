@@ -24,3 +24,10 @@ Branch: `codex/mobile-ui`
 - Kept the existing tested runtime command engine rather than splitting it into another duplicated class. Workspace preferences are separate from host commands. Child runtimes cannot close shared storage.
 - Three workspace lifecycle regression tests pass, nine host screen tests pass, and all eight request tests now pass, including repeated presses and retained failed-send drafts. Mobile typecheck passes.
 - Android debug APK builds and runs on API 36. iOS build is blocked before compilation by Xcode destination eligibility reporting the installed iOS 26.2 platform unavailable; this is not recorded as an iOS pass.
+
+## Phase 4 — sessions and creation
+
+- Replaced the tabbed home with the storyboard's session-first navigation, first-host onboarding, shared New session entry points, combined host lists, search, host/status filters, and archived sessions. Healthy hosts remain usable when another host fails.
+- Added a single foreground workspace attention owner. Session and attention reads share a two-request device lane. Each host retains one bounded page (128 sessions/256 KiB or 64 attention entries/128 KiB); Next replaces that host's page rather than growing memory. This explicit page-window implementation differs from append pagination in the proposal and keeps partial counts honest. Old query windows are immediately garbage-collected.
+- New session is host → folder → review, with model/provider/reasoning/execution language/advertised agent definitions in a native options sheet. The existing journaled creation state machine remains responsible for creation and recovery.
+- Mobile typecheck and 13 targeted creation/workspace/read-lane tests pass. Android home and the native filter sheet were visually inspected; the sheet bridge uses Expo's RNHostView on both platforms.
