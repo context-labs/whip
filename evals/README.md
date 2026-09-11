@@ -33,6 +33,8 @@ The explicit integration check **does start eight disposable fixture trials**:
 
 ```sh
 uv run --project evals --locked whip-eval doctor --integration
+# Qualify the current host harness/fixtures against an immutable runtime commit.
+uv run --project evals --locked whip-eval doctor --integration --ref <commit-sha>
 ```
 
 It uses an authored fake provider, with no external model calls. Both engines and
@@ -40,6 +42,18 @@ both native runners exercise shared and separate verifiers, root/child finality,
 whole-tree accounting, external content export, numeric file paging, a background
 service surviving finality, and collection/application of a committed patch. It
 writes private evidence under `artifacts/doctor-*/` and never contributes scores.
+`doctor --ref` selects the runtime build for integration only; without it, the
+existing working-file snapshot behavior is unchanged. The host harness and
+fixtures always come from the current checkout; the result records build identity.
+
+Pier fixtures exercise `no-network` in both shared and separate verifier modes.
+The supported native environment import hook selects our small Docker extension,
+which caps only the inference proxy's soft/hard `nofile` limits at 65,536. This
+avoids Squid allocating an enormous FD table from host-inherited Docker defaults;
+it does not relax task networks, proxy authentication, or the provider allowlist.
+The extension depends on Pier 0.3.1's private proxy-preparation hook and fails
+visibly on an incompatible proxy shape. The protocol and measured adapter/runner
+launch hashes record this adaptation; the locked dependency itself is unchanged.
 
 For scored runs, supply `INFERENCE_API_KEY` through your environment or secret
 manager. The CLI never asks you to put a literal key in a command or report.
@@ -187,7 +201,11 @@ ledger. Diagnostic cost repricing and sampled RSS/CPU are not complete billing o
 exclusive-process resource measurements. Native grades remain authoritative even
 when execution ends abnormally; evidence and accounting coverage are separate.
 SQLite calls, exported state, metrics, finality, identity and content digests are
-cross-checked before declaring complete accounting/evidence.
+cross-checked before declaring complete accounting/evidence. Content bodies use one
+native directory download into isolated staging, then exact manifest, regular-file,
+size and SHA256 validation before atomic publication. The same 240-second cleanup
+deadline covers transfer and validation; incomplete copies never become complete
+evidence. Metadata transfers and native log collection remain separate.
 
 ## Accepted baseline
 

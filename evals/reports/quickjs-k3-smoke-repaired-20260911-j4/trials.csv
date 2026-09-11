@@ -1,0 +1,9 @@
+id,task_id,candidate_id,repetition,runner,started,success,grader_status,execution_status,termination_source,evidence_complete,accounting_complete,known_cost_usd,cost_usd,agent_seconds,trial_seconds,input_tokens,output_tokens,cache_tokens
+t0001,terminal-bench/code-from-image,candidate,1,harbor,True,,error,cancelled,user_cancelled,False,False,6.368259,,,1171.5829731398262,,,
+t0002,terminal-bench/build-cython-ext,candidate,1,harbor,True,True,passed,completed,,True,True,0.768727,0.768727,279.7399124749936,315.446416312363,1109173,9813,1072346
+t0003,datacurve/httpx-multipart-response-parsing,candidate,1,pier,True,False,failed,completed,,False,False,3.070031,,728.5296119279228,1019.0356488209218,,,
+t0004,terminal-bench/openssl-selfsigned-cert,candidate,1,harbor,True,True,passed,completed,,True,True,0.094994,0.094994,74.51165089802817,114.64998752204701,46739,2553,39487
+t0005,terminal-bench/db-wal-recovery,candidate,1,harbor,True,True,passed,completed,,True,True,0.139014,0.139014,54.01544857164845,91.12843898497522,79432,3545,68997
+t0006,terminal-bench/regex-log,candidate,1,harbor,True,True,passed,completed,,True,True,0.194754,0.194754,96.19559417292476,135.94452400878072,20311,8316,14122
+t0007,datacurve/anko-typed-variable-bindings,candidate,1,pier,True,,error,cancelled,user_cancelled,False,False,5.397420,,,848.607787432149,,,
+t0008,terminal-bench/kv-store-grpc,candidate,1,harbor,True,True,passed,completed,,True,True,0.077473,0.077473,38.98954443400726,76.31986132776365,46711,1813,40264

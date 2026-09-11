@@ -1,0 +1,9 @@
+id,task_id,candidate_id,repetition,runner,started,success,grader_status,execution_status,termination_source,evidence_complete,accounting_complete,known_cost_usd,cost_usd,agent_seconds,trial_seconds,input_tokens,output_tokens,cache_tokens
+t0001,terminal-bench/code-from-image,candidate,1,harbor,True,True,passed,completed,,True,True,1.520960,1.520960,500.8462938279845,542.6601221649908,2440650,18271,2389133
+t0002,terminal-bench/build-cython-ext,candidate,1,harbor,True,True,passed,completed,,True,True,0.878586,0.878586,392.63401514291763,427.3031634259969,936107,13064,866965
+t0003,datacurve/httpx-multipart-response-parsing,candidate,1,pier,True,,error,runner_error,verifier_error,False,False,0.000000,,,23.410568202845752,,,
+t0004,terminal-bench/openssl-selfsigned-cert,candidate,1,harbor,True,,error,completed,user_cancelled,True,True,0.107920,0.107920,52.83961243974045,89.33568817609921,63299,2692,55047
+t0005,terminal-bench/db-wal-recovery,candidate,1,harbor,False,,missing,cancelled,user_cancelled,False,False,0.000000,,,,,,
+t0006,terminal-bench/regex-log,candidate,1,harbor,False,,missing,cancelled,user_cancelled,False,False,0.000000,,,,,,
+t0007,datacurve/anko-typed-variable-bindings,candidate,1,pier,False,,missing,cancelled,user_cancelled,False,False,0.000000,,,,,,
+t0008,terminal-bench/kv-store-grpc,candidate,1,harbor,False,,missing,cancelled,user_cancelled,False,False,0.000000,,,,,,

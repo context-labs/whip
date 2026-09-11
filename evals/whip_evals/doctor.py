@@ -11,7 +11,7 @@ from .report import normalize_trial
 from .tasks import load_spec
 
 
-def doctor(*, integration=False, evals=EVALS):
+def doctor(*, integration=False, evals=EVALS, ref=None):
     lock, profiles, protocol = load_spec(evals)
     checks = {name: shutil.which(name) is not None for name in ("git", "go", "docker", "uv")}
     details = {"tasks": len(lock["tasks"]), "profiles": {k: len(v["task_ids"]) for k, v in profiles.items()},
@@ -25,24 +25,24 @@ def doctor(*, integration=False, evals=EVALS):
         checks["docker_environment"] = False
         details["environment_error"] = type(error).__name__
     if integration and all(checks.values()):
-        details["integration"] = integration_check(evals)
+        details["integration"] = integration_check(evals, ref=ref)
         checks["integration"] = details["integration"]["passed"]
     return {"status": "ready" if all(checks.values()) else "failed", "checks": checks, **details}
 
 
-def integration_check(evals=EVALS):
+def integration_check(evals=EVALS, *, ref=None):
     """Both runners/engines and verifier modes; deterministic provider, never scored."""
     run_id = "doctor-" + new_id()
     root = Path(evals).resolve() / "artifacts" / run_id
     root.mkdir(parents=True, exist_ok=False)
-    candidate = build_candidate("fixture", "starlark", evals=evals)
+    candidate = build_candidate("fixture", "starlark", evals=evals, ref=ref)
     outcomes = []
     for runner, engine, mode in ((r, e, m) for r in ("harbor", "pier")
                                 for e in ("starlark", "quickjs") for m in ("shared", "separate")):
         trial = {"id": f"doctor-{runner}-{engine}-{mode}", "engine": engine, "runner": runner,
                  "task_id": "fixture/qualification", "candidate_id": engine, "repetition": 1,
                  "binary_sha256": candidate["binary_sha256"]}
-        path = prepare_fixture(root / "tasks" / trial["id"], mode)
+        path = prepare_fixture(root / "tasks" / trial["id"], mode, no_network=runner == "pier")
         config, envelope = job_config(trial, {"agent_seconds": 120}, inside(evals, candidate["binary_path"]),
             None, path, root / "jobs", fixture=True)
         record = execute_job(trial, config, envelope, root / trial["id"], threading.Event(), evals=evals)
@@ -50,20 +50,27 @@ def integration_check(evals=EVALS):
         row = normalize_trial(trial, record, root)
         passed = (row["success"] is True and row["accounting_complete"] and row["evidence_complete"]
                   and row["diagnostics"]["agent_count"] == 2 and row["model_calls"] >= 4)
-        outcomes.append({"runner": runner, "engine": engine, "verifier_mode": mode, "passed": passed})
+        outcomes.append({"runner": runner, "engine": engine, "verifier_mode": mode,
+                         "network_mode": "no-network" if runner == "pier" else "default", "passed": passed})
         if not record["cleanup"]["complete"]:
             break
     result = {"passed": len(outcomes) == 8 and all(row["passed"] for row in outcomes), "trials": outcomes,
-              "model_calls_to_external_provider": 0, "excluded_from_scores": True, "artifact_root": str(root)}
+              "model_calls_to_external_provider": 0, "excluded_from_scores": True, "artifact_root": str(root),
+              "candidate": candidate}
     write_json(root / "doctor.json", result, exclusive=True)
     return result
 
 
-def prepare_fixture(path, mode):
+def prepare_fixture(path, mode, *, no_network=False):
     path = Path(path)
     shutil.copytree(EVALS / "fixtures" / "native", path)
+    task = path / "task.toml"
+    if no_network:
+        text = task.read_text()
+        for section in ("environment", "verifier"):
+            text = text.replace(f"[{section}]\n", f'[{section}]\nnetwork_mode = "no-network"\n')
+        task.write_text(text)
     if mode == "separate":
-        task = path / "task.toml"
         task.write_text(task.read_text().replace("[verifier]\n", '[verifier]\nenvironment_mode = "separate"\n'))
         dockerfile = (path / "environment" / "Dockerfile").read_text()
         (path / "tests" / "Dockerfile").write_text(dockerfile + "\nCOPY test.sh /tests/test.sh\n")

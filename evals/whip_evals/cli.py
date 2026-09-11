@@ -25,6 +25,7 @@ def parser():
     run.add_argument("--dry-run", action="store_true", help="expand workload only; no Docker, builds, network, or model calls")
     doctor = sub.add_parser("doctor", help="check local prerequisites; no model calls")
     doctor.add_argument("--integration", action="store_true", help="explicitly execute authored fixture trials with a fake provider")
+    doctor.add_argument("--ref", help="build this Git ref for integration; default captures current working files")
     compare = sub.add_parser("compare", help="compare retained reports offline")
     compare.add_argument("control")
     compare.add_argument("candidate")
@@ -47,7 +48,7 @@ def main(argv=None):
             value = run(args)
         elif args.command == "doctor":
             from .doctor import doctor
-            value = doctor(integration=args.integration)
+            value = doctor(integration=args.integration, ref=args.ref)
         elif args.command == "compare":
             from .report import compare_results
             value = compare_results(read_json(EVALS / "reports" / identifier(args.control) / "result.json"),

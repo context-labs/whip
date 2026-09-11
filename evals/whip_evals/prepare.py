@@ -123,7 +123,8 @@ def catalog(protocol):
     key = os.environ.get("INFERENCE_API_KEY")
     if not key:
         raise ValueError("INFERENCE_API_KEY is required to run; doctor and dry-run need no key")
-    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={"Authorization": "Bearer " + key})
+    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={
+        "Authorization": "Bearer " + key, "User-Agent": "whip-evals/0.1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         models = json.load(response)["data"]
     selected = [m for m in models if m["id"] == protocol["model"]]

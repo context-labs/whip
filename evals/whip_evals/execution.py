@@ -105,6 +105,8 @@ def job_config(trial, task, binary, contract, task_path, job_dir, *, fixture=Fal
                           "override_timeout_sec": envelope["agent_runner_seconds"],
                           "override_setup_timeout_sec": AGENT_SETUP_SECONDS, "kwargs": kwargs}],
               "tasks": [{"path": str(task_path)}]}
+    if trial["runner"] == "pier":
+        config["environment"]["import_path"] = "whip_evals.adapter:PierDockerEnvironment"
     # Validate with the pinned native parser without starting a job.
     from importlib import import_module
     model = import_module(trial["runner"] + ".models.job.config").JobConfig

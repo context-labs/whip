@@ -91,6 +91,19 @@ class BaselineTests(unittest.TestCase):
                 manifest['promote'] = False
             self.assertIn(gate, baseline.evaluate(manifest, result)['failed_gates'])
 
+    def test_complete_quality_with_unknown_billing_still_blocks_promotion(self):
+        manifest, original = campaign()
+        rows = original['trials']
+        rows[0].update(accounting_complete=False, cost_usd=None, unknown_cost_calls=1)
+        result = build_result(manifest, rows)
+        result['integrity'] = original['integrity']
+        self.assertEqual(result['status'], 'complete')
+        self.assertTrue(all(row['evidence_complete'] for row in result['trials']))
+        self.assertIsNone(result['arms']['candidate']['cost_usd'])
+        decision = baseline.evaluate(manifest, result)
+        self.assertFalse(decision['eligible'])
+        self.assertEqual(decision['failed_gates'], ['complete_evidence'])
+
     def test_replacement_quality_cost_latency_and_identity_guards(self):
         previous = campaign()
         for mutation, gate in [('tie', 'quality_improvement'), ('cost', 'cost_guard'),
