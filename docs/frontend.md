@@ -73,8 +73,8 @@ Design from these principles:
 
 Current scope is a React web application with basic mobile support, designed to
 share its renderer with the macOS Electron host in `apps/desktop`. File editing,
-code review, interactive terminal UI, and hosted authentication are separate
-milestones. Data-only agent definitions (persona, rules, discovery, modules,
+code review, and hosted authentication are separate milestones. Terminal tabs
+are in scope as a human-only shell beside the conversation. Data-only agent definitions (persona, rules, discovery, modules,
 capabilities, surface flags) are authored in Settings and selected on the
 welcome page; agents with custom tools or hooks are authored with the SDK,
 because their handlers are code the renderer cannot host. Read-only code/tool
@@ -145,6 +145,7 @@ focus, layout, styling and file-input behavior remain shared.
 | Base UI | Focus, ARIA, keyboard, portals, overlay behavior | Accessible interaction comes from maintained primitives |
 | StyleX | Authored component/app styles, variants, responsive rules, tokens | One extracted styling system across packages and themes |
 | Lucide, self-hosted Inter and JetBrains Mono | Icons, chrome/reading, code | Consistent vocabulary and geometry without remote font dependencies |
+| ghostty-web | Terminal tab rendering (Ghostty's VT parser in WASM, canvas renderer) | Draws a daemon-owned PTY without injecting styles, so the production CSP only gains `'wasm-unsafe-eval'`; xterm.js would need inline styles |
 | Storybook, Vitest/Testing Library, Playwright | Components, app behavior, real browser integration | Each layer is tested at its actual boundary |
 
 Do not add Redux/Zustand, TanStack DB, a second Query client per feature, another
@@ -464,6 +465,7 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | Focused root, child and shareable inspector section | TanStack Router | Validated URL/search; history carries a local view-ID hint |
 | Sidebar width, visibility and directory collapse | App shell | Window storage with memory fallback; host-scoped collapse |
 | Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | One v3 workspace spanning hosts: browser sessionStorage or desktop namespaced localStorage; v1/v2 recovery and memory fallback |
+| Terminal shells, replay ring, live attachment | Daemon `internal/terminal` | Host truth; the view keeps only its next expected cursor and reattaches after reload or reconnect |
 | Draft text | App runtime | Device storage, keyed by runtime/root/recipient |
 | Files, upload progress and submission locks | App `CompositionStore` | Window memory shared by runtime/root/recipient |
 | Composer caret selection | App `CompositionStore` | Window memory scoped by runtime/view/agent |
@@ -489,6 +491,7 @@ update their source, boundary tests, and this table together.
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
+| Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
 | Sidebar layout preferences | 4 hosts, 64 collapsed directories per host, 64 KiB metadata; this does not limit connected hosts | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
 | Draft text | 32 nonempty drafts, 256 KiB each, 1 MiB total | [runtime.ts](../packages/app/src/runtime.ts) |
 | Submission previews | 32 entries, 1 MiB total; confirmed entries evicted first | [input-presentation.ts](../packages/app/src/input-presentation.ts) |
@@ -507,8 +510,15 @@ exceed the aggregate storage budget; subsequent writes require clearing drafts.
 ### Split workspace
 
 `SessionTabs` owns one immutable binary tree across all hosts: split nodes carry
-a direction and ratio; pane leaves carry ordered chat/REPL/New Chat descriptors, a selected
-view ID, and stable pane IDs. Session-backed descriptors store runtime/root identity;
+a direction and ratio; pane leaves carry ordered chat/REPL/New Chat/terminal descriptors, a selected
+view ID, and stable pane IDs. Terminal descriptors store runtime identity, the daemon's
+terminal ID and cwd; they move between panes but never duplicate, never enter Reopen
+history (their shell ended with the tab), and route to `/h/$runtimeId/t/$terminalId`, which
+selects an open tab and otherwise shows a missing state without starting a shell.
+`terminal-view.tsx` mounts ghostty-web once per shell identity, attaches from cursor 0 on
+mount and from its last cursor on reconnect, redraws on a cursor gap, forwards the command,
+composer and terminal shortcuts to the app, and offers Restart (a new shell behind the same
+tab) or Reattach when the daemon reports exit or a takeover. Session-backed descriptors store runtime/root identity;
 New Chat descriptors store an independent draft ID, optional host profile/runtime,
 working directory, permission mode and optional execution engine selection. Prompt text and recovery payloads never enter
 the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
@@ -1293,7 +1303,9 @@ Tabs use a shared contour with 12px upper
 corners and outward-curving lower shoulders. The active tab's quiet border follows
 the top and sides, leaving its bottom open into the content surface and covering
 the strip baseline. The drag preview keeps that contour without a drop shadow.
-Preserve the production CSP and existing geometry exceptions.
+Preserve the production CSP and existing geometry exceptions. The only script-source
+relaxation is `'wasm-unsafe-eval'` for ghostty-web's terminal parser; no style-source
+relaxation is acceptable, which is why xterm.js was not adopted.
 
 ### Themes are foundational
 

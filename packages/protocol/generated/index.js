@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 4,
+  "minor": 5,
   "operations": [
     {
       "name": "command.status",
@@ -442,6 +442,47 @@ export const manifest = {
       "permission": "host-runtime",
       "params_type": "SessionSummariesParams",
       "result_type": "SessionSummariesResult"
+    },
+    {
+      "name": "terminal.attach",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-terminal",
+      "params_type": "TerminalAttachParams",
+      "result_type": "TerminalAttachResult"
+    },
+    {
+      "name": "terminal.close",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-terminal",
+      "params_type": "TerminalIDParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "terminal.open",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-terminal",
+      "params_type": "TerminalOpenParams",
+      "result_type": "TerminalOpenResult"
+    },
+    {
+      "name": "terminal.resize",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-terminal",
+      "params_type": "TerminalResizeParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "terminal.write",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-terminal",
+      "sensitive": true,
+      "params_type": "TerminalWriteParams",
+      "result_type": "Accepted"
     },
     {
       "name": "tool.progress",
@@ -1027,6 +1068,9 @@ export const manifest = {
     "hook.cancel": "ToolCancelParams",
     "hook.invoke": "HookInvokeParams",
     "subscription.failed": "SubscriptionFailure",
+    "terminal.detached": "TerminalDetachedParams",
+    "terminal.exited": "TerminalExitedParams",
+    "terminal.output": "TerminalOutputParams",
     "tool.cancel": "ToolCancelParams",
     "tool.invoke": "ToolInvokeParams"
   },

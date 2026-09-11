@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../runtime';
-import { selectedSessionTab, validateSessionSearch, type SessionSearch } from '../session-tabs';
+import { isSessionTab, selectedSessionTab, validateSessionSearch, type SessionSearch } from '../session-tabs';
 import { draftDestination, tabDestination } from '../session-tab-routing';
 
 export const settingsCategories = [
@@ -78,7 +78,7 @@ export function parseSettingsReturn(value: unknown): SettingsReturn | undefined 
 export function settingsBackDestination(runtime: AppRuntime) {
   const saved = runtime.settingsReturn;
   const workspace = runtime.tabs.workspace();
-  const exact = saved?.viewId ? workspace.tabs.find(tab => tab.id === saved.viewId && (!saved.rootId || (tab.kind !== 'new' && tab.runtimeId === saved.runtimeId && tab.rootId === saved.rootId))) : undefined;
+  const exact = saved?.viewId ? workspace.tabs.find(tab => tab.id === saved.viewId && (!saved.rootId || (isSessionTab(tab) && tab.runtimeId === saved.runtimeId && tab.rootId === saved.rootId))) : undefined;
   const tab = exact ?? (saved && !saved.rootId && !saved.viewId ? undefined : selectedSessionTab(workspace));
   if (!tab) return { to: '/' as const, search: {}, replace: true };
   const destination = tabDestination(tab);

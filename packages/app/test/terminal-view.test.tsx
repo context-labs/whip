@@ -1,0 +1,174 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { ThemeProvider, UIProvider } from '@whip/ui';
+import type { WhipClient } from '@whip/sdk';
+import { RpcError } from '@whip/sdk';
+import { AppRuntime } from '../src/runtime';
+import { RuntimeContext } from '../src/context';
+import { TerminalView, passesToApp } from '../src/terminal-view';
+import { localProfile, resolveURLConnection } from '../src/platform';
+
+const routing = vi.hoisted(() => ({ navigate: vi.fn(async () => {}) }));
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => routing.navigate }));
+const ghostty = vi.hoisted(() => {
+  type Listener = (value: unknown) => void;
+  class Terminal {
+    static instances: Terminal[] = [];
+    cols = 80; rows = 24;
+    selection = '';
+    handlers = new Map<string, Listener[]>();
+    keyHandler?: (event: KeyboardEvent) => boolean;
+    write = vi.fn(); reset = vi.fn(); focus = vi.fn(); dispose = vi.fn(); loadAddon = vi.fn(); open = vi.fn();
+    constructor(readonly options: Record<string, unknown>) { Terminal.instances.push(this); }
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.keyHandler = handler; }
+    private on(name: string) {
+      return (listener: Listener) => { this.handlers.set(name, [...(this.handlers.get(name) ?? []), listener]); return { dispose() {} }; };
+    }
+    onData = this.on('data'); onResize = this.on('resize'); onTitleChange = this.on('title');
+    hasSelection() { return this.selection !== ''; }
+    getSelection() { return this.selection; }
+    emit(name: string, value: unknown) { for (const listener of this.handlers.get(name) ?? []) listener(value); }
+  }
+  class FitAddon { fit = vi.fn(); }
+  const Ghostty = { load: vi.fn(async () => ({ fake: true })) };
+  return { Terminal, FitAddon, Ghostty };
+});
+vi.mock('ghostty-web', () => ({ Terminal: ghostty.Terminal, FitAddon: ghostty.FitAddon, Ghostty: ghostty.Ghostty }));
+vi.mock('ghostty-web/ghostty-vt.wasm?url', () => ({ default: '/assets/ghostty-vt.wasm' }));
+
+beforeEach(() => {
+  ghostty.Terminal.instances = [];
+  routing.navigate.mockClear();
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+});
+afterEach(() => vi.unstubAllGlobals());
+
+function fakeClient() {
+  const output = new Set<(value: { id: string; cursor: number; bytes: Uint8Array }) => void>();
+  const exited = new Set<(value: { id: string; exitCode: number; signal?: string }) => void>();
+  const detached = new Set<(id: string) => void>();
+  const connectionListeners = new Set<() => void>();
+  const connection = { state: 'connected' as string, info: { runtime_id: 'mac', capabilities: ['terminals'] } };
+  const terminals = {
+    attach: vi.fn(async () => ({ cursor: 0, cwd: '/work', cols: 80, rows: 24, exited: false })),
+    write: vi.fn(async () => {}), resize: vi.fn(async () => {}), close: vi.fn(async () => {}),
+    open: vi.fn(async () => ({ id: 'term-2', shell: '/bin/zsh', cwd: '/work' })),
+    onOutput: (listener: (value: { id: string; cursor: number; bytes: Uint8Array }) => void) => { output.add(listener); return () => output.delete(listener); },
+    onExited: (listener: (value: { id: string; exitCode: number; signal?: string }) => void) => { exited.add(listener); return () => exited.delete(listener); },
+    onDetached: (listener: (id: string) => void) => { detached.add(listener); return () => detached.delete(listener); },
+  };
+  const client = { getSnapshot: () => connection, subscribe: (fn: () => void) => { connectionListeners.add(fn); return () => connectionListeners.delete(fn); }, terminals };
+  return {
+    client: client as unknown as WhipClient, terminals,
+    emitOutput: (id: string, cursor: number, text: string) => act(() => output.forEach(fn => fn({ id, cursor, bytes: new TextEncoder().encode(text) }))),
+    emitExited: (value: { id: string; exitCode: number; signal?: string }) => act(() => exited.forEach(fn => fn(value))),
+    emitDetached: (id: string) => act(() => detached.forEach(fn => fn(id))),
+    setState: (state: string) => act(() => { connection.state = state; connectionListeners.forEach(fn => fn()); }),
+  };
+}
+
+function mount(client: WhipClient, focused = true) {
+  const disk = new Map<string, string>();
+  const runtime = new AppRuntime({ defaultConnection: localProfile, connectionKinds: ['local'], resolveConnection: resolveURLConnection,
+    storage: { keys: () => [...disk.keys()], getItem: key => disk.get(key) ?? null, setItem: (key, value) => { disk.set(key, value); }, removeItem: key => { disk.delete(key); } },
+    copy: vi.fn(async () => {}), openExternal: async () => {}, download: async () => 'saved' });
+  const id = runtime.tabs.openTerminal('mac', 'term-1', '/work');
+  const tab = () => runtime.tabs.workspace().tabs.find(item => item.id === id)!;
+  const view = render(<RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider>
+    <TerminalView tab={tab() as Extract<ReturnType<typeof tab>, { kind: 'terminal' }>} client={client} focused={focused} />
+  </ThemeProvider></UIProvider></RuntimeContext.Provider>);
+  return { runtime, id, tab, view };
+}
+
+const terminal = () => ghostty.Terminal.instances[0]!;
+const ready = async () => { await waitFor(() => expect(ghostty.Terminal.instances).toHaveLength(1)); return terminal(); };
+
+it('attaches from cursor zero, writes output in order, forwards keystrokes, titles and debounced resizes', async () => {
+  const fake = fakeClient();
+  const { runtime, tab } = mount(fake.client);
+  await waitFor(() => expect(fake.terminals.attach).toHaveBeenCalledWith('term-1', 0));
+  const instance = await ready();
+  expect(instance.open).toHaveBeenCalledTimes(1);
+  expect(instance.focus).toHaveBeenCalled();
+  fake.emitOutput('term-1', 0, '$ ');
+  fake.emitOutput('other', 0, 'ignored');
+  fake.emitOutput('term-1', 2, 'ls\r\n');
+  expect(instance.write.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes as Uint8Array))).toEqual(['$ ', 'ls\r\n']);
+  expect(instance.reset).not.toHaveBeenCalled();
+  instance.emit('data', 'echo hi\r');
+  expect(fake.terminals.write).toHaveBeenCalledWith('term-1', 'echo hi\r');
+  instance.emit('title', 'zsh — project');
+  expect(tab()).toMatchObject({ kind: 'terminal', titleHint: 'zsh — project' });
+  instance.emit('resize', { cols: 100, rows: 40 });
+  instance.emit('resize', { cols: 120, rows: 40 });
+  await waitFor(() => expect(fake.terminals.resize).toHaveBeenCalledWith('term-1', 120, 40));
+  expect(fake.terminals.resize).toHaveBeenCalledTimes(1);
+  expect(fake.terminals.close).not.toHaveBeenCalled();
+  expect(runtime.getSnapshot().workspaceError).toBeUndefined();
+});
+
+it('redraws when the daemon replays from a different cursor than the view saw', async () => {
+  const fake = fakeClient();
+  mount(fake.client);
+  const instance = await ready();
+  fake.emitOutput('term-1', 0, 'abc');
+  fake.emitOutput('term-1', 3, 'def');
+  expect(instance.reset).not.toHaveBeenCalled();
+  fake.emitOutput('term-1', 40, 'later');
+  expect(instance.reset).toHaveBeenCalledTimes(1);
+  expect(instance.write).toHaveBeenCalledTimes(3);
+});
+
+it('reports an exited shell and restarts it behind the same tab', async () => {
+  const fake = fakeClient();
+  const { tab, id } = mount(fake.client);
+  await ready();
+  fake.emitExited({ id: 'term-1', exitCode: 3 });
+  expect(screen.getByRole('status').textContent).toContain('Shell exited (code 3).');
+  fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
+  await waitFor(() => expect(fake.terminals.open).toHaveBeenCalledWith({ cwd: '/work', cols: 80, rows: 24 }));
+  await waitFor(() => expect(tab()).toMatchObject({ id, kind: 'terminal', terminalId: 'term-2', cwd: '/work' }));
+  expect(routing.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/h/$runtimeId/t/$terminalId', params: { runtimeId: 'mac', terminalId: 'term-2' }, replace: true }));
+});
+
+it('shows an ended shell when the daemon no longer knows the terminal', async () => {
+  const fake = fakeClient();
+  fake.terminals.attach.mockRejectedValueOnce(new RpcError({ code: -32003, message: 'terminal not found' }));
+  mount(fake.client);
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('This shell has ended.'));
+  expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy();
+});
+
+it('reports detachment and reattaches from the last cursor on request or reconnect', async () => {
+  const fake = fakeClient();
+  mount(fake.client);
+  await ready();
+  fake.emitOutput('term-1', 0, 'hello');
+  fake.emitDetached('term-1');
+  expect(screen.getByRole('status').textContent).toContain('Attached in another window.');
+  fireEvent.click(screen.getByRole('button', { name: 'Reattach here' }));
+  await waitFor(() => expect(fake.terminals.attach).toHaveBeenLastCalledWith('term-1', 5));
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  fake.setState('reconnecting');
+  expect(screen.getByRole('status').textContent).toContain('Reconnecting to the host…');
+  const attaches = fake.terminals.attach.mock.calls.length;
+  fake.setState('connected');
+  await waitFor(() => expect(fake.terminals.attach.mock.calls.length).toBe(attaches + 1));
+  expect(fake.terminals.attach).toHaveBeenLastCalledWith('term-1', 5);
+});
+
+it('lets app shortcuts through and copies a selection with the platform chord', async () => {
+  const fake = fakeClient();
+  const { runtime } = mount(fake.client);
+  const instance = await ready();
+  const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
+  expect(passesToApp(key({ key: '`', code: 'Backquote', ctrlKey: true }), ['Control+`'])).toBe(true);
+  expect(passesToApp(key({ key: 'k', code: 'KeyK', ctrlKey: true }), ['Control+`'])).toBe(false);
+  // ghostty-web: true = handled by the app, false = send to the shell.
+  expect(instance.keyHandler!(key({ key: '`', code: 'Backquote', ctrlKey: true }))).toBe(true);
+  expect(instance.keyHandler!(key({ key: 'c', code: 'KeyC', ctrlKey: true }))).toBe(false);
+  instance.selection = 'selected text';
+  expect(instance.keyHandler!(key({ key: 'c', code: 'KeyC', metaKey: true }))).toBe(true);
+  await waitFor(() => expect(runtime.platform.copy).toHaveBeenCalledWith('selected text'));
+  expect(instance.keyHandler!(key({ key: 'a', code: 'KeyA' }))).toBe(false);
+});

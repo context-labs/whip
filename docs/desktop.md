@@ -155,6 +155,19 @@ body. Completion notifications are not implemented because the current metadata
 does not provide a durable completion event. Fully quitting ends observation.
 An unchanged permission count cannot identify a replacement pending request.
 
+## Terminal tabs
+
+A terminal tab is a login shell running where the session's daemon runs: on This
+Mac for local sessions, on the remote machine for SSH and URL hosts. Electron does
+not host the PTY; the daemon does, over the same connection as the conversation, so
+reloading or hiding the window keeps the shell and replays what was missed. Closing
+the tab ends the shell. Open one from a pane's actions menu, a session tab's **Open
+terminal here**, the command palette, or the terminal shortcut (Control+` by default,
+in Settings → General). Network listeners refuse terminals unless the daemon started
+with `WHIPCODE_NETWORK_TERMINALS=1`; the desktop's Unix-socket and SSH connections are
+always allowed. Paste uses the renderer's native paste event; the window denies
+clipboard-read permission, so there is no programmatic paste path.
+
 ## Open a session in an editor
 
 Conversation row menus and Session details offer **Open in → Cursor, VS Code,
@@ -332,6 +345,8 @@ suites, browser/packed-package consumer checks, and desktop tests. Set
 `WHIP_DESKTOP_SSH_TEST_EXECUTABLE` to the built Go executable to run the real
 isolated SSH server tests; no user SSH configuration or system Remote Login is
 required. `scripts/smoke.mjs` under `apps/desktop` exercises staged local lifecycle;
+`scripts/terminal-smoke.mjs` opens a terminal tab on This Mac from the palette, types,
+pastes through the native paste event, reloads, and closes it through File > Close tab;
 `scripts/continuity.mjs` explicitly installs a canonical fixture executable and
 verifies real signed workers using a loopback fake provider. It removes only a
 disposable copy of the source application payload, then verifies recovered work

@@ -557,3 +557,52 @@ describe('New Chat descriptors', () => {
     expect(state.workspace()).toBe(before);
   });
 });
+
+describe('terminal tabs', () => {
+  const terminal = (state: SessionTabs, terminalId = 'term-1', cwd = '/work/project') => state.openTerminal('mac', terminalId, cwd);
+  it('inserts after the selected tab, selects it, and keeps session-only operations away from it', () => {
+    const state = new SessionTabs();
+    state.open('mac', 'a'); state.open('mac', 'b'); state.visit('mac', 'a', {});
+    const id = terminal(state);
+    expect(state.workspace().tabs.map(tab => tab.kind)).toEqual(['chat', 'terminal', 'chat']);
+    expect(selectedSessionTab(state.workspace())).toMatchObject({ id, kind: 'terminal', runtimeId: 'mac', terminalId: 'term-1', cwd: '/work/project', titleHint: '' });
+    // Titles from session summaries and root purges never touch a terminal descriptor.
+    state.titles('mac', new Map([['a', 'Alpha'], ['term-1', 'Nope']]));
+    state.purge('mac', 'term-1');
+    expect(state.workspace().tabs.find(tab => tab.id === id)).toMatchObject({ kind: 'terminal', titleHint: '' });
+    expect(state.preferred('mac', 'term-1')).toBeUndefined();
+    expect(state.updateTerminal(id, { titleHint: 'zsh — project', terminalId: 'term-2' })).toBe(true);
+    expect(state.workspace().tabs.find(tab => tab.id === id)).toMatchObject({ titleHint: 'zsh — project', terminalId: 'term-2', cwd: '/work/project' });
+    expect(state.updateTerminal('missing', { titleHint: 'x' })).toBe(false);
+    expect(() => state.updateTerminal(id, { cwd: 'bad\nline' })).toThrow('Invalid terminal options');
+  });
+  it('persists and restores terminal descriptors while dropping malformed ones', () => {
+    const disk = storage();
+    const state = new SessionTabs(disk);
+    const id = terminal(state);
+    const restored = new SessionTabs(disk);
+    expect(restored.workspace().tabs).toEqual(state.workspace().tabs);
+    expect(restored.workspace().tabs[0]).toMatchObject({ id, kind: 'terminal', terminalId: 'term-1' });
+    const raw = JSON.parse(disk.getItem(TAB_STORAGE_KEY)!);
+    raw.workspace.layout.tabs.push({ id: 'broken', kind: 'terminal', runtimeId: 'mac', cwd: '/x' });
+    raw.workspace.layout.tabs.push({ id: 'bad-cwd', kind: 'terminal', runtimeId: 'mac', terminalId: 't', cwd: 'a\0b' });
+    disk.setItem(TAB_STORAGE_KEY, JSON.stringify(raw));
+    expect(new SessionTabs(disk).workspace().tabs.map(tab => tab.id)).toEqual([id]);
+  });
+  it('never enters Reopen history, moves instead of duplicating, and counts toward capacity', () => {
+    const state = new SessionTabs();
+    state.open('mac', 'a');
+    const id = terminal(state);
+    state.closeViews([id]);
+    expect(state.workspace().closed).toEqual([]);
+    expect(state.reopenView()).toBeUndefined();
+    const again = terminal(state, 'term-9');
+    const moved = state.split(again, 'right');
+    expect(moved).toBe(again);
+    expect(sessionPanes(state.workspace().layout)).toHaveLength(2);
+    expect(state.workspace().tabs.filter(tab => tab.kind === 'terminal')).toHaveLength(1);
+    for (let index = 0; index < 30; index++) state.open('mac', `root-${index}`);
+    expect(state.canOpen()).toBe(false);
+    expect(() => terminal(state, 'term-full')).toThrow('32 open session tabs');
+  });
+});

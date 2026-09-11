@@ -61,6 +61,11 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:sessions.get` | Web | Exact bounded title, working directory, history revision and archive state for conversation row actions without hydrating transcripts. |
 | `rpc:sessions.summaries` | Web | One bounded query supplies title, project, descendant activity and human-attention counts for open session tabs without opening roots. |
 | `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:terminal.attach` | Web | Terminal tab mount and reconnect: makes this connection the shell's live receiver and replays retained output from the view's last cursor. |
+| `rpc:terminal.close` | Web | Closing a terminal tab ends its shell; unmount, reload and disconnect never send this. |
+| `rpc:terminal.open` | Web | New terminal from a pane menu, session tab menu, palette or shortcut: starts a login shell on the execution host in the chosen directory. |
+| `rpc:terminal.resize` | Web | Debounced after the fit addon resizes the terminal to its pane. |
+| `rpc:terminal.write` | Web | Keystrokes from the terminal view, base64 on the wire. |
 | `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
 | `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
 | `rpc:hook.result` | SDK-only | Headless executor hook handlers answer before_tool, before_spawn, and turn_start invocations for their lease generation; an empty reply allows unchanged. The desktop observes stream.hook.decision events rather than sending this RPC. |

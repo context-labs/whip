@@ -464,6 +464,15 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the
   generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
 - Slow clients lose their bounded connection instead of blocking a root.
+- Workspace terminals: `internal/terminal` owns one PTY per terminal tab with a
+  1 MiB replay ring and one live attachment whose bounded queue stalls the shell
+  behind a slow receiver instead of overflowing the connection; `terminal.*`
+  RPCs and `terminal.output/exited/detached` notifications live in
+  `internal/daemon/terminal_rpc.go`, with the network gate on
+  `WHIPCODE_NETWORK_TERMINALS`. Coverage: `internal/terminal/*_test.go` (ring,
+  replay, resize, hangup, backpressure, limits, shutdown under `-race`) and
+  `internal/daemon/terminal_rpc_test.go` (round trip, exit ordering, detach on
+  disconnect, takeover, gating, validation).
 - Schedules and blackboard subscriptions create durable wakeups.
 - Process shutdown is root-owned and waits for supervised workers.
 
@@ -562,6 +571,7 @@ behavior to its owning code and repeatable validation.
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
 | Full-window Settings with seven categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
+| Terminal tabs: a login shell on the session's host in a fourth tab kind, opened from pane and tab menus, the palette or the terminal shortcut; drawn by ghostty-web; reattached with replay after reload or reconnect; closing the tab ends the shell | `packages/app/src/terminal-view.tsx`, `session-tabs.ts` (`TerminalTab`, `openTerminal`, `updateTerminal`), `session-tab-routing.ts` (`openTerminalTab`, `terminalDestination`), `routes/h.$runtimeId.t.$terminalId.tsx`, `session-tab-strip.tsx`, `packages/sdk/src/terminals.ts` | `terminal-view.test.tsx`, `session-tabs.test.ts`, `session-tab-routing.test.ts`, `packages/sdk/test/terminals.test.ts`, `apps/web/scripts/terminal-tabs.mjs`, `apps/desktop/scripts/terminal-smoke.mjs` |
 | Host-scoped configuration, login cleanup, unsaved-edit guards and offline draft recovery | `packages/app/src/settings/{configuration,providers,recovery,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
 | Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
 | Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
@@ -571,8 +581,9 @@ React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI own
 accessible component interactions; StyleX extracts authored CSS. Source UI/app
 packages expose explicit public entry points and are tested as real installed
 archives in both production and Vite development builds. No editor, code-review
-surface, standalone terminal, account, pairing or signer UI is included. Tool
-requests that require terminal input direct the user to the TUI.
+surface, account, pairing or signer UI is included. Tool requests that require
+terminal input direct the user to the TUI; terminal tabs are a human-only shell
+beside the conversation, not an agent input path.
 
 Closing a page detaches the client. It neither cancels accepted work nor sends
 unsent drafts. A command outcome is separate from completion of descendant agents,

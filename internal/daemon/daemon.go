@@ -8,6 +8,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/terminal"
 )
 
 var ErrClosed = errors.New("daemon closed")
@@ -27,6 +28,7 @@ type Daemon struct {
 	factory   Factory
 	control   *Control
 	executors *executorRegistry
+	terminals *terminal.Manager
 	ctx       context.Context
 	cancel    context.CancelFunc
 
@@ -51,7 +53,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), terminals: terminal.NewManager(ctx), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
 	if len(providers) > 0 {
 		daemon.providers = providers[0]
 	}
@@ -316,6 +318,9 @@ func (d *Daemon) Close() error {
 			if root := d.entryRoot(entry); root != nil {
 				<-root.Done()
 			}
+		}
+		if d.terminals != nil {
+			d.terminals.Shutdown()
 		}
 		d.wg.Wait()
 		<-d.control.done

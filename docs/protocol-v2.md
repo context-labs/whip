@@ -65,6 +65,21 @@ reply allows unchanged; `hook.cancel` mirrors `tool.cancel`. `executor.pending`
 lists pending hooks beside tool invocations. The `stream.hook.decision` event
 kind carries every deny, rewrite, and skip. All additions are additive.
 
+Protocol **6.5** adds workspace terminals. `terminal.open` starts a login shell on
+the execution host in an absolute `cwd`, the named `root_id`'s directory, or the
+daemon user's home; `terminal.attach` makes the calling connection the shell's
+only live receiver and replays retained output from `cursor` (`-1` for live only,
+older cursors clamp to the 1 MiB ring); `terminal.write` carries base64 keystrokes
+of at most 16 KiB; `terminal.resize` and `terminal.close` complete the family. All
+five are connection-scoped ephemeral RPCs, never durable commands. Output travels
+as `terminal.output` notifications (absolute `cursor` plus base64 `bytes`, at most
+32 KiB), followed by `terminal.exited` after the last byte of an exited shell, and
+`terminal.detached` when another connection attaches. Closing the tab closes the
+shell; a dropped connection only detaches it. Network listeners refuse the family
+with `-32012` unless the daemon started with `WHIPCODE_NETWORK_TERMINALS=1`;
+Unix-socket clients, including SSH-forwarded ones, are always allowed. The
+`terminals` capability advertises support. All additions are additive.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

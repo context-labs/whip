@@ -608,3 +608,11 @@ func KeyBytes(name string) string {
 	}
 	return ""
 }
+
+// UserShell exposes login-shell resolution to other process owners, such as
+// workspace terminals, so every shell Whip starts is the same program.
+func UserShell() string { return userShell() }
+
+// ChildEnvironment exposes the daemon's child environment with the WHIP markers
+// the bash tool sets, so shells started elsewhere look identical to the model's.
+func ChildEnvironment(overrides map[string]string) []string { return childEnvironment(overrides) }

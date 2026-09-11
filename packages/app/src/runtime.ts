@@ -54,10 +54,12 @@ export const composerShortcuts = [
   'Mod+Shift+J',
   'Mod+Shift+F',
 ] as const;
+export const terminalShortcuts = ['Control+`', 'Mod+`', 'Mod+Shift+T'] as const;
 export interface DevicePreferences {
   toolDensity: 'compact' | 'comfortable' | 'detailed';
   commandShortcut: (typeof commandShortcuts)[number];
   composerShortcut: (typeof composerShortcuts)[number];
+  terminalShortcut: (typeof terminalShortcuts)[number];
   attentionAnnouncements: boolean;
   desktopNotifications: boolean;
 }
@@ -65,6 +67,7 @@ const defaultPreferences: DevicePreferences = {
   toolDensity: 'compact',
   commandShortcut: 'Mod+K',
   composerShortcut: 'Mod+Shift+L',
+  terminalShortcut: 'Control+`',
   attentionAnnouncements: true,
   desktopNotifications: false,
 };
@@ -161,6 +164,9 @@ export class AppRuntime {
         )
           ? preferences!.composerShortcut!
           : defaultPreferences.composerShortcut,
+        terminalShortcut: terminalShortcuts.includes(preferences?.terminalShortcut as never)
+          ? preferences!.terminalShortcut!
+          : defaultPreferences.terminalShortcut,
         attentionAnnouncements: preferences?.attentionAnnouncements !== false,
         desktopNotifications: preferences?.desktopNotifications === true,
       },

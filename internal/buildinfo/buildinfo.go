@@ -41,6 +41,7 @@ func Text(text string) string {
 		"github.com/context-labs/whip", "github.com/context-labs/whip",
 		"~/.whip", "~/."+Name,
 		"WHIP_HOME", Env("HOME"),
+		"WHIP_NETWORK_TERMINALS", Env("NETWORK_TERMINALS"),
 		"WHIP_NETWORK", Env("NETWORK"),
 		"WHIP_LISTEN", Env("LISTEN"),
 		"WHIP_ALLOWED_ORIGINS", Env("ALLOWED_ORIGINS"),

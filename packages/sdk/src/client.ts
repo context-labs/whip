@@ -4,11 +4,13 @@ import {
   type InitializeResult, type QueryOperation, type QueryResult,
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
   type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
+  type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
 import { Host, Permissions, Providers, Configuration } from './services.js';
 import { Agents } from './agents.js';
+import { Terminals } from './terminals.js';
 import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
@@ -16,11 +18,15 @@ import { webSocket, type Transport, type TransportFactory } from './transport.js
 import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from './util.js';
 
 export type SdkEvent = RootEvent;
-/** Notifications the daemon sends to the connection holding an executor lease. */
-export interface ExecutorNotifications {
+/** Notifications the daemon addresses to one connection: executor leases and terminal attachments. */
+export interface Notifications {
   'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams;
   'hook.invoke': HookInvokeParams; 'hook.cancel': ToolCancelParams;
+  'terminal.output': TerminalOutputParams; 'terminal.exited': TerminalExitedParams; 'terminal.detached': TerminalDetachedParams;
 }
+export type Notification = keyof Notifications;
+/** Notifications the daemon sends to the connection holding an executor lease. */
+export type ExecutorNotifications = Pick<Notifications, 'tool.invoke' | 'tool.cancel' | 'hook.invoke' | 'hook.cancel'>;
 export type ExecutorNotification = keyof ExecutorNotifications;
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'incompatible' | 'paused' | 'closed';
 export interface ConnectionSnapshot {
@@ -65,6 +71,7 @@ export class WhipClient {
   readonly permissions: Permissions;
   readonly host: Host;
   readonly agents: Agents;
+  readonly terminals: Terminals;
   readonly events = {
     subscribe: async (rootId: string, cursor: string, options: SubscriptionOptions = {}): Promise<Subscription> => {
       this.requireConnected();
@@ -87,7 +94,7 @@ export class WhipClient {
   private readonly listeners = new Set<() => void>();
   private readonly eventListeners = new Set<(event: SdkEvent) => void>();
   private readonly commandListeners = new Set<(outcome: CommandResult) => void>();
-  private readonly notificationListeners = new Map<ExecutorNotification, Set<(params: unknown) => void>>();
+  private readonly notificationListeners = new Map<Notification, Set<(params: unknown) => void>>();
   private readonly pending = new Map<string, Pending>();
   private readonly streams = new Map<string, Subscription>();
   private readonly lookups = new Map<string, Promise<CommandResult>>();
@@ -121,13 +128,14 @@ export class WhipClient {
     this.permissions = new Permissions(this);
     this.host = new Host(this);
     this.agents = new Agents(this);
+    this.terminals = new Terminals(this);
   }
   getSnapshot = (): ConnectionSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   onEvent(listener: (event: SdkEvent) => void): () => void { this.eventListeners.add(listener); return () => this.eventListeners.delete(listener); }
   onCommand(listener: (outcome: CommandResult) => void): () => void { this.commandListeners.add(listener); return () => this.commandListeners.delete(listener); }
-  /** Executor notifications addressed to this connection; agents.serve consumes them. */
-  onNotification<M extends ExecutorNotification>(method: M, listener: (params: ExecutorNotifications[M]) => void): () => void {
+  /** Notifications addressed to this connection; agents.serve and terminals consume them. */
+  onNotification<M extends Notification>(method: M, listener: (params: Notifications[M]) => void): () => void {
     let listeners = this.notificationListeners.get(method);
     if (!listeners) { listeners = new Set(); this.notificationListeners.set(method, listeners); }
     const typed = listener as (params: unknown) => void;
@@ -353,9 +361,10 @@ export class WhipClient {
         assertValid('SubscriptionFailure', envelope.params, 'response');
         const failure = envelope.params;
         this.streams.get(failure.subscription_id)?.fail(failure.error ? new RpcError(failure.error) : new WhipError('resynchronization_required', 'Subscription failed'));
-      } else if (envelope.method === 'tool.invoke' || envelope.method === 'tool.cancel' || envelope.method === 'hook.invoke' || envelope.method === 'hook.cancel') {
-        assertValid(envelope.method === 'tool.invoke' ? 'ToolInvokeParams' : envelope.method === 'hook.invoke' ? 'HookInvokeParams' : 'ToolCancelParams', envelope.params, 'response');
-        const listeners = this.notificationListeners.get(envelope.method);
+      } else if (Object.hasOwn(manifest.events, envelope.method)) {
+        // Connection-addressed notifications are typed by the generated contract; anything else is malformed.
+        assertValid(manifest.events[envelope.method]!, envelope.params, 'response');
+        const listeners = this.notificationListeners.get(envelope.method as Notification);
         if (listeners) notify(listeners, frozen(envelope.params));
       }
     } catch (error) { this.disconnected(new WhipError('invalid_response', 'Malformed daemon response', { cause: error })); }

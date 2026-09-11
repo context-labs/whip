@@ -2942,7 +2942,66 @@ export interface SubscriptionFailure {
   };
 }
 
+export interface TerminalAttachParams {
+  id: string;
+  cursor: string;
+}
+
+export interface TerminalAttachResult {
+  cursor: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+  exited: boolean;
+  exit_code?: number;
+  signal?: string;
+}
+
+export interface TerminalDetachedParams {
+  id: string;
+}
+
+export interface TerminalExitedParams {
+  id: string;
+  exit_code: number;
+  signal?: string;
+}
+
+export interface TerminalIDParams {
+  id: string;
+}
+
 export interface TerminalInputParams {
+  id: string;
+  bytes: string | null;
+}
+
+export interface TerminalOpenParams {
+  cwd?: string;
+  root_id?: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalOpenResult {
+  id: string;
+  shell: string;
+  cwd: string;
+}
+
+export interface TerminalOutputParams {
+  id: string;
+  cursor: string;
+  bytes: string | null;
+}
+
+export interface TerminalResizeParams {
+  id: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalWriteParams {
   id: string;
   bytes: string | null;
 }
@@ -3191,7 +3250,17 @@ export interface ContractTypes {
   SubscribeParams: SubscribeParams;
   SubscribeResult: SubscribeResult;
   SubscriptionFailure: SubscriptionFailure;
+  TerminalAttachParams: TerminalAttachParams;
+  TerminalAttachResult: TerminalAttachResult;
+  TerminalDetachedParams: TerminalDetachedParams;
+  TerminalExitedParams: TerminalExitedParams;
+  TerminalIDParams: TerminalIDParams;
   TerminalInputParams: TerminalInputParams;
+  TerminalOpenParams: TerminalOpenParams;
+  TerminalOpenResult: TerminalOpenResult;
+  TerminalOutputParams: TerminalOutputParams;
+  TerminalResizeParams: TerminalResizeParams;
+  TerminalWriteParams: TerminalWriteParams;
   TextParams: TextParams;
   TextResult: TextResult;
   TitleParams: TitleParams;
@@ -3347,6 +3416,11 @@ export interface RpcMethods {
   "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.summaries": { params: SessionSummariesParams; result: SessionSummariesResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "terminal.attach": { params: TerminalAttachParams; result: TerminalAttachResult; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.close": { params: TerminalIDParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.open": { params: TerminalOpenParams; result: TerminalOpenResult; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.resize": { params: TerminalResizeParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.write": { params: TerminalWriteParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: true };
   "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };

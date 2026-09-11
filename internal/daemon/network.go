@@ -21,6 +21,9 @@ type NetworkOptions struct {
 	Address        string   `json:"address,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 	AllowedHosts   []string `json:"allowed_hosts,omitempty"`
+	// Terminals lets network clients open workspace terminals. Unix-socket
+	// clients, including SSH-forwarded ones, are always allowed.
+	Terminals bool `json:"terminals,omitempty"`
 }
 
 func (o NetworkOptions) listen(ctx context.Context) (net.Listener, error) {

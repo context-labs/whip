@@ -11,6 +11,9 @@ export default defineConfig({
       generateBundle() {
         for (const id of this.getModuleIds()) {
           const name = id.replaceAll('\\', '/');
+          // ghostty-web ships an inert Vite shim (an empty object) for its Node/Bun WASM
+          // loaders; the browser path falls through to fetch. Nothing else may carry the marker.
+          if (/ghostty-web\/dist\/__vite-browser-external-[^/]+\.js$/.test(name)) continue;
           if (name.startsWith('node:') || name.includes('__vite-browser-external') ||
               /(?:^|\/)electron(?:\/|$)/.test(name) || /packages\/sdk\/(?:src|dist)\/node\.[cm]?[jt]s$/.test(name))
             this.error(`Native module entered the shared renderer: ${id}`);

@@ -15,7 +15,7 @@ func (s *Server) startNetwork() error {
 	if len(options.AllowedHosts) == 0 {
 		options.AllowedHosts = []string{listener.Addr().String()}
 	}
-	handler, err := newNetworkHandler(options, s.serveTransport, func() bool {
+	handler, err := newNetworkHandler(options, func(raw messageTransport) { s.serveTransport(raw, true) }, func() bool {
 		s.lifeMu.Lock()
 		defer s.lifeMu.Unlock()
 		if s.closed.Load() {

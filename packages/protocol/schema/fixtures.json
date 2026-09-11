@@ -797,6 +797,59 @@
     }
   },
   {
+    "type": "TerminalAttachParams",
+    "value": {
+      "id": "",
+      "cursor": "0"
+    }
+  },
+  {
+    "type": "TerminalAttachResult",
+    "value": {
+      "cursor": "0",
+      "cwd": "",
+      "cols": 0,
+      "rows": 0,
+      "exited": false
+    }
+  },
+  {
+    "type": "TerminalIDParams",
+    "value": {
+      "id": ""
+    }
+  },
+  {
+    "type": "TerminalOpenParams",
+    "value": {
+      "cols": 0,
+      "rows": 0
+    }
+  },
+  {
+    "type": "TerminalOpenResult",
+    "value": {
+      "id": "",
+      "shell": "",
+      "cwd": ""
+    }
+  },
+  {
+    "type": "TerminalResizeParams",
+    "value": {
+      "id": "",
+      "cols": 0,
+      "rows": 0
+    }
+  },
+  {
+    "type": "TerminalWriteParams",
+    "value": {
+      "id": "",
+      "bytes": null
+    }
+  },
+  {
     "type": "ToolProgressParams",
     "value": {
       "invocation_id": "",

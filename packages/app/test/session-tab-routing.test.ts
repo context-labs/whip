@@ -216,3 +216,50 @@ describe('New Chat route ownership', () => {
     expect(f.router.navigate).not.toHaveBeenCalled(); expect(f.runtime.reportWorkspace).toHaveBeenCalled(); dispose();
   });
 });
+
+describe('terminal tab routes', () => {
+  it('parses and builds terminal destinations without touching session URLs', async () => {
+    const { tabDestination, terminalDestination, openTerminalTab } = await import('../src/session-tab-routing');
+    expect(terminalDestination('/h/mac/t/term-1')).toEqual({ runtimeId: 'mac', terminalId: 'term-1' });
+    expect(terminalDestination('/h/mac/s/root')).toBeUndefined();
+    expect(terminalDestination('/h/mac/t/%ZZ')).toBeUndefined();
+    const tabs = new SessionTabs();
+    const id = tabs.openTerminal('mac', 'term-1', '/work');
+    const tab = tabs.workspace().tabs.find(item => item.id === id)!;
+    expect(tabDestination(tab)).toEqual({ to: '/h/$runtimeId/t/$terminalId', params: { runtimeId: 'mac', terminalId: 'term-1' }, search: {}, state: { whipViewId: id } });
+    expect(typeof openTerminalTab).toBe('function');
+  });
+  it('selects an open terminal tab from its URL and shows the missing state for an unknown one', () => {
+    const f = fixture('/h/mac/s/root');
+    f.tabs.open('mac', 'root');
+    const id = f.tabs.openTerminal('mac', 'term-1', '/work');
+    f.tabs.visit('mac', 'root', {});
+    expect(selectedSessionTab(f.tabs.workspace())?.id).not.toBe(id);
+    const dispose = f.start();
+    f.route('/h/mac/t/term-1');
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(id);
+    const before = f.tabs.workspace().tabs.length;
+    f.route('/h/mac/t/term-unknown');
+    expect(f.tabs.workspace().tabs).toHaveLength(before);
+    expect(f.router.navigate).not.toHaveBeenCalled();
+    dispose();
+  });
+  it('opens a shell on the host before adding a tab, and reports hosts without terminals', async () => {
+    const { openTerminalTab } = await import('../src/session-tab-routing');
+    const tabs = new SessionTabs();
+    const open = vi.fn(async () => ({ id: 'term-7', shell: '/bin/zsh', cwd: '/resolved' }));
+    const snapshot = { state: 'connected', info: { runtime_id: 'mac', capabilities: ['terminals'] } };
+    const client = { getSnapshot: () => snapshot, terminals: { open } };
+    const runtime = { tabs, connections: { host: (id: string) => id === 'mac' ? { client } : undefined }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
+    const navigate = vi.fn(async () => {});
+    const id = await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac', cwd: '/work', rootId: 'root' });
+    expect(open).toHaveBeenCalledWith({ cwd: '/work', rootId: 'root', cols: 80, rows: 24 });
+    expect(tabs.workspace().tabs.find(tab => tab.id === id)).toMatchObject({ kind: 'terminal', terminalId: 'term-7', cwd: '/resolved' });
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/h/$runtimeId/t/$terminalId', params: { runtimeId: 'mac', terminalId: 'term-7' } }));
+    snapshot.info.capabilities = [];
+    expect(await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' })).toBeUndefined();
+    expect((runtime.reportWorkspace as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toMatchObject({ message: expect.stringContaining('does not offer terminals') });
+    expect(await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'other' })).toBeUndefined();
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+});

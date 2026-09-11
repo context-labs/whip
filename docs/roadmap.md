@@ -163,7 +163,8 @@ in
 - [ ] Mobile follow-ups: authenticated device pairing/QR and push notifications,
   after the private-host companion is accepted.
 - [x] Conversation row actions: shared rename, same-directory fork, archive/restore, delete, and local/SSH editor opening. See [features](features.md#conversation-row-actions).
-- [ ] Editing, code review and standalone terminal product surfaces (later work).
+- [x] Terminal tabs: daemon-hosted login shells beside the conversation on every host kind, drawn with ghostty-web. See the [plan](../.ai-docs/plans/terminal-tabs/README.md).
+- [ ] Editing and code review product surfaces (later work).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 
 See [protocol-v2.md](protocol-v2.md) and `.ai-docs/plans/protocol-v2/README.md`

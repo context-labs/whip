@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Select, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from '../context';
-import { commandShortcuts, composerShortcuts } from '../runtime';
+import { commandShortcuts, composerShortcuts, terminalShortcuts } from '../runtime';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 
@@ -28,6 +28,12 @@ export function GeneralSettings() {
           options={composerShortcuts.map(value => ({ value, label: value }))}
           onValueChange={value => update({ composerShortcut: value as typeof preferences.composerShortcut })} />
         {feedback('composerShortcut')}
+      </SettingRow>
+      <SettingRow id="terminalShortcut" label="New terminal" description="Open a shell tab in the focused pane, in the selected session's directory.">
+        <Select label="New terminal" value={preferences.terminalShortcut} xstyle={settingsSection.control}
+          options={terminalShortcuts.map(value => ({ value, label: value }))}
+          onValueChange={value => update({ terminalShortcut: value as typeof preferences.terminalShortcut })} />
+        {feedback('terminalShortcut')}
       </SettingRow>
       <p {...stylex.props(layout.muted)}>Enter sends a message. Shift + Enter inserts a line. Escape closes a menu or dialog. These preferences are saved on this device.</p>
     </SettingsGroup>

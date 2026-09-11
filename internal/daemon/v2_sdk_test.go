@@ -145,7 +145,8 @@ func TestV2SDKBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}}
+	// Browser fixtures are network clients; they exercise terminals through the same gate operators use.
+	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}, Terminals: true}
 	// Multi-host browser fixtures explicitly trust the local fixture's origin.
 	// Production network defaults and origin validation remain authoritative.
 	if raw := os.Getenv("WHIP_SDK_FIXTURE_ALLOWED_ORIGINS"); raw != "" {

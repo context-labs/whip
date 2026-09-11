@@ -77,6 +77,7 @@ type serverConn struct {
 	conn          messageTransport
 	id            string
 	client        InitializeParams
+	network       bool
 	out           chan []byte
 	inFlight      chan struct{}
 
@@ -215,14 +216,15 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) serveConn(raw net.Conn) {
-	s.serveTransport(newUnixMessageTransport(raw))
+	s.serveTransport(newUnixMessageTransport(raw), false)
 }
 
-func (s *Server) serveTransport(raw messageTransport) {
+func (s *Server) serveTransport(raw messageTransport, network bool) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	connection := &serverConn{
 		ctx: ctx, cancel: cancel, subscriptions: make(map[string]*subscription),
-		server: s, conn: raw, id: rand.Text(), out: make(chan []byte, s.options.MaxOutbound),
+		network: network,
+		server:  s, conn: raw, id: rand.Text(), out: make(chan []byte, s.options.MaxOutbound),
 		inFlight: make(chan struct{}, s.options.MaxInFlight),
 		done:     make(chan struct{}),
 	}
@@ -252,7 +254,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -344,6 +346,9 @@ func (s *Server) unregister(connection *serverConn) {
 	delete(s.clients, connection)
 	s.mu.Unlock()
 	s.daemon.executors.disconnect(connection)
+	if s.daemon.terminals != nil {
+		s.daemon.terminals.Detach(connection)
+	}
 }
 
 func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCError) {
@@ -363,6 +368,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		return result, failure
 	}
 	if result, failure, handled := s.handleExecutor(connection, request); handled {
+		return result, failure
+	}
+	if result, failure, handled := s.handleTerminal(connection, request); handled {
 		return result, failure
 	}
 

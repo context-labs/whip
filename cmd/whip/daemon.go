@@ -404,6 +404,13 @@ func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
 		}
 		options.Enabled = enabled
 	}
+	if value := os.Getenv(buildinfo.Env("NETWORK_TERMINALS")); value != "" {
+		terminals, err := strconv.ParseBool(value)
+		if err != nil {
+			return daemon.NetworkOptions{}, fmt.Errorf("%s must be a boolean: %w", buildinfo.Env("NETWORK_TERMINALS"), err)
+		}
+		options.Terminals = terminals
+	}
 	parseList := func(value string) []string {
 		result := []string{}
 		for item := range strings.SplitSeq(value, ",") {

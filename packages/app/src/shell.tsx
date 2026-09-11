@@ -88,6 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setCommands((value) => !value),
   );
   useHotkey(state.preferences.composerShortcut, focusComposer);
+  useHotkey(state.preferences.terminalShortcut, () => { if (!settingsRef.current) tabActions.current?.newTerminal(); });
   useEffect(() => {
     const refresh = () => { void runtime.connections.refreshProfiles().catch(() => {}); };
     window.addEventListener('focus', refresh);
@@ -134,6 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ...(!settings ? [{ value: 'focus', label: 'Focus message composer' }] : []),
           { value: 'navigation', label: 'Browse sessions' },
           { value: 'connect', label: 'Manage servers' },
+          ...(!settings ? [{ value: 'terminal:new', label: 'New terminal' }] : []),
           ...(!settings ? [{ value: 'tabs:search', label: 'Search open tabs' },
           { value: 'tabs:next', label: 'Next session tab' },
           { value: 'tabs:previous', label: 'Previous session tab' },
@@ -152,6 +154,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           else if (action === 'tabs:previous') tabActions.current?.next(-1);
           else if (action === 'tabs:close') tabActions.current?.close();
           else if (action === 'tabs:reopen') tabActions.current?.reopen();
+          else if (action === 'terminal:new') tabActions.current?.newTerminal();
           else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace())?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
           else if (isSettingsSection(action)) void navigate({ to: '/settings', search: { section: action } });
         }}

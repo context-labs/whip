@@ -23,7 +23,19 @@ export interface NewChatTab {
   /** Agent definition id the session runs; absent means the host's default (coding). */
   readonly definition?: string;
 }
-export type SessionTab = SessionBackedTab | NewChatTab;
+export interface TerminalTab {
+  readonly id: string;
+  readonly kind: 'terminal';
+  readonly runtimeId: string;
+  /** Daemon-owned shell identity; the tab reattaches to it after a reload. */
+  readonly terminalId: string;
+  readonly cwd: string;
+  readonly titleHint: string;
+}
+export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab;
+/** Chat and REPL descriptors carry session identity; New Chat and terminal descriptors do not. */
+export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl';
+export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
 export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
@@ -100,7 +112,7 @@ function replaceNode(node: SessionLayout, id: string, update: (node: SessionLayo
 }
 function freezeNode(node: SessionLayout): SessionLayout {
   if (node.type === 'split') return Object.freeze({ ...node, first: freezeNode(node.first), second: freezeNode(node.second) });
-  const tabs = Object.freeze(node.tabs.map(tab => Object.freeze(tab.kind === 'new' ? { ...tab } : { ...tab, location: location(tab.location) })));
+  const tabs = Object.freeze(node.tabs.map(tab => Object.freeze(isSessionTab(tab) ? { ...tab, location: location(tab.location) } : { ...tab })));
   return Object.freeze({ ...node, tabs, selected: tabs.some(tab => tab.id === node.selected) ? node.selected : tabs[0]?.id });
 }
 function emptyWorkspace(): TabWorkspace {
@@ -110,7 +122,7 @@ function freeze(workspace: Omit<TabWorkspace, 'tabs'>): TabWorkspace {
   const layout = freezeNode(workspace.layout);
   const panes = sessionPanes(layout);
   return Object.freeze({ ...workspace, layout, focusedPaneId: panes.some(p => p.id === workspace.focusedPaneId) ? workspace.focusedPaneId : panes[0]!.id,
-    tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze(item.tab.kind === 'new' ? { ...item.tab } : { ...item.tab, location: location(item.tab.location) }) }))) });
+    tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze(isSessionTab(item.tab) ? { ...item.tab, location: location(item.tab.location) } : { ...item.tab }) }))) });
 }
 function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean): TabWorkspace {
   const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
@@ -123,11 +135,12 @@ function removeViews(workspace: TabWorkspace, viewIds: readonly string[], rememb
   });
   layout = prune(layout) ?? { type: 'pane', id: workspace.focusedPaneId, tabs: [] };
   const closed = workspace.closed.filter(item => !viewIds.includes(item.tab.id));
-  const next = freeze({ ...workspace, layout, closed: remember ? [...closed, ...removed].slice(-20) : closed });
+  const next = freeze({ ...workspace, layout, // A closed terminal's shell is gone, so it never enters Reopen history.
+  closed: remember ? [...closed, ...removed.filter(item => item.tab.kind !== 'terminal')].slice(-20) : closed });
   return freeze({ ...next, restoreSelection: workspace.restoreSelection && !!selectedSessionTab(next) });
 }
 function purgeRoot(workspace: TabWorkspace, runtimeId: string, rootId: string): TabWorkspace {
-  const matches = (tab: SessionTab): tab is SessionBackedTab => tab.kind !== 'new' && tab.runtimeId === runtimeId && tab.rootId === rootId;
+  const matches = (tab: SessionTab): tab is SessionBackedTab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId;
   const next = removeViews(workspace, workspace.tabs.filter(matches).map(tab => tab.id), false);
   const closed = next.closed.filter(item => !matches(item.tab));
   return closed.length === next.closed.length ? next : freeze({ ...next, closed });
@@ -145,6 +158,10 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       ...(value.definition === undefined ? {} : { definition: value.definition as string }),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
       ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
+  }
+  if (object(value) && value.kind === 'terminal' && !legacy) {
+    if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
+    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId, cwd: value.cwd, titleHint: title(value.titleHint) };
   }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
@@ -362,7 +379,7 @@ export class SessionTabs {
     const current = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
     if (!current) return false;
     if (current.kind !== 'new') {
-      if (current.runtimeId !== runtimeId || current.rootId !== rootId) return false;
+      if (!isSessionTab(current) || current.runtimeId !== runtimeId || current.rootId !== rootId) return false;
       this.write(workspace, undefined, undefined, true);
       return true;
     }
@@ -378,12 +395,12 @@ export class SessionTabs {
   }
   canOpen(runtimeId?: string, rootId?: string) {
     const workspace = this.workspace();
-    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => item.kind !== 'new' && item.runtimeId === runtimeId && item.rootId === rootId);
+    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => isSessionTab(item) && item.runtimeId === runtimeId && item.rootId === rootId);
   }
   preferred(runtimeId: string, rootId: string): SessionBackedTab | undefined {
     const workspace = this.workspace();
     const selected = selectedSessionTab(workspace);
-    const matches = (tab: SessionTab): tab is SessionBackedTab => tab.kind !== 'new' && tab.runtimeId === runtimeId && tab.rootId === rootId;
+    const matches = (tab: SessionTab): tab is SessionBackedTab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId;
     return (selected && matches(selected) ? selected : undefined) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)?.tabs.find(matches) ?? workspace.tabs.find(matches);
   }
   open(runtimeId: string, rootId: string, titleHint = '', paneId?: string): string {
@@ -393,25 +410,50 @@ export class SessionTabs {
     if (existing) return existing.id;
     return this.add({ id: rootId, kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) }, paneId);
   }
+  /** Insert a tab for a shell the host already started, after the pane's selected tab. */
+  openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, cwd, titleHint: '' });
+    if (!tab) throw new Error('Invalid terminal identity');
+    const workspace = this.workspace();
+    const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
+    this.write({ ...workspace, focusedPaneId: target.id, restoreSelection: true, layout: mapPanes(workspace.layout, pane => {
+      if (pane.id !== target.id) return pane;
+      const tabs = [...pane.tabs];
+      tabs.splice(pane.tabs.findIndex(item => item.id === pane.selected) + 1, 0, tab);
+      return { ...pane, tabs, selected: tab.id };
+    }) });
+    return tab.id;
+  }
+  /** Title changes and in-place restarts keep the view identity and its pane position. */
+  updateTerminal(id: string, patch: TerminalOptions): boolean {
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id);
+    if (!current || current.kind !== 'terminal') return false;
+    const tab = parseTab({ ...current, ...patch, id, kind: 'terminal' });
+    if (!tab) throw new Error('Invalid terminal options');
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })) });
+    return true;
+  }
   private add(tab: SessionTab, paneId?: string): string {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
     const workspace = this.workspace();
     const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
     // Reopened roots may share an old primary ID with a different view in history.
-    if (workspace.tabs.some(t => t.id === tab.id) || workspace.closed.some(({ tab: old }) => old.id === tab.id && (old.kind === 'new' || tab.kind === 'new' || old.runtimeId !== tab.runtimeId || old.rootId !== tab.rootId))) tab = { ...tab, id: newId() };
+    if (workspace.tabs.some(t => t.id === tab.id) || workspace.closed.some(({ tab: old }) => old.id === tab.id && (!isSessionTab(old) || !isSessionTab(tab) || old.runtimeId !== tab.runtimeId || old.rootId !== tab.rootId))) tab = { ...tab, id: newId() };
     this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === target.id ? { ...p, tabs: [...p.tabs, tab] } : p), closed: workspace.closed.filter(item => item.tab.id !== tab.id) });
     return tab.id;
   }
   visit(runtimeId: string, rootId: string, search: SessionSearch, viewId?: string) {
-    const id = this.workspace().tabs.find(t => t.kind !== 'new' && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId)?.id ?? this.open(runtimeId, rootId);
+    const id = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId)?.id ?? this.open(runtimeId, rootId);
     const workspace = this.workspace();
     const pane = sessionViewPane(workspace, id)!;
-    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => t.kind !== 'new' && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
     return id;
   }
   updateLocation(viewId: string, search: SessionLocation) {
     const workspace = this.workspace();
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.kind !== 'new' && t.id === viewId ? { ...t, location: location(search) } : t) })) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => isSessionTab(t) && t.id === viewId ? { ...t, location: location(search) } : t) })) });
   }
   activate(viewId: string, focus = true) {
     const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
@@ -426,7 +468,7 @@ export class SessionTabs {
   }
   titles(runtimeId: string, titles: ReadonlyMap<string, string>) {
     const workspace = this.workspace();
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.kind !== 'new' && t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => isSessionTab(t) && t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
   }
   closeViews(viewIds: readonly string[], activeViewId?: string): string | null | undefined {
     const workspace = this.workspace();
@@ -456,10 +498,10 @@ export class SessionTabs {
   }
   close(runtimeId: string, rootIds: readonly string[], activeRootId?: string): string | null | undefined {
     const workspace = this.workspace();
-    const active = workspace.tabs.find(t => t.kind !== 'new' && t.runtimeId === runtimeId && t.rootId === activeRootId);
-    const next = this.closeViews(workspace.tabs.filter(t => t.kind !== 'new' && t.runtimeId === runtimeId && rootIds.includes(t.rootId)).map(t => t.id), active?.id);
+    const active = workspace.tabs.find(t => isSessionTab(t) && t.runtimeId === runtimeId && t.rootId === activeRootId);
+    const next = this.closeViews(workspace.tabs.filter(t => isSessionTab(t) && t.runtimeId === runtimeId && rootIds.includes(t.rootId)).map(t => t.id), active?.id);
     const tab = this.workspace().tabs.find(t => t.id === next);
-    return typeof next === 'string' ? (tab?.kind !== 'new' ? tab?.rootId : null) : next;
+    return typeof next === 'string' ? (tab && isSessionTab(tab) ? tab.rootId : null) : next;
   }
   reopenView(viewId?: string): string | undefined {
     const workspace = this.workspace(), closed = viewId === undefined ? workspace.closed.at(-1) : workspace.closed.find(item => item.tab.id === viewId);
@@ -486,7 +528,8 @@ export class SessionTabs {
   split(viewId: string, edge: SplitEdge): string {
     const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId), source = workspace.tabs.find(t => t.id === viewId);
     if (!pane || !source) throw new Error('This view is no longer open');
-    if (source.kind === 'new') { this.transfer(viewId, pane.id, edge); return source.id; }
+    // Drafts and terminals move rather than duplicate: one composer, one shell.
+    if (!isSessionTab(source)) { this.transfer(viewId, pane.id, edge); return source.id; }
     if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Move a tab to an existing pane or close a pane first.');
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before splitting this view.');
     const duplicate = { ...source, id: newId() };

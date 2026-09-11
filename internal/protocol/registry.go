@@ -132,6 +132,11 @@ var rpcOperations = []Operation{
 	rpc[ProviderLoginCreateParams, ProviderLoginStatus]("provider.login.project.create", Ephemeral, "host-configuration", false),
 	rpc[RestartParams, Empty]("daemon.restart", Lifecycle, "armed-generation", false),
 	rpc[RestartParams, Empty]("daemon.stop", Lifecycle, "armed-generation", false),
+	rpc[TerminalOpenParams, TerminalOpenResult]("terminal.open", Ephemeral, "host-terminal", false),
+	rpc[TerminalAttachParams, TerminalAttachResult]("terminal.attach", Ephemeral, "host-terminal", false),
+	rpc[TerminalWriteParams, Accepted]("terminal.write", Ephemeral, "host-terminal", true),
+	rpc[TerminalResizeParams, Accepted]("terminal.resize", Ephemeral, "host-terminal", false),
+	rpc[TerminalIDParams, Accepted]("terminal.close", Ephemeral, "host-terminal", false),
 }
 
 // Operations returns deterministic metadata without exposing mutable registry state.
@@ -172,6 +177,9 @@ func Events() map[string]reflect.Type {
 		"tool.cancel":         reflect.TypeFor[ToolCancelParams](),
 		"hook.invoke":         reflect.TypeFor[HookInvokeParams](),
 		"hook.cancel":         reflect.TypeFor[ToolCancelParams](),
+		"terminal.output":     reflect.TypeFor[TerminalOutputParams](),
+		"terminal.exited":     reflect.TypeFor[TerminalExitedParams](),
+		"terminal.detached":   reflect.TypeFor[TerminalDetachedParams](),
 	}
 }
 

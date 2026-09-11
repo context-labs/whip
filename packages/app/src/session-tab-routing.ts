@@ -13,6 +13,13 @@ export function sessionDestination(pathname: string): { runtimeId: string; rootI
   catch { return; }
 }
 
+export function terminalDestination(pathname: string): { runtimeId: string; terminalId: string } | undefined {
+  const match = /^\/h\/([^/]+)\/t\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return;
+  try { return { runtimeId: decodeURIComponent(match[1]!), terminalId: decodeURIComponent(match[2]!) }; }
+  catch { return; }
+}
+
 export function draftDestination(pathname: string): string | undefined {
   const match = /^\/new\/([^/]+)\/?$/.exec(pathname);
   if (!match) return;
@@ -20,9 +27,25 @@ export function draftDestination(pathname: string): string | undefined {
 }
 
 export function tabDestination(tab: SessionTab) {
-  return tab.kind === 'new'
-    ? { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } }
-    : { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
+  if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
+  if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
+  return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
+}
+
+/** Explicit creation intent: start a shell on the host, then open and select its tab. */
+export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: { runtimeId: string; cwd?: string; rootId?: string; paneId?: string }) {
+  try {
+    const client = runtime.connections.host(options.runtimeId)?.client;
+    const connection = client?.getSnapshot();
+    if (!client || connection?.state !== 'connected') throw new Error('Connect this host before opening a terminal.');
+    if (!connection.info?.capabilities?.includes('terminals')) throw new Error('This host\'s Whip does not offer terminals. Update it to a build with protocol 6.5 or newer.');
+    if (!runtime.tabs.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening a terminal.');
+    const opened = await client.terminals.open({ ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.rootId ? { rootId: options.rootId } : {}), cols: 80, rows: 24 });
+    const id = runtime.tabs.openTerminal(options.runtimeId, opened.id, opened.cwd, options.paneId);
+    const tab = runtime.tabs.workspace().tabs.find(item => item.id === id)!;
+    await navigate(tabDestination(tab));
+    return id;
+  } catch (error) { runtime.reportWorkspace(error); }
 }
 
 /** Allocate only for explicit creation intent; selecting a tab never calls this. */
@@ -86,6 +109,14 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       observedLocation = current;
       runtime.clearWorkspaceError();
       if (capacityNotice !== current.href) capacityNotice = undefined;
+      const terminal = terminalDestination(current.pathname);
+      if (terminal) {
+        // A terminal URL selects an open tab; it never starts a shell, so a
+        // stale link shows the missing state instead of creating one.
+        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'terminal' && tab.runtimeId === terminal.runtimeId && tab.terminalId === terminal.terminalId);
+        if (tab) runtime.tabs.activate(tab.id);
+        return;
+      }
       const draftId = draftDestination(current.pathname);
       if (draftId) {
         let tab = runtime.tabs.workspace().tabs.find(tab => tab.id === draftId);
