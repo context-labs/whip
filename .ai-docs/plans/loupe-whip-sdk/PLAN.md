@@ -242,7 +242,7 @@ Landed on `context-labs/loupe` branch `feature/whip-sdk` (local only):
 | 5 `pr_*` tools | `55d0357` | Diff temp file removed. |
 | 6 Panel | `4eac731` | Named children, `before_spawn` cap and tool narrowing, `settle()` wait. |
 | 7 Project files | skipped | See below. |
-| 8 Docs | `d0c2aa6`-ish | README, docs, example workflow, action.yml; stale `harness` key rejected. |
+| 8 Docs | `5a5a9c6` | README, docs, example workflow, action.yml; stale `harness` key rejected; loupe's own configs drop the key. |
 
 Every step passed `task check`; steps 2, 3, 5, and 6 were also dry-run live
 against `context-labs/loupe#15` through the installed desktop daemon.
