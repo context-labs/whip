@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueries, useQuery } from '@tanstack/react-query';
@@ -16,11 +17,12 @@ export function Attention() {
   const runtime = useRuntime();
   useSessionTabs();
   const [open, setOpen] = useState(false);
+  const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const [filter, setFilter] = useState('');
   const [after, setAfter] = useState<Record<string, string | undefined>>({});
   const close = (value: boolean) => {
     setOpen(value);
-    if (!value) { setAfter({}); setFilter(''); }
+    if (!value) { setAfter({}); setFilter(''); setActionError(undefined); }
   };
   // One advisory page per host supplies the badge without leasing any root views.
   const indexes = useQueries({ queries: hosts.map(host => ({
@@ -47,17 +49,19 @@ export function Attention() {
     <Sheet open={open} onOpenChange={close} title="Activity and attention"
       description="Active sessions across your hosts. Open a session to respond on its execution host.">
       <div {...stylex.props(layout.column)}>
+        {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
         {hosts.length > 1 && <Select label="Attention host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]} onValueChange={setFilter} />}
         {groups.filter(({ host }) => !filter || host.id === filter).map(({ host, index }) => {
           const runtimeId = host.runtimeId ?? '';
           const connected = !!host.client && host.state === 'connected';
           const page = connected ? index.data : undefined;
-          const error = connected ? index.error?.message : host.error ?? `${host.name} is ${host.state}. Connect it to see its attention requests.`;
+          const error = connected ? index.error : undefined;
           return <section key={host.id} aria-label={`${host.name} attention`} {...stylex.props(layout.column)}>
             <h3>{host.name}</h3>
-            {error && <p role="alert">{host.name}: {error}</p>}
+            {error && <ErrorNotice type="resource" owner={`attention:${host.id}`} error={error} title={`Could not load activity on ${host.name}`} />}
+            {!connected && <p role="status">Activity unavailable while offline. <Link to="/settings" search={{ section: "connections" }} onClick={() => close(false)}>Manage servers</Link></p>}
             {connected && index.isPending && <p role="status">Loading activity…</p>}
-            {!error && !index.isPending && !page?.items?.length && <p>No active sessions on this page.</p>}
+            {connected && !error && !index.isPending && !page?.items?.length && <p>No active sessions on this page.</p>}
             {page?.items?.map(item => {
               const saved = runtime.tabs.preferred(runtimeId, item.root_id);
               return <Link key={item.root_id} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: item.root_id }}
@@ -66,7 +70,7 @@ export function Attention() {
                 onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   try { runtime.tabs.open(runtimeId, item.root_id, item.title); close(false); }
-                  catch (error) { event.preventDefault(); runtime.report(error); }
+                  catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${item.root_id}`, error }); }
                 }} {...stylex.props(layout.sessionLink)}>
                 <div {...stylex.props(layout.column)}>
                   <strong>{item.title || 'Untitled session'}</strong>

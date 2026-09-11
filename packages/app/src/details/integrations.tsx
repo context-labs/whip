@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { assertValid } from '@whip/protocol';
 import { Badge, Button, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
@@ -64,11 +65,7 @@ export function MCP(props: InspectorProps) {
               {server.tools ?? 0} tools · {server.source || 'host configuration'}
             </span>
             {server.note && <p>{server.note}</p>}
-            {server.error && (
-              <p role="status" {...stylex.props(layout.error)}>
-                {server.error}
-              </p>
-            )}
+            {server.error && <ErrorNotice type="resource" owner={`mcp:${server.name}`} title={`${server.name} needs attention`} error={server.error} />}
             <div {...stylex.props(layout.row, layout.wrap)}>
               {(['reconnect', 'enable', 'disable'] as const).map((action) => (
                 <Action
@@ -172,7 +169,7 @@ function LSP(props: InspectorProps) {
             <Badge>{server.state}</Badge>
           </div>
           <code>{server.root}</code>
-          {server.error && <p role="status">{server.error}</p>}
+          {server.error && <ErrorNotice type="resource" owner={`lsp:${server.name}:${server.root}`} title={`${server.name} needs attention`} error={server.error} />}
         </article>
       ))}
     </Section>

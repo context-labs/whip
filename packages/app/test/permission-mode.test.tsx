@@ -38,7 +38,7 @@ function fixture(permissionMode: string, agentId = 'root', activeTurns: Record<s
       </ThemeProvider>
     </RuntimeContext.Provider>
   );
-  return { setPermissionMode, run, ui };
+  return { setPermissionMode, run, runtime, ui };
 }
 
 describe('PermissionModePicker', () => {
@@ -71,4 +71,18 @@ describe('PermissionModePicker', () => {
     render(busy.ui);
     expect(screen.getByRole('button', { name: 'Permission approval mode' })).toHaveProperty('disabled', true);
   });
+});
+
+it('keeps a failed mode change at the picker and clears it after retry', async () => {
+  const f = fixture('prompt');
+  f.run.mockRejectedValueOnce(new Error('Mode change rejected'));
+  render(f.ui);
+  fireEvent.click(screen.getByRole('button', { name: 'Permission approval mode' }));
+  fireEvent.click(await screen.findByRole('option', { name: /Full Access/ }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
+  expect(alert.textContent).toContain('Mode change rejected');
+  expect(f.runtime.report).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('option', { name: /Full Access/ }));
+  await screen.findByRole('button', { name: 'Permission approval mode' });
 });

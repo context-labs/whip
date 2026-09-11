@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Badge, Button, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
@@ -464,7 +465,7 @@ export function Compaction(props: InspectorProps) {
         >
           Apply compaction defaults
         </Action>
-        {configuration.error && <p role="alert">{configuration.error.message}</p>}
+        {configuration.error && props.connected && <ErrorNotice type="resource" owner={`${props.view.session.rootId}:configuration`} title="Could not load compaction defaults" error={configuration.error} />}
         {draft && configuration.data && draft.revision !== configuration.data.revision && (
           <p role="status">
             Host configuration changed while you were editing. Refresh these fields before applying

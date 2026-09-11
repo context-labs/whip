@@ -152,6 +152,10 @@ for (const kind of ['permission', 'question'] as const) {
         if (next === 'failed answer') reject(new Error('Request was not accepted'));
         else resolve();
       });
+      if (next === 'failed answer') {
+        expect(runtime.report).not.toHaveBeenCalled();
+        expect(screen.getByRole(kind === 'permission' ? 'status' : 'alert').closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
+      }
       const composer = screen.getByLabelText('Composer');
       if (next === 'composer' || next === 'resolved card') expect(document.activeElement).toBe(composer);
       else expect(document.activeElement).not.toBe(composer);

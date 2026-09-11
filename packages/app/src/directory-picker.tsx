@@ -1,5 +1,7 @@
+import { ErrorNotice } from './error-feedback';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
 import { Button, Dialog, Field, Input } from '@whip/ui';
 import { ChevronUp, Folder, FolderOpen } from 'lucide-react';
@@ -23,6 +25,7 @@ export function DirectoryPicker({
   pickDirectory?(): Promise<string | undefined>;
   compact?: boolean;
 }) {
+  const connected = useWhipConnection(client).state === 'connected';
   const request = useRef<symbol | undefined>(undefined);
   useLayoutEffect(() => { setPicking(false); return () => { request.current = undefined; }; }, [client]);
   const [open, setOpen] = useState(false);
@@ -126,7 +129,8 @@ export function DirectoryPicker({
             </Button>
           )}
           {query.isFetching && <p role="status">Loading directories…</p>}
-          {query.error && <p role="alert">{query.error.message}</p>}
+          {query.error && connected && <ErrorNotice type="resource" owner={`directories:${path}`} title="Could not load folders" error={query.error} action={<Button variant="ghost" onClick={() => void query.refetch()}>Retry</Button>} />}
+          {!connected && <p role="status">Folders are unavailable while this host is offline.</p>}
           {query.data?.entries?.map((entry) => (
             <Button
               variant="ghost"

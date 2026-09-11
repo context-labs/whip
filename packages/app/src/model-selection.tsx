@@ -1,5 +1,6 @@
 import { typography } from '@whip/ui/tokens.stylex';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
@@ -48,26 +49,36 @@ export function effortLabel(level: string): string {
 export function EffortPicker({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [pending, setPending] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => { setError(undefined); setPending(false); return () => { generation.current++; }; }, [view]);
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useProviderCatalog(view.session.client, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   const levels = modelEfforts(models, root.meta.model);
   const current = root.meta.effort || 'off';
-  return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popup}
-    trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !idle}
+  return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popup}
+    trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !idle || pending}
       title={idle ? 'Reasoning effort' : 'Wait for active turns to finish before changing reasoning'}
       xstyle={styles.trigger}>
       <span {...stylex.props(layout.ellipsis)}>{effortLabel(current)}</span>
       <ChevronDown size={14} {...stylex.props(styles.chevron)} />
     </Button>}>
+    {catalog.error && <ErrorNotice type="resource" owner="model-catalog" error={catalog.error} title="Could not load reasoning options" action={<Button variant="ghost" onClick={() => void catalog.refetch()}>Retry</Button>} />}
+    {error !== undefined && <ErrorNotice type="action" owner={`effort:${view.session.rootId}`} error={error} title="Could not change reasoning effort" />}
     {open && <div {...stylex.props(styles.menu)} role="listbox" aria-label="Reasoning effort" aria-activedescendant={current}>
       {levels.map(level => <button key={level} id={level} role="option" aria-selected={level === current}
-        disabled={!connected || !idle}
+        disabled={!connected || !idle || pending}
         {...stylex.props(styles.menuItem, level === current && styles.optionActive)}
         onClick={() => {
-          setOpen(false);
-          if (level !== current)
-            runtime.run(view.session.setEffort(level), 'Set reasoning effort').catch(error => runtime.report(error));
+          if (level === current) { setOpen(false); return; }
+          const id = ++generation.current;
+          setError(undefined); setPending(true);
+          void runtime.run(view.session.setEffort(level), 'Set reasoning effort')
+            .then(() => { if (id === generation.current) setOpen(false); })
+            .catch(error => { if (id === generation.current) setError(error); })
+            .finally(() => { if (id === generation.current) setPending(false); });
         }}>
         <span {...stylex.props(layout.grow)}>{effortLabel(level)}</span>
         {level === current && <Check size={14} {...stylex.props(styles.check)} />}
@@ -91,18 +102,22 @@ function ModelCard({ model }: { model: CatalogModel & { providers: string[] } })
 export function ModelPicker({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
   const catalog = useProviderCatalog(view.session.client, connected);
-  return <CatalogModelPicker catalog={catalog.data?.result} loading={catalog.isLoading} error={catalog.error?.message}
+  return <CatalogModelPicker key={`${view.session.client.getSnapshot().info?.runtime_id}:${view.session.rootId}`} catalog={catalog.data?.result} loading={catalog.isLoading} error={catalog.error?.message} onRetry={() => void catalog.refetch()}
     model={root.meta.model} provider={root.meta.provider} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
-    onChange={(model, provider) => { runtime.run(view.session.setModel(model, provider), 'Change model').catch(error => runtime.report(error)); }} />;
+    onChange={(model, provider) => runtime.run(view.session.setModel(model, provider), 'Change model')}  />;
 }
 
 /** The same catalog picker can edit a session or a settings draft. */
-export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, label = 'Model', settings = false, xstyle }: {
+export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, xstyle }: {
   catalog?: CatalogResult; loading?: boolean; error?: string; model: string; provider: string; disabled?: boolean;
-  onChange(model: string, provider: string): void; label?: string; settings?: boolean;
+  onChange(model: string, provider: string): void | Promise<unknown>; onRetry?(): void; label?: string; settings?: boolean;
 } & Styled) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [actionError, setActionError] = useState<unknown>();
+  const [pending, setPending] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current++; }, []);
   const current = JSON.stringify([model, provider]);
   const [highlighted, setHighlighted] = useState(current);
   const options = useMemo(() => modelOptions(catalog), [catalog]);
@@ -114,13 +129,17 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
   const ordered = searching || !selected
     ? filtered
     : [selected, ...filtered.filter(option => option.value !== current)];
-  const pick = (option: typeof options[number]) => {
-    setOpen(false);
-    if (option.value === current) return;
-    onChange(option.name, option.provider);
+  const pick = async (option: typeof options[number]) => {
+    if (pending) return;
+    if (option.value === current) { setOpen(false); return; }
+    const id = ++generation.current;
+    setActionError(undefined); setPending(true);
+    try { await onChange(option.name, option.provider); if (id === generation.current) setOpen(false); }
+    catch (error) { if (id === generation.current) setActionError(error); }
+    finally { if (id === generation.current) setPending(false); }
   };
-  return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popupWide}
-    trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={label} disabled={disabled}
+  return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popupWide}
+    trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={label} disabled={disabled || pending}
       title={`${model || 'Model unavailable'}${provider ? ` · ${provider}` : ''}`}
       xstyle={[styles.trigger, xstyle]}>
       <ProviderLogo id={provider} size={14} />
@@ -134,19 +153,20 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
           {...stylex.props(styles.searchInput)}
           onChange={event => setQuery(event.target.value)} />
       </div>
+      {actionError !== undefined && <ErrorNotice type="action" owner="model-selection" error={actionError} title="Could not change model" />}
       <div role="listbox" aria-label="Models" aria-activedescendant={current} {...stylex.props(styles.list)}>
         {loading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
-        {error && <p role="alert" {...stylex.props(styles.listMeta)}>{error}</p>}
+        {error && <ErrorNotice type="resource" owner="model-catalog" error={error} title="Could not load models" action={onRetry && <Button variant="ghost" onClick={onRetry}>Retry</Button>} />}
         {!loading && !error && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
         {ordered.slice(0, 200).map(option => <Tooltip key={option.value} label={<ModelCard model={{ ...option.model, providers: [option.provider] }} />}
           side="right" align="start" sideOffset={8} collisionPadding={8} delay={0} disableHoverablePopup xstyle={styles.card}
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'end' }}>
           <button id={option.value} type="button" role="option" aria-label={option.label} aria-selected={option.value === current}
-            disabled={disabled}
+            disabled={disabled || pending}
             {...stylex.props(styles.option, option.value === highlighted && styles.optionActive)}
             onMouseEnter={() => setHighlighted(option.value)}
             onFocus={() => setHighlighted(option.value)}
-            onClick={() => pick(option)}>
+            onClick={() => void pick(option)}>
             <span data-model-name {...stylex.props(layout.ellipsis, layout.grow)}>{option.name}</span>
             <span data-model-provider {...stylex.props(layout.ellipsis, styles.optionProvider)}>{option.provider}</span>
             <span aria-hidden {...stylex.props(styles.checkSlot)}>{option.value === current && <Check size={14} {...stylex.props(styles.check)} />}</span>
@@ -192,7 +212,7 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
         options={modelOptions(catalog.data?.result).filter(option => option.provider === provider).slice(0, 1000)
           .map(option => ({ value: option.name, label: option.name }))} />
     </Field>
-    {catalog.error && <p role="alert" {...stylex.props(layout.error)}>Could not load the model catalog. You can still enter an exact model ID.</p>}
+    {catalog.error && <ErrorNotice type="resource" owner="model-catalog" error={catalog.error} title="Could not load the model catalog. You can still enter an exact model ID." action={<Button variant="ghost" onClick={() => void catalog.refetch()}>Retry</Button>} />}
     <Field label="Provider">
       <Input value={provider} onChange={event => setProvider(event.target.value)} />
     </Field>

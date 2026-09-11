@@ -15,6 +15,8 @@ import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { CompletionPicker } from './completion-picker';
 import { layout } from './styles';
+import { ErrorNotice, type ErrorType } from './error-feedback';
+import { errorMessage } from './platform';
 import { selectedSessionTab } from './session-tabs';
 
 const styles = stylex.create({
@@ -64,7 +66,9 @@ export function Composer({
   session,
   agentId,
   connected,
+  unavailableReason,
   activeTurn,
+  lastTurn,
   runtimeId,
   viewId,
   modelControl,
@@ -73,7 +77,9 @@ export function Composer({
   session: Session;
   agentId: string;
   connected: boolean;
+  unavailableReason?: string;
   activeTurn?: string;
+  lastTurn?: { event_seq: string; status?: string; error?: string; error_truncated?: boolean };
   runtimeId: string;
   viewId?: string;
   modelControl?: ReactNode;
@@ -93,6 +99,10 @@ export function Composer({
   const [completion, setCompletion] = useState(false);
   const selection = useRef({ start: 0, end: 0 });
   const [delivery, setDelivery] = useState('queued');
+  const [failure, setFailure] = useState<{ key: string; type: ErrorType; error: unknown; accepted?: boolean; outcome?: string; turnEventSeq?: string }>();
+  const fail = (error: unknown, type: ErrorType = 'submission') => {
+    if (mountedKey.current === key && !(error instanceof Error && error.name === 'AbortError')) setFailure({ key, type, error });
+  };
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -149,8 +159,9 @@ export function Composer({
       runtime.setDraft(key, text);
       draftRef.current = text;
       setDraft(text);
+      setFailure(undefined);
     } catch (error) {
-      runtime.report(error);
+      fail(error, 'validation');
     }
   };
   async function attach(selected: File[]) {
@@ -161,6 +172,7 @@ export function Composer({
     )
       return;
     try {
+      setFailure(undefined);
       await runtime.compositions.add(
         key,
         session,
@@ -169,7 +181,7 @@ export function Composer({
         selected,
       );
     } catch (error) {
-      runtime.report(error);
+      fail(error, 'validation');
     }
   }
   async function submit() {
@@ -186,11 +198,13 @@ export function Composer({
     try {
       token = runtime.compositions.beginSubmission(key);
     } catch (error) {
-      runtime.report(error);
+      fail(error);
       return;
     }
     if (!token) return;
     let inputId: string | undefined;
+    let accepted = false;
+    setFailure(undefined);
     try {
       const payload = {
         text,
@@ -211,6 +225,7 @@ export function Composer({
         command,
         agentId === session.rootId ? 'Send message' : 'Message child',
         () => {
+          accepted = true;
           try {
             if (runtime.draft(key) === text) {
               runtime.setDraft(key, '');
@@ -229,13 +244,19 @@ export function Composer({
         key,
       );
     } catch (error) {
-      if (inputId && !runtime.getSnapshot().commands.some(item => item.commandId === inputId && item.runtimeId === runtimeId && item.delivery)) runtime.submittedInputs.remove(inputId, runtimeId);
-      runtime.report(error);
+      const command = runtime.getSnapshot().commands.find(item => item.commandId === inputId && item.runtimeId === runtimeId);
+      if (inputId && !command?.delivery) runtime.submittedInputs.remove(inputId, runtimeId);
+      if (mountedKey.current === key && !(error instanceof Error && error.name === 'AbortError'))
+        setFailure({ key, type: 'submission', error, accepted, outcome: command?.status, turnEventSeq: lastTurn?.event_seq });
       /* Preserve drafts when acceptance is uncertain. Do not resubmit automatically. */
     } finally {
       runtime.compositions.finishSubmission(key, token);
     }
   }
+  const recordedTurnOutcome = failure?.accepted && lastTurn && lastTurn.event_seq !== failure.turnEventSeq
+    && (((failure.outcome === 'cancelled' || failure.outcome === 'interrupted') && lastTurn.status === failure.outcome)
+      || (lastTurn.error && (errorMessage(failure.error) === lastTurn.error
+        || (lastTurn.error_truncated && errorMessage(failure.error).startsWith(lastTurn.error)))));
   return (
     <form
       {...stylex.props(styles.region)}
@@ -253,10 +274,14 @@ export function Composer({
         void submit();
       }}
     >
+      {failure?.key === key && !unresolved && !recordedTurnOutcome && <ErrorNotice type={failure.type} owner={key} error={failure.error}
+        tone={failure.outcome === 'cancelled' || failure.outcome === 'interrupted' ? 'neutral' : 'error'}
+        title={failure.outcome === 'cancelled' ? 'Your message was cancelled' : failure.outcome === 'interrupted' ? 'Your message was interrupted' : failure.accepted ? 'Your message could not complete' : undefined}
+        onDismiss={() => setFailure(undefined)} />}
       {unresolved && (
-        <div role="status" {...stylex.props(layout.notice)}>
-          Delivery is {unresolved.delivery}. Check this command before sending
-          again.
+        <ErrorNotice type="submission" owner={key} tone="warning"
+          title={unresolved.delivery === 'absent' ? 'Your message was not received' : 'Checking whether your message was received'}
+          error={(failure?.key === key ? failure.error : undefined) || unresolved.error || 'Check this command before sending again. Your draft is preserved.'} action={<>
           <Button
             type="button"
             variant="ghost"
@@ -264,7 +289,7 @@ export function Composer({
             onClick={() =>
               void runtime
                 .checkCommand(unresolved.id)
-                .catch((error) => runtime.report(error))
+                .catch((error) => fail(error))
             }
           >
             Check status
@@ -277,13 +302,13 @@ export function Composer({
               onClick={() =>
                 void runtime
                   .retryCommand(unresolved.id)
-                  .catch((error) => runtime.report(error))
+                  .catch((error) => fail(error))
               }
             >
               Retry original submission
             </Button>
           )}
-        </div>
+        </>} />
       )}
       <div {...stylex.props(styles.box)}>
         {attachments.map((item) => (
@@ -291,7 +316,8 @@ export function Composer({
             <Paperclip size={13} />
             <span {...stylex.props(layout.grow)}>
               {item.name} ·{' '}
-              {item.error || (item.value ? 'Ready' : 'Uploading…')}
+              {item.value ? 'Ready' : item.error ? 'Upload failed' : 'Uploading…'}
+              {item.error && <ErrorNotice type="resource" owner={`${key}:${item.id}`} title={`${item.name} could not upload`} error={item.error} />}
             </span>
             <IconButton
               label={`Remove ${item.name}`}
@@ -410,7 +436,7 @@ export function Composer({
                       : session.agents.cancelTurn(agentId, activeTurn),
                     'Stop turn',
                   )
-                  .catch(() => {})
+                  .catch(error => fail(error, 'action'))
               }
             >
               <Square size={14} fill="currentColor" strokeWidth={0} />
@@ -455,7 +481,7 @@ export function Composer({
         />
       )}
       {!connected && <div role="status" {...stylex.props(styles.hint)}>
-        Reconnecting. Your draft stays here; it will not be sent automatically.
+        {unavailableReason ?? 'Reconnecting.'} Your draft stays here; it will not be sent automatically.
       </div>}
     </form>
   );

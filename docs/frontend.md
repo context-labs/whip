@@ -565,6 +565,40 @@ Both split directions use one-pixel quiet dividers with transparent drag targets
 above the content layer. Pane focus does not add an accent border to the tab strip;
 keyboard controls retain their focus-visible outlines.
 
+### Error ownership and canonical displays
+
+[ErrorNotice](../packages/app/src/error-feedback.tsx) supplies the shared visual
+contract; existing state owners retain and clear their own errors. Classify by
+what failed, not its technical cause. A timeout can belong to any of these owners.
+
+| Type | Owner and canonical location |
+| --- | --- |
+| Application | Application-wide startup, rendering or persistence failure; app error area or blocking recovery screen |
+| Host | One server connection; named host notice in app chrome |
+| Session | Session snapshot or transcript synchronization; top of that session pane |
+| Turn | Agent turn outcome; conversation outcome notice or matching REPL outcome |
+| Execution | One execution cell or host invocation; inside its recorded result |
+| Submission | User input admission or uncertain delivery; adjacent to its composer |
+| Resource | Read of a list, catalog, stored body or attachment; inside its owning component |
+| Action | Explicit mutation, recovery, copy or download; beside its control or inside its dialog |
+| Validation | Invalid input; at the field or immediately above form submission controls |
+
+Show one primary error, with recovery controls and expandable technical details.
+Dependent surfaces show availability status instead of repeating a host failure.
+Do not send local failures to a global banner or a second toast. `runtime.run`
+records command outcomes but its caller owns presentation. Durable command
+acceptance does not prove that a child submission was enqueued or a turn started.
+Keep failure, cancellation, interruption, reconnecting and uncertain acceptance
+distinct; never retry uncertain input automatically.
+
+Clear current errors after successful recovery, and guard asynchronous responses
+against changes of host, session, action or navigation. Recorded execution failures
+remain with their records. The current `last_turn` contract exposes only the latest
+agent outcome: a new turn hides it and a successful turn replaces it. Complete
+historical turn errors at exact transcript positions are not supported by this
+contract; event replay has no authoritative transcript-position linkage. Do not
+invent historical placement or claim complete turn-error history.
+
 ### Session REPL viewer
 
 Each agent's optional `last_turn` is a bounded daemon-owned projection, separate

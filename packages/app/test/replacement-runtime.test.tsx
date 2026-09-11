@@ -66,7 +66,7 @@ it('creates SSH profiles without requiring Local’s shared URL registry', async
 it('shows native setup errors without closing the form', async () => {
   const f = fixture(); f.edit('Saved SSH'); f.save.mockRejectedValueOnce(new Error('Host identity changed'));
   fireEvent.click(screen.getByRole('button', { name: /Save changes|Add server/ }));
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Host identity changed'));
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Host identity changed'));
   expect(f.onOpenChange).not.toHaveBeenCalled(); f.dispose();
 });
 it('does not close a reopened form when an old native request finishes', async () => {

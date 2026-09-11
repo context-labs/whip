@@ -1,0 +1,7 @@
+html, body { height: 100%; overflow: hidden; }
+#fixture-controls { position: fixed; inset: 0 0 auto; z-index: 10000; height: 64px; padding: 8px 12px; box-sizing: border-box; background: #e9e4d8; color: #25231e; font: 12px system-ui; }
+#fixture-controls label { font-weight: 700; }
+#fixture-controls select, #fixture-controls button { margin-left: 8px; padding: 3px 8px; font: inherit; }
+#fixture-controls p { margin: 5px 0 0; }
+#root { position: fixed; inset: 64px 0 0; height: calc(100dvh - 64px); }
+#root > div { height: 100%; }

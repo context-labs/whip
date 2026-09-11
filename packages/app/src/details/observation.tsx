@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -186,7 +187,7 @@ export function Mailbox({ view, agentId, connected }: InspectorProps) {
       />
       {notice && <p role="status">{notice}</p>}
       {query.isLoading && <Empty>Loading mailbox…</Empty>}
-      {query.error && <p role="alert">{query.error.message}</p>}
+      {query.error && connected && <ErrorNotice type="resource" owner={`${view.session.rootId}:${agentId}:mailbox`} title="Could not load mailbox" error={query.error} />}
       {!query.isLoading && !items.length && <Empty>No messages in this state.</Empty>}
       {items.map((item) => (
         <article key={item.id} {...stylex.props(layout.column, layout.notice)}>
@@ -204,7 +205,7 @@ export function Mailbox({ view, agentId, connected }: InspectorProps) {
           </Button>
           {selected === item.id && (
             <>
-              {message.error && <p role="alert">{message.error.message}</p>}
+              {message.error && connected && <ErrorNotice type="resource" owner={`${view.session.rootId}:${selected}`} title="Could not load message" error={message.error} />}
               {message.data && (
                 <>
                   <ContentRead
@@ -285,7 +286,6 @@ function Blackboard({ view, root, connected, agentId }: InspectorProps) {
 }
 export function Executions({ view, root, agentId, connected }: InspectorProps) {
   const state = useSessionView(view);
-  const runtime = useRuntime();
   const [limit, setLimit] = useState(16);
   const history = state.history[agentId];
   const rows = timelineRows(
@@ -336,7 +336,7 @@ export function Executions({ view, root, agentId, connected }: InspectorProps) {
         <Button
           variant="ghost"
           disabled={!connected || history.loading}
-          onClick={() => void view.loadOlder(agentId).catch((error) => runtime.report(error))}
+          onClick={() => void view.loadOlder(agentId).catch(() => { /* Session history state owns this failure. */ })}
         >
           Load older transcript page
         </Button>
@@ -344,7 +344,7 @@ export function Executions({ view, root, agentId, connected }: InspectorProps) {
       {!history && (
         <Button
           disabled={!connected}
-          onClick={() => void view.openAgent(agentId).catch((error) => runtime.report(error))}
+          onClick={() => void view.openAgent(agentId).catch(() => { /* Session history state owns this failure. */ })}
         >
           Load agent history
         </Button>

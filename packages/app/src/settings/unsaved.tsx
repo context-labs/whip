@@ -40,7 +40,7 @@ export function SettingsEditsProvider({ children }: { children: ReactNode }) {
     setSaving(true); setError('');
     try {
       for (const edit of pending) if (!await edit.save!()) {
-        setError('The changes could not be saved. Stay on this page to review the host error; your edits are preserved.');
+        setError('The changes could not be saved. Stay on this page to review the settings error; your edits are preserved.');
         return;
       }
       blocker.proceed();
@@ -62,7 +62,7 @@ export function SettingsEditsProvider({ children }: { children: ReactNode }) {
         {canSave && <Button variant="primary" loading={saving} onClick={() => void save()}>Save changes</Button>}
       </>}>
       {pending.map(edit => <p key={edit.id} {...stylex.props(styles.copy)}>{edit.description}</p>)}
-      {error && <p role="alert" {...stylex.props(styles.copy)}>{error}</p>}
+      {error && <p role="status" {...stylex.props(styles.copy)}>{error}</p>}
     </Dialog>
   </SettingsEdits.Provider>;
 }

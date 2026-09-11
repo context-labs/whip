@@ -1,5 +1,6 @@
 import { typography } from '@whip/ui/tokens.stylex';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ErrorNotice } from './error-feedback';
 import { Button, Popover } from '@whip/ui';
 import { Check, ChevronDown, Hand, ShieldAlert, ShieldCheck } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -66,27 +67,39 @@ const styles = stylex.create({
 export function PermissionModePicker({ view, root, connected, agentId }: Props) {
   const runtime = useRuntime();
   if (agentId !== view.session.rootId) return null;
-  return <PermissionModeControl value={root.permission_mode || ''} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
-    onChange={mode => { runtime.run(view.session.setPermissionMode(mode === 'prompt'), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts').catch(error => runtime.report(error)); }} />;
+  return <PermissionModeControl key={`${view.session.client?.getSnapshot().info?.runtime_id}:${view.session.rootId}`} value={root.permission_mode || ''} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
+    onChange={mode => runtime.run(view.session.setPermissionMode(mode === 'prompt'), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts')} />;
 }
 
 /** Shared session/new-session control; the caller owns persistence. */
-export function PermissionModeControl({ value: current, disabled, onChange }: { value: string; disabled?: boolean; onChange(mode: string): void }) {
+export function PermissionModeControl({ value: current, disabled, onChange }: { value: string; disabled?: boolean; onChange(mode: string): void | Promise<unknown> }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [pending, setPending] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current++; }, []);
   const active = modes.find(mode => mode.value === current);
   const TriggerIcon = active?.danger ? ShieldAlert : ShieldCheck;
-  const pick = (mode: Mode) => { setOpen(false); if (mode.value !== current) onChange(mode.value); };
+  const pick = async (mode: Mode) => {
+    if (disabled || pending) return;
+    if (mode.value === current) { setOpen(false); return; }
+    const id = ++generation.current;
+    setError(undefined); setPending(true);
+    try { await onChange(mode.value); if (id === generation.current) setOpen(false); }
+    catch (error) { if (id === generation.current) setError(error); }
+    finally { if (id === generation.current) setPending(false); }
+  };
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={value => { if (!pending) setOpen(value); }}
       title="How should permissions be approved?"
       xstyle={styles.popup}
       trigger={
         <Button
           variant="ghost"
           aria-label="Permission approval mode"
-          disabled={disabled}
+          disabled={disabled || pending}
           title={active ? `Permissions: ${active.label}` : 'Permission approval mode'}
           xstyle={[styles.trigger, active?.danger && styles.danger]}
         >
@@ -98,6 +111,7 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
         </Button>
       }
     >
+      {error !== undefined && <ErrorNotice type="action" owner="permission-mode" error={error} title="Could not change permission mode" />}
       {open && (
         <div {...stylex.props(layout.column)} role="listbox" aria-label="Permission approval mode" aria-activedescendant={current}>
           {modes.map((mode) => (
@@ -107,7 +121,8 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
               role="option"
               aria-selected={mode.value === current}
               {...stylex.props(styles.option, mode.value === current && styles.optionActive)}
-              onClick={() => pick(mode)}
+              disabled={disabled || pending}
+              onClick={() => void pick(mode)}
             >
               <mode.icon size={16} {...stylex.props(styles.optionIcon, mode.danger && styles.danger)} />
               <span {...stylex.props(layout.grow, styles.optionLabel)}>

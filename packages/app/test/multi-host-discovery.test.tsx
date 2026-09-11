@@ -14,8 +14,8 @@ import { Attention } from '../src/attention';
 const route = vi.hoisted(() => ({ location: { pathname: '/' }, navigate: vi.fn() }));
 vi.mock('@tanstack/react-router', () => ({
   useLocation: () => route.location, useNavigate: () => route.navigate,
-  Link: ({ children, params, search: _search, state: _state, preload: _preload, to: _to, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { children: ReactNode; params: { runtimeId: string; rootId: string }; search: unknown; state: unknown; preload: unknown; to: string }) =>
-    <a href={`/h/${params.runtimeId}/s/${params.rootId}`} {...props} onClick={event => { onClick?.(event); event.preventDefault(); }}>{children}</a>,
+  Link: ({ children, params, search: _search, state: _state, preload: _preload, to: _to, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { children: ReactNode; params?: { runtimeId: string; rootId: string }; search: unknown; state: unknown; preload: unknown; to: string }) =>
+    <a href={params ? `/h/${params.runtimeId}/s/${params.rootId}` : _to} {...props} onClick={event => { onClick?.(event); event.preventDefault(); }}>{children}</a>,
 }));
 beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -109,7 +109,9 @@ it('aborts pending search reads on close and preserves healthy results when anot
   await waitFor(() => expect(signal).toBeDefined());
   act(() => f.disconnect());
   expect(screen.getByRole('link', { name: 'Local match · Local · /repo' })).toBeTruthy();
-  expect(screen.getByRole('alert').textContent).toContain('Kuzco is disconnected');
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByText('Sessions unavailable while Kuzco is offline.')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Manage servers' }).getAttribute('href')).toBe('/settings');
   view.rerender(<SessionSearchDialog open={false} onOpenChange={() => {}} finalFocus={false} />);
   expect(signal!.aborted).toBe(true);
   await waitFor(() => expect(f.query.getQueryCache().getAll()).toHaveLength(0));
@@ -129,8 +131,9 @@ it('aggregates attention with host-scoped links, independent pages and visible p
   expect(f.remote.index.mock.lastCall?.[0]).toEqual({ after_id: 'remote-runtime-after', limit: 64, max_bytes: 256 << 10 });
   act(() => f.disconnect());
   expect(within(local).getByRole('link')).toBeTruthy();
-  expect(within(remote).getByRole('alert').textContent).toContain('Kuzco is disconnected');
-  expect(within(remote).queryByRole('link')).toBeNull();
+  expect(within(remote).queryByRole('alert')).toBeNull();
+  expect(within(remote).getByText('Activity unavailable while offline.')).toBeTruthy();
+  expect(within(remote).getByRole('link', { name: 'Manage servers' }).getAttribute('href')).toBe('/settings');
   fireEvent.click(within(local).getByRole('link'));
   expect(f.openTab).toHaveBeenCalledExactlyOnceWith('local-runtime', 'same-root', 'Local request');
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();

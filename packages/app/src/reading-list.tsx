@@ -19,7 +19,7 @@ const styles = stylex.create({
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
 export function ReadingList<Row extends { id: string; seq?: number }>({
   rows, hasMore, loadOlder, bookmarkKey, historyRevision, historyReady = true,
-  label, earlierLabel, renderRow, contentStyle, empty, canLoadOlder = true, loadingHistory = false,
+  label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false,
 }: {
   rows: readonly Row[];
   hasMore: boolean;
@@ -32,6 +32,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   renderRow(row: Row, index: number): ReactNode;
   contentStyle?: stylex.StyleXStyles;
   empty?: ReactNode;
+  footer?: ReactNode;
   canLoadOlder?: boolean;
   loadingHistory?: boolean;
 }) {
@@ -113,8 +114,8 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     setLoading(true);
     try {
       await loadOlder();
-    } catch (error) {
-      runtime.report(error);
+    } catch {
+      // Session history state owns the failure; this control only ends its wait.
     } finally {
       loadingRef.current = false;
       setLoading(false);
@@ -210,7 +211,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     // keep reconciling toward the last row after the user starts reading history.
     if (follow.current && historyReady && !restoring.current)
       virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-  }, [rows, total, virtual, historyReady]);
+  }, [rows, total, virtual, historyReady, footer]);
   useEffect(() => {
     const update = () => {
       const root = viewport.current;
@@ -316,6 +317,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
               </div>
             ))}
           </div>
+          {footer}
         </div>
       </div>
       {!atEnd && (

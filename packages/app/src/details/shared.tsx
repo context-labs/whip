@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ErrorNotice } from '../error-feedback';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useSessionView } from '@whip/sdk/react';
+import { useSessionView, useWhipConnection } from '@whip/sdk/react';
 import type { DeepReadonly, SessionView } from '@whip/sdk/state';
 import type {
   ContentHandle,
@@ -43,7 +44,7 @@ export function useDetailQuery<O extends QueryOperation>(
     gcTime: 0,
     refetchInterval: props.connected && poll ? 3000 : false,
   });
-  return { ...query, supported };
+  return { ...query, supported, errorOwner: `${session.rootId}:${operation}:${JSON.stringify(params)}` };
 }
 export function QueryFeedback({
   query,
@@ -53,17 +54,21 @@ export function QueryFeedback({
     error: Error | null;
     isLoading: boolean;
     supported: boolean;
+    errorOwner?: string;
+    refetch?(): Promise<unknown>;
     data?: { content?: ContentHandle | null };
   };
   view: SessionView;
 }) {
+  const connected = useWhipConnection(view.session.client).state === 'connected';
+  if (!connected) return <p role="status">Unavailable while this host is offline.</p>;
   if (!query.supported)
     return (
       <Alert title="Unavailable on this host">
         The execution host does not offer this operation.
       </Alert>
     );
-  if (query.error) return <Alert tone="error">{query.error.message}</Alert>;
+  if (query.error) return <ErrorNotice type="resource" owner={query.errorOwner ?? `${view.session.rootId}:inspector`} title="Could not load this resource" error={query.error} action={query.refetch && <Button variant="ghost" onClick={() => void query.refetch?.()}>Retry</Button>} />;
   if (query.isLoading)
     return (
       <p role="status" {...stylex.props(layout.muted)}>
@@ -88,6 +93,7 @@ export function Action({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const actionId = useId();
   return (
     <div {...stylex.props(layout.column)}>
       <Button
@@ -110,11 +116,7 @@ export function Action({
       >
         {children}
       </Button>
-      {error && (
-        <p role="alert" {...stylex.props(layout.error)}>
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice type="action" owner={`inspector-action:${actionId}`} title="Could not complete this action" error={error} />}
       {done && (
         <span role="status" {...stylex.props(layout.muted)}>
           Applied
@@ -154,16 +156,20 @@ export function useCollection(view: SessionView, name: string) {
   const state = useSessionView(view);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState('');
   const page = state.collections[name];
   return {
     view,
+    name,
     page,
     loading,
     error,
+    notice,
     async load(more: boolean) {
       if (loading) return;
       setLoading(true);
       setError('');
+      setNotice('');
       try {
         await view.loadCollection(name, { more });
       } catch (error) {
@@ -173,9 +179,9 @@ export function useCollection(view: SessionView, name: string) {
           'kind' in error &&
           error.kind === 'resynchronization_required'
         ) {
-          setError('This collection changed. Loaded its current first page.');
           try {
             await view.loadCollection(name);
+            setNotice('This collection changed. Loaded its current first page.');
           } catch (next) {
             setError(next instanceof Error ? next.message : String(next));
           }
@@ -198,7 +204,8 @@ export function CollectionMore({
   const more = collection.page ? collection.page.has_more : omitted;
   return (
     <>
-      {collection.error && <p role="status">{collection.error}</p>}
+      {collection.notice && <p role="status">{collection.notice}</p>}
+      {collection.error && connected && <ErrorNotice type="resource" owner={`${collection.view.session.rootId}:${collection.name}`} title="Collection needs attention" error={collection.error} />}
       {collection.page?.items?.map(
         (entry) =>
           entry.body && (
@@ -248,9 +255,10 @@ export function ContentRead({
   label?: string;
 }) {
   const runtime = useRuntime();
-  const connected = view.session.client.getSnapshot().state === 'connected';
+  const connected = useWhipConnection(view.session.client).state === 'connected';
   const controller = useRef<AbortController | null>(null);
   const [body, setBody] = useState<string>();
+  const [operation, setOperation] = useState<'resource' | 'action'>('resource');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => () => controller.current?.abort(), []);
@@ -267,6 +275,7 @@ export function ContentRead({
     const signal = controller.current.signal;
     setBusy(true);
     setError('');
+    setOperation(download ? 'action' : 'resource');
     try {
       const scope = { rootId: view.session.rootId, agentId };
       const handle = value?.reference_id
@@ -329,7 +338,7 @@ export function ContentRead({
           </div>
         </>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && (connected || operation === 'action') && <ErrorNotice type={operation} owner={`${view.session.rootId}:${reference ?? label}`} title={`Could not ${operation === 'action' ? 'download' : 'load'} ${label.toLowerCase()}`} error={error} />}
     </div>
   );
 }

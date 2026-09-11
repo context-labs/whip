@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Select, Textarea } from '@whip/ui';
+import { Button, Select, Textarea } from '@whip/ui';
 import { ArrowUp, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
@@ -20,6 +20,7 @@ import { ProviderLogo } from './provider-logo';
 import { PermissionModeControl } from './permission-mode';
 import { welcomeDraftKey } from './welcome-submission';
 import { errorMessage } from './platform';
+import { ErrorNotice } from './error-feedback';
 import { WelcomeRecovery } from './welcome-recovery';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
@@ -28,6 +29,7 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   useSyncExternalStore(runtime.welcome.subscribe, runtime.welcome.getSnapshot);
   const [changingHost, setChangingHost] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [hostSelectionError, setHostSelectionError] = useState<unknown>();
   const selected = tab.hostProfileId ?? tab.runtimeId;
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
   let locked = false;
@@ -35,8 +37,8 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   const selectHost = (id: string) => {
     if (locked) return;
     const next = hosts.find(host => host.id === id);
-    try { runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId }); setChangingHost(false); }
-    catch (error) { runtime.report(error); }
+    try { runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId }); setChangingHost(false); setHostSelectionError(undefined); }
+    catch (error) { setHostSelectionError(error); }
   };
   return <div {...stylex.props(layout.empty, styles.page)}>
     <h1 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h1>
@@ -51,7 +53,7 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
         {!!hosts.length && <HostSelector hosts={hosts} host={host} onValueChange={selectHost} />}
         <Button variant="ghost" onClick={() => setAdding(true)}>Connect to another machine</Button>
       </div>}
-      {host?.error && !(runtime.platform.localRuntime && host.profile?.target.kind === 'local') && <p role="status">{host.error}</p>}
+<ErrorNotice type="action" owner={tab.id} title="Could not change host" error={hostSelectionError} />
     </div>
     <WelcomeRecovery currentId={tab.id} />
     <HostDialog open={adding} onOpenChange={setAdding} onSaved={selectHost} />
@@ -150,7 +152,7 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
           loading={busy} disabled={!connected || requiresUpdate || !engineAvailable || !!recovery || !!recoveryError || (ready && (!draft.trim() || !cwd.trim()))}>{ready ? <ArrowUp size={16} /> : 'Connect'}</Button>
       </div>
     </form>
-    {(recovery || recoveryError) && <div role="status" {...stylex.props(layout.notice, layout.column)}>
+    {(recovery || recoveryError) && <div data-error-type="submission" data-error-owner={key} role="status" {...stylex.props(layout.notice, layout.column)}>
       <span>{recoveryError || recovery?.error || (recovery?.state === 'accepted' ? 'Your first message was accepted. Continue the created session.' : 'Your first message has a saved recovery record. Check its status before sending again.')}</span>
       {recovery && <div {...stylex.props(layout.row)}>
         {recovery.state !== 'failed' && <Button disabled={!connected || busy} onClick={() => void submit('check')}>{recovery.state === 'accepted' ? 'Continue session' : 'Check first message'}</Button>}
@@ -159,7 +161,7 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
         {recovery.rootId && <Button variant="ghost" onClick={() => void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: recovery!.create.runtimeId, rootId: recovery!.rootId! }, search: {} })}>Open created session</Button>}
       </div>}
     </div>}
-    {error && <Alert tone="error">{error}</Alert>}
+    {error && !recovery && !recoveryError && <ErrorNotice type="submission" owner={key} error={error} />}
     {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
     {(!ready || showProviders) && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onReady={focusComposer} />}
   </div>;

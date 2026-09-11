@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from '@tanstack/react-router';
@@ -20,6 +21,7 @@ export function SessionSearchDialog(props: Props) {
 function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Props) {
   const runtime = useRuntime();
   const actions = useSessionActions();
+  const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const [status, setStatus] = useState(initialStatus);
   const filtered = status !== 'active';
   const { hosts } = useAppState();
@@ -77,10 +79,10 @@ function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Pr
     const connected = !!host.client && host.state === 'connected';
     const page = connected ? ((term || filtered) ? query.data : catalog?.page) : undefined;
     return {
-      host, query, page,
+      host, query, page, connected,
       items: connected ? (page?.items ?? []).slice(0, 64) : [],
       loading: connected && ((term || filtered) ? query.isFetching : catalog?.status === 'loading'),
-      error: connected ? ((term || filtered) ? query.error?.message : catalog?.error?.message) : host.error ?? `${host.name} is ${host.state}. Connect it to include its sessions.`,
+      error: connected ? ((term || filtered) ? query.error?.message : catalog?.error?.message) : undefined,
     };
   });
   const items = groups.flatMap(group => group.items.map(session => ({ session, host: group.host, key: JSON.stringify([group.host.runtimeId, session.id]) })));
@@ -113,6 +115,7 @@ function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Pr
     </div><Select label="Session status" value={status} options={[{ value: 'active', label: 'Active sessions' }, { value: 'archived', label: 'Archived sessions' }, { value: 'all', label: 'All sessions' }]} onValueChange={value => { setStatus(value as typeof status); setCursors({}); setSelected(undefined); }} />{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
       onValueChange={value => { setFilter(value); setSelected(undefined); }} />}</div>}>
     <div ref={results} id={resultId} {...stylex.props(styles.results)} aria-label="Session search results" aria-busy={loading}>
+      {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
       {groups.map(group => {
         const { host, page, query } = group;
         const runtimeId = host.runtimeId ?? '';
@@ -131,7 +134,7 @@ function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Pr
                 {...stylex.props(styles.link)} onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   try { runtime.tabs.open(runtimeId, session.id, session.title); close(); }
-                  catch (error) { event.preventDefault(); runtime.report(error); }
+                  catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.id}`, error }); }
                 }}>
                 <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}{session.archived ? ' · Archived' : ''}</span>
                 {index === current ? <CornerDownLeft size={16} aria-hidden="true" /> : <span {...stylex.props(styles.date)}>{updatedLabel(session.updated_at)}</span>}
@@ -139,11 +142,12 @@ function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Pr
               <Menu trigger={<IconButton label={`Actions for ${session.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
             </div></ContextMenu>;
           })}
-          {!group.items.length && !group.error && <p role="status" {...stylex.props(styles.notice)}>{group.loading ? 'Loading sessions…' : term ? 'No matching sessions.' : status === 'archived' ? 'No archived sessions.' : 'No recent sessions yet.'}</p>}
-          {group.error && <div role="alert" {...stylex.props(styles.notice)}>{host.name}: {group.error}{host.client && host.state === 'connected' && <Button variant="ghost" onClick={() => {
+          {group.connected && !group.items.length && !group.error && <p role="status" {...stylex.props(styles.notice)}>{group.loading ? 'Loading sessions…' : term ? 'No matching sessions.' : status === 'archived' ? 'No archived sessions.' : 'No recent sessions yet.'}</p>}
+          {!group.connected && <p role="status" {...stylex.props(styles.notice)}>Sessions unavailable while {host.name} is offline. <Link to="/settings" search={{ section: "connections" }} onClick={close}>Manage servers</Link></p>}
+          {group.error && <ErrorNotice type="resource" owner={`session-search:${host.id}`} error={group.error} title={`Could not load sessions on ${host.name}`} action={<Button variant="ghost" onClick={() => {
             if (term || filtered) { if (cursors[runtimeId]) cursor(runtimeId, undefined); else void query.refetch(); }
-            else void host.list?.refresh().catch(error => runtime.report(error));
-          }}>Retry {hosts.length > 1 ? host.name : ''}</Button>}</div>}
+            else void host.list?.refresh().catch(() => {});
+          }}>Retry {hosts.length > 1 ? host.name : ''}</Button>} />}
           {(term || filtered) && page?.has_more && <Button variant="ghost" disabled={settling || group.loading} onClick={() => cursor(runtimeId, page.next_cursor)}>Load more sessions{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
           {cursors[runtimeId] && <Button variant="ghost" onClick={() => cursor(runtimeId, undefined)}>First results{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
           {!term && !filtered && ((page?.items?.length ?? 0) > 64 || page?.has_more) && <p {...stylex.props(styles.notice)}>Showing 64 recent sessions{hosts.length > 1 ? ` on ${host.name}` : ''}. Search to find older sessions.</p>}

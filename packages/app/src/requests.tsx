@@ -1,5 +1,6 @@
 import { typography } from '@whip/ui/tokens.stylex';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ErrorNotice } from './error-feedback';
 import type { Session } from '@whip/sdk';
 import type { DeepReadonly } from '@whip/sdk/state';
 import type { LifecycleEvent, RootSnapshot } from '@whip/protocol';
@@ -80,15 +81,17 @@ function PermissionRequest({
   disabled: boolean;
   refresh(): Promise<void>;
 }) {
-  const runtime = useRuntime();
   const titleId = useId();
   const [pending, setPending] = useState(false);
   const [remember, setRemember] = useState('');
   const [uncertain, setUncertain] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const active = useRef<Session | undefined>(session);
+  useEffect(() => { active.current = session; return () => { active.current = undefined; }; }, [session]);
   async function decide(allow: boolean) {
     if (disabled || pending) return;
     const restoreFocus = captureAnswerFocus();
-    setPending(true);
+    setPending(true); setError(undefined);
     try {
       await session.client.permissions.decide({
         root_id: session.rootId,
@@ -99,10 +102,9 @@ function PermissionRequest({
       restoreFocus();
       await refresh();
     } catch (error) {
-      runtime.report(error);
-      setUncertain(true);
+      if (active.current === session) { setError(error); setUncertain(true); }
     } finally {
-      setPending(false);
+      if (active.current === session) setPending(false);
     }
   }
   return (
@@ -126,6 +128,7 @@ function PermissionRequest({
           {permission.command || permission.canonical_path || permission.operation}
         </pre>
         {permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {permission.rule}</p>}
+        {error !== undefined && <ErrorNotice type="action" owner={`permission:${permission.id}`} error={error} title="Approval status needs checking" tone="warning" />}
         {uncertain ? (
           <Button
             xstyle={[permissionStyles.control, permissionStyles.recovery]}
@@ -134,9 +137,9 @@ function PermissionRequest({
             onClick={() => {
               setPending(true);
               void refresh()
-                .then(() => setUncertain(false))
-                .catch((error) => runtime.report(error))
-                .finally(() => setPending(false));
+                .then(() => { if (active.current === session) { setUncertain(false); setError(undefined); } })
+                .catch(error => { if (active.current === session) setError(error); })
+                .finally(() => { if (active.current === session) setPending(false); });
             }}
           >
             Refresh permission state before retrying
@@ -361,6 +364,9 @@ function QuestionRequest({
     question.questions?.length
       ? question.questions
       : [{ question: question.question ?? '', options: question.options, multiple: question.multiple }];
+  const [error, setError] = useState<unknown>();
+  const active = useRef<Session | undefined>(session);
+  useEffect(() => { active.current = session; return () => { active.current = undefined; }; }, [session]);
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
     questions.map(() => ({ selected: [], text: '', skipped: false })),
@@ -392,7 +398,7 @@ function QuestionRequest({
   async function submit(nextDrafts = drafts) {
     if (!question.question_id) return;
     const restoreFocus = captureAnswerFocus();
-    setPending(true);
+    setPending(true); setError(undefined);
     try {
       await runtime.run(
         question.questions?.length
@@ -406,15 +412,16 @@ function QuestionRequest({
         'Answer question',
       );
       restoreFocus();
-    } catch {
+    } catch (error) {
+      if (active.current === session) setError(error);
     } finally {
-      setPending(false);
+      if (active.current === session) setPending(false);
     }
   }
   async function dismissAll() {
     if (!question.question_id) return;
     const restoreFocus = captureAnswerFocus();
-    setPending(true);
+    setPending(true); setError(undefined);
     try {
       await runtime.run(
         question.questions?.length
@@ -426,9 +433,10 @@ function QuestionRequest({
         'Dismiss question',
       );
       restoreFocus();
-    } catch {
+    } catch (error) {
+      if (active.current === session) setError(error);
     } finally {
-      setPending(false);
+      if (active.current === session) setPending(false);
     }
   }
 
@@ -452,6 +460,7 @@ function QuestionRequest({
             <X size={14} />
           </IconButton>
         </div>
+        {error !== undefined && <ErrorNotice type="action" owner={`question:${question.question_id}`} error={error} title="Could not submit response" />}
         <div {...stylex.props(questionStyles.question)}>{current.question}</div>
         {!!current.options?.length && (
           <div

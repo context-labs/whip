@@ -13,6 +13,7 @@ import { ChevronDown, Circle, CircleHelp, MessageSquare, MessageSquareWarning, M
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
+import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
 import { draftDestination, openNewChat, tabDestination, sessionDestination } from './session-tab-routing';
 import { layout } from './styles';
@@ -96,6 +97,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const project = (tab: SessionTab) => (tab.kind === 'new' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
   const hasDraft = (tab: SessionTab) => tab.kind !== 'new' && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
   const go = (viewId: string, replace = false) => {
+    runtime.clearWorkspaceError();
     const tab = runtime.tabs.workspace().tabs.find(t => t.id === viewId);
     if (!tab) return;
     setPicker(false);
@@ -104,7 +106,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const target = JSON.stringify(tabDestination(tab));
     if (pendingNavigation.current === target) return;
     pendingNavigation.current = target;
-    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.report(error)).finally(() => { if (pendingNavigation.current === target) pendingNavigation.current = undefined; });
+    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.reportWorkspace(error)).finally(() => { if (pendingNavigation.current === target) pendingNavigation.current = undefined; });
   };
   const focusedPane = panes.find(p => p.id === workspace.focusedPaneId)!;
   const focusPane = (paneId: string) => {
@@ -129,7 +131,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   };
   const reopen = () => {
     try { const id = runtime.tabs.reopenView(); if (id) go(id); setNotice(''); }
-    catch (error) { runtime.report(error); }
+    catch (error) { runtime.reportWorkspace(error); }
   };
   const split = (tab: SessionTab, edge: SplitEdge) => {
     try {
@@ -144,7 +146,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       const caret = runtime.compositions.selection(oldKey);
       if (caret) runtime.compositions.rememberSelection(newKey, caret);
       go(id);
-    } catch (error) { runtime.report(error); }
+    } catch (error) { runtime.reportWorkspace(error); }
   };
   const canSplit = (paneId: string, edge: SplitEdge) => {
     if (compact || small || panes.length >= 4) return false;
@@ -159,7 +161,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   };
   const transfer = (drop: WorkspaceDrop) => {
     try { runtime.tabs.transfer(drop.viewId, drop.paneId, drop.edge, drop.index); go(drop.viewId); }
-    catch (error) { runtime.report(error); }
+    catch (error) { runtime.reportWorkspace(error); }
   };
   const actions = (tab: SessionTab): MenuItem[] => {
     const pane = sessionViewPane(workspace, tab.id)!;
@@ -184,7 +186,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
             if (selectedSessionTab(runtime.tabs.workspace())?.id === tab.id)
               document.getElementById(workspacePanelId(tab.id))?.focus();
           }))
-          .catch(error => runtime.report(error));
+          .catch(error => runtime.reportWorkspace(error));
       } },
       { id: 'details', label: 'Session details', onSelect: () => { setPicker(false); void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: { ...sessionSearch(tab), panel: 'agents' }, state: { whipViewId: tab.id } }); } },
       { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
@@ -197,7 +199,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       ...(['right', 'bottom'] as const).map(edge => ({ id: `move-new-${edge}`, label: `Move to new split ${edge === 'bottom' ? 'below' : 'right'}`, disabled: pane.tabs.length < 2 || !canSplit(pane.id, edge), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge }) })),
       { id: 'left', label: 'Move left', disabled: index <= 0, onSelect: () => runtime.tabs.move(tab.id, -1) },
       { id: 'move-right', label: 'Move right', disabled: index >= pane.tabs.length - 1, onSelect: () => runtime.tabs.move(tab.id, 1) },
-      { id: 'link', label: 'Copy session link', onSelect: () => void runtime.platform.copy(runtime.platform.sessionLink ? runtime.platform.sessionLink(href.pathname + href.search, runtime.connections.host(tab.runtimeId)?.profile) : new URL(href.pathname + href.search, window.location.href).href).catch(error => runtime.report(error)) },
+      { id: 'link', label: 'Copy session link', onSelect: () => void runtime.platform.copy(runtime.platform.sessionLink ? runtime.platform.sessionLink(href.pathname + href.search, runtime.connections.host(tab.runtimeId)?.profile) : new URL(href.pathname + href.search, window.location.href).href).catch(error => runtime.reportWorkspace(error)) },
     ];
   };
   useImperativeHandle(ref, () => ({
@@ -232,6 +234,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       </Button>{add}
     </header>}
     {notices}
+    <ErrorNotice type="action" owner="workspace" title="Could not update the workspace" error={runtime.getSnapshot().workspaceError} onDismiss={() => runtime.clearWorkspaceError()} />
     {matched ? <WorkspaceLayout layout={workspace.layout} focusedPaneId={workspace.focusedPaneId} compact={compact} onCompactChange={setSmall}
       onResize={(id, ratio) => runtime.tabs.resize(id, ratio)} onDrop={transfer} canDrop={canDrop} onFocusPane={focusPane}
       renderHeader={id => compact ? null : renderStrip(panes.find(p => p.id === id)!, true)}
@@ -241,7 +244,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
           content: <Welcome key={tab.id} tab={tab} focused={pane.id === workspace.focusedPaneId} /> };
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)} role="alert"><h2>This execution host is unavailable</h2><p>{`${hostName(tab)}: ${views.errors.get(workspaceRootKey(tab))}`}</p><Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading /> };
+          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p role="status">{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading /> };
       })}/>
       : <>{!compact && renderStrip(focusedPane, false)}{children}</>}
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">

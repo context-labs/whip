@@ -19,12 +19,13 @@ const agent: NonNullable<RootSnapshot['agents']>[number] = {
 it('shows the named agent and recorded error, copies it, and clears for a new turn', async () => {
   const copy = vi.fn(async () => {});
   const runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
-  const view = {} as SessionView;
+  const view = { session: { rootId: 'root' } } as SessionView;
   const app = (activeTurn?: string, selected = agent) => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider initialTheme="claude-code">
     <AgentTurnNotice view={view} agent={selected} activeTurn={activeTurn} />
   </ThemeProvider></UIProvider></RuntimeContext.Provider>;
   const rendered = render(app());
   expect(screen.getByRole('alert').textContent).toContain('Architecture researcher · Last turn failed');
+  fireEvent.click(screen.getByRole('button', { name: 'Error details' }));
   expect(screen.getByRole('alert').textContent).toContain('Invalid prompt_cache_key');
   fireEvent.click(screen.getByRole('button', { name: 'Copy error' }));
   await waitFor(() => expect(copy).toHaveBeenCalledWith(agent.last_turn!.error));

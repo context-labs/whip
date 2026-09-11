@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { LocalRuntimePanel, LocalRuntimeSetup } from '../src/host-dialog';
+import { HostNotice } from '../src/connection-notice';
+import type { HostConnection } from '../src/hosts';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '../src/platform';
@@ -163,4 +165,44 @@ it('attaches an existing runtime through the normal connection owner without ins
   await waitFor(() => expect(f.connect).toHaveBeenCalledExactlyOnceWith('local'));
   expect(f.api.install).not.toHaveBeenCalled(); expect(f.api.installDefault).not.toHaveBeenCalled();
   expect(f.api.restart).not.toHaveBeenCalled();
+});
+
+it('leaves an automatic failed probe with the host owner and offers connection retry without diagnostics', async () => {
+  const api: AppLocalRuntime = { test: vi.fn().mockRejectedValue(new Error('Diagnostic socket unavailable')), choose: vi.fn(), install: vi.fn(), restart: vi.fn() };
+  const onConnect = vi.fn(async () => {});
+  const host = { id: 'local', name: 'This Mac', state: 'reconnecting', error: 'Connection socket unavailable' } as HostConnection;
+  render(<ThemeProvider initialTheme="light"><UIProvider>
+    <HostNotice host={host} onManage={() => {}} />
+    <LocalRuntimePanel api={api} hostState={host.state} connectionError={host.error} disabled={false} onBusyChange={() => {}} onboarding onConnect={onConnect} />
+  </UIProvider></ThemeProvider>);
+  const retry = await screen.findByRole('button', { name: 'Retry connection' });
+  await waitFor(() => expect(retry).toHaveProperty('disabled', false));
+  expect(document.querySelectorAll('[data-error-type]')).toHaveLength(1);
+  expect(document.querySelector('[data-error-type]')?.getAttribute('data-error-type')).toBe('host');
+  expect(screen.queryByText('Diagnostic socket unavailable')).toBeNull();
+  expect(screen.queryByText('Checking this Mac…')).toBeNull();
+  expect(screen.getByText('This Mac is unavailable. Reconnect to continue.')).toBeTruthy();
+  fireEvent.click(retry);
+  await waitFor(() => expect(onConnect).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+  const test = await screen.findByRole('button', { name: 'Test Connection' });
+  await waitFor(() => expect(test).toHaveProperty('disabled', false));
+  fireEvent.click(test);
+  await waitFor(() => expect(document.querySelector('[data-error-type="action"]')).not.toBeNull());
+  expect(document.querySelectorAll('[data-error-type="host"]')).toHaveLength(1);
+  expect(document.querySelector('[data-error-type="action"]')?.textContent).toContain('Diagnostic socket unavailable');
+});
+it('classifies an automatic diagnostic failure as a resource when no host failure owns it', async () => {
+  const api: AppLocalRuntime = { test: vi.fn().mockRejectedValue(new Error('Cannot inspect executable')), choose: vi.fn(), install: vi.fn(), restart: vi.fn() };
+  render(<ThemeProvider initialTheme="light"><UIProvider>
+    <LocalRuntimePanel api={api} hostState="connected" disabled={false} onBusyChange={() => {}} />
+  </UIProvider></ThemeProvider>);
+  const notice = await screen.findByRole('alert');
+  expect(notice.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('resource');
+  expect(notice.textContent).toContain('Could not load local runtime diagnostics');
+  expect(screen.getByText('This Mac is connected. Runtime diagnostics are unavailable.')).toBeTruthy();
+  vi.mocked(api.test).mockResolvedValueOnce(running);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry diagnostics' }));
+  await screen.findByText(running.message);
+  expect(screen.queryByRole('alert')).toBeNull();
 });

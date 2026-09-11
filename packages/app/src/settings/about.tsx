@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
@@ -39,7 +40,7 @@ function UpdateSettings({ updates }: { updates: AppUpdates }) {
       : snapshot.state === 'downloaded' ? `Whip${version} is ready. Restart the app to install it.`
       : 'Whip is up to date.'
     }</p>}
-    {(error || snapshot.state === 'error') && <p role="alert">{error || snapshot.error || 'Updates could not be checked. Try again.'}</p>}
+    {(error || snapshot.state === 'error') && <ErrorNotice type="action" owner="application-updates" title="Could not update Whip" error={error || snapshot.error || 'Updates could not be checked. Try again.'} />}
     <div {...stylex.props(layout.row, layout.wrap)}>
       <Button variant="secondary" disabled={working || snapshot.state === 'downloaded'} onClick={() => void perform(false)}>Check for updates</Button>
       {snapshot.state === 'downloaded' && <Button variant="primary" loading={busy} onClick={() => void perform(true)}>Restart to update</Button>}

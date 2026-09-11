@@ -10,7 +10,8 @@ import { UIProvider } from '@whip/ui';
 import type { Session } from '@whip/sdk';
 import { Composer } from '../src/composer';
 import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
+import type { AppRuntime, CommandNotice } from '../src/runtime';
+import type { ComponentProps } from 'react';
 import { CompositionStore } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';
 import { SessionTabs } from '../src/session-tabs';
@@ -30,8 +31,8 @@ function fixture() {
     ['runtime:root:b', 'same draft'],
   ]);
   const draftListeners = new Map<string, Set<() => void>>();
-  const waits: { accepted(): void; finish(): void }[] = [];
-  const snapshot = { commands: [], endpoint: 'http://localhost' };
+  const waits: { accepted(): void; finish(): void; reject(error: Error): void }[] = [];
+  const snapshot = { commands: [] as CommandNotice[], endpoint: 'http://localhost' };
   const runtime = {
     compositions: new CompositionStore(),
     submittedInputs: new SubmittedInputs(),
@@ -43,13 +44,13 @@ function fixture() {
     subscribeDraft: (key: string, fn: () => void) => { const listeners = draftListeners.get(key) ?? new Set(); listeners.add(fn); draftListeners.set(key, listeners); return () => { listeners.delete(fn); }; },
     report: vi.fn(),
     run: (_handle: unknown, _label: string, accepted: () => void) =>
-      new Promise((resolve) => waits.push({ accepted, finish: () => resolve({ result: { inbox_seq: String(waits.length) } }) })),
+      new Promise((resolve, reject) => waits.push({ accepted, reject, finish: () => resolve({ result: { inbox_seq: String(waits.length) } }) })),
   } as unknown as AppRuntime;
   const session = {
     rootId: 'root',
     command: vi.fn(() => ({})),
   } as unknown as Session;
-  const app = (agentId: string, viewId?: string, active = false) => (
+  const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn']) => (
     <RuntimeContext.Provider value={runtime}>
       <UIProvider>
         <Composer
@@ -60,11 +61,12 @@ function fixture() {
           connected
           runtimeId="runtime"
           active={active}
+          lastTurn={lastTurn}
         />
       </UIProvider>
     </RuntimeContext.Provider>
   );
-  return { drafts, waits, app, session, runtime };
+  return { drafts, waits, app, session, runtime, snapshot };
 }
 
 it('focuses the composer when its desktop chat view becomes active', async () => {
@@ -222,3 +224,101 @@ it('restores independent caret positions for two views of the same recipient', (
   const restored = screen.getAllByLabelText('Message this agent') as HTMLTextAreaElement[];
   expect(restored.map(input => [input.selectionStart, input.selectionEnd])).toEqual([[1, 3], [6, 8]]);
 });
+
+for (const previous of [undefined, { event_seq: '10', error: 'EOF' }]) {
+  it(`keeps an accepted failure before a recorded turn visible${previous ? ' beside an older identical failure' : ''}`, async () => {
+    const f = fixture();
+    render(f.app('a', undefined, false, previous));
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF')); });
+    const notice = screen.getByRole('alert');
+    expect(notice.textContent).toContain('Your message could not complete');
+    expect(notice.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('submission');
+    expect(f.runtime.report).not.toHaveBeenCalled();
+  });
+}
+it('suppresses only a newly recorded matching failure after accepted submission', async () => {
+  const f = fixture();
+  const rendered = render(f.app('a', undefined, false, { event_seq: '10', error: 'EOF' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF')); });
+  expect(screen.getByRole('alert').textContent).toContain('EOF');
+  rendered.rerender(f.app('a', undefined, false, { event_seq: '11', error: 'Provider overloaded' }));
+  expect(screen.getByRole('alert').textContent).toContain('EOF');
+  rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+it('does not hide a rejected submission when an unrelated turn records the same error', async () => {
+  const f = fixture();
+  const rendered = render(f.app('a'));
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.reject(new Error('EOF')); });
+  rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF' }));
+  expect(screen.getByRole('alert').textContent).toContain('EOF');
+  expect(f.runtime.draft('runtime:root:a')).toBe('same draft');
+});
+for (const delivery of ['uncertain', 'absent'] as const) {
+  it(`keeps failed ${delivery} recovery in the original submission notice`, async () => {
+    const f = fixture();
+    f.snapshot.commands.push({ id: 'pending', commandId: 'original', runtimeId: 'runtime', label: 'Message child', status: 'Acceptance unresolved', draftKey: 'runtime:root:a', delivery });
+    const check = vi.fn().mockRejectedValue(new Error('Status check unavailable'));
+    const retry = vi.fn().mockRejectedValue(new Error('Retry not accepted'));
+    Object.assign(f.runtime, { checkCommand: check, retryCommand: retry });
+    render(f.app('a'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check status' })); });
+    expect(document.querySelectorAll('[data-error-type="submission"]')).toHaveLength(1);
+    expect(screen.getByRole('status').textContent).toContain('Status check unavailable');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(check).toHaveBeenCalledExactlyOnceWith('pending');
+    expect(f.runtime.draft('runtime:root:a')).toBe('same draft');
+    expect(screen.getByRole('button', { name: 'Send message' })).toHaveProperty('disabled', true);
+    if (delivery === 'absent') {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry original submission' })); });
+      expect(document.querySelectorAll('[data-error-type="submission"]')).toHaveLength(1);
+      expect(screen.getByRole('status').textContent).toContain('Retry not accepted');
+      expect(retry).toHaveBeenCalledExactlyOnceWith('pending');
+    } else expect(screen.queryByRole('button', { name: 'Retry original submission' })).toBeNull();
+    expect(f.waits).toHaveLength(0);
+    expect(f.runtime.report).not.toHaveBeenCalled();
+  });
+}
+for (const outcome of ['cancelled', 'interrupted']) {
+  it(`presents accepted ${outcome} submissions as a neutral outcome`, async () => {
+    const f = fixture();
+    render(f.app('a'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    const input = f.runtime.submittedInputs.getSnapshot()[0]!;
+    f.snapshot.commands.push({ id: 'terminal', commandId: input.id, runtimeId: 'runtime', label: 'Message child', status: outcome, draftKey: 'runtime:root:a' });
+    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error(`Message child: ${outcome}`)); });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('status').textContent).toContain(`Your message was ${outcome}`);
+  });
+}
+
+for (const truncated of [false, true]) {
+  it(`${truncated ? 'matches an explicitly truncated' : 'does not match a merely similar'} recorded error`, async () => {
+    const f = fixture();
+    const rendered = render(f.app('a'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF while streaming response')); });
+    rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF', error_truncated: truncated }));
+    expect(screen.queryByRole('alert') === null).toBe(truncated);
+  });
+}
+
+for (const outcome of ['cancelled', 'interrupted']) {
+  it(`defers ${outcome} submission feedback only to a newer matching recorded turn without error details`, async () => {
+    const f = fixture();
+    const rendered = render(f.app('a', undefined, false, { event_seq: '10', status: outcome }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    const input = f.runtime.submittedInputs.getSnapshot()[0]!;
+    f.snapshot.commands.push({ id: 'terminal', commandId: input.id, runtimeId: 'runtime', label: 'Message child', status: outcome, draftKey: 'runtime:root:a' });
+    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error(`Message child: ${outcome}`)); });
+    expect(screen.getByRole('status').textContent).toContain(`Your message was ${outcome}`);
+    rendered.rerender(f.app('a', undefined, false, { event_seq: '11', status: outcome === 'cancelled' ? 'interrupted' : 'cancelled' }));
+    expect(screen.getByRole('status').textContent).toContain(`Your message was ${outcome}`);
+    rendered.rerender(f.app('a', undefined, false, { event_seq: '12', status: outcome }));
+    expect(document.querySelector('[data-error-type="submission"]')).toBeNull();
+    expect(f.runtime.report).not.toHaveBeenCalled();
+  });
+}

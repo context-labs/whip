@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import {
   isValidElement,
   memo,
@@ -6,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
+  type ReactNode,
 } from 'react';
 import { Markdown } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
@@ -378,21 +380,12 @@ export const MessageRow = memo(function MessageRow({
   readBody(row: TimelineRow): void;
   historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
 }) {
-  const runtime = useRuntime();
   const disclosure = ['tool', 'reasoning', 'mailbox'].includes(row.role);
   const user = row.role === 'user';
   const assistant = row.role === 'assistant';
   const stamp = row.sentAt ? new Date(row.sentAt) : undefined;
   const time = stamp && Number.isFinite(stamp.getTime()) ? stamp : undefined;
-  const copy = (
-    <CopyButton
-      label="Copy message"
-      xstyle={styles.actionButton}
-      text={row.text}
-      copy={(text) => runtime.platform.copy(text)}
-      onError={(error) => runtime.report(error)}
-    />
-  );
+  const copy = <MessageCopy key={row.id} owner={row.id} label="Copy message" text={row.text} />;
   return (
     <article
       data-message-id={row.id}
@@ -483,6 +476,16 @@ export const MessageRow = memo(function MessageRow({
   );
 });
 
+function MessageCopy({ owner, label, text }: { owner: string; label: string; text: string }) {
+  const runtime = useRuntime();
+  const [error, setError] = useState<unknown>();
+  return <div>
+    <CopyButton label={label} text={text} xstyle={styles.actionButton}
+      copy={async value => { setError(undefined); await runtime.platform.copy(value); }} onError={setError} />
+    {error !== undefined && <ErrorNotice type="action" owner={`copy:${owner}`} error={error} title="Could not copy message" onDismiss={() => setError(undefined)} />}
+  </div>;
+}
+
 export function Timeline({
   rows,
   hasMore,
@@ -498,6 +501,7 @@ export function Timeline({
   onOpenRepl,
   density = 'compact',
   active = false,
+  footer,
 }: {
   rows: ConversationActivityRow[];
   hasMore: boolean;
@@ -513,8 +517,8 @@ export function Timeline({
   onOpenRepl?(): void;
   density?: 'compact' | 'comfortable' | 'detailed';
   active?: boolean;
+  footer?: ReactNode;
 }) {
-  const runtime = useRuntime();
   const copies = useMemo(() => responseCopies(rows, active || !connected || !historyReady, hasMore), [rows, active, connected, historyReady, hasMore]);
   const [choices, setChoices] = useState<ReadonlyMap<string, boolean>>(new Map());
   useEffect(() => {
@@ -532,7 +536,7 @@ export function Timeline({
   return <ReadingList rows={rows} hasMore={hasMore} loadOlder={loadOlder}
     bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
     canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
-    label="Conversation" earlierLabel="Load earlier messages"
+    label="Conversation" earlierLabel="Load earlier messages" footer={footer}
     renderRow={row => {
       const open = choices.get(row.id) ?? (density === 'detailed' && isActivityGroup(row) && row.cells.length > 0);
       const copy = copies.get(row.id);
@@ -540,8 +544,7 @@ export function Timeline({
         {isActivityGroup(row) ? <ActivityGroupRow group={row} open={open} onToggle={() => toggle(row.id, open)} connected={connected}
           density={density} readBody={readBody} onOpenRepl={onOpenRepl} /> : <MessageRow row={row} readBody={readBody} historyAction={historyAction} />}
         {copy && <div data-response-actions {...stylex.props(styles.responseActions)}>
-          <CopyButton label={copy.label} text={copy.text} xstyle={styles.actionButton}
-            copy={text => runtime.platform.copy(text)} onError={error => runtime.report(error)} />
+          <MessageCopy key={row.id} owner={row.id} label={copy.label} text={copy.text} />
         </div>}
       </>;
     }} />;

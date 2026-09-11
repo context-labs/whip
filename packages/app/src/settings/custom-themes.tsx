@@ -1,9 +1,10 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
 import type { Resolved } from '@whip/protocol';
-import { Alert, Button, Combobox, Dialog, Field, useTheme } from '@whip/ui';
+import { Button, Combobox, Dialog, Field, useTheme } from '@whip/ui';
 import { FileJson, Upload } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
@@ -35,6 +36,7 @@ export function CustomThemes({ client }: { client: WhipClient }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [errorType, setErrorType] = useState<'action' | 'validation'>('action');
   const [filename, setFilename] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -48,7 +50,7 @@ export function CustomThemes({ client }: { client: WhipClient }) {
   async function resolve(run: (signal: AbortSignal) => Promise<Resolved>, namespace: string) {
     request.current?.abort();
     const controller = new AbortController();
-    request.current = controller; setBusy(true); setError('');
+    request.current = controller; setBusy(true); setError(''); setErrorType('action');
     try {
       const value = await run(controller.signal);
       if (!controller.signal.aborted) { install(value, namespace); changeOpen(false); }
@@ -86,8 +88,12 @@ export function CustomThemes({ client }: { client: WhipClient }) {
               event.target.value = '';
               if (!file) return;
               setFilename(file.name);
+              if (file.size > 64 * 1024) {
+                setErrorType('validation');
+                setError('This file is too large. Choose a theme JSON file smaller than 64 KiB.');
+                return;
+              }
               void resolve(async signal => {
-                if (file.size > 64 * 1024) throw new Error('This file is too large. Choose a theme JSON file smaller than 64 KiB.');
                 const json = await file.text();
                 signal.throwIfAborted();
                 return client.host.themes.resolveJSON(json, { signal });
@@ -95,8 +101,8 @@ export function CustomThemes({ client }: { client: WhipClient }) {
             }} />
         </div>
         <p {...stylex.props(styles.hint)}>Your imported theme is applied immediately and saved on this device.</p>
-        {error && <Alert tone="error" title="Could not import theme">{error}</Alert>}
-        {!enabled && <Alert tone="error">Connection lost. Reconnect to Whip, then try importing again.</Alert>}
+        {error && <ErrorNotice type={errorType} owner="theme-import" title={errorType === 'action' ? 'Could not import theme' : undefined} error={error} />}
+        {!enabled && <p role="status">Theme import is unavailable while this host is offline.</p>}
       {custom.length > 0 && (
         <Field label="Or choose a local theme" description="Themes in your local Whip themes folder."><Combobox
           label="Local theme"
@@ -106,11 +112,9 @@ export function CustomThemes({ client }: { client: WhipClient }) {
           onValueChange={name => void resolve(signal => client.host.themes.resolve(name, { signal }), `host:${client.getSnapshot().info?.runtime_id}`)}
         /></Field>
       )}
-      {themes.error && <Alert tone="error" title="Could not load local themes">{themes.error.message}</Alert>}
+      {themes.error && enabled && <ErrorNotice type="resource" owner="local-themes" title="Could not load local themes" error={themes.error} />}
       {themes.data?.errors?.map((error) => (
-        <p key={error.file} role="status" {...stylex.props(styles.hint)}>
-          {error.file}: {error.message}
-        </p>
+        <ErrorNotice key={error.file} type="resource" owner={`local-theme:${error.file}`} title={`Could not load ${error.file}`} error={error.message} />
       ))}
       {themes.data?.truncated && <p {...stylex.props(styles.hint)}>Some local themes could not be listed. You can still import a file directly.</p>}
       </Dialog>

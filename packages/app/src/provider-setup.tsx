@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
@@ -75,13 +76,13 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady 
     <div {...stylex.props(styles.heading)}><strong>{available.length ? 'Already available' : 'Connect a provider to send your first message'}</strong>
       <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Refresh</Button></div>
     {inventory.isPending && <p role="status">Checking providers on {hostName}…</p>}
-    {inventory.error && <Alert tone="error">{inventory.error.message}</Alert>}
-    {discoveryError && <Alert tone="error">{discoveryError}</Alert>}
+    {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} />}
+    {discoveryError && enabled && <ErrorNotice type="resource" owner={`${host}:provider-discovery`} title="Could not discover providers" error={discoveryError} />}
     {!!available.length && rows(available)}
     {candidate && <div {...stylex.props(styles.confirmation)}>
       <p {...stylex.props(styles.note)}>Default for new sessions on {hostName}. Your first message makes the request.</p>
       <CatalogModelPicker label="Change model" settings model={model} provider={candidate.id} catalog={catalog.data?.result}
-        loading={catalog.isFetching} error={catalog.error?.message} disabled={!enabled || busy}
+        loading={catalog.isFetching} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || busy}
         onChange={(model, provider) => { setSelected(provider); setPair({ model, provider }); }} />
       {!model && <p role="status" {...stylex.props(styles.note)}>Choose a model for {candidate.name}.</p>}
       {catalog.error && <Button variant="ghost" disabled={!enabled || busy} onClick={() => void catalog.refetch()}>Retry model discovery</Button>}
@@ -89,8 +90,8 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady 
     </div>}
     {!!available.length && entries.some(entry => !available.includes(entry)) && <p {...stylex.props(styles.group)}>Connect another provider</p>}
     {rows(entries.filter(entry => !available.includes(entry)))}
-    {flows.error && <Alert tone="error">{flows.error.message}</Alert>}
-    {error && <Alert tone="error">{error}</Alert>}
+    {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
+    {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not save the default model" error={error} />}
     {active && inventory.data && <ProviderConnectionDialog key={active.id} client={client} entry={active} enabled={enabled}
       revision={inventory.data.revision} hostName={hostName} flows={flows.data?.flows ?? []}
       refresh={refresh} refreshFlows={async () => { await flows.refetch(); }} close={() => setConnecting(undefined)}

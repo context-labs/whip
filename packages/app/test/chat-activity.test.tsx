@@ -18,6 +18,12 @@ const state = (overrides: Record<string, unknown> = {}): SessionViewSnapshot => 
   history: {}, collections: {}, retainedBytes: 0, unavailable: false, truncated: false,
 } as unknown as SessionViewSnapshot);
 
+it('does not call a failed session snapshot a host connection failure', () => {
+  const unavailable = { ...state(), root: undefined, error: new Error('Snapshot unavailable') };
+  expect(activityStatus(unavailable, 'root', [], true)).toMatchObject({ text: '', active: false });
+  expect(activityStatus({ ...unavailable, error: undefined }, 'root', [], true).text).toBe('Loading session…');
+});
+
 it('ignores anonymous reference-only tool updates and empty prose, and updates arriving tool names', () => {
   const rows = timelineRows(undefined, [
     { seq: '1', kind: 'stream.tool.call', payload: { truncated: true, content: { reference_id: 'body' } } },

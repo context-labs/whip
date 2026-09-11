@@ -31,9 +31,9 @@ export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate']
     const state = runtime.getSnapshot();
     const host = state.hosts.find(host => options.hostProfileId ? host.id === options.hostProfileId : options.runtimeId ? host.runtimeId === options.runtimeId : host.id === state.selectedHostId);
     const tab = runtime.tabs.openNew({ ...options, hostProfileId: options.hostProfileId ?? host?.id, runtimeId: options.runtimeId ?? host?.runtimeId });
-    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.report(error));
+    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.reportWorkspace(error));
     return tab;
-  } catch (error) { runtime.report(error); }
+  } catch (error) { runtime.reportWorkspace(error); }
 }
 
 /** A native link can select an already saved host, but cannot create one. */
@@ -61,7 +61,7 @@ export function createSessionNavigator(runtime: AppRuntime, navigate: (path: str
         const latest = runtime.connections.host(destination.runtimeId); const attached = latest?.client?.getSnapshot();
         if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || attached?.state !== 'connected' || attached.info?.runtime_id !== destination.runtimeId) return;
         navigate(url.pathname + url.search);
-      } catch (error) { if (current === epoch) runtime.report(error); }
+      } catch (error) { if (current === epoch) runtime.reportWorkspace(error); }
     },
     dispose() { disposed = true; ++epoch; },
   };
@@ -84,6 +84,7 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       // particular, a storage warning during close must not reopen its old URL.
       if (current === observedLocation && !capacityNotice) return;
       observedLocation = current;
+      runtime.clearWorkspaceError();
       if (capacityNotice !== current.href) capacityNotice = undefined;
       const draftId = draftDestination(current.pathname);
       if (draftId) {
@@ -94,14 +95,14 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
         }
         if (tab) {
           runtime.tabs.activate(tab.id);
-          if (tab.kind !== 'new') void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+          if (tab.kind !== 'new') void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.reportWorkspace(error));
         }
       } else if (destination) {
         const search = current.search as Record<string, unknown>;
         if (!runtime.tabs.canOpen(destination.runtimeId, destination.rootId)) {
           if (capacityNotice !== current.href) {
             capacityNotice = current.href;
-            runtime.report('There are 32 open session tabs. Close a tab to open this session.');
+            runtime.reportWorkspace('There are 32 open session tabs. Close a tab to open this session.');
           }
           return;
         }
@@ -116,12 +117,12 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
         }
         const tab = selectedSessionTab(runtime.tabs.workspace());
         if (tab) {
-          void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+          void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.reportWorkspace(error));
           return;
         }
         runtime.tabs.home();
       }
-    } catch (error) { runtime.report(error); }
+    } catch (error) { runtime.reportWorkspace(error); }
     finally { observing = false; }
   };
   const offRuntime = runtime.subscribe(observe);
@@ -133,7 +134,7 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
     const tab = selectedSessionTab(runtime.tabs.workspace());
     // An accepted background/closed draft never steals the person's place.
     if (!observing && draftId && tab?.id === draftId && tab.kind !== 'new')
-      void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+      void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.reportWorkspace(error));
   });
   observe();
   return () => { disposed = true; offRuntime(); offRoute(); offTabs(); };

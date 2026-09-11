@@ -12,7 +12,7 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
   const connectionEvents = new Set<() => void>(), routeEvents = new Set<() => void>();
   let connection = { state: 'connecting', info: undefined as { runtime_id: string } | undefined };
   const client = { getSnapshot: () => connection, subscribe: (fn: () => void) => { connectionEvents.add(fn); return () => connectionEvents.delete(fn); } };
-  const runtime = { tabs, connections: { home: () => ({ client }), host: (id: string) => connection.info?.runtime_id === id ? { client } : undefined }, rememberSession: vi.fn(), getSnapshot: () => ({ client, hosts: [], selectedHostId: undefined }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())) } as unknown as AppRuntime;
+  const runtime = { tabs, connections: { home: () => ({ client }), host: (id: string) => connection.info?.runtime_id === id ? { client } : undefined }, rememberSession: vi.fn(), getSnapshot: () => ({ client, hosts: [], selectedHostId: undefined }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())), reportWorkspace: vi.fn(() => runtimeEvents.forEach(fn => fn())), clearWorkspaceError: vi.fn() } as unknown as AppRuntime;
   const router = {
     state: { location: { pathname: path, href: path, search: {} as Record<string, unknown>, state: { __TSR_key: key, whipViewId: undefined as string | undefined } } },
     subscribe: (_kind: string, fn: () => void) => { routeEvents.add(fn); return () => routeEvents.delete(fn); },
@@ -68,7 +68,7 @@ describe('tab route authority', () => {
   });
   it('admits an overflow deep link only after space is explicitly made', () => {
     const f = fixture('/h/mac/s/extra'); for (let i = 0; i < 32; i++) f.tabs.open('mac', `root${i}`); const dispose = f.start(); f.connect();
-    expect(f.runtime.report).toHaveBeenCalledTimes(1); expect(f.tabs.workspace().tabs.some(tab => tab.rootId === 'extra')).toBe(false);
+    expect(f.runtime.reportWorkspace).toHaveBeenCalledTimes(1); expect(f.tabs.workspace().tabs.some(tab => tab.rootId === 'extra')).toBe(false);
     f.tabs.close('mac', ['root0']); expect(f.tabs.workspace().tabs).toHaveLength(32); expect(selectedSessionTab(f.tabs.workspace())?.rootId).toBe('extra'); dispose();
   });
   it('does not replace a navigation made while initial connection was pending', () => {
@@ -213,6 +213,6 @@ describe('New Chat route ownership', () => {
     for (let i = 1; i < 32; i++) f.tabs.openNew();
     const selected = selectedSessionTab(f.tabs.workspace()); f.router.navigate.mockClear();
     openNewChat(f.runtime, f.router.navigate); expect(selectedSessionTab(f.tabs.workspace())).toBe(selected);
-    expect(f.router.navigate).not.toHaveBeenCalled(); expect(f.runtime.report).toHaveBeenCalled(); dispose();
+    expect(f.router.navigate).not.toHaveBeenCalled(); expect(f.runtime.reportWorkspace).toHaveBeenCalled(); dispose();
   });
 });

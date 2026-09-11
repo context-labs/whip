@@ -31,12 +31,7 @@ func (q pendingQuestion) sets() []session.QuestionSet {
 }
 
 // questionAnswer is the daemon's question.answer payload.
-type questionAnswer struct {
-	ID        string                         `json:"id"`
-	Answer    []string                       `json:"answer,omitempty"`
-	Dismissed bool                           `json:"dismissed,omitempty"`
-	Answers   []protocol.QuestionAnswerEntry `json:"answers,omitempty"`
-}
+type questionAnswer = protocol.QuestionAnswerParams
 
 // handleQuestion surfaces user.ask through ACP's permission prompt, the only
 // choice UI the protocol has: one AllowOnce option per label plus Dismiss.

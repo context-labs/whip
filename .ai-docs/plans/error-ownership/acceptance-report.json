@@ -1,0 +1,13 @@
+[
+  "Application: failed actual draft storage write; retained draft after restoring storage.",
+  "Host: one host error, no session/global duplicate, clears on reconnect, draft retained.",
+  "Session: snapshot failure scoped to session without connection or new-session messaging; Refresh recovers with host connected.",
+  "Combined: host and recorded turn remain distinct; reconnect clears only host failure.",
+  "Execution: persisted failing cell is visible in real REPL.",
+  "Submission: rejected input appears beside composer with retained draft and no global duplicate.",
+  "Submission uncertainty: lost acknowledgement reconciles original identity without automatic replay.",
+  "Resource: model catalog failure stays inside its picker; Retry recovers after fault removal.",
+  "Action: rename rejection stays in dialog; retry succeeds and preserves name.",
+  "Validation: invalid server address stays inside the form.",
+  "Turn: genuine recorded outcome and successful follow-up recovery."
+]

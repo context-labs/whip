@@ -1,7 +1,9 @@
+import { ErrorNotice } from './error-feedback';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useWhipConnection } from '@whip/sdk/react';
 import type { Session } from '@whip/sdk';
-import { Combobox, Dialog, Select } from '@whip/ui';
+import { Button, Combobox, Dialog, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
 
@@ -17,6 +19,7 @@ export function CompletionPicker({
   onSelect(text: string): void;
   onClose(): void;
 }) {
+  const connected = useWhipConnection(session.client).state === 'connected';
   const [kind, setKind] = useState('mention');
   const [input, setInput] = useState('');
   const [prefix, setPrefix] = useState('');
@@ -40,6 +43,7 @@ export function CompletionPicker({
         { signal },
       ),
     gcTime: 0,
+    enabled: connected,
   });
   return (
     <Dialog
@@ -76,7 +80,8 @@ export function CompletionPicker({
             onClose();
           }}
         />
-        {result.error && <p role="alert">{result.error.message}</p>}
+        {result.error && connected && <ErrorNotice type="resource" owner={`${session.rootId}:${agentId}:completion`} title="Could not load suggestions" error={result.error} action={<Button variant="ghost" onClick={() => void result.refetch()}>Retry</Button>} />}
+        {!connected && <p role="status">Suggestions are unavailable while this host is offline.</p>}
         {result.data?.truncated && (
           <p>More matches are available. Narrow your search.</p>
         )}

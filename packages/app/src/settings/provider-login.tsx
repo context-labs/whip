@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import type { WhipClient } from '@whip/sdk';
 import type { ProviderLoginStatus } from '@whip/protocol';
@@ -133,8 +134,7 @@ export function LoginFlow({
           </Button>
         </>
       ))}
-      {error && <p role="alert">{error}</p>}
-      {flow.error && <p role="alert">{flow.error}</p>}
+      {(error || flow.error) && <ErrorNotice type="action" owner={`sign-in:${flow.flow_id}`} title="Sign-in needs attention" error={error || flow.error} />}
       {!terminal && (
         <Button
           variant="ghost"

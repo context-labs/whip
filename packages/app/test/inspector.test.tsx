@@ -75,16 +75,13 @@ function fixture() {
     unavailable: false,
   } as SessionViewSnapshot;
   const listeners = new Set<() => void>();
+  const connection = {
+    state: 'connected',
+    info: { runtime_id: 'runtime', host_platform: 'darwin', host_architecture: 'arm64', limits: {} },
+  };
   const client = {
-    getSnapshot: () => ({
-      state: 'connected',
-      info: {
-        runtime_id: 'runtime',
-        host_platform: 'darwin',
-        host_architecture: 'arm64',
-        limits: {},
-      },
-    }),
+    subscribe: () => () => {},
+    getSnapshot: () => connection,
     supports: vi.fn(() => true),
     query: vi.fn(async (operation: string) => ({
       result:

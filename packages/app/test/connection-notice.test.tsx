@@ -34,7 +34,7 @@ it('allows dismissal without hiding a later failure or incompatibility', () => {
   const f = fixture();
   const error = new Error('WebSocket connection failed');
   f.update({ state: 'reconnecting', error });
-  fireEvent.click(screen.getByRole('button', { name: 'Dismiss connection error' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss host error' }));
   expect(screen.queryByRole('alert')).toBeNull();
   f.update({ state: 'incompatible', error: new Error('Unsupported protocol') });
   expect(screen.getByRole('alert').textContent).toContain('Unsupported protocol');

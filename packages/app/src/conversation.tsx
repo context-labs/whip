@@ -25,6 +25,7 @@ import {
   ImageAttachment,
   type TimelineRow,
 } from './timeline';
+import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
@@ -126,6 +127,7 @@ export function SessionContent({
   }, [runtime, expectedRuntimeId, session.rootId, root?.meta.title]);
   const actions = useSessionActions();
   const [confirm, setConfirm] = useState<'clear'>();
+  const [actionError, setActionError] = useState<unknown>();
   const clearRevision = useRef<string | undefined>(undefined);
   const [historyAction, setHistoryAction] = useState<{
     action: 'fork' | 'rewind';
@@ -139,6 +141,7 @@ export function SessionContent({
     body?: TimelineRow['body'];
     agentId: string;
   }>();
+  useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     setStored(undefined);
@@ -149,11 +152,11 @@ export function SessionContent({
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const canCreateTab = () => {
     if (runtime.tabs.workspace().tabs.length < 32) return true;
-    runtime.report('There are 32 open session tabs. Close a tab before creating another.');
+    setActionError(new Error('There are 32 open session tabs. Close a tab before creating another.'));
     return false;
   };
   const navigationRevision = useRef(0);
-  useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind]);
+  useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind, confirm, historyAction]);
   const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.connections.isAttached(session.client);
   const focused = !viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId;
   const setPanel = (next?: InspectorSection) => {
@@ -208,7 +211,7 @@ export function SessionContent({
         if (!current) return;
         await view.refresh();
         if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
-      })().catch(error => runtime.report(error));
+      })().catch(() => {});
     }, 250);
     return () => { current = false; clearTimeout(timer); };
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
@@ -273,34 +276,24 @@ export function SessionContent({
           </Link>
         </div>
       )}
-      {(state.error || history?.error) && (
-        <p role="alert" {...stylex.props(layout.notice)}>
-          {state.error?.message || history?.error?.message}
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void view.refresh().catch((error) => runtime.report(error))
-            }
-          >
-            Refresh
-          </Button>
-        </p>
-      )}
-      <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
-      {kind === 'repl' ? <ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn}
+      {connection.state === 'connected' && (state.error || history?.error) && <ErrorNotice type="session"
+        owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
+        action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
+      {kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn}
         onAgentChange={next => {
           const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.report(error));
-        }} /> : activityRows.length ? (
+          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
+        }} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
         <Timeline
           active={!!activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={activityRows}
+          footer={<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />}
           connected={connected}
           density={preferences.toolDensity}
           onOpenRepl={() => {
             const search = sessionSearch({ kind: 'repl', location: { agent: agentId === session.rootId ? undefined : agentId, panel } });
-            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(runtime.report);
+            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
           }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
@@ -327,10 +320,13 @@ export function SessionContent({
         <SessionLoading />
       ) : (
         <div {...stylex.props(layout.empty)}>
-          <h2 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h2>
+          {!root && state.error ? <p {...stylex.props(layout.emptyText)}>Session content is unavailable. Use Refresh above.</p>
+            : !activeTurn && agent?.last_turn && ['failed', 'cancelled', 'interrupted'].includes(agent.last_turn.status)
+            ? <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
+            : <><h2 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h2>
           <p {...stylex.props(layout.emptyText)}>
             Give WHIP a goal, then follow the work and guide it as needed.
-          </p>
+          </p></>}
         </div>
       )}
       {!!admitted.length && (
@@ -353,7 +349,7 @@ export function SessionContent({
         onAllAgents={() => setPanel('agents')}
         onAgent={next => {
           const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(runtime.report);
+          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
         }} />}
       {root && (
         <PendingRequests
@@ -368,7 +364,9 @@ export function SessionContent({
         session={session}
         agentId={agentId}
         connected={connection.state === 'connected' && !wrongRuntime && !!root}
+        unavailableReason={connection.state === 'connected' && !root ? 'Session content is unavailable.' : undefined}
         activeTurn={activeTurn}
+        lastTurn={agent?.last_turn ?? undefined}
         runtimeId={expectedRuntimeId}
         viewId={viewId}
         active={focused && !panel}
@@ -396,9 +394,11 @@ export function SessionContent({
               id: 'Compact history',
               label: 'Compact history',
               onSelect: () => {
+                const location = navigationRevision.current;
+                setActionError(undefined);
                 void runtime
                   .run(session.history.compact(), 'Compact history')
-                  .catch(() => {});
+                  .catch(error => { if (stillHere(location)) setActionError(error); });
               },
               disabled: !connected,
             },
@@ -413,6 +413,7 @@ export function SessionContent({
             },
           ]}
         />
+        {!!actionError && !confirm && !historyAction && <ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} />}
         {root && (
           <SessionInspector
             kind={kind}
@@ -438,16 +439,18 @@ export function SessionContent({
             variant="danger"
             disabled={!connected}
             onClick={async () => {
+              const location = navigationRevision.current;
+              setActionError(undefined);
               try {
                 await runtime.run(session.history.clear(clearRevision.current), 'Clear history');
-                setConfirm(undefined);
-              } catch {}
+                if (stillHere(location)) setConfirm(undefined);
+              } catch (error) { if (stillHere(location)) setActionError(error); }
             }}
           >
             Confirm {confirm}
           </Button>
         }
-      />
+      ><ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} /></Dialog>
       <Dialog
         open={!!historyAction}
         onOpenChange={(open) => {
@@ -471,6 +474,7 @@ export function SessionContent({
               if (!historyAction) return;
               if (historyAction.action === 'fork' && !canCreateTab()) return;
               const location = navigationRevision.current;
+              setActionError(undefined);
               try {
                 if (historyAction.action === 'rewind')
                   await runtime.run(
@@ -491,14 +495,14 @@ export function SessionContent({
                   if (outcome.result && stillHere(location))
                     await openCreated(outcome.result.root_id);
                 }
-                setHistoryAction(undefined);
-              } catch {}
+                if (stillHere(location)) setHistoryAction(undefined);
+              } catch (error) { if (stillHere(location)) setActionError(error); }
             }}
           >
             Confirm {historyAction?.action}
           </Button>
         }
-      />
+      ><ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} /></Dialog>
       <Dialog
         open={!!stored}
         onOpenChange={(open) => {
@@ -510,7 +514,7 @@ export function SessionContent({
         title={stored?.title || 'Stored message'}
       >
         {stored?.error ? (
-          <p role="alert">{stored.error}</p>
+          <ErrorNotice type="resource" owner={`${session.rootId}:${stored.agentId}:message`} error={stored.error} />
         ) : stored?.text !== undefined ? (
           <StoredMessage text={stored.text} />
         ) : (
@@ -522,7 +526,7 @@ export function SessionContent({
             onClick={async () => {
               const current = stored;
               try {
-                runtime.platform.download(
+                await runtime.platform.download(
                   await session.client
                     .content(current.body!, {
                       rootId: session.rootId,
@@ -533,7 +537,7 @@ export function SessionContent({
                   current.body!.media_type,
                 );
               } catch (error) {
-                runtime.report(error);
+                setStored(previous => previous === current ? { ...previous, error: error instanceof Error ? error.message : String(error) } : previous);
               }
             }}
           >

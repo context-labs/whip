@@ -23,7 +23,7 @@ vi.mock('../src/session-sidebar', () => ({ SessionSidebar: ({ onConnect }: { onC
 vi.mock('../src/session-search-dialog', () => ({ SessionSearchDialog: () => null }));
 vi.mock('../src/host-dialog', () => ({ HostDialog: () => null }));
 vi.mock('../src/attention', () => ({ Attention: () => null, DesktopAttention: () => null }));
-vi.mock('../src/connection-notice', () => ({ ConnectionNotice: () => null }));
+vi.mock('../src/connection-notice', () => ({ HostNotice: () => null }));
 vi.mock('../src/conversation', () => ({ SessionContent: () => null, SessionLoading: () => null }));
 vi.mock('../src/workspace-views', () => ({ useWorkspaceViews: (_runtime: unknown, roots: unknown) => { routing.roots(roots); return { views: new Map(), errors: new Map() }; }, workspaceRootKey: ({ runtimeId, rootId }: { runtimeId: string; rootId: string }) => JSON.stringify([runtimeId, rootId]) }));
 // Exercise the shell, imperative tab action and real tab store; layout geometry has separate browser tests.
@@ -85,7 +85,7 @@ it('palette creation at capacity reports the limit without changing navigation o
   const f = fixture();
   act(() => { while (f.runtime.tabs.workspace().tabs.length < 32) f.runtime.tabs.openNew(); });
   const before = f.runtime.tabs.workspace();
-  const report = vi.spyOn(f.runtime, 'report');
+  const report = vi.spyOn(f.runtime, 'reportWorkspace');
   routing.navigate.mockClear();
   fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
   expect(f.runtime.tabs.workspace()).toBe(before);

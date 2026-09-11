@@ -108,6 +108,7 @@ function fixture() {
     revision = '1',
     ready = true,
     visibleRows = rows,
+    footer?: React.ReactNode,
   ) => (
     <StrictMode>
       <RuntimeContext.Provider value={runtime}>
@@ -115,6 +116,7 @@ function fixture() {
           <Timeline
             key={key}
             rows={visibleRows}
+            footer={footer}
             bookmarkKey={key}
             historyRevision={revision}
             historyReady={ready}
@@ -126,7 +128,7 @@ function fixture() {
       </RuntimeContext.Provider>
     </StrictMode>
   );
-  return { readingPositions, loadOlder, paging, report, app };
+  return { readingPositions, loadOlder, paging, report, app, runtime };
 }
 it('waits for ready history and restores a saved anchor under StrictMode without following the tail', () => {
   const f = fixture();
@@ -275,9 +277,30 @@ it('keeps an explicit fallback for a page with no visible rows and permits retry
   const older = screen.getByRole('button', { name: 'Load earlier messages' });
   expect(f.loadOlder).not.toHaveBeenCalled();
   await act(async () => { fireEvent.click(older); });
-  expect(f.report).toHaveBeenCalledWith(error);
+  expect(f.report).not.toHaveBeenCalled();
   expect(older.hasAttribute('disabled')).toBe(false);
   await act(async () => { fireEvent.click(older); });
   expect(f.loadOlder).toHaveBeenCalledTimes(2);
   expect(older.hasAttribute('disabled')).toBe(false);
+});
+
+it('keeps turn feedback after history inside the same reading viewport', () => {
+  const f = fixture();
+  render(f.app(undefined, undefined, true, rows, <div data-error-type="turn">This turn failed</div>));
+  const notice = screen.getByText('This turn failed');
+  const viewport = screen.getByRole('region', { name: 'Conversation' });
+  expect(viewport.contains(notice)).toBe(true);
+  const last = viewport.querySelectorAll('[data-reading-id]');
+  expect(last[last.length - 1]!.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('keeps clipboard failures on the affected message without reporting globally', async () => {
+  const f = fixture();
+  vi.mocked(f.runtime.platform.copy).mockRejectedValueOnce(new Error('Clipboard unavailable'));
+  render(f.app(undefined, undefined, true, [{ id: 'copy-row', role: 'user', text: 'Keep this text', live: false }]));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy message', exact: true })); });
+  const alert = screen.getByRole('alert');
+  expect(alert.closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('copy-row');
+  expect(alert.closest('[data-error-owner]')?.getAttribute('data-error-owner')).toBe('copy:copy-row');
+  expect(f.report).not.toHaveBeenCalled();
 });

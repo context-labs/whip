@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { Button, Dialog, Field, Input } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
@@ -6,7 +7,7 @@ import { layout } from './styles';
 
 const maxAnswers = 8;
 const maxAnswerLength = 4_096;
-type PendingPrompt = { serial: number; prompt: HostPrompt; busy: boolean; error?: string };
+type PendingPrompt = { serial: number; prompt: HostPrompt; busy: boolean; error?: string; errorType?: 'action' | 'validation' };
 
 /** Observe before connecting: an SSH challenge can arrive before React mounts. */
 export function createHostPrompts(bridge: DesktopBridge) {
@@ -19,9 +20,9 @@ export function createHostPrompts(bridge: DesktopBridge) {
     try { return Promise.resolve(bridge.answerPrompt(id, values)); }
     catch (error) { return Promise.reject(error); }
   };
-  const notice = (error: string) => {
+  const notice = (error: string, errorType: 'action' | 'validation' = 'action') => {
     if (disposed || !pending[0]) return;
-    pending = [{ ...pending[0], error }, ...pending.slice(1)]; emit();
+    pending = [{ ...pending[0], error, errorType }, ...pending.slice(1)]; emit();
   };
   const unsubscribe = bridge.onEvent(event => {
     if (disposed) return;
@@ -59,7 +60,7 @@ export function createHostPrompts(bridge: DesktopBridge) {
       if (disposed || !current || current.serial !== serial || current.busy) return;
       if (values && (values.length !== current.prompt.fields.length || values.some(value =>
         new TextEncoder().encode(value).byteLength > maxAnswerLength || /[\x00-\x1f\x7f]/.test(value)))) {
-        notice('Each SSH response must fit within 4 KiB and contain no control characters.'); return;
+        notice('Each SSH response must fit within 4 KiB and contain no control characters.', 'validation'); return;
       }
       pending = [{ ...current, busy: true, error: undefined }, ...pending.slice(1)]; emit();
       void send(current.prompt.id, values).then(() => {
@@ -68,7 +69,7 @@ export function createHostPrompts(bridge: DesktopBridge) {
       }, () => {
         if (disposed) return;
         pending = pending.map(entry => entry.serial === serial ? {
-          ...entry, busy: false, error: 'The SSH response could not be sent. Enter it again or cancel the request.',
+          ...entry, busy: false, errorType: 'action', error: 'The SSH response could not be sent. Enter it again or cancel the request.',
         } : entry); emit();
       });
     },
@@ -87,7 +88,7 @@ function PromptDialog({ active, prompts }: { active: PendingPrompt; prompts: Hos
   const form = useRef<HTMLFormElement>(null);
   const firstInput = useRef<HTMLInputElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
-  const { prompt, busy, error } = active;
+  const { prompt, busy, error, errorType = 'action' } = active;
   const captureForm = useCallback((element: HTMLFormElement | null) => {
     form.current = element;
     return () => { for (const input of element?.querySelectorAll('input') ?? []) input.value = ''; };
@@ -108,7 +109,7 @@ function PromptDialog({ active, prompts }: { active: PendingPrompt; prompts: Hos
           autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
           maxLength={maxAnswerLength} disabled={busy} />
       </Field>)}
-      {error && <p role="alert">{error}</p>}
+      {error && <ErrorNotice type={errorType} owner={`ssh-response:${prompt.id}`} title={errorType === 'action' ? error : undefined} error={error} />}
       <div {...stylex.props(layout.row)}>
         <Button type="button" variant="primary" loading={busy} onClick={() => answer()}>{prompt.confirmLabel}</Button>
         <Button ref={cancelButton} type="button" variant="ghost" disabled={busy} onClick={() => answer(true)}>Cancel</Button>

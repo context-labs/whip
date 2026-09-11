@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { RootSnapshot } from '@whip/protocol';
 import type { DeepReadonly, SessionView, SessionViewSnapshot } from '@whip/sdk/state';
@@ -6,6 +6,7 @@ import { Alert, Collapsible, CopyButton } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
+import { ErrorNotice } from './error-feedback';
 import { ContentRead } from './details/shared';
 
 type Agent = DeepReadonly<NonNullable<RootSnapshot['agents']>[number]>;
@@ -33,19 +34,21 @@ export function useSelectedAgent(view: SessionView, state: DeepReadonly<SessionV
 export function AgentTurnNotice({ agent, view, activeTurn }: { agent?: Agent; view: SessionView; activeTurn?: string }) {
   const runtime = useRuntime();
   const outcome = agent?.last_turn;
+  const [copyError, setCopyError] = useState<unknown>();
+  useEffect(() => setCopyError(undefined), [agent?.id, outcome?.event_seq]);
   if (!outcome || activeTurn || !['failed', 'cancelled', 'interrupted'].includes(outcome.status)) return null;
   const label = outcome.status === 'failed' ? 'Last turn failed' : outcome.status === 'cancelled' ? 'Last turn cancelled' : 'Last turn interrupted';
-  return <div {...stylex.props(styles.container)} data-agent-turn-outcome={outcome.status}>
+  return <div {...stylex.props(styles.container)} data-agent-turn-outcome={outcome.status} data-error-type="turn" data-error-owner={`${view.session.rootId}:${agent?.id}:${outcome.event_seq}`}>
     <Alert tone={outcome.status === 'failed' ? 'error' : 'neutral'} title={`${agent?.name || 'Root agent'} · ${label}`}
-      action={outcome.error && <CopyButton label={outcome.error_truncated ? 'Copy error preview' : 'Copy error'} text={outcome.error} copy={runtime.platform.copy} onError={runtime.report} />}>
+      action={outcome.error && <CopyButton label={outcome.error_truncated ? 'Copy error preview' : 'Copy error'} text={outcome.error} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />}>
       <div {...stylex.props(styles.body)}>
         <span {...stylex.props(styles.meta)}>{[agent?.model, agent?.provider].filter(Boolean).join(' · ')}</span>
-        {outcome.error && <p {...stylex.props(styles.error)}>{outcome.error.length > 240 ? `${outcome.error.slice(0, 240)}…` : outcome.error}</p>}
-        {outcome.error && (outcome.error.length > 240 || outcome.error_details) ? <Collapsible key={`${agent?.id}:${outcome.event_seq}`} title="Error details">
+        {outcome.error ? <Collapsible key={`${agent?.id}:${outcome.event_seq}`} title="Error details">
           <pre {...stylex.props(styles.error)}>{outcome.error}</pre>
           {outcome.error_truncated && <span {...stylex.props(styles.meta)}>Showing the beginning of the recorded error.</span>}
           {outcome.error_details && <ContentRead key={outcome.error_details.reference_id} view={view} agentId={agent?.id} value={outcome.error_details} label="Full error" />}
         </Collapsible> : !outcome.error && <span>No error details were recorded.</span>}
+        <ErrorNotice type="action" owner={`${agent?.id}:copy-error`} error={copyError} title="Could not copy error" />
       </div>
     </Alert>
   </div>;

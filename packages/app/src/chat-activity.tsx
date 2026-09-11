@@ -7,12 +7,13 @@ import * as stylex from '@stylexjs/stylex';
 import { appearance, colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { cellActivityLabel, executionActive, type ActivityGroup } from './chat-activity-rows';
 import type { TimelineRow } from './conversation-rows';
+import { ErrorNotice } from './error-feedback';
 import { ExecutionTime } from './execution-time';
 
 type Agent = DeepReadonly<NonNullable<RootSnapshot['agents']>[number]>;
 export function activityStatus(state: DeepReadonly<SessionViewSnapshot>, agentId: string, cells: readonly ExecutionRow[], connected: boolean, agent?: Agent) {
   const root = state.root;
-  if (!root) return { text: 'Connecting…', active: false };
+  if (!root) return { text: state.error ? '' : 'Loading session…', active: false };
   if (!connected) return { text: 'Reconnecting · activity updates paused', active: false };
   if (root.permissions?.some(item => item.status === 'pending')) return { text: 'Waiting for your approval', active: false, attention: true };
   if (root.questions?.some(item => item.question_id)) return { text: 'Waiting for your answer', active: false, attention: true };
@@ -143,11 +144,11 @@ export function ActivityGroupRow({ group, open, onToggle, onOpenRepl, connected,
           {cell.hosts.slice(0, 3).map(item => <div key={item.id} {...stylex.props(styles.host)}>
             <span>{item.name}</span><span {...stylex.props(styles.caption)}>{item.status === 'running' ? connected ? 'Running' : 'Updates paused' : item.status === 'unknown' ? 'Outcome unavailable' : item.status}{item.duration ? ` · ${item.duration}` : ''}</span>
             {item.summary && <span {...stylex.props(styles.hostSummary)}>{item.summary.slice(0, 160)}</span>}
-            {item.error && <span {...stylex.props(styles.error)}>{item.error.slice(0, 256)}</span>}
+            {item.error && <ErrorNotice type="execution" owner={`${cell.id}:${item.id}`} title={`${item.name} failed`} error={item.error} />}
           </div>)}
           {cell.code && <CodeBlock code={cell.code.slice(0, 4096)} language="starlark" label="Starlark" />}
           {cell.output && <pre {...stylex.props(styles.output)}>{cell.output.slice(-2048)}</pre>}
-          {cell.error && <p {...stylex.props(styles.error)}>{cell.error.slice(0, 1024)}</p>}
+          {cell.error && <ErrorNotice type="execution" owner={cell.id} error={cell.error} />}
           {(cell.truncated || cell.code.length > 4096 || cell.output.length > 2048 || cell.historyUnmatched) && <span {...stylex.props(styles.caption)}>Showing available execution previews. More detail may be available in the REPL.</span>}
           {cell.body && <Button size="sm" variant="ghost" onClick={() => readBody({ id: cell.id, role: 'tool', text: '', body: { ...cell.body!, media_type: cell.body!.media_type ?? '', source: cell.body!.source ?? '' } })}>Read stored execution</Button>}
         </div>)}

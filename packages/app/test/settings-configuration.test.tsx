@@ -176,3 +176,30 @@ it('preserves an unavailable saved effort during catalog refresh and displays th
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
   expect(f.update).not.toHaveBeenCalled();
 });
+
+it('classifies invalid defaults as validation and preserves the draft without writing to the host', async () => {
+  const f = fixture(); const view = f.render('execution');
+  fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '-1' } });
+  fireEvent.submit(view.container.querySelector('form')!);
+  await screen.findByText('Use whole numbers: compaction from 0 to 100%, and non-negative goal rounds and retries.');
+  expect(view.container.querySelector('[data-error-type="validation"]')).not.toBeNull();
+  expect(f.update).not.toHaveBeenCalled();
+  expect(f.runtime.report).not.toHaveBeenCalled();
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('-1');
+  fireEvent.change(screen.getByLabelText('Retry limit'), { target: { value: '4' } });
+  fireEvent.submit(view.container.querySelector('form')!);
+  await screen.findByText('Host defaults saved.');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps failed draft deletion inside its confirmation and clears it after retry', async () => {
+  const f = fixture();
+  vi.mocked(f.runtime.discardDrafts).mockImplementationOnce(() => { throw new Error('Device storage unavailable'); });
+  render(f.wrapper(<RecoverySettings />));
+  fireEvent.click(screen.getByRole('button', { name: 'Discard saved drafts…' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard drafts' }));
+  expect(screen.getByRole('dialog').querySelector('[data-error-type="action"]')).not.toBeNull();
+  expect(f.runtime.report).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Discard drafts' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});

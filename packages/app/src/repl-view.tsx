@@ -8,6 +8,7 @@ import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
 import { CollectionMore, ContentRead, mergeBy, useCollection } from './details/shared';
 import { styles } from './repl-view.stylex';
+import { ErrorNotice } from './error-feedback';
 import { ExecutionTime } from './execution-time';
 
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
@@ -65,7 +66,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
       loadOlder={() => view.loadOlder(agentId)} historyRevision={history?.revision ?? root?.history_revision}
       historyReady={!!history && !history.loading} bookmarkKey={`${runtimeId}:${viewId}:${agentId}:repl`}
       contentStyle={styles.content}
-      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded error above.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : `Cells appear here when this agent runs ${languageLabel}.`}</span></div>}
+      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded turn error below.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : `Cells appear here when this agent runs ${languageLabel}.`}</span></div>}
       renderRow={row => row.kind === 'restart'
         ? <div {...stylex.props(styles.restart)} data-repl-restart><RotateCcw size={14} /><span>{row.text}{row.historyUnmatched ? ' · observed; historical match unavailable' : ''}</span></div>
         : <Cell row={row} number={ordinals.get(row.id)!} view={view} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
@@ -97,6 +98,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
 }) {
   const runtime = useRuntime();
   const languageLabel = executionLabel(row.executionEngine);
+  const [copyError, setCopyError] = useState<unknown>();
   const running = row.status === 'running' || row.status === 'writing';
   const interrupted = row.status === 'interrupted' || row.status === 'cancelled';
   const isJson = !running && formatJsonOutput(row.output) !== row.output;
@@ -110,24 +112,25 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
       {row.steps !== undefined && <span {...stylex.props(styles.meta)}>{row.steps.toLocaleString()} steps</span>}
       {row.quickjsJobs !== undefined && <span {...stylex.props(styles.meta)}>{row.quickjsJobs.toLocaleString()} jobs</span>}
       <span {...stylex.props(styles.grow)} />
-      {row.code && <CopyButton label={`Copy ${languageLabel} code`} text={row.code} copy={runtime.platform.copy} onError={runtime.report} />}
+      {row.code && <CopyButton label={`Copy ${languageLabel} code`} text={row.code} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />}
     </header>
     {row.historyUnmatched && <p {...stylex.props(styles.meta)}>Observed execution · historical match unavailable</p>}
     {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
         <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : host.duration}</span></div>
-        {host.error && <p {...stylex.props(styles.error)}>{host.error}</p>}
+        {host.error && <ErrorNotice type="execution" owner={`${row.id}:${host.id}`} title={`${host.name} failed`} error={host.error} />}
       </div>)}
     </div>}
     {row.output && <div {...stylex.props(styles.section)}>
       <CodeBlock code={output.text} language={isJson ? 'json' : undefined} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : 'Output'} xstyle={styles.code}
-        downloadAction={<CopyButton label="Copy output" text={row.output} copy={runtime.platform.copy} onError={runtime.report} />} />
+        downloadAction={<CopyButton label="Copy output" text={row.output} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />} />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
     {row.hasValue && row.value !== undefined && <div {...stylex.props(styles.result)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div>}
     {row.scratch && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{row.scratch}</p>}
-    {row.error && <p {...stylex.props(styles.error)}>{row.error}</p>}
+    {row.error && <ErrorNotice type="execution" owner={row.id} error={row.error} />}
+    <ErrorNotice type="action" owner={`${row.id}:copy`} title="Could not copy" error={copyError} />
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}
   </article>;

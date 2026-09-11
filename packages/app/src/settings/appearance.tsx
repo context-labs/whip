@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
 import { Button, CodeBlock, IconButton, NumberField, Select, Slider, Switch, ThemePicker, useTheme } from '@whip/ui';
 import { RotateCcw, Upload } from 'lucide-react';
@@ -16,9 +17,10 @@ export function AppearanceSettings() {
   const { home, preferences } = useAppState();
   const { display, setDisplay, resetAppearance, notice } = useTheme();
   const [resetNotice, setResetNotice] = useState('');
+  const [error, setError] = useState('');
   const updateDensity = (index: number) => {
-    try { runtime.setPreferences({ toolDensity: densities[index] ?? 'compact' }); return true; }
-    catch (error) { runtime.report(error); return false; }
+    try { runtime.setPreferences({ toolDensity: densities[index] ?? 'compact' }); setError(''); return true; }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)); return false; }
   };
   return <>
     <SettingsGroup>
@@ -38,6 +40,7 @@ export function AppearanceSettings() {
           <div {...stylex.props(styles.sliderLabels)}><span>Compact</span><span>{preferences.toolDensity === 'comfortable' ? 'Comfortable' : 'Detailed'}</span></div>
         </div>
       </SettingRow>
+      {error && <ErrorNotice type="action" owner="tool-density" title="Could not save tool density" error={error} />}
       <SettingRow id="wrapCode" label="Code block word wrap" description="Wrap long lines in code and tool output.">
         <Switch hideLabel label="Code block word wrap" checked={display.wrapCode} onCheckedChange={wrapCode => setDisplay({ wrapCode })} />
       </SettingRow>

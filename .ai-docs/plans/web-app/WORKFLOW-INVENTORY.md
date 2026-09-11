@@ -16,9 +16,14 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
 | `rpc:daemon.stop` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
+| `rpc:definitions.get` | SDK-only | Headless definition registry read through client.agents.get; retrieves a built-in definition or a registered content revision. No desktop definition editor. |
+| `rpc:definitions.list` | SDK-only | Headless definition registry read through client.agents.list; lists built-ins and registrations. No desktop registry browser. |
+| `rpc:definitions.register` | SDK-only | Headless authoring through client.agents.register or serve; validates and stores a definition by content revision. No desktop registration flow. |
 | `rpc:events.replay` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:events.subscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:events.unsubscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:executor.bind` | SDK-only | Headless custom-tool execution through client.agents.serve; claims a connection lease for a registered definition revision and tool set. The desktop renderer does not serve tools. |
+| `rpc:executor.pending` | SDK-only | Headless executor recovery through client.agents.serve after reconnect; drains pending invocations for its current lease generation. No desktop action. |
 | `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
 | `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
@@ -56,6 +61,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:sessions.get` | Web | Exact bounded title, working directory, history revision and archive state for conversation row actions without hydrating transcripts. |
 | `rpc:sessions.summaries` | Web | One bounded query supplies title, project, descendant activity and human-attention counts for open session tabs without opening roots. |
 | `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
+| `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.finish` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |

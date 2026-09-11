@@ -240,7 +240,7 @@ export class WelcomeSubmissions {
           void this.transition(id, { ...item, state: 'accepted', error: undefined }).then(async acceptedItem => {
             await this.accepted(acceptedItem);
             resolve(rootId);
-          }).catch(error => { this.runtime.report(error); reject(error); });
+          }).catch(error => { reject(error); });
         }, welcomeDraftKey(id)).catch(error => { if (!accepted) reject(error); });
       });
     } catch (error) {

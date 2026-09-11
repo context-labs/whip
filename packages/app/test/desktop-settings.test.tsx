@@ -60,10 +60,11 @@ it('reports action and update errors and clears a stale error when a later nativ
   const f = fixture();
   vi.mocked(f.updates.check).mockRejectedValueOnce(new Error('Update service unavailable'));
   fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Update service unavailable'));
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Update service unavailable'));
+  expect(f.container.querySelector('[data-error-type="action"] details')?.hasAttribute('open')).toBe(false);
   f.update({ state: 'checking' }); expect(screen.queryByRole('alert')).toBeNull();
   f.update({ state: 'error', error: 'The update signature could not be verified' });
-  expect(screen.getByRole('alert').textContent).toBe('The update signature could not be verified');
+  expect(screen.getByRole('alert').textContent).toContain('The update signature could not be verified');
   f.update({ state: 'current' });
   expect(screen.queryByRole('alert')).toBeNull(); expect(screen.getByText('Whip is up to date.')).toBeTruthy();
 });
@@ -72,7 +73,7 @@ it('keeps a downloaded update available when restart is declined or fails', asyn
   const f = fixture(); f.update({ state: 'downloaded', version: '1.2.4' });
   vi.mocked(f.updates.install).mockRejectedValueOnce(new Error('Save your draft before restarting'));
   fireEvent.click(screen.getByRole('button', { name: 'Restart to update' }));
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Save your draft before restarting'));
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Save your draft before restarting'));
   expect((screen.getByRole('button', { name: 'Restart to update' }) as HTMLButtonElement).disabled).toBe(false);
 });
 

@@ -90,3 +90,16 @@ it('shows the routing provider logo and updates it when choosing another provide
   expect(trigger.textContent).toBe('gpt-5.5');
   expect(trigger.title).toBe('gpt-5.5 · openai-codex');
 });
+
+it('preserves the model selection popup for an action failure and closes on successful retry', async () => {
+  const change = vi.fn().mockRejectedValueOnce(new Error('Model change rejected')).mockResolvedValue(undefined);
+  render(<ThemeProvider initialTheme="light"><UIProvider><CatalogModelPicker model="gpt-5.5" provider="openrouter" settings catalog={catalog} onChange={change} /></UIProvider></ThemeProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
+  expect(alert.textContent).toContain('Model change rejected');
+  fireEvent.click(screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' }));
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(change).toHaveBeenCalledTimes(2);
+});

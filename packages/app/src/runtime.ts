@@ -69,6 +69,7 @@ const defaultPreferences: DevicePreferences = {
   desktopNotifications: false,
 };
 interface RuntimeSnapshot {
+  errorTitle?: string;
   preferences: DevicePreferences;
   hosts: readonly HostConnection[];
   home?: HostConnection;
@@ -77,6 +78,7 @@ interface RuntimeSnapshot {
   profileError?: string;
   selectedHostId?: string;
   error?: string;
+  workspaceError?: string;
   commands: readonly CommandNotice[];
 }
 
@@ -336,13 +338,19 @@ export class AppRuntime {
     }
     this.update({});
   }
-  clearError() {
-    this.update({ error: undefined });
+  /** Navigation and tab actions remain beside the workspace controls. */
+  reportWorkspace(error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') return;
+    this.update({ workspaceError: errorMessage(error) });
   }
-  report(error: unknown) {
+  clearWorkspaceError() { this.update({ workspaceError: undefined }); }
+  clearError() {
+    this.update({ error: undefined, errorTitle: undefined });
+  }
+  report(error: unknown, title?: string) {
     // Disposing a view or detaching a host cancels its local observers.
     if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') return;
-    this.update({ error: errorMessage(error) });
+    this.update({ error: errorMessage(error), errorTitle: title ?? (typeof error === 'string' ? error : undefined) });
   }
   draft(key: string) {
     if (!this.dirtyDrafts.has(key)) {
@@ -476,10 +484,11 @@ export class AppRuntime {
       }
     } catch (error) {
       const message = 'Drafts could not be saved; keep this page open to retain them.';
-      this.report(new Error(message, { cause: error }));
+      this.report(new Error(message, { cause: error }), message);
       return { saved: false, error: message };
     }
     const unsaved = this.hasUnsavedDrafts();
+    if (!unsaved && this.state.error === 'Drafts could not be saved; keep this page open to retain them.') this.clearError();
     if (wasUnsaved !== unsaved) this.update({});
     return unsaved
       ? { saved: false, error: 'Device storage is unavailable. Closing or reloading may lose draft changes; keep this page open to retain them.' }
@@ -778,7 +787,6 @@ export class AppRuntime {
             );
           } else if (!terminal)
             notice('Needs attention', { error: errorMessage(error) });
-          this.report(error);
         }
         throw error;
       }

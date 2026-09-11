@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -50,6 +51,9 @@ func sentAnswer(t *testing.T, command tea.Cmd) questionAnswer {
 	message := clientCommandFrom(t, command)
 	if message.action.Operation != "question.answer" {
 		t.Fatalf("operation = %q, want question.answer", message.action.Operation)
+	}
+	if err := protocol.ValidateRuntime(message.action.Operation, message.action.Payload); err != nil {
+		t.Fatalf("question.answer payload %s: %v", message.action.Payload, err)
 	}
 	var sent questionAnswer
 	if err := json.Unmarshal(message.action.Payload, &sent); err != nil {
@@ -340,5 +344,25 @@ func TestQuestionBatchReplacesSingleChoiceWithTextAndSkipsUntouchedPages(t *test
 	}
 	if !sent.Answers[1].Dismissed || !sent.Answers[2].Dismissed {
 		t.Fatalf("untouched and skipped pages = %+v", sent.Answers)
+	}
+}
+
+func TestQuestionBatchEscDismissesEveryPage(t *testing.T) {
+	m, _ := liveQueueModel(t)
+	event := questionPending(false)
+	for range 3 {
+		event.Questions = append(event.Questions, session.QuestionSet{Question: event.Question, Options: event.Options})
+	}
+	openQuestion(t, m, event)
+	m.thinKey(keyMsg(tea.KeyEnter)) // answer the first page before dismissing the batch
+	_, command := m.thinKey(keyMsg(tea.KeyEscape))
+	sent := sentAnswer(t, command)
+	if sent.ID != event.QuestionID || len(sent.Answers) != len(event.Questions) {
+		t.Fatalf("dismissed batch = %+v", sent)
+	}
+	for i, answer := range sent.Answers {
+		if !answer.Dismissed || len(answer.Answer) != 0 {
+			t.Errorf("page %d was not dismissed: %+v", i, answer)
+		}
 	}
 }

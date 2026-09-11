@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
@@ -52,7 +53,7 @@ export function ConfigurationSettings({ client, enabled, category, defaultProvid
   const current = configuration.data ?? (previous.current && previous.current.runtimeId === runtimeId ? previous.current.config : undefined);
   return <>
     {configuration.isPending && enabled && !current && <p role="status">Loading host defaults…</p>}
-    {configuration.error && <p role="alert">{configuration.error.message}</p>}
+    {configuration.error && enabled && <ErrorNotice type="resource" owner={`${runtimeId}:configuration`} title="Could not load host defaults" error={configuration.error} />}
     {current && <ConfigurationForm key={`${runtimeId}:${category}`} client={client} config={current} enabled={enabled} category={category} defaultProvider={defaultProvider} />}
   </>;
 }
@@ -63,6 +64,7 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
   const runtime = useRuntime();
   const [base, setBase] = useState(config);
   const [error, setError] = useState('');
+  const [errorType, setErrorType] = useState<'validation' | 'action'>('action');
   const [notice, setNotice] = useState('');
   const request = useRef<AbortController | null>(null);
   const saved = useRef(false);
@@ -71,14 +73,16 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
     defaultValues: values(base),
     onSubmit: async ({ value }) => {
       if (!enabled || request.current) return;
-      setError(''); setNotice('');
+      setError(''); setNotice(''); setErrorType('action');
       const controller = new AbortController();
       request.current = controller;
       const queryKey = ['runtime-configuration', client.getSnapshot().info?.runtime_id];
       try {
         if (category === 'execution' && (!Number.isInteger(value.compact_percent) || value.compact_percent < 0 || value.compact_percent > 100
           || !Number.isInteger(value.goal_max_rounds) || value.goal_max_rounds < 0 || !Number.isInteger(value.max_retries) || value.max_retries < 0)) {
-          throw new Error('Use whole numbers: compaction from 0 to 100%, and non-negative goal rounds and retries.');
+          setErrorType('validation');
+          setError('Use whole numbers: compaction from 0 to 100%, and non-negative goal rounds and retries.');
+          return;
         }
         const result = await client.configuration.update(configurationPatch(category, value, base.revision), { signal: controller.signal });
         if (controller.signal.aborted) return;
@@ -123,7 +127,7 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
     {category === 'providers' ? <SettingsGroup title="Defaults for new work">
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
         <CatalogModelPicker label="Default model" settings model={model} provider={provider} catalog={catalog.data?.result}
-          loading={catalog.isLoading} error={catalog.error?.message} disabled={!enabled || submitting} xstyle={settingsSection.control}
+          loading={catalog.isLoading} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || submitting} xstyle={settingsSection.control}
           onChange={(model, provider) => {
             form.setFieldValue('default_model', model); form.setFieldValue('default_provider', provider);
             const supported = modelEfforts(catalogModels(catalog.data?.result, provider), model);
@@ -172,7 +176,7 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
       The host configuration changed. Your edits are preserved. Review the latest defaults before saving again.
       <Button type="button" variant="secondary" disabled={submitting} onClick={() => { setBase(config); form.reset(values(config)); setError(''); setNotice(''); }}>Discard edits and load current defaults</Button>
     </div>}
-    {error && <p role="alert">{error}</p>}
+    {error && <ErrorNotice type={errorType} owner={`configuration:${category}`} title={errorType === 'action' ? 'Could not save host defaults' : undefined} error={error} />}
     {notice && <p role="status">{notice}</p>}
     <div {...stylex.props(layout.row)}><Button type="submit" disabled={!enabled || submitting || !dirty} loading={submitting}>Save host defaults</Button></div>
   </form>;

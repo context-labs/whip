@@ -116,3 +116,30 @@ it('a local profile does not inherit an SSH alias saved for an earlier URL conne
   fireEvent.click(await screen.findByRole('button', { name: 'VS Code', exact: true }));
   await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith({ app: 'vscode', directory: '/full/directory', connectionId: 'remote-profile', runtimeId: 'remote', sshAlias: undefined }));
 });
+
+it('keeps a failed rename in its session dialog and clears it on successful retry', async () => {
+  const f = fixture();
+  f.run.mockRejectedValueOnce(new Error('Rename rejected'));
+  fireEvent.click(screen.getByRole('button', { name: 'Rename', exact: true }));
+  await screen.findByRole('textbox');
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Keep this name' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
+  expect(alert.closest('[data-error-owner]')?.getAttribute('data-error-owner')).toBe('remote:same-root');
+  expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Keep this name');
+  expect(f.runtime.report).not.toHaveBeenCalled();
+  expect(screen.queryByText('Session action failed')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+it('anchors a failed menu action to its named session after the menu closes', async () => {
+  const f = fixture();
+  f.run.mockRejectedValueOnce(new Error('Archive rejected'));
+  fireEvent.click(screen.getByRole('button', { name: 'Archive', exact: true }));
+  const dialog = await screen.findByRole('dialog', { name: 'Could not archive session' });
+  expect(dialog.textContent).toContain('Truncated… · Remote workstation');
+  expect(dialog.querySelector('[data-error-owner]')?.getAttribute('data-error-owner')).toBe('remote:same-root');
+  expect(f.runtime.report).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+});

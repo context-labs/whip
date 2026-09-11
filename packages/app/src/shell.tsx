@@ -12,7 +12,6 @@ import { selectedSessionTab } from './session-tabs';
 import { openNewChat } from './session-tab-routing';
 import {
   PanelLeft,
-  X,
 } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
@@ -23,7 +22,8 @@ import { SessionSidebar } from './session-sidebar';
 import { SidebarResize, useSidebarLayout } from './sidebar-layout';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
-import { ConnectionNotice } from './connection-notice';
+import { HostNotice } from './connection-notice';
+import { ErrorNotice } from './error-feedback';
 import { SessionTabStrip, type SessionTabActions } from './session-tab-strip';
 import { isSettingsSection, settingsCategories, settingsBackDestination } from './settings/navigation';
 
@@ -36,7 +36,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const focusedHost = params.runtimeId ? state.hosts.find(host => host.runtimeId === params.runtimeId) : state.home;
-  const client = focusedHost?.client;
   useSessionTabs();
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => { const query = window.matchMedia('(max-width: 767px)'); const update = () => setCompact(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
@@ -95,20 +94,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', refresh);
   }, [runtime]);
   const notices = <>
-{client && <ConnectionNotice client={client} />}
+{state.hosts.map(host => <HostNotice key={host.id} host={host} onManage={manageServers} />)}
 {focusedHost?.progress && <p role="status" {...stylex.props(layout.notice)}>{focusedHost.progress}</p>}
 {runtime.connections.getSnapshot().notice && <div role="status" {...stylex.props(layout.notice)}>{runtime.connections.getSnapshot().notice} <Button variant="ghost" onClick={manageServers}>Manage servers</Button></div>}
-        {state.error && (
-          <div role="alert" {...stylex.props(layout.row, layout.notice)}>
-            <span {...stylex.props(layout.grow)}>{state.error}</span>
-            <IconButton
-              label="Dismiss error"
-              onClick={() => runtime.clearError()}
-            >
-              <X size={14} />
-            </IconButton>
-          </div>
-        )}
+        {state.error && <ErrorNotice type="application" owner="application" error={state.error}
+          title={state.errorTitle} onDismiss={() => runtime.clearError()} />}
+
   </>;
   return (
     <SessionActionsProvider><div {...stylex.props(layout.shell)}>

@@ -1,3 +1,4 @@
+import { ErrorNotice } from '../error-feedback';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
@@ -91,6 +92,7 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
   const [selected, select] = useState<string>();
   const [notice, setNotice] = useState('');
   const [connectedProvider, setConnectedProvider] = useState<string>();
+  const [defaultError, setDefaultError] = useState('');
   const [selectingDefault, setSelectingDefault] = useState(false);
   const defaultRequest = useRef<AbortController | null>(null);
   useEffect(() => () => defaultRequest.current?.abort(), []);
@@ -129,21 +131,22 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
         <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Refresh</Button>
       </div>
       {!inventory.data && inventory.isPending && <p role="status">Loading providers…</p>}
-      {inventory.error && <p role="alert">{inventory.error.message}</p>}
-      {(discoveryError || persistenceError || inventory.data?.discovery_error) && <Alert tone="error">{discoveryError || persistenceError || inventory.data?.discovery_error}</Alert>}
+      {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} />}
+      {enabled && (discoveryError || persistenceError || inventory.data?.discovery_error) && <ErrorNotice type="resource" owner={`${host}:provider-discovery`} title="Provider discovery needs attention" error={discoveryError || persistenceError || inventory.data?.discovery_error} />}
       {notice && <p role="status">{notice}</p>}
       {completed && <div {...stylex.props(styles.intro)}>
         <span {...stylex.props(styles.description)}>Your existing default is unchanged.</span>
         <Button variant="secondary" disabled={!enabled || selectingDefault} onClick={() => {
           if (!completed.suggested_model || !inventory.data) { document.getElementById('default_model')?.querySelector('button')?.focus(); return; }
-          const controller = new AbortController(); defaultRequest.current = controller; setSelectingDefault(true);
+          const controller = new AbortController(); defaultRequest.current = controller; setSelectingDefault(true); setDefaultError('');
           void client.configuration.update({ revision: inventory.data.revision, default_model: completed.suggested_model, default_provider: completed.id,
             ...(inventory.data.selection?.model !== completed.suggested_model || inventory.data.selection.provider !== completed.id ? { default_effort: '' } : {}) }, { signal: controller.signal })
             .then(async () => { await refresh(); if (!controller.signal.aborted) { setConnectedProvider(undefined); setNotice(`${completed.name} selected for new sessions.`); } })
-            .catch(async error => { if (!controller.signal.aborted) { setNotice(errorMessage(error)); await refresh(); } })
+            .catch(async error => { if (!controller.signal.aborted) { setDefaultError(errorMessage(error)); await refresh(); } })
             .finally(() => { if (!controller.signal.aborted) setSelectingDefault(false); });
         }}>{completed.suggested_model ? `Use ${completed.suggested_model} for new sessions` : 'Choose a model for new sessions'}</Button>
       </div>}
+      {defaultError && <ErrorNotice type="action" owner={`${host}:default-provider`} title="Could not change the default provider" error={defaultError} />}
       {inventory.data && <>
         <SettingsGroup title="Connected providers">{connected.length ? renderRows(connected, false) : <p {...stylex.props(styles.description)}>No providers connected on this host.</p>}</SettingsGroup>
         {!!attention.length && <SettingsGroup title="Needs attention">{renderRows(attention, false)}</SettingsGroup>}
@@ -153,7 +156,7 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
         <span {...stylex.props(styles.description)}>Sign-in in progress: {entries.find(entry => entry.id === (flow.provider || 'inference-net'))?.name ?? flow.provider}</span>
         <Button variant="ghost" disabled={!enabled} onClick={() => select(flow.provider || 'inference-net')}>Continue sign-in</Button>
       </div>)}
-      {flows.error && <p role="alert">{flows.error.message}</p>}
+      {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
     </div>
     {unavailableDefault && <div role="status" {...stylex.props(layout.notice, styles.intro)}>
       <span>The default provider, {defaultProvider?.name ?? inventory.data?.default_provider}, is unavailable. Your default model is unchanged.</span>
@@ -276,7 +279,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
       const result = await client.providers.disconnect({ provider: entry.id, revision }, { signal });
       await finish([`${entry.name} disconnected.`, ...(result.warnings ?? [])].join(' '), signal);
     })}>Disconnect provider</Button></div>}
-    {error && <Alert tone="error">{error}</Alert>}{notice && <Alert tone="success">{notice}</Alert>}
+    {error && <ErrorNotice type="action" owner={`provider:${entry.id}`} title="Could not update the provider connection" error={error} />}{notice && <Alert tone="success">{notice}</Alert>}
     {discard && <div {...stylex.props(layout.notice, layout.column)}><p {...stylex.props(styles.value)}>Discard the unsaved API key?</p><div {...stylex.props(layout.row)}>
       <Button xstyle={styles.actionButton} variant="secondary" onClick={() => setDiscard(false)}>Keep editing</Button><Button xstyle={styles.actionButton} onClick={() => { setKey(''); close(); }}>Discard key</Button>
     </div></div>}

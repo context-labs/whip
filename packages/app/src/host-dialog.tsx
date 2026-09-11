@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDialog, Button, Collapsible, Dialog, Field, IconButton, Input, Menu, SettingsRow, StatusIndicator, Switch, Tabs, type MenuItem, type DialogProps } from '@whip/ui';
@@ -43,13 +44,14 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
   const [connectOnLaunch, setConnectOnLaunch] = useState(editing?.connectOnLaunch ?? true);
   const [acceptIdentity, setAcceptIdentity] = useState(false);
   const [error, setError] = useState('');
+  const [errorType, setErrorType] = useState<'validation' | 'action'>('action');
   const canSave = state.home?.state === 'connected' && state.profilesReady;
   const nativeSSH = runtime.platform.connectionKinds?.includes('ssh') ?? false;
   const unsupported = kind === 'ssh' && !nativeSSH;
   const nameField = <Field label="Server name (optional)"><Input value={name} disabled={pending} onChange={event => setName(event.target.value)} placeholder={kind === 'ssh' ? 'Use the SSH host' : 'Use the server address'} /></Field>;
   const connectionFields = <div {...stylex.props(layout.column, styles.form)}>
     {kind === 'url' && <>
-      <Field label="Server address" description="The HTTP or HTTPS address of a running Whip server."><Input ref={addressRef} value={endpoint} disabled={pending} onChange={event => setEndpoint(event.target.value)} placeholder="https://server.example.com" required /></Field>
+      <Field label="Server address" description="The HTTP or HTTPS address of a running Whip server."><Input ref={addressRef} value={endpoint} disabled={pending} aria-invalid={!!error && errorType === 'validation'} onChange={event => { setEndpoint(event.target.value); if (errorType === 'validation') setError(''); }} placeholder="https://server.example.com" required /></Field>
       {nameField}
     </>}
     {kind === 'local' && nameField}
@@ -64,8 +66,11 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
     if (submitting.current || unsupported || (kind === 'url' && !canSave)) return;
     submitting.current = true; onPendingChange(true); setError('');
     void (async () => {
+      let validating = true;
       try {
         const url = kind === 'url' ? daemonEndpoint(endpoint) : '';
+        if (kind === 'ssh' && !ssh.host.trim()) throw new Error('Enter an SSH host.');
+        validating = false;
         const label = name.trim() || (kind === 'url' ? new URL(url).host : ssh.host.trim());
         nativeSave.current = kind === 'url' ? undefined : new AbortController();
         const id = kind === 'url'
@@ -76,7 +81,7 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
         void runtime.connections.connect(id).catch(() => {});
         if (state.legacyHosts.includes(endpoint)) runtime.forgetLegacyHost(endpoint);
         if (mounted.current) { onSaved?.(id); onOpenChange(false); }
-      } catch (error) { if (mounted.current) setError(errorMessage(error)); }
+      } catch (error) { if (mounted.current) { setErrorType(validating ? 'validation' : 'action'); setError(validating && kind === 'url' && error instanceof TypeError ? 'Enter a valid HTTP or HTTPS server address.' : errorMessage(error)); } }
       finally { submitting.current = false; if (mounted.current) onPendingChange(false); }
     })();
   }}>
@@ -89,7 +94,7 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
       {(editing || legacy?.runtimeId) && <Switch label="Accept a new daemon identity" description="Use only when this address intentionally points to a replacement daemon. Existing tabs keep their original identity." checked={acceptIdentity} disabled={pending} onCheckedChange={setAcceptIdentity} />}
     </div></Collapsible>}
     {kind === 'url' && !canSave && <Alert tone="warning">Connect Local and load its server profiles to save URL servers.</Alert>}
-    {error && <Alert tone="error">{error}</Alert>}
+    {error && <ErrorNotice type={errorType} owner={editing?.id ?? "new-server"} error={error} />}
     <div {...stylex.props(layout.row, styles.footer)}>
       <Button type="button" variant="ghost" disabled={pending && kind === 'url'} onClick={() => { if (pending) nativeSave.current?.abort(); else onOpenChange(false); }}>{pending && kind !== 'url' ? 'Cancel connection' : 'Cancel'}</Button>
       {!unsupported && <Button type="submit" variant="primary" loading={pending} disabled={pending || (kind === 'url' && !canSave)}>{pending ? kind === 'url' ? 'Verifying and saving…' : 'Saving and connecting…' : editing ? 'Save changes' : 'Add server'}</Button>}
@@ -133,7 +138,7 @@ export function ServerManager() {
           ...(!canDisconnect ? [{ id: 'connect', label: host.state === 'connecting' ? 'Cancel connection' : 'Connect', onSelect: () => {
             // Do not hold a pending lock across connection setup: Cancel must stay reachable.
             if (host.state === 'connecting') runtime.connections.disconnect(host.id);
-            else { setError(''); void runtime.connections.connect(host.id).then(() => runtime.connections.select(host.id)).catch(error => { if (mounted.current) setError(errorMessage(error)); }); }
+            else { setError(''); void runtime.connections.connect(host.id).then(() => runtime.connections.select(host.id)).catch(() => {}); }
           } }] : []),
           { id: 'rename', label: 'Rename server', disabled: !host.local && !host.device && !canSave, onSelect: () => setRenaming(host) },
           ...(!host.local || host.device ? [{ id: 'edit', label: 'Edit server', disabled: host.state === 'connecting', onSelect: () => setForm({ editing: host }) }] : []),
@@ -158,27 +163,26 @@ export function ServerManager() {
             </div>
           </SettingsRow>
           {host.progress && <p role="status" {...stylex.props(styles.runtimeMessage)}>{host.progress}</p>}
-          {host.error && <p role="status" {...stylex.props(styles.runtimeMessage, styles.address)}>{host.error}</p>}
         </div>;
       })}
     </SettingsGroup>
-    {state.profileError && <p role="status">{state.profileError}</p>}
-    {error && !removing && !disconnecting && <p role="alert">{error}</p>}
+    {state.profileError && state.home?.state === "connected" && <ErrorNotice type="resource" owner="server-profiles" error={state.profileError} title="Could not load saved servers" />}
+    {error && !removing && !disconnecting && <ErrorNotice type="action" owner="server-manager" error={error} />}
     {renaming && <RenameServerDialog host={renaming} finalFocus={returnFocus} close={() => setRenaming(undefined)} />}
     <HostDialog finalFocus={returnFocus} open={!!form} {...form} onOpenChange={open => { if (!open) setForm(undefined); }} />
     <AlertDialog open={!!disconnecting} onOpenChange={open => { if (!open && !pending) setDisconnecting(undefined); }} title={`Disconnect ${disconnecting?.name ?? 'server'}?`}
       description="Sessions keep running on this server. You can reconnect at any time." finalFocus={() => returnFocus.current?.isConnected ? returnFocus.current : addButton.current}
       confirmLabel="Disconnect" danger loading={pending}
       onConfirm={() => { if (disconnecting) void action(async () => { runtime.connections.disconnect(disconnecting.id); if (mounted.current) setDisconnecting(undefined); }); }}>
-      {error && <p role="alert">{error}</p>}
+      {error && <ErrorNotice type="action" owner={disconnecting?.id ?? removing?.id ?? "server-manager"} error={error} />}
     </AlertDialog>
     <AlertDialog open={!!removing} onOpenChange={open => { if (!open && !pending) setRemoving(undefined); }} title={`Remove ${removing?.name ?? 'server'}?`}
       description="This removes the saved connection, not daemon sessions. Tabs and drafts stay on their original server." finalFocus={() => returnFocus.current?.isConnected ? returnFocus.current : addButton.current} confirmLabel="Remove server" danger loading={pending}
       onConfirm={() => { if (removing) void action(async () => { await runtime.connections.remove(removing.id); if (mounted.current) setRemoving(undefined); }); }}>
-      {error && <p role="alert">{error}</p>}
+      {error && <ErrorNotice type="action" owner={disconnecting?.id ?? removing?.id ?? "server-manager"} error={error} />}
     </AlertDialog>
     <Dialog open={!!localHost} onOpenChange={open => { if (!open && !localPending) setLocal(undefined); }} title="Local server settings" finalFocus={returnFocus}>
-      {localHost && runtime.platform.localRuntime && <LocalRuntimePanel api={runtime.platform.localRuntime} hostState={localHost.state} disabled={pending} onBusyChange={setLocalPending} />}
+      {localHost && runtime.platform.localRuntime && <LocalRuntimePanel api={runtime.platform.localRuntime} hostState={localHost.state} connectionError={localHost.error} disabled={pending} onBusyChange={setLocalPending} />}
     </Dialog>
     {!!runtime.connections.getSnapshot().legacyProfiles?.length && <Collapsible title="Import desktop addresses">
       <div {...stylex.props(layout.column)}>{runtime.connections.getSnapshot().legacyProfiles!.map(profile => <Button key={profile.id} variant="ghost" disabled={pending || localPending} onClick={event => { returnFocus.current = event.currentTarget; setForm({ legacy: profile }); }}>{profile.label}</Button>)}</div>
@@ -207,15 +211,17 @@ function RenameServerDialog({ host, finalFocus, close }: { host: HostConnection;
   const [name, setName] = useState(host.name);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   return <Dialog open title="Rename server" description="Choose the name shown for this server." finalFocus={finalFocus}
     onOpenChange={open => { if (!open && !pending) close(); }}>
     <form {...stylex.props(layout.column, styles.form)} onSubmit={event => {
       event.preventDefault(); if (pending || !name.trim()) return;
       setPending(true); setError('');
-      void runtime.connections.rename(host.id, name).then(close).catch(error => { setError(errorMessage(error)); setPending(false); });
+      void runtime.connections.rename(host.id, name).then(() => { if (mounted.current) close(); }).catch(error => { if (mounted.current) { setError(errorMessage(error)); setPending(false); } });
     }}>
       <Field label="Server name"><Input autoFocus required maxLength={256} disabled={pending} value={name} onChange={event => setName(event.target.value)} /></Field>
-      {error && <Alert tone="error">{error}</Alert>}
+      {error && <ErrorNotice type="action" owner={host.id} error={error} title="Could not rename server" />}
       <div {...stylex.props(layout.row, styles.footer)}>
         <Button type="button" variant="ghost" disabled={pending} onClick={close}>Cancel</Button>
         <Button type="submit" variant="primary" loading={pending} disabled={pending || !name.trim() || name.trim() === host.name}>Save name</Button>
@@ -251,22 +257,23 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
   const [pending, setPending] = useState<LocalRuntimeAction>();
   const [status, setStatus] = useState<LocalRuntimeStatus>();
   const [error, setError] = useState('');
+  const [errorType, setErrorType] = useState<'resource' | 'action'>('resource');
   const [confirmRestart, setConfirmRestart] = useState(false);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; request.current++; onBusyChange(false); };
   }, [onBusyChange]);
-  const run = async (method: LocalRuntimeAction) => {
-    if (active.current && (active.current !== 'test' || method !== 'test')) return;
+  const run = async (method: LocalRuntimeAction, automatic = false) => {
+    if (active.current && (automatic || active.current !== 'test' || method !== 'test')) return;
     const id = ++request.current;
-    active.current = method; setPending(method); onBusyChange(true); setError(''); setConfirmRestart(false);
+    active.current = method; setPending(method); onBusyChange(true); setError(''); setErrorType(automatic ? 'resource' : 'action'); setConfirmRestart(false);
     try {
-      if (method === 'connect') { await onConnect?.(); return; }
+      if (method === 'connect') { await onConnect?.().catch(() => {}); return; }
       const result = await api[method]?.();
       if (mounted.current && id === request.current && result) {
         setStatus(result);
         if (onboarding && onConnect && method !== 'test' && (result.state === 'stopped' || result.state === 'running')) {
-          setPending('connect'); await onConnect();
+          setPending('connect'); await onConnect().catch(() => {});
         }
       }
     } catch (error) {
@@ -278,9 +285,10 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
     }
   };
   useEffect(() => {
-    if (hostState !== 'connecting') void run('test');
+    if (hostState !== 'connecting') void run('test', true);
   }, [api, hostState]);
   const busy = disabled || pending !== undefined;
+  const unavailable = !!connectionError && hostState !== 'connected';
   const controls = <>
     <div {...stylex.props(layout.row, layout.wrap)}>
       <Button variant="secondary" disabled={busy} loading={pending === 'test'} onClick={() => void run('test')}>Test Connection</Button>
@@ -316,13 +324,16 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
       : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
       : pending === 'install' || pending === 'installDefault' ? 'Installing the verified local service…'
       : pending === 'restart' ? 'Restarting the local daemon…'
-      : status?.message ?? 'Checking this Mac…'}</p>}
-    {(error || (!pending && connectionError && status?.state !== 'missing')) && <p role="alert" {...stylex.props(layout.error, styles.runtimeMessage)}>{error || connectionError}</p>}
+      : unavailable ? 'This Mac is unavailable. Reconnect to continue.'
+      : status?.message ?? (hostState === 'connected' ? 'This Mac is connected. Runtime diagnostics are unavailable.' : 'Local runtime diagnostics are unavailable.')}</p>}
+    {error && !(errorType === "resource" && unavailable) && <ErrorNotice type={errorType} owner="local-runtime-setup" error={error}
+      title={errorType === "resource" ? "Could not load local runtime diagnostics" : "Local server action could not finish"}
+      action={errorType === "resource" && <Button variant="ghost" disabled={busy} onClick={() => void run("test")}>Retry diagnostics</Button>} />}
     {onboarding ? <>
       {status?.state === 'missing' && <div {...stylex.props(layout.row)}>
         <Button variant="primary" disabled={busy} loading={pending === 'installDefault' || pending === 'install'} onClick={() => void run(api.installDefault ? 'installDefault' : 'install')}>{error ? 'Retry setup' : 'Set up this Mac'}</Button>
       </div>}
-      {(status?.state === 'running' || status?.state === 'stopped') && onConnect && <div {...stylex.props(layout.row)}>
+      {(status?.state === 'running' || status?.state === 'stopped' || unavailable) && onConnect && <div {...stylex.props(layout.row)}>
         <Button variant="primary" disabled={busy} loading={pending === 'connect' || hostState === 'connecting'} onClick={() => void run('connect')}>{error || connectionError ? 'Retry connection' : 'Connect to this Mac'}</Button>
       </div>}
       <Collapsible title="Advanced options"><div {...stylex.props(layout.column)}>{controls}</div></Collapsible>

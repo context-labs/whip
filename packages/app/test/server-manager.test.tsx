@@ -66,9 +66,15 @@ it('adds a URL with a derived name, existing auto-connect default, and returns f
 
 it('keeps invalid and failed URL submissions open with entered fields and prevents duplicate saves', async () => {
   const f = fixture(); const dialog = await add(); const address = dialog.getByLabelText('Server address');
+  fireEvent.change(address, { target: { value: 'not a server address' } });
+  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  expect(await screen.findByText('Enter a valid HTTP or HTTPS server address.')).toBeTruthy();
+  expect(address.getAttribute('aria-invalid')).toBe('true');
   fireEvent.change(address, { target: { value: 'https://user:secret@build.example' } });
+  expect(screen.queryByRole('alert')).toBeNull();
   fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
   await screen.findByRole('alert'); expect(f.connections.save).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert').closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('validation');
   fireEvent.change(address, { target: { value: 'https://build.example' } });
   let reject!: (error: Error) => void;
   f.connections.save.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
@@ -78,6 +84,7 @@ it('keeps invalid and failed URL submissions open with entered fields and preven
   fireEvent.click(dialog.getByRole('button', { name: 'Close', exact: true })); expect(screen.getByRole('dialog')).toBeTruthy();
   await act(async () => reject(new Error('Configuration changed. Reload and retry.')));
   expect((address as HTMLInputElement).value).toBe('https://build.example');
+  expect(screen.getByRole('alert').closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
   expect(screen.getByRole('alert').textContent).toContain('Configuration changed'); expect(f.connections.connect).not.toHaveBeenCalled();
 });
 
@@ -116,7 +123,7 @@ it('keeps SSH available without Local and offers scoped setup cancellation', asy
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
-it('keeps errors visible and cancellation reachable while connection setup is pending', async () => {
+it('shows connection availability without duplicating host errors and keeps cancellation reachable', async () => {
   const remote = host('remote', { state: 'connecting', client: undefined, progress: 'Opening SSH tunnel…' });
   const f = fixture({ hosts: [host('local'), remote] });
   expect(screen.getByText('Opening SSH tunnel…')).toBeTruthy();
@@ -124,7 +131,7 @@ it('keeps errors visible and cancellation reachable while connection setup is pe
   expect(actions.getByRole('menuitem', { name: 'Edit server' }).getAttribute('aria-disabled')).toBe('true');
   fireEvent.click(actions.getByRole('menuitem', { name: 'Cancel connection' })); expect(f.connections.disconnect).toHaveBeenCalledWith('remote');
   f.publish({ hosts: [host('local'), { ...remote, state: 'closed', error: 'Host key was rejected' }] });
-  expect(screen.getByText('Host key was rejected')).toBeTruthy(); expect(screen.getByText('Disconnected')).toBeTruthy();
+  expect(screen.queryByText('Host key was rejected')).toBeNull(); expect(screen.getByText('Disconnected')).toBeTruthy();
   fireEvent.click((await menu('Build server')).getByRole('menuitem', { name: 'Connect' }));
   await waitFor(() => expect(f.connections.select).toHaveBeenCalledWith('remote'));
 });

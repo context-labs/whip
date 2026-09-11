@@ -45,12 +45,7 @@ type questionDraft struct {
 }
 
 // questionAnswer is the question.answer client-op payload.
-type questionAnswer struct {
-	ID        string                         `json:"id"`
-	Answer    []string                       `json:"answer,omitempty"`
-	Dismissed bool                           `json:"dismissed,omitempty"`
-	Answers   []protocol.QuestionAnswerEntry `json:"answers,omitempty"`
-}
+type questionAnswer = protocol.QuestionAnswerParams
 
 // sets returns the batch's questions, synthesizing one from the legacy flat
 // fields when the daemon (or an older snapshot) carried a single ask.

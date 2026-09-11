@@ -6,6 +6,7 @@ import { useAppState, useRuntime } from './context';
 import { errorMessage, readPreference, type ProjectEditor } from './platform';
 import { sessionDestination, tabDestination } from './session-tab-routing';
 import { selectedSessionTab } from './session-tabs';
+import { ErrorNotice } from './error-feedback';
 
 export interface SessionActionTarget {
   runtimeId: string;
@@ -15,7 +16,7 @@ export interface SessionActionTarget {
 }
 type Action = 'rename' | 'fork' | 'delete' | 'ssh';
 type Metadata = Awaited<ReturnType<WhipClient['sessions']['get']>>;
-interface Selection { target: SessionActionTarget; hostName: string; client: WhipClient; action: Action; metadata?: Metadata; error?: string }
+interface Selection { target: SessionActionTarget; hostName: string; client: WhipClient; action: Action; metadata?: Metadata; error?: string; errorType?: 'action' | 'validation' | 'resource' }
 interface Actions { items(target: SessionActionTarget): MenuItem[]; prepare(open: boolean): void }
 const ActionsContext = createContext<Actions | null>(null);
 const aliasKey = (runtimeId: string) => `whip.web.editor-ssh.v1:${runtimeId}`;
@@ -30,6 +31,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
   locationRef.current = location;
   const toast = useToast();
   const [selection, setSelection] = useState<Selection>();
+  const [failure, setFailure] = useState<{ target: SessionActionTarget; title: string; error: unknown }>();
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
@@ -57,14 +59,16 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
   function close() { if (!lock.current) { request.current?.abort(); setSelection(undefined); } }
   async function begin(target: SessionActionTarget, action: Action) {
     if (lock.current) return;
+    const origin = locationRef.current;
+    request.current?.abort();
+    const abort = new AbortController();
+    request.current = abort;
+    setFailure(undefined);
+    let next: Selection | undefined;
     try {
-      const origin = locationRef.current;
       const host = attached(target);
       const client = host.client!;
-      request.current?.abort();
-      const abort = new AbortController();
-      request.current = abort;
-      const next: Selection = { target, hostName: host.name, client, action };
+      next = { target, hostName: host.name, client, action };
       setSelection(next);
       setValue(action === 'ssh' ? alias(target.runtimeId) : '');
       if (action === 'ssh') return;
@@ -74,20 +78,20 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       setValue(data.title);
       if (action === 'fork') await fork(next, data, origin);
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      setSelection(current => current ? { ...current, error: errorMessage(error) } : current);
-      runtime.report(error);
+      if (abort.signal.aborted || !mounted.current) return;
+      if (next) setSelection({ ...next, error: errorMessage(error), errorType: 'resource' });
+      else setFailure({ target, title: 'Could not open session action', error });
     }
   }
-  async function perform(work: () => Promise<void>) {
+  async function perform(work: () => Promise<void>, target?: SessionActionTarget, title = 'Session action failed') {
     if (lock.current) return;
     lock.current = true;
-    setBusy(true);
+    setBusy(true); setFailure(undefined);
+    setSelection(current => current ? { ...current, error: undefined, errorType: undefined } : current);
     try { await work(); }
     catch (error) {
       if (mounted.current) setSelection(current => current ? { ...current, error: errorMessage(error) } : current);
-      runtime.report(error);
-      toast.add({ title: 'Session action failed', description: errorMessage(error) });
+      if (mounted.current && target) setFailure({ target, title, error });
     } finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   async function fork(current: Selection, data: Metadata, origin: typeof location) {
@@ -109,12 +113,15 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
   async function submit() {
     if (!selection) return;
     const current = selection;
+    if (current.action === 'ssh' && !/^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,252}$/.test(value.trim())) {
+      setSelection({ ...current, errorType: 'validation', error: 'Enter an SSH host alias from your SSH config, such as gpu-4090-sam.' });
+      return;
+    }
     await perform(async () => {
       const { target, client, action } = current;
       attached(target, client);
       if (action === 'ssh') {
         const name = value.trim();
-        if (!/^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,252}$/.test(name)) throw new Error('Enter an SSH host alias from your SSH config, such as gpu-4090-sam.');
         runtime.platform.storage.setItem(aliasKey(target.runtimeId), JSON.stringify(name));
       } else if (action === 'rename') {
         await runtime.run(client.session(target.rootId).rename(value.trim()), 'Rename session');
@@ -139,20 +146,21 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       toast.add({ title: archived ? 'Session archived' : 'Session restored', description: archived
         ? <Button variant="ghost" onClick={() => void archive(target, false)}>Undo archive</Button>
         : 'This session is back in the sidebar.' });
-    });
+    }, target, archived ? 'Could not archive session' : 'Could not restore session');
   }
   async function openDirectory(target: SessionActionTarget, app?: ProjectEditor['id']) {
-    try {
+    await perform(async () => {
       const host = attached(target);
       const data = await metadata(target, host.client!);
       if (!data.cwd) throw new Error('This session has no working directory.');
       if (app) await runtime.platform.projectEditors!.open({ app, directory: data.cwd, connectionId: host.id, runtimeId: target.runtimeId, sshAlias: host.profile.target.kind === 'local' ? undefined : alias(target.runtimeId) || undefined });
       else { await runtime.platform.copy(data.cwd); toast.add({ title: 'Directory copied' }); }
-    } catch (error) { runtime.report(error); toast.add({ title: 'Could not open directory', description: errorMessage(error) }); }
+    }, target, app ? 'Could not open directory' : 'Could not copy directory');
   }
   const prepare = (open: boolean) => {
     if (!open || !runtime.platform.projectEditors) return;
-    void runtime.platform.projectEditors.list().then(setEditors).catch(error => setEditorError(errorMessage(error)));
+    setEditorError(undefined);
+    void runtime.platform.projectEditors.list().then(value => { if (mounted.current) setEditors(value); }).catch(error => { if (mounted.current) setEditorError(errorMessage(error)); });
   };
   function items(target: SessionActionTarget): MenuItem[] {
     const host = runtime.connections.host(target.runtimeId);
@@ -164,11 +172,12 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     const native: MenuItem[] = runtime.platform.projectEditors ? [
       ...(editors ?? []).map(editor => ({ id: editor.id, label: `${editor.label}${!editor.installed ? ' (not installed)' : editor.id === 'finder' && remote ? ' (local folders only)' : needsAlias ? ' (configure SSH first)' : ''}`,
         disabled: disabled || !editor.installed || (editor.id === 'finder' && remote) || needsAlias, onSelect: () => void openDirectory(target, editor.id) })),
-      ...(!editors ? [{ id: 'loading', label: editorError ?? 'Finding installed editors…', disabled: true }] : []),
+      ...(editorError ? [{ id: 'editor-error', label: <span role="status" data-error-type="resource" data-error-owner="installed-editors">Could not load installed editors. Reopen this menu to retry.</span>, disabled: true }]
+        : !editors ? [{ id: 'loading', label: 'Finding installed editors…', disabled: true }] : []),
       ...(remote ? [{ id: 'ssh', label: 'Configure SSH for editors…', disabled, onSelect: () => void begin(target, 'ssh') }] : []),
     ] : [];
     return [
-      { id: 'background', label: 'Open in background tab', disabled, onSelect: () => { try { runtime.tabs.open(target.runtimeId, target.rootId, target.title); } catch (error) { runtime.report(error); } } },
+      { id: 'background', label: 'Open in background tab', disabled, onSelect: () => { try { runtime.tabs.open(target.runtimeId, target.rootId, target.title); } catch (error) { setFailure({ target, title: 'Could not open session tab', error }); } } },
       { id: 'open-in', label: 'Open in', disabled, items: [...native, { id: 'copy-directory', label: 'Copy directory', disabled, onSelect: () => void openDirectory(target) }] },
       { id: 'rename', label: 'Rename', disabled, onSelect: () => void begin(target, 'rename') },
       { id: 'fork', label: 'Fork', disabled, onSelect: () => void begin(target, 'fork') },
@@ -184,11 +193,18 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       footer={<><Button onClick={close} disabled={busy}>Close</Button>{selection?.action !== 'fork' && <Button variant={selection?.action === 'delete' ? 'danger' : 'primary'} loading={busy}
         disabled={busy || (selection?.action !== 'ssh' && !selection?.metadata) || (selection?.action !== 'delete' && !value.trim())}
         onClick={() => void submit()}>{selection?.action === 'delete' ? 'Delete session' : 'Save'}</Button>}</>}>
-      {selection?.error && <p role="alert">{selection.error}</p>}
+      {selection?.error && <ErrorNotice type={selection.errorType ?? "action"} owner={`${selection.target.runtimeId}:${selection.target.rootId}`} error={selection.error}
+        action={selection.errorType === "resource" && <Button variant="ghost" onClick={() => void begin(selection.target, selection.action)}>Retry loading session</Button>} />}
+      {selection && <p>{selection.target.title || 'Untitled session'} · {selection.hostName}</p>}
       {selection?.action !== 'ssh' && !selection?.metadata && !selection?.error && <p role="status">Loading session details…</p>}
       {(selection?.action === 'rename' && selection.metadata || selection?.action === 'ssh') && <Field label={selection.action === 'ssh' ? 'SSH host alias' : 'Session name'}><Input value={value} onChange={event => setValue(event.target.value)} maxLength={selection.action === 'ssh' ? 253 : 65536} disabled={busy} autoFocus onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && value.trim()) void submit(); }} /></Field>}
       {selection?.action === 'delete' && selection.metadata && <><p>{selection.metadata.title || 'Untitled session'}</p><p>Host: {selection.hostName}</p></>}
       {selection?.action === 'fork' && busy && <p role="status">Copying committed conversation history in the same working directory…</p>}
+    </Dialog>
+    <Dialog open={!!failure} title={failure?.title ?? "Session action failed"} onOpenChange={open => { if (!open) setFailure(undefined); }}
+      footer={<Button onClick={() => setFailure(undefined)}>Close</Button>}>
+      {failure && <><p>{failure.target.title || "Untitled session"} · {runtime.connections.host(failure.target.runtimeId)?.name ?? failure.target.runtimeId}</p>
+        <ErrorNotice type="action" owner={`${failure.target.runtimeId}:${failure.target.rootId}`} error={failure.error} /></>}
     </Dialog>
   </ActionsContext.Provider>;
 }

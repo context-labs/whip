@@ -1,3 +1,4 @@
+import { ErrorNotice } from './error-feedback';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -55,7 +56,6 @@ function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: 
       <span {...stylex.props(layout.muted)}>{host.state === 'closed' ? 'Offline' : host.state === 'connected' ? '' : host.state}</span>
     </button>
     {!collapsed && <>
-      {host.error && <p role="status" {...stylex.props(layout.muted)}>{host.error}</p>}
       {host.client && host.list ? <HostSidebar {...props} client={host.client} list={host.list} />
         : <Button variant="ghost" onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>}
     </>}
@@ -96,33 +96,38 @@ function SidebarFooter({ onConnect }: { onConnect(): void }) {
 function HostSidebar({ client, list, state, setState, onNavigate, scroll, content }: SidebarProps & SidebarScroll & { client: WhipClient; list: SessionListView }) {
   const runtime = useRuntime();
   const catalog = useSessionListView(list);
+  const connection = useWhipConnection(client);
+  const [collapseNotice, setCollapseNotice] = useState('');
   const runtimeId = client.getSnapshot().info?.runtime_id ?? '';
   const collapsed = state.hosts.find(host => host.runtimeId === runtimeId)?.collapsed ?? noCollapsedDirectories;
   const collapse = (cwd: string, closed: boolean) => {
     const next = setDirectoryCollapsed(state, runtimeId, cwd, closed);
     setState(next);
     if (closed && state.hosts.some(host => host.collapsed.some(path => !next.hosts.find(item => item.runtimeId === host.runtimeId)?.collapsed.includes(path)))) {
-      runtime.report('Older directory collapse preferences were reset to keep sidebar storage within its limit.');
+      setCollapseNotice('Older directory collapse preferences were reset to keep sidebar storage within its limit.');
     }
   };
   return <>
-      <SessionRows client={client} scroll={scroll} content={content} page={catalog.page} loading={catalog.status === 'loading'} error={catalog.error?.message}
+      {collapseNotice && <p role="status">{collapseNotice}</p>}
+      <SessionRows client={client} scroll={scroll} content={content} page={catalog.page} loading={catalog.status === 'loading'} error={connection.state === 'connected' ? catalog.error?.message : undefined}
         collapsed={collapsed} onCollapse={collapse}
-        onNavigate={onNavigate} loadMore={() => void list.loadMore().catch(error => runtime.report(error))} />
+        onNavigate={onNavigate} retry={() => void list.refresh().catch(() => {})} loadMore={() => void list.loadMore().catch(() => {})} />
   </>;
 }
-function SessionRows({ client, page, loading, error, onNavigate, loadMore, scroll, content, collapsed = noCollapsedDirectories, onCollapse }: SidebarScroll & {
+function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry, scroll, content, collapsed = noCollapsedDirectories, onCollapse }: SidebarScroll & {
   client: WhipClient;
   page?: DeepReadonly<SessionCatalogPage>;
   loading: boolean;
   error?: string;
   onNavigate(): void;
   loadMore(): void;
+  retry(): void;
   collapsed?: readonly string[];
   onCollapse?(cwd: string, closed: boolean): void;
 }) {
   const runtime = useRuntime();
   const actions = useSessionActions();
+  const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const navigate = useNavigate();
   useSessionTabs();
   const connection = useWhipConnection(client);
@@ -261,7 +266,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
               onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                 try { runtime.tabs.open(runtimeId, session.id, session.title); onNavigate(); }
-                catch (error) { event.preventDefault(); runtime.report(error); }
+                catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.id}`, error }); }
               }} {...stylex.props(styles.sessionLink)}>
               <span {...stylex.props(styles.indicator)}>{session.pinned ? <Pin size={12} aria-label="Pinned" />
                 : sessionNeedsInput(activity.get(session.id), activityStale) ? <MessageSquareWarning size={12} {...stylex.props(styles.attention)} aria-label="Needs your input" />
@@ -277,6 +282,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
     </div>
     {!items?.length && <p {...stylex.props(layout.muted)}>{loading ? 'Loading sessions…' : 'No saved sessions yet.'}</p>}
     {page?.has_more && <Button variant="ghost" disabled={loading} onClick={loadMore}>Load more sessions</Button>}
-    {error && <p role="alert">{error}</p>}
+    {error && <ErrorNotice type="resource" owner={`sessions:${runtimeId}`} error={error} title="Could not load sessions" action={<Button variant="ghost" disabled={loading} onClick={retry}>Retry</Button>} />}
+    {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
   </div>;
 }
