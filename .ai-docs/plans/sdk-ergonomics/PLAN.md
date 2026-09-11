@@ -45,7 +45,18 @@ veto during review:
 7. **Testing ships with the SDK.** A `@whip/sdk/testing` entry exports the
    scripted transport fixture and the live daemon fixture.
 8. **Sequence by leverage:** typed tools, then the runtime handle and turns,
-   then prompt helpers, then the testing entry, then structured output.
+   then prompt helpers, then the testing entry, then output contracts.
+9. **`tool()` takes one options object** (`name`, `description`, `input`,
+   `output`, `execute`, `timeoutMs`), replacing the positional form. This
+   matches `defineAgent` and `hooks` in our own SDK and the `tool({...})` of
+   Vercel, OpenAI, and Mastra; the package is private and pre-1.0, so the
+   positional form is removed rather than kept as an overload. (September
+   11.)
+10. **Tools declare an output schema as well as an input schema.** In phase
+    1 it types the handler's return value at compile time and validates the
+    result locally before it is posted; in phase 6 it travels on the wire as
+    `output_schema`, the runtime guide shows the model what a tool returns,
+    and the daemon validates results from any executor. (September 11.)
 
 ## Why this matters
 
@@ -109,9 +120,14 @@ import { createWhipClient } from '@whip/sdk';
 import { defineAgent, tool } from '@whip/sdk/agents';
 import { z } from 'zod';
 
-const lookupTicket = tool('lookup_ticket', 'Fetch a ticket by id',
-  z.object({ id: z.string() }),
-  async ({ id }, ctx) => tickets.get(id));               // id: string, inferred
+const lookupTicket = tool({
+  name: 'lookup_ticket',
+  description: 'Fetch a ticket by id',
+  input: z.object({ id: z.string() }),
+  output: z.object({ id: z.string(), title: z.string(), status: z.enum(['open', 'closed']) }),
+  execute: async ({ id }, ctx) => tickets.get(id),   // id: string; the return type must match output
+  timeoutMs: 30_000,
+});
 
 const support = defineAgent({
   id: 'support-triage',
@@ -157,29 +173,56 @@ through 5 touch only `packages/sdk`, `examples`, and docs.
 
 - Mirror the Standard Schema interfaces as types (`StandardSchemaV1`,
   `StandardJSONSchemaV1`, `StandardSchemaWithJSON`), as the MCP SDK does, so
-  the package adds no dependency.
-- `tool()` gains an overload: `tool<S extends StandardSchemaWithJSON>(name,
-  description, schema: S, handler: ToolHandler<InferInput<S>>, options?)`.
-  The document's `input_schema` is `schema['~standard'].jsonSchema.input({
-  target: 'draft-07' })`, compacted. The existing raw JSON Schema overload
-  remains and stays typed `Record<string, unknown>`.
-- `defineAgent` validates that the derived schema is an object schema (the
-  daemon requires a JSON object); a schema whose root is not an object is a
-  `TypeError` at definition time, naming the tool.
-- Optional local validation: when `~standard.validate` exists, `serve` runs
-  it before the handler and posts a `tool.result` error on failure. The
-  daemon has already validated against the same JSON Schema, so this only
-  catches library-level refinements the JSON Schema cannot express; it is
-  on by default and switchable off per tool (`validate: false`).
-- `examples/agents` gains `zod` as a dev dependency; the incident commander's
-  tools move to inferred inputs. The JuniorDeveloper example is unaffected.
+  the package adds no dependency. A `Schema` is either one of those or a raw
+  JSON Schema object; `InferInput<S>` and `InferOutput<S>` resolve to the
+  library's types for the former and `unknown` for the latter.
+- `tool()` becomes object-form:
+
+  ```ts
+  tool<I extends Schema, O extends Schema | undefined = undefined>(options: {
+    name: string;
+    description: string;
+    input: I;                                   // object root; keyword arguments
+    output?: O;                                 // any JSON Schema root
+    execute: (input: InferInput<I>, context: ToolContext) =>
+      MaybePromise<O extends Schema ? InferOutput<O> : unknown>;
+    timeoutMs?: number;                         // default 5 minutes, ceiling 15
+    validate?: boolean;                         // local validation, default true
+  }): ToolDefinition<I, O>
+  ```
+
+  The positional form is removed. `ToolDefinition` keeps `spec` for the
+  document and gains `execute` plus the two schemas for local validation;
+  `AgentDefinition.handlers` keys stay tool names.
+- The document's `input_schema` is `input['~standard'].jsonSchema.input({
+  target: 'draft-07' })`, compacted, or the raw object as given. `output`
+  is kept SDK-side in this phase (it reaches the wire in phase 6), so the
+  canonical document does not change and no revision moves.
+- `tool()` rejects at definition time, naming the tool: an `input` whose
+  derived root is not an object (the daemon requires keyword arguments), a
+  schema that cannot produce JSON Schema, and a bad `timeoutMs`.
+- Local validation in `serve`, on by default: `input['~standard'].validate`
+  runs before `execute` and `output['~standard'].validate` runs on its
+  return value; either failure posts a `tool.result` error naming the tool
+  and the issue, and the handler's side effects for an output failure have
+  already happened, which the error text says. The daemon has validated the
+  input against the same JSON Schema, so input validation only adds
+  library refinements the schema cannot express; output validation is the
+  only check until phase 6. Raw JSON Schema tools have no `~standard` and
+  skip local validation.
+- `examples/agents` gains `zod` as a dev dependency; the ticket-lookup and
+  incident commander tools move to the object form with inferred inputs and
+  declared outputs. JuniorDeveloper has no tools and is unaffected.
 
 Tests: a hand-rolled Standard Schema object (no library) infers the handler
-type (a `tsd`-style assertion through `satisfies`) and derives the document
-schema; a non-object root is rejected; raw JSON Schema still works; the
-incident commander's document is byte-identical before and after the change
-(pin the derived `input_schema` in its test); local validation posts an error
-and never calls the handler.
+input and constrains its return type (compile-time assertions through
+`satisfies` and `@ts-expect-error`); the derived document `input_schema` is
+compacted draft-07; a non-object input root is rejected; raw JSON Schema
+still works and types `unknown`; the incident commander's document is
+byte-identical before and after the change (pin the derived `input_schema`);
+input validation failure posts an error and never calls `execute`; output
+validation failure posts an error after `execute` ran; `validate: false`
+skips both.
 
 ### Phase 2: the runtime handle
 
@@ -301,10 +344,23 @@ New `packages/sdk/src/testing.ts`, exported as `@whip/sdk/testing`.
 Tests: the existing suites pass through the moved fixture; a `turn(...)`
 script drives `session.run` end to end in a unit test.
 
-### Phase 6: structured output
+### Phase 6: output contracts
 
-Go and protocol; the one runtime change.
+Go and protocol; the one runtime change. Two contracts land together under
+one protocol minor: what a tool returns, and what a turn returns.
 
+- `agentdef.Tool.OutputSchema json.RawMessage` (`null` when absent; any JSON
+  Schema root when present, compacted by `Normalize`). `RuntimeGuide`
+  appends a bounded `returns {...}` fragment to the tool's catalog line,
+  built from the schema's top-level `type` and property names. The daemon
+  validates every `tool.result.output` against it with `jsonschema-go`
+  before the value reaches the cell; a mismatch settles the call as an error
+  naming the tool and the violation, the same shape as an invalid input.
+  `defineAgent` puts the derived schema on the wire; a definition without
+  outputs encodes `"output_schema": null` and its revision is unchanged
+  from phase 1 because phase 1 never sent the field. (Registered documents
+  from before this phase decode with the field absent, which `Decode`
+  treats as null.)
 - `agentdef.Definition.Output json.RawMessage` (`null` when absent; an
   object schema when present, validated like a tool schema). `Child` may
   override it (`Output *json.RawMessage`); `Definition.Child` applies it.
@@ -327,8 +383,10 @@ Go and protocol; the one runtime change.
   `TurnResult<Output>` with `output: Output`. A session opened raw keeps
   `output?: unknown`.
 
-Tests: agentdef validation and canonical encoding; the guide line renders
-with and without a schema; a definition with output accepts a valid final
+Tests: agentdef validation and canonical encoding for both fields; the tool
+catalog line renders `returns` with and without a schema (goldens unchanged
+for built-ins); a `tool.result` that violates `output_schema` settles as an
+error and the cell sees it; a definition with output accepts a valid final
 message, retries once on an invalid one, and fails with `output_invalid` on
 the second; the submit result carries `output`; the SDK types infer through
 `defineAgent` and `run`; the incident commander's summary tool becomes an
@@ -352,7 +410,7 @@ the second; the submit result carries `output`; the SDK types infer through
 **Preserved**
 
 - Every public export of `@whip/sdk`, `/node`, `/state`, `/react`, and
-  `/agents`; `Executor` as an alias.
+  `/agents` except the positional `tool()`; `Executor` as an alias.
 - The wire: JSON Schema for tool inputs, the existing event kinds, the
   command lifecycle. Phases 1 through 5 change no protocol.
 - Every prompt golden.
@@ -361,10 +419,14 @@ the second; the submit result carries `output`; the SDK types infer through
 
 **Changed**
 
-- `tool()` gains a schema-inferring overload; `serve` returns a runtime
-  handle; `Session` gains `run` and `prompts`; a `testing` entry appears.
-- Definitions gain `output`; the turn outcome and submit result carry the
-  validated value; protocol minor 6.5.
+- `tool()` takes one options object with `input`, `output`, and `execute`
+  and infers both types; the positional form is removed. `serve` returns a
+  runtime handle; `Session` gains `run` and `prompts`; a `testing` entry
+  appears.
+- Tools gain `output_schema` and definitions gain `output`; the guide shows
+  tool return shapes; the daemon validates tool results and final messages;
+  the turn outcome and submit result carry the validated value; protocol
+  minor 6.5.
 
 **Not built**
 
@@ -398,6 +460,15 @@ the second; the submit result carries `output`; the SDK types infer through
   express fails locally after the daemon accepted the call; the model sees a
   tool error with the refinement message, which is the same outcome a
   handler `throw` produces today.
+- **Output validation after side effects.** A handler that wrote to a
+  database and then returned a malformed value has already had its effect
+  when the result is rejected. The error text says so, and the invocation id
+  in `ToolContext` is what makes a retry idempotent; this is the same
+  uncertain-effect rule the ledger already applies.
+- **Two validations of one result.** From phase 6 the SDK and the daemon
+  both check tool output. They check the same JSON Schema, so they agree;
+  the local check exists for refinements and for a faster error, and
+  `validate: false` removes it when the daemon's check is enough.
 - **Output retries cost a model round.** One retry is bounded and visible in
   the ledger and stream; a definition that wants none can be added later
   with an `output.retries` field if a consumer asks.
