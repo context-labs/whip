@@ -42,6 +42,11 @@ Decisions recorded from the conversation:
 9. **Hooks only narrow.** A hook cannot grant authority the ledger denies and
    cannot bypass the user's permission mode. `allow` means "no objection", not
    "approved on the user's behalf".
+10. **`before_spawn` is its own wire hook.** Gates are named by what they gate,
+    as in every runtime surveyed, and the spawn hook sees the resolved child,
+    which `before_tool` cannot. When both are declared, `before_tool` runs
+    first on the raw `agents.spawn` call and `before_spawn` runs after parsing
+    and resolution; each runs once.
 
 ## Why this matters
 
@@ -91,7 +96,7 @@ is a bug in their world and a normal state in ours. Everything else transfers:
 
 ## Target state
 
-**Two wire hooks, one seam each.**
+**Three wire hooks, one seam each.**
 
 - `before_tool` runs in `recursiveHost.Call`, the single entry from a kernel
   into the host, before the module switch. That is the one place every host
@@ -101,30 +106,33 @@ is a bug in their world and a normal state in ours. Everything else transfers:
   canonicalization, JSON Schema validation for custom tools, ledger checks,
   and permission prompts all run on what will actually execute. Nothing is
   gated twice and nothing is gated after the fact.
+- `before_spawn` runs in `spawnAttempt` after the arguments are parsed and a
+  named child's defaults are applied, and before `Definition.Child` narrows
+  and the store admits the child. It sees the request as the model wrote it
+  (prompt, name, definition, capabilities, tools, budgets, report, model,
+  provider, effort) and the resolved child (definition id, modules,
+  capabilities, tools, budgets, report). A deny fails the spawn with the
+  reason. A rewrite replaces the request and re-runs resolution, so it cannot
+  widen. `agents.spawn` is also a host operation, so an unnarrowed
+  `before_tool` sees the raw call first; the two never gate the same thing
+  twice because one sees arguments and the other sees a resolved child.
 - `turn_start` runs in `AgentSession.RunTurn` after the prompt is composed and
   before the first provider request. Its `context` joins the turn's ephemeral
   system text, the mechanism the worker-restart and budget notices already
   use: included in every request of the turn, never in history.
 
-**`before_spawn` is `before_tool` for `agents.spawn`.** The spawn arguments a
-cell passes (prompt, name, definition, capabilities, tools, budgets, report,
-model) are exactly what a spawn hook wants to see, and a rewrite of them flows
-into `spawnAttempt`, where `Definition.Child` still refuses to widen. A
-separate wire hook would carry the same payload under a second name. The SDK
-offers `beforeSpawn` as a typed view over `before_tool` narrowed to
-`agents.spawn`; the daemon sees one hook kind.
-
 **Declared in the definition, served by the executor.**
 
 ```go
 type Hooks struct {
-    BeforeTool *Hook `json:"before_tool"`
-    TurnStart  *Hook `json:"turn_start"`
+    BeforeTool  *Hook `json:"before_tool"`
+    BeforeSpawn *Hook `json:"before_spawn"`
+    TurnStart   *Hook `json:"turn_start"`
 }
 
 type Hook struct {
     // Operations narrows before_tool to these module.operation names; nil
-    // means every host operation. Ignored for turn_start.
+    // means every host operation. Ignored for the other hooks.
     Operations []string `json:"operations"`
     // Optional hooks proceed with a notice when unanswered or failing.
     Optional bool `json:"optional"`
@@ -168,8 +176,9 @@ const support = defineAgent({
       if (operation === 'files.read' && String(args.path).endsWith('.env'))
         return { arguments: { ...args, path: `${args.path}.example` }, reason: 'secrets are redacted' };
     },
-    beforeSpawn: async ({ spawn }) => {
-      if (spawn.definition !== 'researcher') return { decision: 'deny', reason: 'only researcher children are allowed' };
+    beforeSpawn: async ({ spawn, resolved }) => {
+      if (resolved.capabilities.includes('shell')) return { decision: 'deny', reason: 'children may not hold shell' };
+      if (spawn.definition !== 'researcher') return { spawn: { ...spawn, definition: 'researcher' }, reason: 'all children run as researcher' };
     },
     turnStart: async ({ agentId }) => ({ context: `On call: ${await roster.current()}. Open incidents: ${await incidents.open()}.` }),
   },
@@ -194,10 +203,13 @@ Go:
   (decision 4). `HookNames()` lists the declared hooks in canonical order.
 - `protocol`: `ExecutorBindParams.Hooks []string`, `ExecutorBindResult.Hooks`;
   `HookInvokeParams{InvocationID, Definition, Revision, Generation, RootID,
-  AgentID, TurnID, Hook, Operation, Arguments json.RawMessage, Input string,
-  PermissionMode string, DeadlineMillis}`; `HookResultParams{InvocationID,
-  Generation, Decision, Reason string, Arguments json.RawMessage, Context
-  string, Error string}`; `ExecutorPendingResult.Hooks []HookInvokeParams`.
+  AgentID, TurnID, Hook, Operation, Arguments json.RawMessage, Spawn
+  *SpawnPreview, Input string, PermissionMode string, DeadlineMillis}` where
+  `SpawnPreview{Request SpawnRequest, Resolved ResolvedChild}` carries the
+  parsed request and the resolved child for `before_spawn`;
+  `HookResultParams{InvocationID, Generation, Decision, Reason string,
+  Arguments json.RawMessage, Spawn *SpawnRequest, Context string, Error
+  string}`; `ExecutorPendingResult.Hooks []HookInvokeParams`.
   Notifications `hook.invoke` and `hook.cancel` (reusing `ToolCancelParams`);
   RPC `hook.result` (ephemeral, `executor-lease`). `stream.hook.decision` in
   `EventPayloads`. Minor 6.4. Regenerate the TypeScript contract.
@@ -265,7 +277,29 @@ expected error; optional hook with no executor proceeds and emits `skipped`;
 handler error denies (required) or skips (optional); hook timeout denies and
 sends `hook.cancel`; a definition without hooks makes no registry call.
 
-### 4. `turn_start`
+### 4. `before_spawn` in `spawnAttempt`
+
+Go:
+
+- `spawnAttempt` parses the arguments into a `SpawnRequest` (the existing
+  `requestedCapabilities`, `requestedNames`, `requestedBudgets`, and string
+  arguments, gathered into one struct), resolves the named child and its
+  defaults into a `ResolvedChild`, and, when `Hooks.BeforeSpawn` is declared,
+  calls the registry with both. Deny fails the spawn with
+  `hook before_spawn denied agents.spawn: <reason>`. A `Spawn` reply replaces
+  the request, and parsing and resolution run again on it before
+  `Definition.Child`, so a rewrite that widens fails exactly as a widening
+  request from the model does. Required and optional semantics follow
+  decision 5; the same `stream.hook.decision` events are emitted.
+
+Tests: deny fails the spawn and admits no child; rewrite of the definition
+name produces a child with that named child's resolved definition; rewrite
+that widens capabilities fails with the parent-narrowing error; with both
+hooks declared, `before_tool` sees the raw `agents.spawn` arguments and
+`before_spawn` sees the resolved child, in that order; an optional unanswered
+hook proceeds with a notice.
+
+### 5. `turn_start`
 
 Go:
 
@@ -280,21 +314,21 @@ Tests: context appears in the first provider request and not in history;
 missing executor skips with a notice; timeout skips; children get their own
 turn hooks.
 
-### 5. SDK
+### 6. SDK
 
 TypeScript (`packages/sdk/src/agents.ts`, `client.ts`):
 
 - `defineAgent` accepts `hooks: { beforeTool?, beforeSpawn?, turnStart? }`,
-  each a handler plus optional `{ operations, optional, timeoutMs }`.
-  `beforeSpawn` is folded into the document's `before_tool` with
-  `operations: ['agents.spawn']` added to any `beforeTool` narrowing (or the
-  union when both are given), and its handler receives a typed `spawn` view of
-  the arguments. `AgentDefinition` gains `hookHandlers`.
+  each a handler plus optional `{ operations, optional, timeoutMs }`
+  (`operations` applies to `beforeTool` only). Each declared handler becomes
+  the matching entry in the document's `hooks`. `AgentDefinition` gains
+  `hookHandlers`.
 - Types: `BeforeToolEvent{invocationId, rootId, agentId, turnId, operation,
   arguments, permissionMode, deadline, signal}`, `BeforeToolResult{decision?,
-  reason?, arguments?}`, `SpawnEvent{..., spawn: SpawnRequest}`,
-  `TurnStartEvent{..., input}`, `TurnStartResult{context?}`. All result
-  fields optional; `undefined`/`void` is allow.
+  reason?, arguments?}`, `BeforeSpawnEvent{..., spawn: SpawnRequest, resolved:
+  ResolvedChild}`, `BeforeSpawnResult{decision?, reason?, spawn?}`,
+  `TurnStartEvent{..., input}`, `TurnStartResult{context?}`. All result fields
+  optional; `undefined`/`void` is allow.
 - `serve` binds `hooks` alongside `tools`, routes `hook.invoke` to the
   handler, posts `hook.result` with whatever the handler returned (or
   `error` when it threw), honors `hook.cancel`, and drains pending hooks after
@@ -303,11 +337,11 @@ TypeScript (`packages/sdk/src/agents.ts`, `client.ts`):
   exercises deny, rewrite, observe, and the turn context through the fixture.
 
 Tests: bind includes hooks; observe handler posts an empty result; deny and
-rewrite results; thrown handler posts `error`; `beforeSpawn` is called only
-for `agents.spawn` with a typed request; cancel aborts the signal; reconnect
-re-binds and drains hook invocations.
+rewrite results; thrown handler posts `error`; `beforeSpawn` receives the
+request and the resolved child and its `spawn` reply is posted; cancel aborts
+the signal; reconnect re-binds and drains hook invocations.
 
-### 6. Documentation
+### 7. Documentation
 
 `docs/features.md` (definitions bullet), `docs/rlm-runtime.md` (a "Hooks"
 section after "Custom tools"), `docs/protocol-v2.md` (6.4), the SDK README
@@ -334,7 +368,6 @@ section after "Custom tools"), `docs/protocol-v2.md` (6.4), the SDK README
 
 **Not built**
 
-- A separate `before_spawn` wire hook (folded into `before_tool`).
 - Post-operation hooks (`after_tool`, `turn_end`). The event stream already
   carries completions; add a hook only when a consumer needs to modify a
   result.
