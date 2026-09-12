@@ -27,6 +27,25 @@ func TestWorkerProcess(t *testing.T) {
 		return
 	}
 	args := os.Args[separator+1:]
+	if len(args) > 0 && (args[0] == "-test-final-frames" || args[0] == "-test-idle-frames") {
+		reader := bufio.NewReader(os.Stdin)
+		hello, _ := readFrame(reader, 1<<20)
+		descriptor, _ := ResolveEngine(hello.Engine)
+		_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+		request := frame{ID: hello.ID + 1}
+		if args[0] == "-test-final-frames" {
+			request, _ = readFrame(reader, 1<<20)
+		}
+		for _, output := range []string{"first", "first\nsecond", "first\nsecond\nthird"} {
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "output", ID: request.ID, Output: output})
+		}
+		if args[0] == "-test-final-frames" {
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: request.ID, Value: 42, HasValue: true, Output: "first\nsecond\nthird"})
+		} else {
+			_, _ = reader.ReadByte()
+		}
+		os.Exit(0)
+	}
 	if len(args) >= 3 && args[0] == "-test-exit" {
 		if args[1] == "execution" {
 			reader := bufio.NewReader(os.Stdin)
@@ -691,6 +710,99 @@ func TestKernelReportsWorkerExit(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestKernelDrainsFinalFramesAfterWorkerExit(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		t.Run(engine, func(t *testing.T) {
+			kernel, err := NewKernel(KernelOptions{Engine: engine, Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-final-frames"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			var updates []string
+			ctx = tools.WithOnUpdate(ctx, func(output string) {
+				updates = append(updates, output)
+				if len(updates) == 1 {
+					// Exec holds kernel.mu here. Keep the reader backpressured until
+					// Wait publishes exit; buffered output must still reach the caller.
+					select {
+					case <-kernel.worker.done:
+					case <-ctx.Done():
+					}
+				}
+			})
+			result, err := kernel.Exec(ctx, "42")
+			if err != nil || fmt.Sprint(result.Value) != "42" || result.Output != "first\nsecond\nthird" {
+				t.Fatalf("worker exit lost final result: %+v, %v", result, err)
+			}
+			if !slices.Equal(updates, []string{"first", "first\nsecond", "first\nsecond\nthird"}) {
+				t.Fatalf("worker exit lost output frames: %q", updates)
+			}
+		})
+	}
+}
+
+func TestKernelRetiresBackpressuredReader(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"close", "suspend"} {
+		t.Run(action, func(t *testing.T) {
+			kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-idle-frames"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			if err := kernel.Start(); err != nil {
+				t.Fatal(err)
+			}
+			kernel.mu.Lock()
+			process := kernel.worker
+			kernel.mu.Unlock()
+			deadline := time.Now().Add(5 * time.Second)
+			for len(process.frames) != cap(process.frames) {
+				if time.Now().After(deadline) {
+					t.Fatal("worker did not fill its bounded frame queue")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			stopped := make(chan error, 1)
+			go func() {
+				if action == "suspend" {
+					stopped <- kernel.Suspend()
+					return
+				}
+				kernel.Close()
+				stopped <- nil
+			}()
+			select {
+			case err := <-stopped:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("retirement blocked behind unread output")
+			}
+			select {
+			case <-process.readDone:
+			default:
+				t.Fatal("retirement leaked the reader goroutine")
+			}
+			select {
+			case <-process.done:
+			default:
+				t.Fatal("retirement returned before worker exit")
+			}
+		})
 	}
 }
 

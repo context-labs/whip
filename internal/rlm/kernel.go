@@ -425,6 +425,7 @@ type frameOutcome struct {
 type workerProcess struct {
 	frames   chan frameOutcome
 	readDone chan struct{}
+	stopRead func() // Called once by the retiring owner under kernel.mu.
 	command  *exec.Cmd
 	input    io.WriteCloser
 	output   *bufio.Reader
@@ -971,31 +972,45 @@ func (kernel *Kernel) startProcess() (err error) {
 	command.Dir = dir
 	command.Env = []string{}
 	configureCommand(command)
-	input, err := command.StdinPipe()
+	// Wait must be able to reap the worker and its descendants independently
+	// of protocol consumption. StdoutPipe lets Wait close unread final frames.
+	output, outputWriter, err := os.Pipe()
 	if err != nil {
 		return err
 	}
-	output, err := command.StdoutPipe()
+	defer func() {
+		_ = outputWriter.Close()
+		if failed {
+			_ = output.Close()
+		}
+	}()
+	command.Stdout = outputWriter
+	input, err := command.StdinPipe()
 	if err != nil {
 		return err
 	}
 	stderr := &limitedBuffer{limit: kernel.limits.OutputBytes}
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
+		_ = input.Close()
 		return err
 	}
+	_ = outputWriter.Close()
+	readStop := make(chan struct{})
 	process := &workerProcess{
 		command: command, input: input, output: bufio.NewReaderSize(output, min(kernel.limits.FrameBytes, 64<<10)),
 		done: make(chan struct{}), readDone: make(chan struct{}), frames: make(chan frameOutcome, 1), dir: dir, stderr: stderr,
+		stopRead: func() { close(readStop); _ = output.Close() },
 	}
 	kernel.worker = process
 	go func() {
 		defer close(process.readDone)
+		defer func() { _ = output.Close() }()
 		for {
 			value, readErr := readFrame(process.output, kernel.limits.FrameBytes, kernel.engine.ID == EngineQuickJS)
 			select {
 			case process.frames <- frameOutcome{frame: value, err: readErr}:
-			case <-process.done:
+			case <-readStop:
 				return
 			}
 			if readErr != nil {
@@ -1014,6 +1029,8 @@ func (kernel *Kernel) startProcess() (err error) {
 		kernel.mu.Lock()
 		if kernel.worker == process {
 			kernel.worker = nil
+			process.stopRead()
+			<-process.readDone
 			_ = os.RemoveAll(process.dir)
 			// A running reservation may belong to an acquisition waiting on
 			// kernel.mu. Its replacement must keep that slot; release removes
@@ -1055,6 +1072,7 @@ func (kernel *Kernel) stopProcess(depart bool) {
 		_ = killProcessGroup(process.command.Process.Pid)
 		<-process.done
 	}
+	process.stopRead()
 	<-process.readDone
 	_ = os.RemoveAll(process.dir)
 	if depart {
