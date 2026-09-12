@@ -61,7 +61,8 @@ func ProviderPresetPolicy() []ProviderPreset {
 			OnboardingEffort:     "max",
 		},
 		{
-			ID:       "openai",
+			ID: "openai",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
 			Provider: Provider{Name: "OpenAI", BaseURL: "https://api.openai.com/v1", API: "openai-completions", APIKeyEnv: "OPENAI_API_KEY"},
 			Methods:  []string{"api_key"}, Category: "popular", Family: "openai",
 			KeyURL: "https://platform.openai.com/api-keys", EnvironmentVariables: []string{"OPENAI_API_KEY"},
@@ -78,9 +79,12 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "cerebras",
-			Provider: Provider{Name: "Cerebras",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
+			Provider: Provider{
+				Name:    "Cerebras",
 				BaseURL: "https://api.cerebras.ai/v1",
-				API:     "openai-completions", APIKeyEnv: "CEREBRAS_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "CEREBRAS_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://cloud.cerebras.ai/platform/api-keys",
@@ -88,9 +92,12 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "deepinfra",
-			Provider: Provider{Name: "DeepInfra",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
+			Provider: Provider{
+				Name:    "DeepInfra",
 				BaseURL: "https://api.deepinfra.com/v1/openai",
-				API:     "openai-completions", APIKeyEnv: "DEEPINFRA_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "DEEPINFRA_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://deepinfra.com/dash/api_keys",
@@ -98,9 +105,12 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "deepseek",
-			Provider: Provider{Name: "DeepSeek",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
+			Provider: Provider{
+				Name:    "DeepSeek",
 				BaseURL: "https://api.deepseek.com",
-				API:     "openai-completions", APIKeyEnv: "DEEPSEEK_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "DEEPSEEK_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://platform.deepseek.com/api_keys",
@@ -108,9 +118,11 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "fireworks-ai",
-			Provider: Provider{Name: "Fireworks AI",
+			Provider: Provider{
+				Name:    "Fireworks AI",
 				BaseURL: "https://api.fireworks.ai/inference/v1",
-				API:     "openai-completions", APIKeyEnv: "FIREWORKS_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "FIREWORKS_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://app.fireworks.ai/settings/users/api-keys",
@@ -118,9 +130,12 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "groq",
-			Provider: Provider{Name: "Groq",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
+			Provider: Provider{
+				Name:    "Groq",
 				BaseURL: "https://api.groq.com/openai/v1",
-				API:     "openai-completions", APIKeyEnv: "GROQ_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "GROQ_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://console.groq.com/keys",
@@ -128,9 +143,11 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "togetherai",
-			Provider: Provider{Name: "Together AI",
+			Provider: Provider{
+				Name:    "Together AI",
 				BaseURL: "https://api.together.ai/v1",
-				API:     "openai-completions", APIKeyEnv: "TOGETHER_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "TOGETHER_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://api.together.ai/settings/api-keys",
@@ -138,9 +155,12 @@ func ProviderPresetPolicy() []ProviderPreset {
 		},
 		{
 			ID: "xai",
-			Provider: Provider{Name: "xAI",
+			// #nosec G101 -- APIKeyEnv is an environment variable name, not a credential.
+			Provider: Provider{
+				Name:    "xAI",
 				BaseURL: "https://api.x.ai/v1",
-				API:     "openai-completions", APIKeyEnv: "XAI_API_KEY"},
+				API:     "openai-completions", APIKeyEnv: "XAI_API_KEY",
+			},
 			Methods:              []string{"api_key"},
 			Category:             "providers",
 			KeyURL:               "https://console.x.ai/",

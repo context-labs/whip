@@ -196,7 +196,7 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 func inferenceNetLoginRoute(cfg *config.Config) error {
 	if route, exists := cfg.Providers[config.InferenceNetProvider]; exists {
 		if strings.TrimRight(route.BaseURL, "/") != config.InferenceNetBaseURL || (route.API != "" && route.API != "openai-completions") {
-			return errors.New("Inference.net account login requires its built-in endpoint; the saved custom provider was left unchanged")
+			return errors.New("account login to Inference.net requires its built-in endpoint; the saved custom provider was left unchanged")
 		}
 	}
 	return nil

@@ -66,8 +66,10 @@ func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[st
 	b.mu.Lock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
-	root := &fakeRoot{id: id, cwd: cwd, external: true,
-		cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1)}
+	root := &fakeRoot{
+		id: id, cwd: cwd, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1),
+	}
 	b.roots[id] = root
 	b.attached[id] = servers
 	b.mu.Unlock()
@@ -126,8 +128,10 @@ func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
 	defer b.mu.Unlock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
-	b.roots[id] = &fakeRoot{id: id, cwd: cwd, messages: messages, external: true,
-		cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
+	b.roots[id] = &fakeRoot{
+		id: id, cwd: cwd, messages: messages, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1),
+	}
 	return id
 }
 

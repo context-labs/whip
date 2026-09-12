@@ -126,7 +126,6 @@ func DiscoverCredentials(configs ...*Config) *CredentialSnapshot {
 			data, err = readProviderFile(path, providerEnvFileLimit)
 			if err == nil {
 				values, err = parseProviderEnvFile(data, path)
-
 			}
 		}
 		if err != nil {
@@ -165,7 +164,7 @@ func DiscoverCredentials(configs ...*Config) *CredentialSnapshot {
 			snapshot.errors = append(snapshot.errors, fmt.Errorf("provider key directory %q is unavailable", filename))
 		}
 		if directory.root != nil {
-			defer directory.root.Close()
+			defer func() { _ = directory.root.Close() }()
 		}
 		directories = append(directories, directory)
 	}

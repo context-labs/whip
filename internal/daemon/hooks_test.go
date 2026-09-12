@@ -432,7 +432,7 @@ func TestBeforeToolOptionalAndNarrowed(t *testing.T) {
 		t.Fatalf("handler error events = %+v", events)
 	}
 	// Notices stay bounded.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		parent.addHookNotice(fmt.Sprintf("notice %d", i))
 	}
 	if notices := parent.hookNotices(); strings.Count(notices, "\n") > maxHookNotices || !strings.Contains(notices, "more hook notices omitted") {

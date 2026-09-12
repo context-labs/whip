@@ -16,8 +16,10 @@ import (
 	"github.com/context-labs/whip/internal/rlm/engine/quickjs"
 )
 
-const maxOutstandingCalls = 16
-const maxQuickJSJobs = 100000
+const (
+	maxOutstandingCalls = 16
+	maxQuickJSJobs      = 100000
+)
 
 func runQuickJSWorker(input io.Reader, output io.Writer, limits Limits, modules, tools []string) error {
 	ctx := context.Background() // The supervisor owns the subprocess lifetime.
@@ -34,7 +36,7 @@ func runQuickJSWorker(input io.Reader, output io.Writer, limits Limits, modules,
 	if err != nil {
 		return err
 	}
-	defer factory.Close(ctx)
+	defer func() { _ = factory.Close(ctx) }()
 	runtime, err := factory.New(ctx, "whip-kernel")
 	if err != nil {
 		return err
@@ -133,7 +135,7 @@ func evaluateQuickJS(ctx context.Context, runtime engine.Runtime, reader *bufio.
 		if compute >= limits.normalized().Wall {
 			return result, errors.New("QuickJS compute limit exceeded; worker discarded")
 		}
-		result.Jobs += uint64(jobs)
+		result.Jobs += uint64(jobs) //nolint:gosec // QuickJS Drain returns the number of jobs executed, from 0 through the supplied budget.
 		if drainErr != nil && !errors.Is(drainErr, engine.ErrJobBudget) {
 			return result, drainErr
 		}
@@ -143,7 +145,7 @@ func evaluateQuickJS(ctx context.Context, runtime engine.Runtime, reader *bufio.
 		rejected := false
 		for _, queued := range runtime.TakeRequests() {
 			next++
-			if next > uint64(limits.HostRequests) {
+			if limits.HostRequests < 1 || next > uint64(limits.HostRequests) {
 				_, err := runtime.Deliver(ctx, engine.Outcome{ID: queued.ID, Error: &engine.RemoteError{Code: "E_LIMIT", Message: "host request limit exceeded"}})
 				if err != nil {
 					return result, err
@@ -195,7 +197,8 @@ func evaluateQuickJS(ctx context.Context, runtime engine.Runtime, reader *bufio.
 				return result, err
 			}
 			result.HasValue, result.Output = view.HasValue, view.Output
-			result.ComputeNanos, result.HostWaitNanos = uint64(compute), uint64(hostWait)
+			// Both durations accumulate time.Since on monotonic time.Now readings.
+			result.ComputeNanos, result.HostWaitNanos = uint64(compute), uint64(hostWait) //nolint:gosec // Elapsed monotonic durations cannot be negative.
 			if len(view.Value) > 0 {
 				if err := json.Unmarshal(view.Value, &result.Value); err != nil {
 					return result, err

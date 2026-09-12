@@ -215,8 +215,8 @@ func (cell *replCell) hostIndex(id string) int {
 	if id == "" {
 		return -1
 	}
-	for index := len(cell.hosts) - 1; index >= 0; index-- {
-		if cell.hosts[index].id == id {
+	for index, v := range slices.Backward(cell.hosts) {
+		if v.id == id {
 			return index
 		}
 	}

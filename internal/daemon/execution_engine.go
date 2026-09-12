@@ -31,7 +31,7 @@ type checkpointStore struct{ node *AgentSession }
 func (store checkpointStore) Load(ctx context.Context) (*rlm.Checkpoint, error) {
 	node := store.node
 	if node.root == nil || node.id == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // An unbound agent has no checkpoint; nil tells the kernel to start fresh.
 	}
 	return routeControlValue(node.root, ctx, func(actorCtx context.Context) (*rlm.Checkpoint, error) {
 		envelope, image, err := node.root.store.LoadAgentCheckpoint(actorCtx, node.root.ID(), node.id)

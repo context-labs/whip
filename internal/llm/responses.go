@@ -210,7 +210,7 @@ func responseUsage(data json.RawMessage) (Usage, error) {
 		return Usage{}, errors.New("OpenAI returned malformed token usage")
 	}
 	translated := make(map[string]json.RawMessage)
-	for from, to := range map[string]string{
+	for from, to := range map[string]string{ //nolint:gosec // G101: these are token-usage JSON field names, not credentials.
 		"input_tokens": "prompt_tokens", "output_tokens": "completion_tokens",
 		"input_tokens_details": "prompt_tokens_details", "output_tokens_details": "completion_tokens_details",
 	} {

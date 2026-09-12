@@ -49,6 +49,7 @@ func headerValue(value string) bool {
 }
 
 func readCredentials(path string) (Credentials, error) {
+	// #nosec G304 -- Manager constructs this private host path with the fixed name openai-codex.json.
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Credentials{}, nil
@@ -75,6 +76,7 @@ func saveCredentials(path string, credentials Credentials) error {
 	if err := credentials.validate(); err != nil {
 		return err
 	}
+	// #nosec G117 -- Credentials are intentionally persisted only to the 0600 file created below.
 	data, err := json.Marshal(credentials)
 	if err != nil || len(data) > maxBytes {
 		return errors.New("could not encode OpenAI credentials")

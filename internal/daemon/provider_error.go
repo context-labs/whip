@@ -16,8 +16,7 @@ func providerValidationError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return errors.New("provider validation timed out; check the connection and retry")
 	}
-	var response *llm.HTTPError
-	if errors.As(err, &response) {
+	if response, ok := errors.AsType[*llm.HTTPError](err); ok {
 		code := strings.Fields(response.Status)
 		if len(code) > 0 {
 			switch code[0] {

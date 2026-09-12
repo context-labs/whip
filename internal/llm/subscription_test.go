@@ -35,7 +35,7 @@ func subscriptionTestClient(t *testing.T) (*Client, *openaiauth.Manager) {
 }
 
 func successfulSubscriptionResponse() *http.Response {
-	return &http.Response{Status: "200 OK", StatusCode: 200, Body: io.NopCloser(strings.NewReader(
+	return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
 		"data: " + responseFixture(`[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]`) + "\n\n",
 	))}
 }
@@ -68,8 +68,8 @@ func TestSubscriptionCompleteUsesStreamAndNaturalOutputReservation(t *testing.T)
 	client.HTTP.Transport = subscriptionTransport(func(request *http.Request) (*http.Response, error) {
 		requests++
 		if request.URL.String() != openaiauth.BaseURL+"/responses" || request.Header.Get("Authorization") != "Bearer access-token" ||
-			request.Header.Get("ChatGPT-Account-Id") != "account" || request.Header.Get("x-openai-internal-codex-residency") != "eu" ||
-			request.Header.Get("originator") != "whip" {
+			request.Header.Get("Chatgpt-Account-Id") != "account" || request.Header.Get("X-Openai-Internal-Codex-Residency") != "eu" ||
+			request.Header.Get("Originator") != "whip" {
 			t.Fatal("incorrect subscription endpoint/headers")
 		}
 		var body map[string]any
@@ -82,8 +82,10 @@ func TestSubscriptionCompleteUsesStreamAndNaturalOutputReservation(t *testing.T)
 		return successfulSubscriptionResponse(), nil
 	})
 	budget := &subscriptionBudget{}
-	req := Request{Model: "gpt-5.5", MaxTokens: 24, Messages: []Message{{Role: "user", Content: "title"}},
-		Accounting: &CallAccounting{Budget: budget, Purpose: "title"}}
+	req := Request{
+		Model: "gpt-5.5", MaxTokens: 24, Messages: []Message{{Role: "user", Content: "title"}},
+		Accounting: &CallAccounting{Budget: budget, Purpose: "title"},
+	}
 	text, usage, err := client.Complete(t.Context(), req)
 	if err != nil || text != "ok" || !usage.HasUsage() || requests != 1 || budget.attempts[0].MaxTokens != 128000 || !budget.results[0].Dispatched {
 		t.Fatalf("subscription helper/accounting failed: text=%s requests=%d err=%v", text, requests, err)
@@ -114,7 +116,7 @@ func TestSubscriptionAuthRetryUsesFreshCredentialAndSeparateAttempt(t *testing.T
 			}); err != nil {
 				t.Fatal(err)
 			}
-			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(strings.NewReader(""))}, nil
+			return &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized", Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
 		if request.Header.Get("Authorization") != "Bearer rotated" {
 			t.Fatal("reused rejected token")
@@ -134,7 +136,7 @@ func TestSubscriptionNoRetryAfterReasoningWithNilCallbacks(t *testing.T) {
 	requests := 0
 	client.HTTP.Transport = subscriptionTransport(func(*http.Request) (*http.Response, error) {
 		requests++
-		return &http.Response{StatusCode: 200, Status: "200 OK", Body: io.NopCloser(strings.NewReader(
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(
 			"data: " + `{"type":"response.reasoning_summary_text.delta","delta":"Checking"}` + "\n\n",
 		))}, nil
 	})
@@ -145,8 +147,10 @@ func TestSubscriptionNoRetryAfterReasoningWithNilCallbacks(t *testing.T) {
 }
 
 func TestSubscriptionQuotaIsPermanentAndSanitized(t *testing.T) {
-	response := &http.Response{StatusCode: 429, Status: "429 Too Many Requests", Header: http.Header{"Retry-After": {"12"}},
-		Body: io.NopCloser(strings.NewReader(`{"error":{"type":"usage_limit_reached","message":"secret","resets_at":1800000000}}`))}
+	response := &http.Response{
+		StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests", Header: http.Header{"Retry-After": {"12"}},
+		Body: io.NopCloser(strings.NewReader(`{"error":{"type":"usage_limit_reached","message":"secret","resets_at":1800000000}}`)),
+	}
 	err := subscriptionResponseError(response)
 	if retryable(err) || !IsPermanentRequestError(err) || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("quota can be replayed or leaked upstream body: %v", err)
@@ -161,12 +165,12 @@ func TestSubscriptionQuotaIsPermanentAndSanitized(t *testing.T) {
 func TestSubscriptionCatalogUsesAccountAndVerifiedLimits(t *testing.T) {
 	client, _ := subscriptionTestClient(t)
 	client.HTTP.Transport = subscriptionTransport(func(request *http.Request) (*http.Response, error) {
-		if request.Method != "GET" || request.URL.Path != "/backend-api/codex/models" ||
+		if request.Method != http.MethodGet || request.URL.Path != "/backend-api/codex/models" ||
 			request.URL.Query().Get("client_version") != subscriptionCatalogVersion ||
-			request.Header.Get("ChatGPT-Account-Id") != "account" {
+			request.Header.Get("Chatgpt-Account-Id") != "account" {
 			t.Fatal("catalog was not fetched with the subscription profile")
 		}
-		return &http.Response{StatusCode: 200, Status: "200 OK", Body: io.NopCloser(strings.NewReader(`{"models":[
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(`{"models":[
 			{"slug":"gpt-5.5","visibility":"list","context_window":400000,"max_context_window":1000000,
 			 "effective_context_window_percent":95,"input_modalities":["text","image"],
 			 "supported_reasoning_levels":[{"effort":"none"},{"effort":"ultra"}]},
@@ -228,7 +232,7 @@ func TestSubscriptionStreamFailureClassification(t *testing.T) {
 				}
 				client, _ := subscriptionTestClient(t)
 				client.HTTP.Transport = subscriptionTransport(func(*http.Request) (*http.Response, error) {
-					return &http.Response{StatusCode: 200, Status: "200 OK", Body: io.NopCloser(strings.NewReader("data: " + string(data) + "\n\n"))}, nil
+					return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader("data: " + string(data) + "\n\n"))}, nil
 				})
 				message, _, err := client.Stream(t.Context(), Request{Model: "gpt-5.5"}, nil, nil, nil)
 				transient := code == "server_error" || code == "rate_limit_exceeded"

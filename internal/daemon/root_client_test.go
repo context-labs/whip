@@ -22,7 +22,7 @@ type deferredRootConnection struct {
 	loseReply bool
 }
 
-func (c *deferredRootConnection) Call(_ context.Context, method string, _ any, result any) error {
+func (c *deferredRootConnection) Call(_ context.Context, method string, _, result any) error {
 	if method != "provider.list" {
 		return errors.New("unexpected host RPC")
 	}
@@ -697,13 +697,20 @@ type engineCreationConnection struct {
 func (c *engineCreationConnection) InitializeResult() InitializeResult {
 	return InitializeResult{DefaultExecutionEngine: c.engine}
 }
+
 func (c *engineCreationConnection) Command(_ context.Context, p CommandParams) (CommandResult, error) {
 	c.requests = append(c.requests, p)
 	return CommandResult{}, errors.New("lost acknowledgement")
 }
+
 func TestRootClientFreezesDiscoveredEngineAcrossLostAcknowledgement(t *testing.T) {
 	template := &CreateSession{Kind: session.SessionKindAgent, CWD: "/tmp", Model: "m", Provider: "p"}
-	client, err := NewRootClient(RootClientOptions{ClientID: "engine", Create: template, Connector: func(context.Context, map[string]int64) (RootConnection, error) { return nil, nil }})
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "engine", Create: template,
+		Connector: func(context.Context, map[string]int64) (RootConnection, error) {
+			return nil, errors.New("unexpected connection attempt: test synchronizes directly")
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

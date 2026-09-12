@@ -31,8 +31,10 @@ import (
 
 const maxInput = 32 << 20
 
-var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-var decimalNumber = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]{1,2})?$`)
+var (
+	envName       = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	decimalNumber = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]{1,2})?$`)
+)
 
 type options struct {
 	input, snapshot, environment string
@@ -85,7 +87,7 @@ func run(ctx context.Context, o options, log io.Writer) error {
 			return err
 		}
 		if !bytes.Equal(oldData, normalized) {
-			return errors.New("Models.dev snapshot is not normalized; run task models:update")
+			return errors.New("models.dev snapshot is not normalized; run task models:update")
 		}
 		actual, err := os.ReadFile(o.environment)
 		if err != nil {
@@ -163,7 +165,7 @@ func readBounded(reader io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if len(input) > maxInput {
-		return nil, errors.New("Models.dev input exceeds 32 MiB")
+		return nil, errors.New("models.dev input exceeds 32 MiB")
 	}
 	return input, nil
 }
@@ -365,7 +367,7 @@ func validate(snapshot modelsdev.Snapshot, log io.Writer) error {
 		}
 	}
 	if len(snapshot.Providers) != expected {
-		return errors.New("Models.dev snapshot contains providers outside Whip policy")
+		return errors.New("models.dev snapshot contains providers outside Whip policy")
 	}
 	return nil
 }
@@ -472,6 +474,7 @@ func replaceArtifacts(files []artifact) error {
 		}
 	}()
 	for i, file := range files {
+		// #nosec G301 -- Generated source artifacts are public and need readable parent directories.
 		if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
 			return err
 		}
@@ -493,8 +496,8 @@ func replaceArtifacts(files []artifact) error {
 		}
 	}
 	// Desktop names first: a failed snapshot replacement retains the old catalog.
-	for i := len(files) - 1; i >= 0; i-- {
-		if err := os.Rename(staged[i], files[i].path); err != nil {
+	for i, file := range slices.Backward(files) {
+		if err := os.Rename(staged[i], file.path); err != nil {
 			return err
 		}
 	}

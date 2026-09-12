@@ -284,7 +284,7 @@ func TestDeviceFlowFailureBoundaries(t *testing.T) {
 			}
 		})
 	}
-	m := testManager(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) })
+	m := testManager(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) })
 	for _, expires := range []time.Time{time.Now().Add(-time.Second), time.Now().Add(time.Hour)} {
 		ctx, cancel := context.WithCancel(t.Context())
 		if expires.After(time.Now()) {

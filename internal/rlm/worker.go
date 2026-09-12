@@ -119,7 +119,7 @@ func selectedModules(list string) ([]string, error) {
 		return nil, nil
 	}
 	var modules []string
-	for _, name := range strings.Split(list, ",") {
+	for name := range strings.SplitSeq(list, ",") {
 		name = strings.TrimSpace(name)
 		if _, ok := moduleRegistry[name]; !ok {
 			return nil, fmt.Errorf("unknown RLM module %q", name)

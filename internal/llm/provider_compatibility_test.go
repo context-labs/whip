@@ -83,7 +83,7 @@ func TestPresetChatToolRoundTrip(t *testing.T) {
 						response = `{"choices":[{"message":{"content":"42"}}],"usage":{"prompt_tokens":20,"completion_tokens":1}}`
 					}
 				}
-				return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(response))}, nil
+				return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(response))}, nil
 			})}
 			request := llm.Request{Model: model.ID, MaxTokens: 1024, Messages: []llm.Message{{Role: "user", Content: "Calculate 6 * 7"}}, Tools: []llm.Tool{llm.NewTool("rlm_exec", "Run code", `{"type":"object","properties":{"code":{"type":"string"}}}`)}}
 			if len(model.ReasoningEfforts) > 0 {
@@ -113,7 +113,7 @@ func TestCustomEndpointKeepsGenericChatRequest(t *testing.T) {
 		if strings.Contains(string(body), "thinking") || !strings.Contains(string(body), `"reasoning_effort":"high"`) || !strings.Contains(string(body), `"prompt_cache_key":"explicit"`) {
 			t.Fatalf("custom route was rewritten: %s", body)
 		}
-		return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`))}, nil
 	})}
 	_, _, err := client.Complete(t.Context(), llm.Request{Model: "deepseek-v4-flash", ReasoningEffort: "high", PromptCacheKey: "explicit"})
 	if err != nil {

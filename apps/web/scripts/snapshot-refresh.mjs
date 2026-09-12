@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, firefox } from '@playwright/test';
+import { chromium, expect, firefox } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 
@@ -38,9 +38,19 @@ try {
       const prompt = `hold:tool-stream-refresh-${name}`;
       const turn = session.submit({ text: prompt });
       await turn.accepted();
-      const completedTool = page.locator('[data-message-id="live-tool:tool-a"]');
-      await eventually(async () => (await completedTool.count()) === 1
-        && !(await completedTool.locator('summary').innerText()).includes('in progress'), { description: 'tool completion observed during the held turn' });
+      const activity = page.locator('[data-activity-group]');
+      await expect(activity).toHaveCount(1);
+      await expect(activity.locator(':scope > details > summary')).toContainText('2 executions');
+      await activity.locator(':scope > details > summary').click();
+      const cells = activity.locator('[data-activity-cell]');
+      await expect(cells).toHaveCount(2);
+      const groupId = await activity.getAttribute('data-activity-group');
+      const cellIds = await cells.evaluateAll(elements => elements.map(element => element.getAttribute('data-activity-cell')));
+      assert.equal(new Set(cellIds).size, 2);
+      const completedTool = cells.first();
+      await expect(completedTool.getByText('Completed', { exact: true })).toBeVisible();
+      await expect(completedTool.locator(':scope > pre')).toHaveText('completed before snapshot');
+      await expect(cells.nth(1).locator(':scope > pre')).toHaveText('first\nsecond');
       const earlyText = page.locator('[data-message-id^="live:"]');
       const earlyId = await earlyText.getAttribute('data-message-id');
       const earlyBody = await earlyText.innerText();
@@ -48,8 +58,9 @@ try {
       const suffix = await eventually(async () => {
         const current = await session.snapshot();
         return current.omitted?.presentation_prefix && current.presentation?.length === 129
-          && current.presentation.every(item => item.kind === 'stream.usage') && current;
-      }, { description: 'snapshot window excludes all earlier text and tool events' });
+          && current.presentation.every(item => ['stream.tool.call', 'stream.tool.output'].includes(item.kind)
+            && item.payload.id === 'tool-b') && current;
+      }, { description: 'snapshot window excludes earlier text and the completed tool' });
       const snapshotsBefore = snapshots.length;
       // Queued input triggers a lifecycle refresh without completing this turn.
       const queued = session.submit({ text: 'Continue after snapshot refresh' });
@@ -60,15 +71,22 @@ try {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await earlyText.getAttribute('data-message-id'), earlyId);
       assert.equal(await earlyText.innerText(), earlyBody);
-      assert.equal(await page.locator('[data-message-id^="live-tool:"]').count(), 2);
-      assert.doesNotMatch(await completedTool.locator('summary').innerText(), /in progress/);
-      await completedTool.locator('summary').click();
-      assert.match(await completedTool.innerText(), /completed before snapshot/);
+      assert.equal(await activity.getAttribute('data-activity-group'), groupId);
+      assert.deepEqual(await cells.evaluateAll(elements => elements.map(element => element.getAttribute('data-activity-cell'))), cellIds);
+      await expect(completedTool.getByText('Completed', { exact: true })).toBeVisible();
+      await expect(completedTool.locator(':scope > pre')).toHaveText('completed before snapshot');
+      await expect(cells.nth(1).locator(':scope > pre')).toHaveText('first\nsecond');
       await page.screenshot({ path: join(resultsDirectory, `${name}.png`), fullPage: true });
       await fixture.release(`tool-stream-refresh-${name}`);
       assert.equal((await turn.result({ signal: AbortSignal.timeout(15_000) })).status, 'succeeded');
       assert.equal((await queued.result({ signal: AbortSignal.timeout(15_000) })).status, 'succeeded');
-      await eventually(async () => (await page.locator('[data-message-id^="live-tool:"]').count()) === 0, { description: 'completion hands presentation over to history' });
+      await expect(earlyText).toHaveCount(0);
+      // Execution evidence remains available after the turn, while streamed prose
+      // is replaced by committed history without a duplicate assistant message.
+      const assistantHistory = page.locator('[data-message-id^="h:"][data-message-role="assistant"]');
+      await expect(assistantHistory).toHaveCount(2);
+      await expect(assistantHistory.filter({ hasText: prompt })).toHaveCount(1);
+      await expect(assistantHistory.filter({ hasText: 'Continue after snapshot refresh' })).toHaveCount(1);
       assert.deepEqual(errors, []);
       results[name] = { passed: true, snapshot_events: suffix.presentation.length, preserved: ['earlier text', 'row identity', 'completed tool status', 'tool output'] };
     } catch (error) {

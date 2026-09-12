@@ -59,8 +59,8 @@ type Options struct {
 
 type Runtime interface {
 	// ValidateCell checks admission without evaluating source or consuming a cell ID.
-	ValidateCell(ctx context.Context, cellID string, source string) error
-	RunCell(ctx context.Context, cellID string, source string) error
+	ValidateCell(ctx context.Context, cellID, source string) error
+	RunCell(ctx context.Context, cellID, source string) error
 	// ErrJobBudget requires another drain slice before the cell can settle.
 	Drain(ctx context.Context, maxJobs int) (int, error)
 	TakeRequests() []Request

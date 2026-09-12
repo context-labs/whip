@@ -190,9 +190,11 @@ func (m *Manager) Open(options Options) (*Terminal, error) {
 		return nil, ErrLimit
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
-	t := &Terminal{ID: "term-" + strings.ToLower(rand.Text()), manager: m, cancel: cancel, ring: newRing(m.ringBytes), options: options,
-		cols: options.Cols, rows: options.Rows, readDone: make(chan struct{}), done: make(chan struct{})}
-	cmd := exec.CommandContext(ctx, options.Shell, options.Args...) //nolint:gosec // G204: the shell is the operator's login shell resolved by the daemon, never client input.
+	t := &Terminal{
+		ID: "term-" + strings.ToLower(rand.Text()), manager: m, cancel: cancel, ring: newRing(m.ringBytes), options: options,
+		cols: options.Cols, rows: options.Rows, readDone: make(chan struct{}), done: make(chan struct{}),
+	}
+	cmd := exec.CommandContext(ctx, options.Shell, options.Args...)
 	cmd.Dir = options.Cwd
 	cmd.Env = options.Env
 	// Cancel hangs up the whole session like a closing terminal window; WaitDelay

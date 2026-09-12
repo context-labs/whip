@@ -132,7 +132,7 @@ func TestHooksValidateAndInherit(t *testing.T) {
 	definition.Hooks = &Hooks{
 		BeforeTool:  &Hook{Operations: []string{"shell.run", "files.write", "tools.lookup", "agents.spawn"}, TimeoutMillis: 1000},
 		BeforeSpawn: &Hook{Optional: true},
-		TurnStart:   &Hook{TimeoutMillis: int64(MaxHookTimeout.Milliseconds())},
+		TurnStart:   &Hook{TimeoutMillis: MaxHookTimeout.Milliseconds()},
 	}
 	if err := definition.Validate(); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestHooksValidateAndInherit(t *testing.T) {
 		"unknown tool":       func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"tools.missing"} },
 		"malformed":          func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"shell"} },
 		"repeated operation": func(d *Definition) { d.Hooks.BeforeTool.Operations = []string{"shell.run", "shell.run"} },
-		"timeout ceiling":    func(d *Definition) { d.Hooks.TurnStart.TimeoutMillis = int64(MaxHookTimeout.Milliseconds()) + 1 },
+		"timeout ceiling":    func(d *Definition) { d.Hooks.TurnStart.TimeoutMillis = MaxHookTimeout.Milliseconds() + 1 },
 		"negative timeout":   func(d *Definition) { d.Hooks.BeforeSpawn.TimeoutMillis = -1 },
 		"spawn filter":       func(d *Definition) { d.Hooks.BeforeSpawn.Operations = []string{"agents.spawn"} },
 		"turn filter":        func(d *Definition) { d.Hooks.TurnStart.Operations = []string{"shell.run"} },

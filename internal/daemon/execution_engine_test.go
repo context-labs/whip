@@ -72,7 +72,11 @@ func TestRecursiveExecutionEngineInheritedAndRestored(t *testing.T) {
 			parent := runtime.rootNode
 			nodes := []*AgentSession{parent}
 			for _, name := range []string{"child", "grandchild"} {
-				result, err := parent.host.Call(t.Context(), "agents", "spawn", map[string]any{"name": name, "prompt": "work"})
+				// Explicit reports keep completion mail from starting another model
+				// turn while this test directly executes and suspends each kernel.
+				result, err := parent.host.Call(t.Context(), "agents", "spawn", map[string]any{
+					"name": name, "prompt": "work", "report": "message",
+				})
 				if err != nil {
 					t.Fatal(err)
 				}

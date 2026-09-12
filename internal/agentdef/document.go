@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -72,9 +73,7 @@ func (d Definition) Normalize() Definition {
 		child.Capabilities = nilIfEmpty(child.Capabilities)
 		child.Tools = nilIfEmpty(child.Tools)
 		budgets := make(map[string]int64, len(child.Budgets))
-		for kind, limit := range child.Budgets {
-			budgets[kind] = limit
-		}
+		maps.Copy(budgets, child.Budgets)
 		child.Budgets = budgets
 		child.Output = compactSchema(child.Output)
 		{

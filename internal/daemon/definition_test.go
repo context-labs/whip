@@ -203,7 +203,7 @@ func TestJuniorDeveloperSessionIsConstrained(t *testing.T) {
 	if _, err := node.host.Call(t.Context(), "mcp", "list_servers", nil); err == nil || err.Error() != `module "mcp" is not available to this agent` {
 		t.Fatalf("unselected module reached the host: %v", err)
 	}
-	if _, err := node.agent.Services.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"code":"noop"}`)); err == nil || !(errors.Is(err, capability.ErrDenied) || strings.Contains(err.Error(), "denied")) {
+	if _, err := node.agent.Services.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"code":"noop"}`)); err == nil || (!errors.Is(err, capability.ErrDenied) && !strings.Contains(err.Error(), "denied")) {
 		t.Fatalf("browser operation not denied by the ledger: %v", err)
 	}
 	prompt := submitPromptRoot(t, root, requests, "hello")

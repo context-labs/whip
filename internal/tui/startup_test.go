@@ -220,9 +220,9 @@ func TestOnboardingTerminalFailureShowsCauseAndPreservesDraft(t *testing.T) {
 	m.Update(mkWinSize(100, 30))
 	m.startup = &sessionStartup{ctx: t.Context(), creating: true}
 	m.input.SetValue("keep the draft")
-	m.Update(clientUpdateMsg{ClientUpdate: ClientUpdate{
-		State: ClientDisconnected, StateChanged: true, Err: errors.New("session creation rejected"),
-	}, closed: true})
+	m.Update(clientUpdateMsg{
+		State: ClientDisconnected, StateChanged: true, Err: errors.New("session creation rejected"), closed: true,
+	})
 	view := ansi.Strip(viewStr(m))
 	if !m.clientClosed || m.startup.creating || !strings.Contains(view, "session creation rejected") || !strings.Contains(view, "relaunch") {
 		t.Fatalf("terminal failure left an endless loading state:\n%s", view)

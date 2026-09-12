@@ -42,7 +42,7 @@ try {
         page.on('pageerror', error => console.error(`${name} page error: ${error}`));
         const response = await page.goto(url);
         const csp = response.headers()['content-security-policy'];
-        if (!csp || csp.includes('unsafe-eval') || csp.includes('unsafe-inline')) throw new Error(`Missing strict CSP: ${csp}`);
+        if (!csp || csp.includes("'unsafe-eval'") || csp.includes("'unsafe-inline'")) throw new Error(`Missing strict CSP: ${csp}`);
       }
       results[name] = await eventually(async () => JSON.parse(await readFile(join(fixture.directory, name + '-result.json'), 'utf8')), { timeout: 45_000, description: `${name} SDK smoke result` });
     } catch (error) {

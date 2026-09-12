@@ -390,7 +390,7 @@ func (f *setupProviderForm) providerID() string {
 
 func (f *setupProviderForm) manualModel() (*protocol.ProviderManualModel, error) {
 	if !f.hasManualModel {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A manual model is optional; nil leaves provider discovery in charge.
 	}
 	id := f.value("model")
 	if id == "" {
@@ -610,9 +610,9 @@ func (s *providerSetup) providerKeypress(msg tea.KeyPressMsg) tea.Cmd {
 			s.mode = "provider_form"
 		case "login":
 			if entry := s.entry(); entry != nil {
-				copy := *entry
-				copy.Status = protocol.ProviderStatus{}
-				return s.connect(copy)
+				loginEntry := *entry
+				loginEntry.Status = protocol.ProviderStatus{}
+				return s.connect(loginEntry)
 			}
 		case "disable":
 			return s.setProviderDisabled(true)
@@ -810,8 +810,9 @@ func (s *providerSetup) providerFormRows(width, height int) []string {
 		if s.busy {
 			detail = "Working…"
 		}
-		items := []ui.ListItem{}
-		for _, action := range s.providerActions() {
+		actions := s.providerActions()
+		items := make([]ui.ListItem, 0, len(actions))
+		for _, action := range actions {
 			items = append(items, ui.ListItem{Left: action.label})
 		}
 		return s.listRows(ui.List{
@@ -853,7 +854,8 @@ func (s *providerSetup) providerFormRows(width, height int) []string {
 		for i, mode := range modes {
 			items[i].Left = labels[mode]
 		}
-		return s.listRows(ui.List{Title: "Authentication", Hint: "esc", Groups: []ui.ListGroup{{Items: items}},
+		return s.listRows(ui.List{
+			Title: "Authentication", Hint: "esc", Groups: []ui.ListGroup{{Items: items}},
 			Sel: slices.Index(modes, f.credential), Width: width, Height: height,
 			Footer: []string{"enter", "continue", "↑↓", "choose"},
 		}, hint)
@@ -870,7 +872,8 @@ func (s *providerSetup) providerFormRows(width, height int) []string {
 		}
 		items = append(items, ui.ListItem{Left: f.fieldLabel(id)})
 	}
-	return s.listRows(ui.List{Title: title, Hint: "esc", Groups: []ui.ListGroup{{Items: items}}, Sel: selected,
+	return s.listRows(ui.List{
+		Title: title, Hint: "esc", Groups: []ui.ListGroup{{Items: items}}, Sel: selected,
 		Width: width, Height: height, Footer: []string{"tab", "next", "enter", "select"},
 	}, hint)
 }

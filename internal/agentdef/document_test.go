@@ -106,7 +106,7 @@ func TestValidateRegistrationRules(t *testing.T) {
 		"tool bad name":      func(d *Definition) { d.Tools = []Tool{{Name: "Bad-Name", InputSchema: json.RawMessage(`{}`)}} },
 		"tool schema":        func(d *Definition) { d.Tools = []Tool{{Name: "ok", InputSchema: json.RawMessage(`[]`)}} },
 		"tool timeout": func(d *Definition) {
-			d.Tools = []Tool{{Name: "ok", InputSchema: json.RawMessage(`{}`), TimeoutMillis: int64(MaxToolTimeout.Milliseconds()) + 1}}
+			d.Tools = []Tool{{Name: "ok", InputSchema: json.RawMessage(`{}`), TimeoutMillis: MaxToolTimeout.Milliseconds() + 1}}
 		},
 		"tool repeated": func(d *Definition) {
 			d.Tools = []Tool{{Name: "ok", InputSchema: json.RawMessage(`{}`)}, {Name: "ok", InputSchema: json.RawMessage(`{}`)}}

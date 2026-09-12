@@ -116,7 +116,8 @@ func TestDesktopSyncCoordinatesRealOwnerAndReadiness(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if initialPID == 0 {
-		t.Fatal("initial daemon did not become ready")
+		log, _ := os.ReadFile(filepath.Join(paths.Home, "daemon.log"))
+		t.Fatalf("initial daemon did not become ready\n%s", log)
 	}
 	cancelled, stop := context.WithCancel(ctx)
 	stop()

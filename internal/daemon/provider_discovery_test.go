@@ -83,7 +83,7 @@ func TestDiscoveredFileKeyPersistsReferenceAndReachesInference(t *testing.T) {
 		default:
 			t.Fatal("unexpected provider request")
 		}
-		return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = previous })
 	for _, key := range []string{"fixture-file-key", "fixture-rotated-key"} {
@@ -167,7 +167,7 @@ func TestDiscoveredOpenRouterKeyStillRequiresAuthentication(t *testing.T) {
 		if r.URL.Path != "/api/v1/key" {
 			t.Fatal("public catalog fetched before rejecting the credential")
 		}
-		return &http.Response{StatusCode: 401, Status: fmt.Sprintf("%d Unauthorized", 401), Body: io.NopCloser(strings.NewReader("fixture-invalid-key"))}, nil
+		return &http.Response{StatusCode: http.StatusUnauthorized, Status: fmt.Sprintf("%d Unauthorized", 401), Body: io.NopCloser(strings.NewReader("fixture-invalid-key"))}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = previous })
 	cfg, err := config.Load()

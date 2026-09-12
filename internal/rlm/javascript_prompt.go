@@ -32,9 +32,10 @@ func javascriptExamples(text string) string {
 				for end < len(text) && depth > 0 {
 					c := text[end]
 					if quote != 0 {
-						if c == '\\' {
+						switch c {
+						case '\\':
 							end++
-						} else if c == quote {
+						case quote:
 							quote = 0
 						}
 					} else {

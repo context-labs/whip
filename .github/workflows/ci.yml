@@ -104,7 +104,9 @@ jobs:
         run: |
           mapfile -t packages < <(go list ./... | grep -v -e /internal/browser -e /internal/tui)
           printf -v cover_packages '%s,' "${packages[@]}"
-          go test -race -shuffle=on \
+          # The instrumented daemon suite outgrew Go's 10-minute package
+          # budget on hosted runners; individual operation deadlines stay set.
+          go test -race -shuffle=on -timeout=20m \
             -coverprofile=cover.out -coverpkg="${cover_packages%,}" "${packages[@]}"
 
       # Self-contained coverage floor — no external service or token, so it

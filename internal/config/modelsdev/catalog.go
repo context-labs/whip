@@ -5,14 +5,17 @@ package modelsdev
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"sync"
 )
 
-const SchemaVersion = 1
-const SourceURL = "https://models.dev/api.json"
+const (
+	SchemaVersion = 1
+	SourceURL     = "https://models.dev/api.json"
+)
 
 //go:embed catalog.json
 var bundled []byte
@@ -62,7 +65,7 @@ func Decode(data []byte) (Snapshot, error) {
 		return snapshot, fmt.Errorf("decode Models.dev snapshot: %w", err)
 	}
 	if snapshot.SchemaVersion != SchemaVersion || snapshot.Providers == nil {
-		return snapshot, fmt.Errorf("unsupported Models.dev snapshot schema")
+		return snapshot, errors.New("unsupported Models.dev snapshot schema")
 	}
 	return snapshot, nil
 }

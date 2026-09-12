@@ -134,9 +134,10 @@ func (s *providerSetup) chooseProvider(entry protocol.ProviderEntry, manage bool
 	for _, member := range entries {
 		if manage || setupCanAttempt(member) || member.Status.Disabled {
 			label := member.Name
-			if member.ID == "openai" {
+			switch member.ID {
+			case "openai":
 				label = "API key"
-			} else if member.ID == "openai-codex" {
+			case "openai-codex":
 				label = "ChatGPT subscription"
 			}
 			s.methods = append(s.methods, setupConnectionMethod{entry: member, label: label})
@@ -352,7 +353,7 @@ func setupPromptRows(title, label, input string, keys []string, detail string, w
 	if label != "" {
 		rows = append(rows, pad(muted.Render(label)), blank)
 	}
-	for _, line := range strings.Split(input, "\n") {
+	for line := range strings.SplitSeq(input, "\n") {
 		rows = append(rows, pad(line))
 	}
 	rows = append(rows, blank)

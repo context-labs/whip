@@ -277,7 +277,7 @@ func TestCustomToolFailureSemantics(t *testing.T) {
 	}
 	// Executor disconnect after dispatch: the call fails and is never replayed.
 	outcome = execCell(t.Context(), parent, `tools.lookup()`)
-	invoke = awaitInvoke(t, conn, outcome)
+	awaitInvoke(t, conn, outcome)
 	close(conn.done)
 	owner.executors.disconnect(conn)
 	if cell := awaitCell(t, outcome); cell.err == nil || !strings.Contains(cell.err.Error(), "executor disconnected") {

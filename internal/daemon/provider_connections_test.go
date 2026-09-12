@@ -395,7 +395,7 @@ func TestProviderAccountReplacementCannotRepublishOldCatalog(t *testing.T) {
 		case <-request.Context().Done():
 			return nil, request.Context().Err()
 		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"old-account-model"}]}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"old-account-model"}]}`))}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = previous })
 	done := make(chan error, 1)

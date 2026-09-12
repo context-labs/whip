@@ -792,11 +792,11 @@ func TestLiveEvalEngineSelection(t *testing.T) {
 }
 
 // codingPrompt is the coding agent's standalone system prompt for one engine.
-func codingPrompt(t testing.TB, engine, workingDirectory string, handle *rlm.ContextHandle) string {
-	t.Helper()
+func codingPrompt(tb testing.TB, engine, workingDirectory string, handle *rlm.ContextHandle) string {
+	tb.Helper()
 	prompt, err := agentdef.Coding().SystemPrompt(engine, workingDirectory, handle)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return prompt
 }

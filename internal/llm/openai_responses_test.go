@@ -17,7 +17,7 @@ func TestAstraAPIResponsesToolRoundTripAndBudget(t *testing.T) {
 		`{"type":"function_call","id":"fc1","call_id":"call1","name":"rlm_exec","arguments":"{\"code\":\"print(42)\"}"}]`
 	client.HTTP = &http.Client{Transport: subscriptionTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
-		if r.URL.String() != "https://api.openai.com/v1/responses" || r.Header.Get("Authorization") != "Bearer fixture-only-key" || r.Header.Get("ChatGPT-Account-Id") != "" {
+		if r.URL.String() != "https://api.openai.com/v1/responses" || r.Header.Get("Authorization") != "Bearer fixture-only-key" || r.Header.Get("Chatgpt-Account-Id") != "" {
 			t.Fatal("API credentials used the wrong destination or subscription headers")
 		}
 		raw, err := io.ReadAll(r.Body)
@@ -49,7 +49,7 @@ func TestAstraAPIResponsesToolRoundTripAndBudget(t *testing.T) {
 			}
 			output = `[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"42"}]}]`
 		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("data: " + responseFixture(output) + "\n\n"))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("data: " + responseFixture(output) + "\n\n"))}, nil
 	})}
 	budget := attemptBudgetFunc(func(_ context.Context, attempt ModelAttempt) (ModelPermit, error) {
 		return ModelPermit{MaxTokens: 32, Timeout: attempt.Timeout, Settle: func(result ModelAttemptResult) error {
@@ -60,7 +60,8 @@ func TestAstraAPIResponsesToolRoundTripAndBudget(t *testing.T) {
 			return nil
 		}}, nil
 	})
-	request := Request{Model: "gpt-6-astra", MaxTokens: 128000, ReasoningEffort: "medium",
+	request := Request{
+		Model: "gpt-6-astra", MaxTokens: 128000, ReasoningEffort: "medium",
 		Messages:   []Message{{Role: "system", Content: "WHIP"}, {Role: "user", Content: "Calculate 6*7"}},
 		Tools:      []Tool{NewTool("rlm_exec", "Run code", `{"type":"object","properties":{"code":{"type":"string"}}}`)},
 		Accounting: &CallAccounting{Budget: budget},
@@ -99,7 +100,7 @@ func TestAstraAPICustomRoutesKeepChatCompletions(t *testing.T) {
 			if r.URL.String() != destination+"/chat/completions" {
 				t.Fatal("custom route switched protocols")
 			}
-			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`))}, nil
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`))}, nil
 		})}
 		if text, _, err := client.Complete(t.Context(), Request{Model: "gpt-6-astra"}); err != nil || text != "ok" {
 			t.Fatalf("custom completion: %q %v", text, err)

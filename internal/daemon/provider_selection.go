@@ -74,10 +74,6 @@ func (s *ProviderService) providerSelectionWithCredentials(
 	return selection
 }
 
-func (s *ProviderService) suggestedProviderModel(cfg *config.Config, catalogs map[string]config.Catalog, provider string) string {
-	return s.suggestedProviderModelWithCredentials(cfg, catalogs, provider, nil)
-}
-
 func (s *ProviderService) suggestedProviderModelWithCredentials(
 	cfg *config.Config,
 	catalogs map[string]config.Catalog,

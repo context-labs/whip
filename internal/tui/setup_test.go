@@ -31,20 +31,25 @@ type setupTestHost struct {
 func (h *setupTestHost) ListProviders(context.Context) (protocol.ProviderList, error) {
 	return h.list, nil
 }
+
 func (h *setupTestHost) ListProvidersFor(_ context.Context, model, provider string) (protocol.ProviderList, error) {
 	h.selectedModel, h.selectedProvider = model, provider
 	return h.list, nil
 }
+
 func (h *setupTestHost) DiscoverProviders(ctx context.Context, model, provider string) (protocol.ProviderList, error) {
 	return h.ListProvidersFor(ctx, model, provider)
 }
+
 func (h *setupTestHost) ListLogins(context.Context) (daemon.ProviderLoginList, error) {
 	return daemon.ProviderLoginList{Flows: h.flows}, nil
 }
+
 func (h *setupTestHost) UpdateConfiguration(_ context.Context, p daemon.ConfigurationUpdate) (daemon.RuntimeConfiguration, error) {
 	h.writes = append(h.writes, p)
 	return daemon.RuntimeConfiguration{}, h.writeErr
 }
+
 func (h *setupTestHost) SetProviderKey(_ context.Context, p daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error) {
 	h.key = p.Key
 	for i := range h.list.Providers {
@@ -57,16 +62,19 @@ func (h *setupTestHost) SetProviderKey(_ context.Context, p daemon.ProviderKeySe
 	h.list.Revision = "after-key"
 	return daemon.RuntimeConfiguration{Revision: h.list.Revision}, nil
 }
+
 func (h *setupTestHost) BeginProviderLogin(_ context.Context, provider string) (daemon.ProviderLoginStatus, error) {
 	h.began = append(h.began, provider)
 	flow := daemon.ProviderLoginStatus{Provider: provider, FlowID: "flow", State: "pending"}
 	h.flows = append(h.flows, flow)
 	return flow, nil
 }
+
 func (h *setupTestHost) CancelLogin(_ context.Context, id string) (daemon.ProviderLoginStatus, error) {
 	h.cancelled = append(h.cancelled, id)
 	return daemon.ProviderLoginStatus{FlowID: id, State: "cancelled"}, nil
 }
+
 func (h *setupTestHost) ProviderCatalogsFor(_ context.Context, provider string, _ bool) (protocol.ProviderCatalogsResult, error) {
 	h.catalogProvider = provider
 	if h.catalogs.Models != nil {
@@ -74,6 +82,7 @@ func (h *setupTestHost) ProviderCatalogsFor(_ context.Context, provider string, 
 	}
 	return protocol.ProviderCatalogsResult{Catalogs: map[string]config.Catalog{"openrouter": {Models: []config.ModelInfoLite{{ID: "other-model"}, {ID: "coding-model"}}}}}, nil
 }
+
 func setupFixture() protocol.ProviderList {
 	return protocol.ProviderList{Revision: "original", Selection: &protocol.ProviderSelection{Reason: "provider_unavailable"}, Providers: []protocol.ProviderEntry{
 		{ID: "inference-net", Name: "Inference.net", Category: "Popular", Recommended: true, Methods: []string{"login", "api_key"}, Status: protocol.ProviderStatus{Available: new(false)}},
@@ -81,6 +90,7 @@ func setupFixture() protocol.ProviderList {
 		{ID: "openai-codex", Name: "OpenAI / ChatGPT", Category: "Popular", Methods: []string{"login"}, Status: protocol.ProviderStatus{Available: new(false)}},
 	}}
 }
+
 func setupKey(key string) tea.KeyPressMsg {
 	switch key {
 	case "enter":
@@ -94,6 +104,7 @@ func setupKey(key string) tea.KeyPressMsg {
 	}
 	return tea.KeyPressMsg{Code: []rune(key)[0], Text: key}
 }
+
 func applySetupCommand(t *testing.T, s *providerSetup, cmd tea.Cmd) tea.Cmd {
 	t.Helper()
 	if cmd == nil {
@@ -102,6 +113,7 @@ func applySetupCommand(t *testing.T, s *providerSetup, cmd tea.Cmd) tea.Cmd {
 	_, next := s.Update(cmd())
 	return next
 }
+
 func newTestSetup(t *testing.T, h *setupTestHost, startup bool) *providerSetup {
 	t.Helper()
 	s := newProviderSetup(t.Context(), h, startup)
@@ -123,6 +135,7 @@ func TestSetupUsableRouteSkipsQuestionsAndPreservesExplicitSelection(t *testing.
 		t.Fatalf("explicit route changed: %+v", h)
 	}
 }
+
 func TestSetupDetectedProviderKeepsStableOrderAndCheckmark(t *testing.T) {
 	h := &setupTestHost{list: setupFixture()}
 	h.list.Providers[1].Status = protocol.ProviderStatus{Available: new(true), KeySource: "environment", EnvironmentVariable: "OPENROUTER_API_KEY"}
@@ -142,6 +155,7 @@ func TestSetupDetectedProviderKeepsStableOrderAndCheckmark(t *testing.T) {
 		t.Fatal("recommendation displaced search relevance")
 	}
 }
+
 func TestSetupCleanHomeHasAllPresetsAndNoPreferenceQuestionnaire(t *testing.T) {
 	s := newTestSetup(t, &setupTestHost{list: setupFixture()}, true)
 	applySetupCommand(t, s, s.Init())
@@ -160,6 +174,7 @@ func TestSetupCleanHomeHasAllPresetsAndNoPreferenceQuestionnaire(t *testing.T) {
 		t.Fatalf("initial provider chooser: %+v", s)
 	}
 }
+
 func TestSetupSoleDetectedRouteRequiresProviderChoice(t *testing.T) {
 	h := &setupTestHost{list: setupFixture(), catalogs: setupDefaultCatalogs()}
 	h.list.Providers[1].Status.Available = new(true)
@@ -197,6 +212,7 @@ func TestSetupMasksAndClearsKeyThenOffersModels(t *testing.T) {
 		t.Fatal("secret escaped or draft lost")
 	}
 }
+
 func TestSetupChoosingModelFinishesImmediately(t *testing.T) {
 	h := &setupTestHost{list: setupFixture()}
 	h.list.Providers[1].Status.Available = new(true)
@@ -214,6 +230,7 @@ func TestSetupChoosingModelFinishesImmediately(t *testing.T) {
 		t.Fatalf("selected model lost: %s %s", s.model, s.mode)
 	}
 }
+
 func TestSetupConflictPreservesConnectionAndDraft(t *testing.T) {
 	h := &setupTestHost{list: setupFixture(), writeErr: errors.New("configuration changed")}
 	s := newTestSetup(t, h, true)
@@ -237,6 +254,7 @@ func TestSetupConflictPreservesConnectionAndDraft(t *testing.T) {
 		t.Fatal("selection retry did not save against the refreshed revision")
 	}
 }
+
 func TestSetupSessionChoiceDoesNotRewriteDefaults(t *testing.T) {
 	h := &setupTestHost{list: setupFixture()}
 	s := newTestSetup(t, h, false)
@@ -246,6 +264,7 @@ func TestSetupSessionChoiceDoesNotRewriteDefaults(t *testing.T) {
 		t.Fatalf("session choice wrote host defaults: %+v", h.writes)
 	}
 }
+
 func TestSetupEscClosesDialogWithoutCreatingOrConfiguringSession(t *testing.T) {
 	h := &setupTestHost{list: setupFixture()}
 	s := newTestSetup(t, h, true)
@@ -254,6 +273,7 @@ func TestSetupEscClosesDialogWithoutCreatingOrConfiguringSession(t *testing.T) {
 		t.Fatal("Esc did not close the dialog without configuring a session")
 	}
 }
+
 func TestSetupReusesActiveLoginAndCancelsOnlyThatFlow(t *testing.T) {
 	h := &setupTestHost{list: setupFixture(), flows: []daemon.ProviderLoginStatus{{Provider: "openai-codex", FlowID: "existing", State: "pending"}}}
 	s := newTestSetup(t, h, true)
@@ -267,6 +287,7 @@ func TestSetupReusesActiveLoginAndCancelsOnlyThatFlow(t *testing.T) {
 		t.Fatalf("wrong flow cancelled: %+v", h.cancelled)
 	}
 }
+
 func TestSetupStaleRepliesCannotRestoreClosedOrReplacedFlow(t *testing.T) {
 	s := newTestSetup(t, &setupTestHost{list: setupFixture()}, true)
 	s.request = 2
@@ -281,16 +302,18 @@ func TestSetupStaleRepliesCannotRestoreClosedOrReplacedFlow(t *testing.T) {
 		t.Fatal("closed setup accepted a late selection")
 	}
 }
+
 func TestSetupNarrowScreenWrapsInstructions(t *testing.T) {
 	s := newTestSetup(t, &setupTestHost{list: setupFixture()}, true)
 	applySetupCommand(t, s, s.Init())
 	s.Update(tea.WindowSizeMsg{Width: 32, Height: 30})
-	for _, line := range strings.Split(s.body(), "\n") {
+	for line := range strings.SplitSeq(s.body(), "\n") {
 		if ansi.StringWidth(line) > 28 {
 			t.Fatalf("line exceeds narrow screen: %q", line)
 		}
 	}
 }
+
 func TestConnectAndAuthOpenSharedChooserWithoutClearingDraft(t *testing.T) {
 	for _, command := range []string{"/connect", "/auth"} {
 		t.Run(command, func(t *testing.T) {

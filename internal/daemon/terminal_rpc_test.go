@@ -37,14 +37,16 @@ func terminalTestConn(t *testing.T, server *Server, network bool) *serverConn {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	serverSide, clientSide := net.Pipe()
-	conn := &serverConn{ctx: ctx, cancel: cancel, server: server, conn: newUnixMessageTransport(serverSide), network: network, id: "conn-" + t.Name(),
+	conn := &serverConn{
+		ctx: ctx, cancel: cancel, server: server, conn: newUnixMessageTransport(serverSide), network: network, id: "conn-" + t.Name(),
 		out: make(chan []byte, 512), done: make(chan struct{}), inFlight: make(chan struct{}, 4),
-		client: InitializeParams{ClientID: "terminal-test", ClientKind: "human"}, subscriptions: map[string]*subscription{}}
+		client: InitializeParams{ClientID: "terminal-test", ClientKind: "human"}, subscriptions: map[string]*subscription{},
+	}
 	t.Cleanup(func() { conn.close(); _ = clientSide.Close() })
 	return conn
 }
 
-func terminalCall(t *testing.T, server *Server, conn *serverConn, method string, params any, into any) *RPCError {
+func terminalCall(t *testing.T, server *Server, conn *serverConn, method string, params, into any) *RPCError {
 	t.Helper()
 	raw, err := json.Marshal(params)
 	if err != nil {

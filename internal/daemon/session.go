@@ -800,9 +800,13 @@ func (s *Session) recordStreamEvent(stream *streamEnvelope) error {
 			event.Result = ""
 		}
 		event.Accounting, event.Usage = nil, nil
-		payload, err = json.Marshal(protocol.ContentEventPayload{StreamEvent: event,
-			Content: protocol.ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest,
-				Size: value.Size, MediaType: value.MediaType, Source: value.Source}, Truncated: true})
+		payload, err = json.Marshal(protocol.ContentEventPayload{
+			StreamEvent: event,
+			Content: protocol.ContentHandle{
+				ReferenceID: value.ReferenceID, Digest: value.Digest,
+				Size: value.Size, MediaType: value.MediaType, Source: value.Source,
+			}, Truncated: true,
+		})
 		if err != nil {
 			return err
 		}

@@ -24,12 +24,13 @@ func (s *memoryCheckpoints) Load(context.Context) (*Checkpoint, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.value == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // CheckpointStore uses nil to report that no checkpoint exists.
 	}
-	copy := *s.value
-	copy.Data = append([]byte{}, copy.Data...)
-	return &copy, nil
+	checkpoint := *s.value
+	checkpoint.Data = append([]byte{}, checkpoint.Data...)
+	return &checkpoint, nil
 }
+
 func (s *memoryCheckpoints) Save(_ context.Context, value Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -40,6 +41,7 @@ func (s *memoryCheckpoints) Save(_ context.Context, value Checkpoint) error {
 	s.value = &value
 	return nil
 }
+
 func testQuickJS(t *testing.T, host Host, checkpoints CheckpointStore) *Kernel {
 	t.Helper()
 	executable, err := os.Executable()
@@ -53,6 +55,7 @@ func testQuickJS(t *testing.T, host Host, checkpoints CheckpointStore) *Kernel {
 	t.Cleanup(kernel.Close)
 	return kernel
 }
+
 func TestQuickJSCellsAndFullImageRestore(t *testing.T) {
 	store := &memoryCheckpoints{}
 	kernel := testQuickJS(t, nil, store)
@@ -114,7 +117,10 @@ func TestQuickJSHostPromisesAndLosslessNumbers(t *testing.T) {
 
 func TestQuickJSPassiveHostArguments(t *testing.T) {
 	var calls atomic.Int32
-	kernel := testQuickJS(t, HostFunc(func(context.Context, string, string, map[string]any) (any, error) { calls.Add(1); return nil, nil }), nil)
+	kernel := testQuickJS(t, HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+		calls.Add(1)
+		return nil, errors.New("invalid arguments reached the host")
+	}), nil)
 	cases := []string{
 		`({value:9007199254740992})`,
 		`({value:undefined})`,

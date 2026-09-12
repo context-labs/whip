@@ -445,13 +445,17 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 			}
 			if refreshFixture {
 				r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
-					kind: "stream.tool.completed", event: StreamEvent{ID: "tool-a", Result: "completed before snapshot"},
+					kind: "stream.tool.completed", event: StreamEvent{ID: "tool-a", Result: `{"format_version":2,"execution_engine":"starlark","language":"starlark","has_value":false,"value":null,"output":"completed before snapshot","metrics":{"starlark_steps":1},"steps":1}`},
 				}})
-				// Push the earlier text and completed tool beyond the snapshot's
-				// 128-event window while the same turn remains active.
-				for range 160 {
+				// Accounting is excluded from presentation snapshots. Interleave
+				// cumulative calls/output so coalescing cannot prevent these 160
+				// events from pushing earlier text and tool-a beyond the window.
+				for range 80 {
 					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
-						kind: "stream.usage", event: StreamEvent{},
+						kind: "stream.tool.call", event: StreamEvent{ID: "tool-b", Name: "rlm_exec", Args: `{"code":"print(1)"}`},
+					}})
+					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+						kind: "stream.tool.output", event: StreamEvent{ID: "tool-b", Text: "first\nsecond"},
 					}})
 				}
 			}

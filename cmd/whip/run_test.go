@@ -646,7 +646,7 @@ func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
 				home := t.TempDir()
 				t.Setenv("WHIP_HOME", home)
 				cfg := fmt.Sprintf(`{"defaultModel":"test","mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKey":"k"}},"models":{"test":{"providers":["testprov"],"maxOut":100}}}`, server.URL)
-				if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				useTestDaemon(t)

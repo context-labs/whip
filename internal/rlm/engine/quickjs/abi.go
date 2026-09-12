@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -35,16 +37,18 @@ func (v *runtime) call(ctx context.Context, name string, args ...uint64) uint64 
 		return 0
 	}
 	if f.Definition().ResultTypes()[0] == api.ValueTypeI32 {
-		return uint64(uint32(result[0]))
+		return uint64(api.DecodeU32(result[0]))
 	}
 	return result[0]
 }
+
 func (v *runtime) valueCall(ctx context.Context, name string, args ...uint64) uint64 {
 	h := v.call(ctx, name, args...)
 	check(h != 0, "null JSValue box: "+name)
 	v.boxes++
 	return h
 }
+
 func (v *runtime) freeValue(ctx context.Context, h uint64) {
 	if h == 0 {
 		return
@@ -54,23 +58,30 @@ func (v *runtime) freeValue(ctx context.Context, h uint64) {
 		v.call(ctx, "qjs_free_value", h)
 	}
 }
+
 func (v *runtime) alloc(ctx context.Context, n int) uint64 {
+	if n < 1 || uint64(n) > math.MaxUint32 {
+		panic(failure{errors.New("bridge: allocation size exceeds wasm32 address space")})
+	}
 	p := v.call(ctx, "wasm_malloc", uint64(n))
 	check(p != 0, "malloc failed")
 	v.allocations++
 	return p
 }
+
 func (v *runtime) free(ctx context.Context, p uint64) {
 	v.allocations--
 	if !v.module.IsClosed() {
 		v.call(ctx, "wasm_free", p)
 	}
 }
+
 func (v *runtime) put(ctx context.Context, s string) uint64 {
 	p := v.alloc(ctx, len(s)+1)
-	check(v.module.Memory().Write(uint32(p), append([]byte(s), 0)), "write out of bounds")
+	check(v.module.Memory().Write(api.DecodeU32(p), append([]byte(s), 0)), "write out of bounds")
 	return p
 }
+
 func (v *runtime) newString(ctx context.Context, s string) uint64 {
 	p := v.put(ctx, s)
 	defer v.free(ctx, p)
@@ -81,7 +92,8 @@ func (v *runtime) newString(ctx context.Context, s string) uint64 {
 	}
 	return h
 }
-func (v *runtime) text(ctx context.Context, h uint64, max int) string {
+
+func (v *runtime) text(ctx context.Context, h uint64, byteLimit int) string {
 	lp := v.alloc(ctx, 4)
 	defer v.free(ctx, lp)
 	p := v.call(ctx, "qjs_get_string_len", h, lp)
@@ -93,14 +105,17 @@ func (v *runtime) text(ctx context.Context, h uint64, max int) string {
 			v.call(ctx, "qjs_free_cstring", p)
 		}
 	}()
-	n, ok := v.module.Memory().ReadUint32Le(uint32(lp))
+	n, ok := v.module.Memory().ReadUint32Le(api.DecodeU32(lp))
 	check(ok, "string length read failed")
-	check(uint64(n) <= uint64(max), "string byte limit")
-	b, ok := v.module.Memory().Read(uint32(p), n)
+	if byteLimit < 0 || uint64(n) > uint64(byteLimit) {
+		panic(failure{errors.New("bridge: string byte limit")})
+	}
+	b, ok := v.module.Memory().Read(api.DecodeU32(p), n)
 	check(ok, "string read out of bounds")
 	check(utf8.Valid(b), "invalid UTF-8 string")
 	return string(b)
 }
+
 func (v *runtime) evalRaw(ctx context.Context, source string, flags uint64) uint64 {
 	p := v.put(ctx, source)
 	defer v.free(ctx, p)
@@ -108,6 +123,7 @@ func (v *runtime) evalRaw(ctx context.Context, source string, flags uint64) uint
 	defer v.free(ctx, name)
 	return v.valueCall(ctx, "qjs_eval", p, uint64(len(source)), name, flags)
 }
+
 func (v *runtime) eval(ctx context.Context, source string, flags uint64) uint64 {
 	h := v.evalRaw(ctx, source, flags)
 	if v.call(ctx, "qjs_is_exception", h) != 0 {
@@ -116,6 +132,7 @@ func (v *runtime) eval(ctx context.Context, source string, flags uint64) uint64 
 	}
 	return h
 }
+
 func (v *runtime) checkException(ctx context.Context, h uint64) {
 	if v.call(ctx, "qjs_is_exception", h) == 0 {
 		return
@@ -124,6 +141,7 @@ func (v *runtime) checkException(ctx context.Context, h uint64) {
 	defer v.freeValue(ctx, e)
 	panic(failure{fmt.Errorf("bridge: guest exception: %s", v.text(ctx, e, v.factory.options.Limits.MaxOutputBytes))})
 }
+
 func (v *runtime) property(ctx context.Context, obj uint64, name string) uint64 {
 	p := v.put(ctx, name)
 	defer v.free(ctx, p)
@@ -134,15 +152,21 @@ func (v *runtime) property(ctx context.Context, obj uint64, name string) uint64 
 	}
 	return h
 }
+
 func (v *runtime) controlCall(ctx context.Context, name string, args ...uint64) uint64 {
 	f := v.property(ctx, v.control, name)
 	defer v.freeValue(ctx, f)
 	var argv uint64
 	if len(args) > 0 {
+		if len(args) > math.MaxInt/4 || len(args) > math.MaxUint32/4 {
+			panic(failure{errors.New("bridge: argument array exceeds wasm32 address space")})
+		}
 		argv = v.alloc(ctx, len(args)*4)
 		defer v.free(ctx, argv)
+		memory, ok := v.module.Memory().Read(api.DecodeU32(argv), uint32(len(args)*4)) //nolint:gosec // Both the int multiplication and wasm32 byte length are bounded above.
+		check(ok, "argv write failed")
 		for i, arg := range args {
-			check(v.module.Memory().WriteUint32Le(uint32(argv)+uint32(i*4), uint32(arg)), "argv write failed")
+			binary.LittleEndian.PutUint32(memory[i*4:(i+1)*4], api.DecodeU32(arg))
 		}
 	}
 	h := v.valueCall(ctx, "qjs_call", f, v.control, uint64(len(args)), argv)
@@ -152,6 +176,7 @@ func (v *runtime) controlCall(ctx context.Context, name string, args ...uint64) 
 	}
 	return h
 }
+
 func (v *runtime) installHost(ctx context.Context) {
 	p := v.put(ctx, callbackName)
 	defer v.free(ctx, p)
@@ -162,13 +187,13 @@ func (v *runtime) installHost(ctx context.Context) {
 	defer v.freeValue(ctx, g)
 	name := v.put(ctx, "__whipSubmit")
 	defer v.free(ctx, name)
-	check(int32(v.call(ctx, "qjs_set_prop_string", g, name, h)) >= 0, "host registration failed")
+	check(api.DecodeI32(v.call(ctx, "qjs_set_prop_string", g, name, h)) >= 0, "host registration failed")
 }
 
 // Host JSON decoding uses tokens to reject duplicate keys and excessive nesting.
 // No arbitrary Go object graph is retained, and no guest serializer is trusted.
-func validJSON(b []byte, max int) error {
-	if len(b) == 0 || len(b) > max || !utf8.Valid(b) {
+func validJSON(b []byte, byteLimit int) error {
+	if len(b) == 0 || len(b) > byteLimit || !utf8.Valid(b) {
 		return errors.New("bridge: JSON byte limit/encoding")
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -181,6 +206,7 @@ func validJSON(b []byte, max int) error {
 	}
 	return nil
 }
+
 func jsonValue(d *json.Decoder, depth int) error {
 	if depth > 64 {
 		return errors.New("bridge: JSON nesting limit")
@@ -227,6 +253,7 @@ func jsonValue(d *json.Decoder, depth int) error {
 	_, err = d.Token()
 	return err
 }
+
 func supportedImport(mod, name string) bool {
 	if mod == "env" {
 		switch name {
@@ -242,6 +269,7 @@ func supportedImport(mod, name string) bool {
 	}
 	return false
 }
+
 func (f *factory) host(ctx context.Context, m api.Module, mod, name string, s []uint64) {
 	if mod == "env" {
 		value, ok := f.vms.Load(m.Name())
@@ -263,7 +291,7 @@ func (f *factory) host(ctx context.Context, m api.Module, mod, name string, s []
 			v.boxes += 2
 			if v.control != 0 {
 				method := "rejectionAdd"
-				if uint32(s[2]) != 0 {
+				if api.DecodeU32(s[2]) != 0 {
 					method = "rejectionDelete"
 				}
 				result := v.controlCall(ctx, method, s[0])
@@ -272,22 +300,30 @@ func (f *factory) host(ctx context.Context, m api.Module, mod, name string, s []
 			v.freeValue(ctx, s[0])
 			v.freeValue(ctx, s[1])
 		case "host_call":
-			b, ok := m.Memory().Read(uint32(s[0]), uint32(s[1]))
+			if len(s) < 5 {
+				panic(failure{errors.New("bridge: incomplete callback arguments")})
+			}
+			b, ok := m.Memory().Read(api.DecodeU32(s[0]), api.DecodeU32(s[1]))
 			check(ok && string(b) == callbackName, "unbound callback")
-			check(uint32(s[3]) == 3, "callback arity")
-			args := make([]string, 3)
-			for i := range args {
-				p, ok := m.Memory().ReadUint32Le(uint32(s[4]) + uint32(i*4))
-				check(ok, "callback argv read failed")
+			check(api.DecodeU32(s[3]) == 3, "callback arity")
+			argv, ok := m.Memory().Read(api.DecodeU32(s[4]), 3*4)
+			check(ok, "callback argv read failed")
+			pointers := [3]uint32{
+				binary.LittleEndian.Uint32(argv[:4]),
+				binary.LittleEndian.Uint32(argv[4:8]),
+				binary.LittleEndian.Uint32(argv[8:12]),
+			}
+			var args [3]string
+			for i, p := range pointers {
 				check(v.call(ctx, "qjs_is_string", uint64(p)) != 0, "callback arguments must be strings")
-				max := f.options.Limits.MaxRequestBytes
+				byteLimit := f.options.Limits.MaxRequestBytes
 				if i == 0 {
-					max = 1600
+					byteLimit = 1600
 				}
 				if i == 1 {
-					max = 256
+					byteLimit = 256
 				}
-				args[i] = v.text(ctx, uint64(p), max)
+				args[i] = v.text(ctx, uint64(p), byteLimit)
 			}
 			code := v.submit(args[0], args[1], []byte(args[2]))
 			// C owns this newly allocated result box; argv/this are only borrowed.
@@ -299,14 +335,14 @@ func (f *factory) host(ctx context.Context, m api.Module, mod, name string, s []
 	}
 	switch name {
 	case "clock_time_get":
-		if uint32(s[0]) > 1 {
+		if api.DecodeU32(s[0]) > 1 {
 			s[0] = 52
 			return
 		}
-		check(m.Memory().WriteUint64Le(uint32(s[2]), uint64(time.Now().UnixNano())), "clock write failed")
+		check(m.Memory().WriteUint64Le(api.DecodeU32(s[2]), uint64(time.Now().UnixNano())), "clock write failed")
 		s[0] = 0
 	case "random_get":
-		b, ok := m.Memory().Read(uint32(s[0]), uint32(s[1]))
+		b, ok := m.Memory().Read(api.DecodeU32(s[0]), api.DecodeU32(s[1]))
 		check(ok, "random write failed")
 		_, err := rand.Read(b)
 		must(err)
@@ -317,6 +353,7 @@ func (f *factory) host(ctx context.Context, m api.Module, mod, name string, s []
 		panic(failure{errors.New("bridge: unsupported WASI call")})
 	}
 }
+
 func (v *runtime) submit(id, tool string, args []byte) string {
 	if v.cellID == "" || !strings.HasPrefix(id, v.prefix) {
 		return "E_ID"

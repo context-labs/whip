@@ -2,8 +2,10 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -31,7 +33,7 @@ func TestResponsesToolContinuationRoundTrip(t *testing.T) {
 	var args []string
 	message, usage, err := decodeResponses(strings.NewReader(stream), "account", "model", func(delta string) {
 		text += delta
-	}, func(string) {}, func(_, _ string, snapshot string) { args = append(args, snapshot) })
+	}, func(string) {}, func(_, _, snapshot string) { args = append(args, snapshot) })
 	if err != nil || message.Content != "Checking." || text != message.Content || len(message.ToolCalls) != 1 {
 		t.Fatalf("decode: message=%+v text=%q err=%v", message, text, err)
 	}
@@ -50,7 +52,9 @@ func TestResponsesToolContinuationRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := Request{Model: "model", Messages: []Message{
-		{Role: "system", Content: "WHIP instructions"}, {Role: "user", Content: "Do work"}, restored,
+		{Role: "system", Content: "WHIP instructions"},
+		{Role: "user", Content: "Do work"},
+		restored,
 		{Role: "tool", ToolCallID: "call1", Content: "1"},
 	}}
 	for round := range 2 {
@@ -121,10 +125,12 @@ func TestResponsesCompletedItemsWithoutTerminalOutput(t *testing.T) {
 	}
 	stream := "data: " + `{"type":"response.output_text.delta","delta":"Checking."}` + "\n\n"
 	// Completion order need not match the provider's output order.
+	var completedItems strings.Builder
 	for _, index := range []int{2, 0, 1} {
-		stream += fmt.Sprintf("data: {\"type\":\"response.output_item.done\",\"output_index\":%d,\"item\":%s}\n\n", index, items[index])
+		fmt.Fprintf(&completedItems, "data: {\"type\":\"response.output_item.done\",\"output_index\":%d,\"item\":%s}\n\n", index, items[index])
 	}
-	if message, _, err := decodeFixture(stream); err != io.ErrUnexpectedEOF || len(message.ToolCalls) != 0 || message.Continuation.Items != "" {
+	stream += completedItems.String()
+	if message, _, err := decodeFixture(stream); !errors.Is(err, io.ErrUnexpectedEOF) || len(message.ToolCalls) != 0 || message.Continuation.Items != "" {
 		t.Fatalf("published items before response completion: %+v %v", message, err)
 	}
 	var text string
@@ -137,8 +143,10 @@ func TestResponsesCompletedItemsWithoutTerminalOutput(t *testing.T) {
 	if message.Continuation.Items != expected {
 		t.Fatalf("lost opaque fields or output order: %s", message.Continuation.Items)
 	}
-	body, err := encodeResponses(Request{Model: "model", Messages: []Message{message,
-		{Role: "tool", ToolCallID: "call1", Content: "1"}}}, "account")
+	body, err := encodeResponses(Request{Model: "model", Messages: []Message{
+		message,
+		{Role: "tool", ToolCallID: "call1", Content: "1"},
+	}}, "account")
 	if err != nil || !strings.Contains(string(body), strings.Join(items, ",")) {
 		t.Fatalf("completed items did not survive tool continuation: %s %v", body, err)
 	}
@@ -146,7 +154,7 @@ func TestResponsesCompletedItemsWithoutTerminalOutput(t *testing.T) {
 
 func TestResponsesRejectMissingCompletedItem(t *testing.T) {
 	for _, index := range []int{-1, 0, 1, maxResponseItems} {
-		t.Run(fmt.Sprint(index), func(t *testing.T) {
+		t.Run(strconv.Itoa(index), func(t *testing.T) {
 			stream := fmt.Sprintf("data: {\"type\":\"response.output_item.added\",\"output_index\":%d,\"item\":{\"type\":\"function_call\",\"call_id\":\"call1\",\"name\":\"rlm_exec\"}}\n\n", index)
 			message, _, err := decodeFixture(stream + "data: " + responseFixture(`[]`) + "\n\n")
 			if err == nil || len(message.ToolCalls) != 0 || message.Continuation.Items != "" {
@@ -196,7 +204,7 @@ func TestResponsesSSEFramingAndUsage(t *testing.T) {
 			t.Fatalf("accepted invalid usage: %s", raw)
 		}
 	}
-	if _, _, err := decodeFixture(""); err != io.ErrUnexpectedEOF {
+	if _, _, err := decodeFixture(""); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("missing completion was accepted: %v", err)
 	}
 }

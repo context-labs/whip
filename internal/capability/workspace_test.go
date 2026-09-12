@@ -178,6 +178,7 @@ func TestWorkspaceCanonicalizeOutsideRoot(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := w.Canonicalize(test.path)
 			if err != nil {
 				t.Fatal(err)
@@ -212,6 +213,7 @@ func TestWorkspaceRejectsDanglingSymlink(t *testing.T) {
 	}
 	for _, path := range []string{"alias", filepath.Join("alias", "new-file")} {
 		t.Run(path, func(t *testing.T) {
+			t.Parallel()
 			if _, err := w.Canonicalize(path); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("Canonicalize(%q) error = %v, want unresolved symlink error", path, err)
 			}

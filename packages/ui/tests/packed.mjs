@@ -87,9 +87,11 @@ window.addEventListener('pagehide',()=>application.dispose());
             await expect(link).toHaveCSS('outline-width', '1px');
             await expect(link).toHaveCSS('outline-color', focusColor);
           } else {
-            await page.getByRole('button', {name: 'Manage execution hosts', exact: true}).first().waitFor();
-            await page.getByRole('button', {name: 'Manage execution hosts', exact: true}).first().click();
-            await page.getByRole('dialog', {name: 'Execution hosts'}).waitFor();
+            await page.getByRole('link', {name: 'Settings', exact: true}).click();
+            await page.getByRole('navigation', {name: 'Settings categories', exact: true}).getByRole('button', {name: 'Servers', exact: true}).click();
+            await page.getByRole('heading', {name: 'Servers', exact: true}).waitFor();
+            await page.getByRole('button', {name: 'Add server', exact: true}).click();
+            await page.getByRole('dialog', {name: 'Add server', exact: true}).waitFor();
           }
           if (errors.length) throw new Error(`${mode}/${target}: ${errors.join('; ')}`);
           results.push({mode, target, passed: true}); await page.close();

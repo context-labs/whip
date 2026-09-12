@@ -145,7 +145,7 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	m := &model{client: client, clientState: ClientLive, input: newInput(), historyRequested: true}
 	for _, state := range []ClientState{ClientReconnecting, ClientSnapshotting, ClientLive} {
 		_, command := m.Update(clientUpdateMsg{
-			ClientUpdate: ClientUpdate{State: state, StateChanged: true},
+			State: state, StateChanged: true,
 		})
 		if command == nil {
 			t.Fatalf("reconnect state %s lost the update stream", state)
@@ -153,7 +153,7 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	}
 	m.applyClientSnapshot(session.RootSnapshot{RootID: "other-root", PermissionMode: "prompt"})
 	_, command := m.Update(clientUpdateMsg{
-		ClientUpdate: ClientUpdate{State: ClientLive, StateChanged: true},
+		State: ClientLive, StateChanged: true,
 	})
 	if command == nil {
 		t.Fatal("switching sessions lost the update stream")
@@ -985,8 +985,8 @@ func TestClientStreamHostEventsStayOutOfTheTranscript(t *testing.T) {
 	m := replTestModel(t, 140)
 	started, _ := json.Marshal(daemon.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", Args: "path=README.md"})
 	truncated, _ := json.Marshal(protocol.ContentEventPayload{
-		StreamEvent: protocol.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", HostStatus: "failed"},
-		Content:     protocol.ContentHandle{ReferenceID: "ref-1"}, Truncated: true,
+		ID: "c1", InvocationID: "1:1", Name: "files.read", HostStatus: "failed",
+		Content: protocol.ContentHandle{ReferenceID: "ref-1"}, Truncated: true,
 	})
 	for kind, payload := range map[string][]byte{"stream.cell.host.started": started, "stream.cell.host": truncated} {
 		if handled, _ := m.applyClientStream(kind, payload); !handled || len(m.blocks) != 0 {

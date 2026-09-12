@@ -11,8 +11,8 @@ import (
 	"github.com/context-labs/whip/internal/rlm/engine"
 )
 
-func validArgs(args []byte, max int) error {
-	if err := validJSON(args, max); err != nil {
+func validArgs(args []byte, byteLimit int) error {
+	if err := validJSON(args, byteLimit); err != nil {
 		return err
 	}
 	if bytes.TrimSpace(args)[0] != '{' {
@@ -31,8 +31,9 @@ func (v *runtime) ValidateOutcome(ctx context.Context, out engine.Outcome) error
 	_, err := v.encodeOutcome(out)
 	return err
 }
+
 func (v *runtime) encodeOutcome(out engine.Outcome) ([]byte, error) {
-	max := v.factory.options.Limits.MaxResultBytes
+	byteLimit := v.factory.options.Limits.MaxResultBytes
 	if out.ID == "" || len(out.ID) > 1600 || !utf8.ValidString(out.ID) || strings.ContainsRune(out.ID, 0) {
 		return nil, errors.New("bridge: invalid outcome ID")
 	}
@@ -40,14 +41,14 @@ func (v *runtime) encodeOutcome(out engine.Outcome) ([]byte, error) {
 		if out.Error != nil {
 			return nil, errors.New("bridge: successful outcome has error")
 		}
-		if err := validJSON(out.Value, max); err != nil {
+		if err := validJSON(out.Value, byteLimit); err != nil {
 			return nil, err
 		}
 	} else {
 		if out.Error == nil || out.Error.Code == "" || len(out.Value) != 0 {
 			return nil, errors.New("bridge: invalid error outcome")
 		}
-		if len(out.Error.Code) > max || len(out.Error.Message) > max {
+		if len(out.Error.Code) > byteLimit || len(out.Error.Message) > byteLimit {
 			return nil, errors.New("bridge: error byte limit")
 		}
 		if !utf8.ValidString(out.Error.Code) || !utf8.ValidString(out.Error.Message) {
@@ -58,7 +59,7 @@ func (v *runtime) encodeOutcome(out engine.Outcome) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(payload) > max {
+	if len(payload) > byteLimit {
 		return nil, errors.New("bridge: outcome byte limit")
 	}
 	return payload, nil
@@ -73,6 +74,7 @@ func (v *runtime) ValidateCell(ctx context.Context, cellID, source string) error
 	defer v.mu.Unlock()
 	return v.validateCellLocked(cellID, source)
 }
+
 func (v *runtime) validateCellLocked(cellID, source string) error {
 	if !validID(cellID) || !utf8.ValidString(source) {
 		return errors.New("bridge: invalid cell ID/source")

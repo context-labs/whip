@@ -54,8 +54,10 @@ func TestRuntimeGuideSelectsFragments(t *testing.T) {
 // first, plus one rule line; definitions without tools leave the guide alone.
 func TestRuntimeGuideCatalogsCustomTools(t *testing.T) {
 	tools := []CustomTool{
-		{Name: "lookup_ticket", Description: "Fetch a ticket by id.\n  Returns the ticket record.", InputSchema: []byte(`{"type":"object","properties":{"verbose":{"type":"boolean"},"id":{"type":"string"}},"required":["id"]}`),
-			OutputSchema: []byte(`{"type":"object","properties":{"title":{"type":"string"},"id":{"type":"string"}}}`)},
+		{
+			Name: "lookup_ticket", Description: "Fetch a ticket by id.\n  Returns the ticket record.", InputSchema: []byte(`{"type":"object","properties":{"verbose":{"type":"boolean"},"id":{"type":"string"}},"required":["id"]}`),
+			OutputSchema: []byte(`{"type":"object","properties":{"title":{"type":"string"},"id":{"type":"string"}}}`),
+		},
 		{Name: "noop", Description: strings.Repeat("long ", 100), InputSchema: []byte(`{"type":"object"}`)},
 	}
 	starlark, err := RuntimeGuide(EngineStarlark, []string{"context"}, tools, nil, "", nil)
@@ -63,7 +65,7 @@ func TestRuntimeGuideCatalogsCustomTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Custom tools (keyword arguments as listed):\n- tools.lookup_ticket(id=..., verbose=...) -> {id, title}: Fetch a ticket by id. Returns the ticket record.\n- tools.noop(): long long",
+		"Custom tools (keyword arguments as listed):\n- tools.lookup_ticket(id=..., verbose=...) -> {id, title}: Fetch a ticket by id. Returns the ticket record.\n- tools.noop(): long long", //nolint:dupword // The fixture deliberately repeats this word to exercise description truncation.
 		"...\n\nRules:",
 		"\n- tools.<name> calls run outside the runtime",
 	} {

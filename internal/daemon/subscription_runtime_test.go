@@ -45,7 +45,7 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 	var helpers, dispatches atomic.Int32
 	client.HTTP.Transport = subscriptionRuntimeTransport(func(request *http.Request) (*http.Response, error) {
 		dispatches.Add(1)
-		if request.URL.String() != openaiauth.BaseURL+"/responses" || request.Header.Get("ChatGPT-Account-Id") != "account-id" {
+		if request.URL.String() != openaiauth.BaseURL+"/responses" || request.Header.Get("Chatgpt-Account-Id") != "account-id" {
 			t.Error("runtime escaped the subscription route")
 		}
 		var body struct {
@@ -60,8 +60,10 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		if body.Model != "gpt-5.5" || !body.Stream {
 			t.Error("runtime helper lost the subscription wire profile")
 		}
-		output := []any{map[string]any{"type": "message", "role": "assistant", "phase": "final_answer",
-			"content": []any{map[string]string{"type": "output_text", "text": "subscription result"}}}}
+		output := []any{map[string]any{
+			"type": "message", "role": "assistant", "phase": "final_answer",
+			"content": []any{map[string]string{"type": "output_text", "text": "subscription result"}},
+		}}
 		if len(body.Tools) == 0 {
 			helpers.Add(1)
 		} else if calledTool.CompareAndSwap(false, true) {
@@ -82,7 +84,7 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		if err != nil {
 			return nil, err
 		}
-		return &http.Response{StatusCode: 200, Status: "200 OK", Body: io.NopCloser(strings.NewReader("data: " + string(event) + "\n\n"))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader("data: " + string(event) + "\n\n"))}, nil
 	})
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
@@ -93,8 +95,10 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		value.ContextLimit = 400000
 		limits := rlm.DefaultLimits()
 		var err error
-		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{Agent: value, History: history, Limits: limits,
-			Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand})
+		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
+			Agent: value, History: history, Limits: limits,
+			Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand,
+		})
 		if err != nil {
 			return Components{}, err
 		}

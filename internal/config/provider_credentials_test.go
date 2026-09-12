@@ -141,10 +141,17 @@ func TestProviderEnvFileSubsetAndNoExecution(t *testing.T) {
 		})
 	}
 	invalid := []struct{ name, input string }{
-		{"shell command", "source ./secret"}, {"substitution", "KEY=$(touch marker)"}, {"backtick", "KEY=`touch marker`"},
-		{"no assignment", "malformed-secret"}, {"missing quote", "KEY='secret"}, {"escaped quote", "KEY=\"secret\\\"quote\""},
-		{"multiline", "KEY='first\nsecond'"}, {"invalid name", "BAD-NAME=secret"}, {"control", "KEY=bad\x00secret"},
-		{"trailing command", "KEY=secret;touch marker"}, {"quote tail", "KEY='secret' tail"},
+		{"shell command", "source ./secret"},
+		{"substitution", "KEY=$(touch marker)"},
+		{"backtick", "KEY=`touch marker`"},
+		{"no assignment", "malformed-secret"},
+		{"missing quote", "KEY='secret"},
+		{"escaped quote", "KEY=\"secret\\\"quote\""},
+		{"multiline", "KEY='first\nsecond'"},
+		{"invalid name", "BAD-NAME=secret"},
+		{"control", "KEY=bad\x00secret"},
+		{"trailing command", "KEY=secret;touch marker"},
+		{"quote tail", "KEY='secret' tail"},
 	}
 	for _, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {

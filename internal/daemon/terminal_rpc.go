@@ -64,8 +64,10 @@ func (s *Server) handleTerminal(connection *serverConn, request rpcMessage) (any
 		if err != nil {
 			return nil, terminalFailure(err), true
 		}
-		return protocol.TerminalAttachResult{Cursor: from, Cwd: status.Cwd, Cols: int(status.Cols), Rows: int(status.Rows),
-			Exited: status.Exited, ExitCode: status.ExitCode, Signal: status.Signal}, nil, true
+		return protocol.TerminalAttachResult{
+			Cursor: from, Cwd: status.Cwd, Cols: int(status.Cols), Rows: int(status.Rows),
+			Exited: status.Exited, ExitCode: status.ExitCode, Signal: status.Signal,
+		}, nil, true
 	case "terminal.write":
 		var params protocol.TerminalWriteParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {

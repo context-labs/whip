@@ -586,7 +586,7 @@ func TestRLMRejectsUnknownEngineAndConcurrency(t *testing.T) {
 func TestEngineOnlyConfigurationPreservesPreference(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"rlm":{"defaultEngine":"quickjs","maxConcurrentHostCalls":1}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"rlm":{"defaultEngine":"quickjs","maxConcurrentHostCalls":1}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load()

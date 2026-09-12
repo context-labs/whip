@@ -15,8 +15,14 @@ const log = (scope, phase) => console.log(`[${new Date().toISOString()}] ${scope
 log('fixture', 'compiling and starting isolated daemon');
 const fixture = await startFixture();
 log('fixture', `ready at ${fixture.directory}`);
+const providerBaseURL = fixture.info.frontend + '/v1';
+await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({
+  defaultModel: 'model', defaultProvider: 'provider',
+  providers: { provider: { name: 'Isolated fixture', baseUrl: providerBaseURL, api: 'openai-completions', auth: 'none' } },
+  models: { model: { providers: ['provider'] } },
+}));
 await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({
-  provider: { fetchedAt: new Date().toISOString(), models: [
+  provider: { baseUrl: providerBaseURL, fetchedAt: new Date().toISOString(), models: [
     { id: 'model' }, { id: 'replacement', reasoningEfforts: ['low', 'medium', 'high'] },
   ] },
 }));
@@ -68,7 +74,7 @@ async function measurePresentation(page) {
     const check = () => {
       for (let index = pending.length - 1; index >= 0; index--) {
         const item = pending[index];
-        const row = document.querySelector(`[data-message-id="live-tool:${CSS.escape(item.id)}"]`);
+        const row = document.querySelector('[data-activity-group] [data-tool-preview]');
         if (row?.textContent?.includes(item.text)) { samples.push(performance.now() - item.start); pending.splice(index, 1); }
       }
     };
@@ -80,11 +86,10 @@ async function measurePresentation(page) {
         this.addEventListener('message', message => {
           try {
             const event = JSON.parse(message.data).params?.event;
-            if (!event?.kind?.startsWith('stream.tool.') || !event.payload?.id) return;
-            let text = event.payload.args ?? event.payload.text ?? event.payload.result;
-            if (event.payload.args) { try { text = JSON.parse(text).code ?? text; } catch {} }
+            if (event?.kind !== 'stream.tool.output') return;
+            const text = event.payload?.text;
             if (typeof text !== 'string' || !text) return;
-            pending.push({ id: event.payload.id, text, start: performance.now() });
+            pending.push({ text, start: performance.now() });
             if (pending.length > 128) pending.shift();
           } catch { /* Protocol errors are owned by the real SDK. */ }
         });
@@ -104,11 +109,10 @@ async function send(page, text) {
 }
 async function selectTheme(page, id) {
   await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
-  await page.getByRole('button', { name: 'System appearance', exact: true }).last().click();
-  const dialog = page.getByRole('dialog', { name: 'Appearance', exact: true });
-  await dialog.getByRole('combobox', { name: 'Search themes' }).fill(id);
-  await page.getByRole('option', { name: new RegExp(`^${id}\\s*Dark$`) }).click();
-  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Settings categories', exact: true }).getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('combobox', { name: /^Color theme:/ }).click();
+  await page.getByRole('combobox', { name: 'Search themes', exact: true }).fill(id);
+  await page.getByRole('option', { name: new RegExp(`^${id}\\s*Dark$`, 'i') }).click();
   await page.waitForFunction(value => document.documentElement.dataset.theme === value, id);
 }
 async function accessible(page, state) {
@@ -164,7 +168,7 @@ try {
       await session.rename(`Browser ${name}`).result({ signal: AbortSignal.timeout(15_000) });
       const response = await page.goto(origin() + route(rootId));
       const csp = response.headers()['content-security-policy'];
-      assert.ok(csp && !csp.includes('unsafe-eval') && !csp.includes('unsafe-inline'));
+      assert.ok(csp && !csp.includes("'unsafe-eval'") && !csp.includes("'unsafe-inline'"));
       await ready(page);
       await accessible(page, 'empty conversation');
       checks.push('production same-origin deep link and strict CSP');
@@ -191,7 +195,7 @@ try {
       await modelTrigger.click();
       const modelSearch = page.getByRole('textbox', { name: 'Search models', exact: true });
       await modelSearch.fill('replacement');
-      await page.getByRole('option', { name: 'replacement', exact: true }).click();
+      await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.model === 'replacement', { description: 'composer model selection reaches the host' });
       await modelSearch.waitFor({ state: 'hidden' });
       // Host acceptance precedes browser replay, which changes toolbar geometry.
@@ -214,32 +218,42 @@ try {
 
       progress('stream grouping, theme switch and reload');
       await send(page, 'hold:tool-stream');
-      await eventually(async () => (await page.locator('[data-message-id^="live-tool:"]').count()) === 2, { description: 'two cumulative tool rows' });
+      const activity = page.locator('[data-activity-group]');
+      await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'), { description: 'two cumulative executions in one activity group' });
       assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1, 'Text deltas must append to one live row');
-      const tools = page.locator('[data-message-id^="live-tool:"]');
+      const presentationLatency = await eventually(async () => {
+        const samples = await page.evaluate(() => window.__whipEventToView);
+        return samples.length >= 2 && samples;
+      }, { description: 'grouped output updates are painted' });
+      await activity.locator('summary').click();
+      const tools = activity.locator('[data-activity-cell]');
+      await eventually(async () => (await tools.count()) === 2);
+      const cellIds = await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-cell')));
       assert.equal(await modelTrigger.isEnabled(), false);
       assert.equal(await effortTrigger.isEnabled(), false);
       for (let index = 0; index < 2; index++) {
-        await tools.nth(index).locator('summary').click();
         const text = await tools.nth(index).innerText();
         assert.match(text, /print\(1\)/);
         assert.equal((text.match(/first/g) ?? []).length, 1);
         assert.equal((text.match(/second/g) ?? []).length, 1);
       }
-      const presentationLatency = await page.evaluate(() => window.__whipEventToView);
-      assert.ok(presentationLatency.length >= 2, 'Presentation latency probe observed no tool updates');
+      const preservedExecutions = async () => {
+        await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'));
+        if (!await activity.locator('details').evaluate(element => element.open)) await activity.locator('summary').click();
+        assert.deepEqual(await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-cell'))), cellIds);
+      };
       await page.getByLabel('Message WHIP', { exact: true }).fill(`Unsent ${name} draft`);
       await selectTheme(page, 'nord');
-      await page.locator(`a[href="${route(rootId)}"]`).first().click();
+      await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
       await ready(page);
       assert.equal(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), `Unsent ${name} draft`);
       assert.equal(await page.getByRole('region', { name: 'Conversation', exact: true }).count(), 1);
-      assert.equal(await page.locator('[data-message-id^="live-tool:"]').count(), 2);
+      await preservedExecutions();
       await page.reload(); await ready(page);
       assert.equal(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), `Unsent ${name} draft`);
       assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'nord');
       assert.equal(await page.getByRole('region', { name: 'Conversation', exact: true }).count(), 1);
-      assert.equal(await page.locator('[data-message-id^="live-tool:"]').count(), 2);
+      await preservedExecutions();
       await fixture.release('tool-stream');
       await eventually(async () => Object.keys((await session.snapshot()).active_turns).length === 0, { description: 'held tool turn completes' });
       checks.push('delta/cumulative streams stay grouped across theme changes and reload; draft/theme persist');
@@ -367,10 +381,11 @@ try {
 
       progress('wrong-runtime route guard');
       const wrong = await context.newPage(); const wrongObserved = observe(wrong); observations.push(wrongObserved);
+      activePage = wrong;
       await wrong.goto(origin() + `/h/wrong-runtime/s/${rootId}`);
-      await wrong.getByRole('heading', { name: 'This execution host is unavailable' }).waitFor();
+      await wrong.getByText('Unavailable host wrong-ru is unavailable. Connect it to continue this session.', { exact: true }).waitFor();
       assert.equal(wrongObserved.requests.filter(item => ['root.snapshot', 'events.subscribe', 'history.page'].includes(item.method)).length, 0);
-      await wrong.close(); checks.push('wrong-runtime routes never open or subscribe roots');
+      await wrong.close(); activePage = page; checks.push('wrong-runtime routes never open or subscribe roots');
 
       progress('phone layout, scroll anchoring and latest');
       for (let index = 0; index < 28; index++) await session.submit({ text: `Message ${index}\n\n${'A readable paragraph for scrolling. '.repeat(18)}` }).result({ signal: AbortSignal.timeout(15_000) });

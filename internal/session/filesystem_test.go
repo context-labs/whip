@@ -15,7 +15,7 @@ func TestSessionFilesystemModeSurvivesRestartAndNavigation(t *testing.T) {
 	base := t.TempDir()
 	project, sibling := filepath.Join(base, "project"), filepath.Join(base, "sibling")
 	for _, path := range []string{project, sibling} {
-		if err := os.Mkdir(path, 0700); err != nil {
+		if err := os.Mkdir(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,9 +110,13 @@ func TestSessionFilesystemInheritanceAndExplicitCeilings(t *testing.T) {
 	inherit := func(parent, child string, issuer capability.Reference, scopes []string) capability.Reference {
 		t.Helper()
 		ref := capability.Reference{ID: "files:" + child, Generation: 1}
-		_, err := store.AdmitAgent(t.Context(), AgentAdmission{RootID: rootID, ParentAgentID: parent, ChildAgentID: child, Name: child,
-			Capabilities: []CapabilityDelegation{{ID: ref.ID, AgentID: child, Issuer: issuer,
-				Operations: []string{"read", "write", "workspace.write"}, InheritScope: scopes == nil, Scopes: scopes}}})
+		_, err := store.AdmitAgent(t.Context(), AgentAdmission{
+			RootID: rootID, ParentAgentID: parent, ChildAgentID: child, Name: child,
+			Capabilities: []CapabilityDelegation{{
+				ID: ref.ID, AgentID: child, Issuer: issuer,
+				Operations: []string{"read", "write", "workspace.write"}, InheritScope: scopes == nil, Scopes: scopes,
+			}},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +163,8 @@ func TestSessionFilesystemModeChangeInvalidatesPendingApproval(t *testing.T) {
 	}
 	target := filepath.Join(t.TempDir(), "output")
 	dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
-	err := dispatcher.Register(capability.Registration{Operation: "write", Mutation: capability.MutationPath, Permission: true,
+	err := dispatcher.Register(capability.Registration{
+		Operation: "write", Mutation: capability.MutationPath, Permission: true,
 		Path: func(json.RawMessage) (string, error) { return target, nil },
 		Handler: func(context.Context, capability.Call) (string, error) {
 			t.Fatal("stale approval executed")
@@ -169,8 +174,10 @@ func TestSessionFilesystemModeChangeInvalidatesPendingApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = dispatcher.Dispatch(t.Context(), capability.Request{RootID: rootID, AgentID: rootID, CapabilityID: "files:" + rootID,
-		CapabilityGeneration: 1, Operation: "write", OperationID: "pending", TraceID: "trace"})
+	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
+		RootID: rootID, AgentID: rootID, CapabilityID: "files:" + rootID,
+		CapabilityGeneration: 1, Operation: "write", OperationID: "pending", TraceID: "trace",
+	})
 	var pending *capability.PermissionPendingError
 	if !errors.As(err, &pending) {
 		t.Fatalf("pending: %v", err)
@@ -222,16 +229,20 @@ func TestSessionFilesystemShellRequiresEffectiveWriter(t *testing.T) {
 				t.Fatal(err)
 			}
 			dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
-			if err := dispatcher.Register(capability.Registration{Operation: "bash", Mutation: capability.MutationWorkspace,
-				Handler: func(context.Context, capability.Call) (string, error) { return "ran", nil }}); err != nil {
+			if err := dispatcher.Register(capability.Registration{
+				Operation: "bash", Mutation: capability.MutationWorkspace,
+				Handler: func(context.Context, capability.Call) (string, error) { return "ran", nil },
+			}); err != nil {
 				t.Fatal(err)
 			}
 			cwd := root
 			if test.outsideCWD {
 				cwd = t.TempDir()
 			}
-			result, err := dispatcher.Dispatch(t.Context(), capability.Request{RootID: rootID, AgentID: "child", CapabilityID: "child-shell", CapabilityGeneration: 1,
-				WriterCapabilityID: "child-files", WriterCapabilityGeneration: 1, Operation: "bash", OperationID: "shell", TraceID: "trace", WorkingDirectory: cwd})
+			result, err := dispatcher.Dispatch(t.Context(), capability.Request{
+				RootID: rootID, AgentID: "child", CapabilityID: "child-shell", CapabilityGeneration: 1,
+				WriterCapabilityID: "child-files", WriterCapabilityGeneration: 1, Operation: "bash", OperationID: "shell", TraceID: "trace", WorkingDirectory: cwd,
+			})
 			if test.allowed && (err != nil || result.Output != "ran") || !test.allowed && !errors.Is(err, capability.ErrDenied) {
 				t.Fatalf("allowed=%v result=%+v error=%v", test.allowed, result, err)
 			}

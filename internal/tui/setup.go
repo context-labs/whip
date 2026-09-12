@@ -726,7 +726,7 @@ func setupProviderDescription(entry protocol.ProviderEntry) string {
 		if entry.ID == "openai-codex" {
 			return "Use your ChatGPT subscription's Codex access"
 		}
-		return "Sign in in your browser"
+		return "Sign in with your browser"
 	}
 	if slices.Contains(entry.Methods, "api_key") {
 		return "Paste an API key"

@@ -214,13 +214,11 @@ func (s *ProviderService) discoverProviderModels(ctx context.Context, id string,
 	if errors.Is(err, context.Canceled) {
 		return nil, result, err
 	}
-	var response *llm.HTTPError
 	fallbackAllowed := errors.Is(err, context.DeadlineExceeded)
-	var transport net.Error
-	if errors.As(err, &transport) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		fallbackAllowed = true
 	}
-	if errors.As(err, &response) {
+	if response, ok := errors.AsType[*llm.HTTPError](err); ok {
 		code := strings.Fields(response.Status)
 		// Do not bypass an observed authentication, permission, billing or
 		// rate-limit failure with a bundled catalog.

@@ -146,7 +146,7 @@ func TestProviderValidationKeepsCustomAndOtherRoutesOnModels(t *testing.T) {
 				if r.URL.String() != baseURL+"/models" || r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer fixture-key" {
 					t.Fatal("route used an unrelated credential check")
 				}
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"chat-model"}]}`))}, nil
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"chat-model"}]}`))}, nil
 			})
 			models, err := validateProviderModels(t.Context(), baseURL, "fixture-key")
 			if err != nil || len(models) != 1 || calls != 1 {
@@ -172,7 +172,7 @@ func TestCerebrasLiveCatalogConnectRefreshAndRestart(t *testing.T) {
 				t.Fatal("incorrect discovery destination or authentication")
 			}
 			return &http.Response{
-				StatusCode: 200, Status: "200 OK", Header: http.Header{},
+				StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{},
 				Body: io.NopCloser(strings.NewReader(body)),
 			}, nil
 		})}
@@ -294,7 +294,7 @@ func TestPresetDiscoveryDoesNotBypassRejectionOrCustomRoute(t *testing.T) {
 		return []llm.ModelInfo{{ID: "audio", SupportsTools: new(false), OutputModalities: []string{"audio"}}}, nil
 	}
 	models, _, err := service.discoverProviderModels(t.Context(), "openrouter", provider, "fake-key")
-	if !errors.Is(err, errNoCompatibleProviderModels) || len(models) != 0 || providerValidationError(err) != errNoCompatibleProviderModels {
+	if !errors.Is(err, errNoCompatibleProviderModels) || len(models) != 0 || !errors.Is(providerValidationError(err), errNoCompatibleProviderModels) {
 		t.Fatalf("incompatible live catalog was replaced or blamed on the key: %+v %v", models, err)
 	}
 }

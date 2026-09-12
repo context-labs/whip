@@ -24,6 +24,7 @@ func writeBlob(output io.Writer, limit int, id uint64, data []byte) error {
 	}
 	return writeBlobChunks(output, limit, id, data)
 }
+
 func writeBlobChunks(output io.Writer, limit int, id uint64, data []byte) error {
 	size := min(64<<10, (limit-256)/2)
 	if size < 1 {
@@ -36,6 +37,7 @@ func writeBlobChunks(output io.Writer, limit int, id uint64, data []byte) error 
 	}
 	return nil
 }
+
 func receiveBlob(begin frame, read func() (frame, error)) ([]byte, error) {
 	if begin.Bytes < 1 || begin.Bytes > MaxCheckpointBytes || len(begin.SHA256) != 64 {
 		return nil, errors.New("invalid checkpoint declaration")
@@ -57,6 +59,7 @@ func receiveBlob(begin frame, read func() (frame, error)) ([]byte, error) {
 	}
 	return data, nil
 }
+
 func readBlob(input *bufio.Reader, limit int, begin frame) ([]byte, error) {
 	return receiveBlob(begin, func() (frame, error) { return readFrame(input, limit) })
 }

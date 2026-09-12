@@ -884,7 +884,7 @@ func (host *recursiveHost) tools(ctx context.Context, name string, arguments map
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return map[string]any{"output": output}, nil
+		return map[string]any{"output": output}, nil //nolint:nilerr // Successful tools may return plain text; JSON decoding only chooses the result representation.
 	}
 	return value, nil
 }

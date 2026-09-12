@@ -116,8 +116,13 @@ func TestPerToken(t *testing.T) {
 		name, input, want string
 		invalid           bool
 	}{
-		{"absent", "", "", false}, {"free", "0", "0", false}, {"scientific", "1e-4", "0.0000000001", false},
-		{"negative", "-1", "", true}, {"nondecimal", "1/2", "", true}, {"huge exponent", "1e999999999", "", true}, {"overflow precision", "1e-99", "", true},
+		{"absent", "", "", false},
+		{"free", "0", "0", false},
+		{"scientific", "1e-4", "0.0000000001", false},
+		{"negative", "-1", "", true},
+		{"nondecimal", "1/2", "", true},
+		{"huge exponent", "1e999999999", "", true},
+		{"overflow precision", "1e-99", "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := perToken(json.Number(test.input))

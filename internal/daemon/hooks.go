@@ -238,7 +238,7 @@ func (node *AgentSession) beforeSpawn(ctx context.Context, request spawnRequest,
 	}
 	node.emitHookDecision(callID, invocation, decision.InvocationID, "rewrite", decision.Reason)
 	summary, _ := json.Marshal(rewritten)
-	notice := fmt.Sprintf("Hook before_spawn rewrote the spawn request to %s", utf8PrefixRuntime(string(summary), 512))
+	notice := "Hook before_spawn rewrote the spawn request to " + utf8PrefixRuntime(string(summary), 512)
 	if decision.Reason != "" {
 		notice += " (reason: " + decision.Reason + ")"
 	}

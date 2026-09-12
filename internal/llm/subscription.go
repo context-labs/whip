@@ -21,6 +21,7 @@ type subscriptionUnauthorized struct{ token string }
 func (e *subscriptionUnauthorized) Error() string {
 	return "OpenAI subscription access was rejected; sign in again"
 }
+
 func (e *subscriptionUnauthorized) Unwrap() error {
 	return &HTTPError{Status: "401 Unauthorized", Body: e.Error()}
 }
@@ -59,11 +60,11 @@ func (c *Client) subscriptionRequest(ctx context.Context, method, path string, b
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
-	request.Header.Set("ChatGPT-Account-Id", credentials.AccountID)
+	request.Header.Set("Chatgpt-Account-Id", credentials.AccountID)
 	request.Header.Set("User-Agent", "whip")
-	request.Header.Set("originator", "whip")
+	request.Header.Set("Originator", "whip")
 	if credentials.ComputeResidency != "" {
-		request.Header.Set("x-openai-internal-codex-residency", credentials.ComputeResidency)
+		request.Header.Set("X-Openai-Internal-Codex-Residency", credentials.ComputeResidency)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
@@ -160,13 +161,14 @@ func subscriptionError(status int, body []byte) *HTTPError {
 	case "model_not_found", "model_not_supported":
 		err.Body = "model is unavailable for this ChatGPT account; refresh models and select another"
 	default:
-		if status == http.StatusUnauthorized {
+		switch status {
+		case http.StatusUnauthorized:
 			err.Body = "OpenAI subscription access was rejected; sign in again"
-		} else if status == http.StatusTooManyRequests {
+		case http.StatusTooManyRequests:
 			err.Body = "OpenAI subscription requests are temporarily rate limited"
-		} else if status == http.StatusForbidden {
+		case http.StatusForbidden:
 			err.Body = "this ChatGPT account does not have access to the requested model"
-		} else if status == http.StatusBadRequest {
+		case http.StatusBadRequest:
 			err.Body = "OpenAI rejected the subscription request parameters"
 		}
 	}

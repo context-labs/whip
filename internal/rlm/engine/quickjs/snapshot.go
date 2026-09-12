@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,9 +17,11 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const imageMagic = "QJSWIMG0"
-const imageSchema = 1
-const bridgeVersion = 1
+const (
+	imageMagic    = "QJSWIMG0"
+	imageSchema   = 1
+	bridgeVersion = 1
+)
 
 type imageMetadata struct {
 	Schema  int                       `json:"schema"`
@@ -82,29 +85,30 @@ func (v *runtime) Checkpoint(ctx context.Context) (image []byte, err error) {
 		return nil, ErrQueuedRequests
 	}
 	check(v.boxes == 1 && v.allocations == 0 && v.strings == 0, "unbalanced host handles at checkpoint")
-	metadata := imageMetadata{Schema: imageSchema, Bridge: bridgeVersion, Wasm: WasmSHA256, Policy: v.factory.identity, Session: v.session, Stack: uint32(v.module.ExportedGlobal("__stack_pointer").Get()), Runtime: uint32(v.call(ctx, "qjs_get_runtime_ptr")), Context: uint32(v.call(ctx, "qjs_get_context_ptr")), Control: uint32(v.control), CellID: v.cellID, Prefix: v.prefix, Ordinal: v.ordinal, Cells: v.cells, Pending: v.pending}
+	metadata := imageMetadata{Schema: imageSchema, Bridge: bridgeVersion, Wasm: WasmSHA256, Policy: v.factory.identity, Session: v.session, Stack: api.DecodeU32(v.module.ExportedGlobal("__stack_pointer").Get()), Runtime: api.DecodeU32(v.call(ctx, "qjs_get_runtime_ptr")), Context: api.DecodeU32(v.call(ctx, "qjs_get_context_ptr")), Control: api.DecodeU32(v.control), CellID: v.cellID, Prefix: v.prefix, Ordinal: v.ordinal, Cells: v.cells, Pending: v.pending}
 	data, err := json.Marshal(metadata)
 	if err != nil {
 		return nil, err
 	}
-	size := uint64(v.module.Memory().Size())
-	total := uint64(16+sha256.Size) + uint64(len(data)) + size
-	if len(data) > 16<<20 || total > v.factory.options.Limits.MaxSnapshotBytes {
+	size := v.module.Memory().Size()
+	total := uint64(16+sha256.Size) + uint64(len(data)) + uint64(size)
+	if len(data) > 16<<20 || total > v.factory.options.Limits.MaxSnapshotBytes || total > math.MaxInt {
 		return nil, errors.New("bridge: snapshot byte limit")
 	}
 	image = make([]byte, int(total))
 	copy(image, imageMagic)
 	image[7] = imageSchema
-	binary.LittleEndian.PutUint32(image[8:12], uint32(len(data)))
-	binary.LittleEndian.PutUint32(image[12:16], uint32(size))
+	binary.LittleEndian.PutUint32(image[8:12], uint32(len(data))) //nolint:gosec // Metadata is capped at 16 MiB above.
+	binary.LittleEndian.PutUint32(image[12:16], size)
 	copy(image[16:], data)
-	memory, ok := v.module.Memory().Read(0, uint32(size))
+	memory, ok := v.module.Memory().Read(0, size)
 	check(ok, "snapshot memory read failed")
 	copy(image[16+len(data):], memory)
 	digest := sha256.Sum256(image[:len(image)-sha256.Size])
 	copy(image[len(image)-sha256.Size:], digest[:])
 	return image, nil
 }
+
 func (f *factory) decode(session string, image []byte) (imageMetadata, []byte, error) {
 	var meta imageMetadata
 	if uint64(len(image)) > f.options.Limits.MaxSnapshotBytes || len(image) < 16+sha256.Size {
@@ -173,6 +177,7 @@ func (f *factory) decode(session string, image []byte) (imageMetadata, []byte, e
 	memory := append([]byte(nil), image[16+metadataLen:len(image)-sha256.Size]...)
 	return meta, memory, nil
 }
+
 func (f *factory) Restore(ctx context.Context, session string, image []byte) (_ engine.Runtime, err error) {
 	if !validID(session) {
 		return nil, errors.New("bridge: invalid session ID")
@@ -200,7 +205,8 @@ func (f *factory) Restore(ctx context.Context, session string, image []byte) (_ 
 			panic(p)
 		}
 	}()
-	pages := uint32(len(memory) / 65536)
+	// decode bounds memory to the configured maximum of 4,096 WASM pages.
+	pages := uint32(len(memory) / 65536) //nolint:gosec // The validated image fits in the wasm32 page count.
 	current := v.module.Memory().Size() / 65536
 	check(pages >= current, "snapshot smaller than initial memory")
 	if pages > current {

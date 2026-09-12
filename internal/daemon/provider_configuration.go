@@ -18,8 +18,10 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-var providerIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-var providerEnvironmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,255}$`)
+var (
+	providerIDPattern          = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	providerEnvironmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,255}$`)
+)
 
 func providerPreset(id string) (config.Provider, bool) {
 	for _, preset := range config.ProviderPresets() {
@@ -386,7 +388,10 @@ func (s *ProviderService) saveProvider(ctx context.Context, revision, id string,
 	if err != nil {
 		// Accepted configuration must not be reported as a failed write due to
 		// an unrelated account metadata read after persistence.
-		return protocol.ProviderConfiguration{Revision: committed, Provider: id, Definition: redactedProviderDefinition(id, provider), Models: []protocol.ProviderConfiguredModel{}, RemovalBlockers: providerRemovalBlockers(cfg, id), Discovery: &discovery}, nil
+		return protocol.ProviderConfiguration{ //nolint:nilerr // The write succeeded; return its committed revision despite the optional metadata read failure.
+			Revision: committed, Provider: id, Definition: redactedProviderDefinition(id, provider),
+			Models: []protocol.ProviderConfiguredModel{}, RemovalBlockers: providerRemovalBlockers(cfg, id), Discovery: &discovery,
+		}, nil
 	}
 	result.Discovery = &discovery
 	return result, nil

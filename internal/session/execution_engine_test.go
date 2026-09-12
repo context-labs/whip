@@ -170,7 +170,7 @@ func TestCheckpointRootQuotaAndDeletion(t *testing.T) {
 	defer store.Close()
 	root := createEngineSession(t, store, "quickjs")
 	image := []byte("image")
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		id := strings.Repeat("x", i+1)
 		admitTestChild(t, store, root, root, id)
 		envelope := testCheckpoint(t, root, id, "quickjs", image)

@@ -110,6 +110,7 @@ func assertPermissionMode(t *testing.T, root *Session, want string) {
 }
 
 func TestPermissionModeSurvivesRestartAndCommandReplay(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{session.PermissionModeAutomatic, session.PermissionModePrompt} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
@@ -136,7 +137,7 @@ func TestPermissionModeSurvivesRestartAndCommandReplay(t *testing.T) {
 			if selected.Status != "succeeded" {
 				t.Fatalf("latest selection=%+v", selected)
 			}
-			for restart := 0; restart < 2; restart++ {
+			for restart := range 2 {
 				retry := clientCommand(t, root, "human", "old-mode", "permission.mode", oldPayload)
 				if !reflect.DeepEqual(retry, old) {
 					t.Fatalf("retry=%+v, want original result %+v", retry, old)
@@ -251,6 +252,7 @@ func TestPermissionModeFailedSavePreservesLivePolicy(t *testing.T) {
 }
 
 func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{session.PermissionModeAutomatic, session.PermissionModePrompt} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()

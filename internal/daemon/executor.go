@@ -54,13 +54,6 @@ type pendingInvocation struct {
 	result   chan invocationOutcome
 }
 
-func (p *pendingInvocation) deadline() int64 {
-	if p.tool != nil {
-		return p.tool.DeadlineMillis
-	}
-	return p.hook.DeadlineMillis
-}
-
 // hookInvocation is one hook call the daemon asks the executor to decide.
 type hookInvocation struct {
 	Definition     string

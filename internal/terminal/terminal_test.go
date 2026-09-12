@@ -80,8 +80,10 @@ func (s *recordingSink) waitMatch(t *testing.T, pattern *regexp.Regexp) string {
 func testOptions(t *testing.T) Options {
 	t.Helper()
 	dir := t.TempDir()
-	return Options{Shell: shell, Cwd: dir, Cols: 80, Rows: 24,
-		Env: []string{"PATH=/usr/bin:/bin", "TERM=dumb", "HOME=" + dir, "PS1=$ ", "ENV=", "BASH_ENV="}}
+	return Options{
+		Shell: shell, Cwd: dir, Cols: 80, Rows: 24,
+		Env: []string{"PATH=/usr/bin:/bin", "TERM=dumb", "HOME=" + dir, "PS1=$ ", "ENV=", "BASH_ENV="},
+	}
 }
 
 func startManager(t *testing.T, limit, ringBytes int) *Manager {
@@ -97,6 +99,8 @@ func open(t *testing.T, m *Manager) *Terminal {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	// Reap the shell before its temporary working directory is removed.
+	t.Cleanup(func() { _ = m.Close(term.ID) })
 	return term
 }
 
@@ -192,8 +196,10 @@ func TestReattachReplaysFromCursorAndClampsToRing(t *testing.T) {
 	if _, _, err := m.Attach(term.ID, 0, first); err != nil {
 		t.Fatal(err)
 	}
-	write(t, term, "echo first-marker\n")
-	first.wait(t, "first-marker")
+	// Match executed output, not PTY input echo; suppress later prompts so the
+	// completion markers also identify the end of the retained output.
+	write(t, term, "PS1=''; stty -echo; echo first-$((1+1))-marker\n")
+	first.wait(t, "first-2-marker\r\n")
 	m.Detach(first)
 	seen := int64(len(first.text()))
 	// Output while detached is retained, not lost.
@@ -206,7 +212,10 @@ func TestReattachReplaysFromCursorAndClampsToRing(t *testing.T) {
 		if err != nil || status.Exited {
 			t.Fatalf("attach = %+v, %v", status, err)
 		}
-		if from != seen && from != term.ring.start {
+		term.mu.Lock()
+		ringStart := term.ring.start
+		term.mu.Unlock()
+		if from != seen && from != ringStart {
 			t.Fatalf("replay started at %d, want %d or the ring start", from, seen)
 		}
 		if text = second.text(); strings.Contains(text, "second-marker") {
@@ -219,16 +228,19 @@ func TestReattachReplaysFromCursorAndClampsToRing(t *testing.T) {
 	}
 	// Overflow the 256-byte ring, then a stale cursor is clamped to its start.
 	write(t, term, "printf 'x%.0s' $(seq 1 600); echo end-marker\n")
-	second.wait(t, "end-marker")
+	second.wait(t, "end-marker\r\n")
 	third := newSink()
 	_, from, err := m.Attach(term.ID, 0, third)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if from == 0 || from != term.ring.start {
-		t.Fatalf("clamped replay started at %d, ring start %d", from, term.ring.start)
+	term.mu.Lock()
+	ringStart := term.ring.start
+	term.mu.Unlock()
+	if from == 0 || from != ringStart {
+		t.Fatalf("clamped replay started at %d, ring start %d", from, ringStart)
 	}
-	third.wait(t, "end-marker")
+	third.wait(t, "end-marker\r\n")
 	if len(third.text()) > 256 {
 		t.Fatalf("replayed %d bytes from a 256-byte ring", len(third.text()))
 	}
@@ -303,7 +315,7 @@ func TestCloseHangsUpTheForegroundJob(t *testing.T) {
 	}
 	// The tty echoes the typed command too, so match the child's own line.
 	pattern := regexp.MustCompile(`(?m)^child-pid (\d+)\r?$`)
-	write(t, term, "sh -c 'echo child-pid $$; exec sleep 300'\n")
+	write(t, term, "sh -c 'echo; echo child-pid $$; exec sleep 300'\n")
 	text := sink.waitMatch(t, pattern)
 	pid, _ := strconv.Atoi(pattern.FindStringSubmatch(text)[1])
 	start := time.Now()
@@ -342,10 +354,7 @@ func TestLimitRefusesThenEvictsExitedTerminals(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("shell never exited")
 	}
-	second, err := m.Open(testOptions(t))
-	if err != nil {
-		t.Fatalf("open after exit = %v", err)
-	}
+	second := open(t, m)
 	if _, ok := m.Get(first.ID); ok {
 		t.Fatal("exited terminal was not evicted for the new one")
 	}
@@ -362,17 +371,19 @@ func TestDetachReleasesAReaderBlockedOnASlowSink(t *testing.T) {
 	if _, _, err := m.Attach(term.ID, 0, slow); err != nil {
 		t.Fatal(err)
 	}
-	// Far more than the queue holds: the reader must block on push.
-	write(t, term, fmt.Sprintf("yes | head -c %d; echo flood-done\n", 4*queueChunks*ChunkBytes))
+	// Far more than the queue holds: the reader must block on push. Use a byte
+	// stream so millions of newline translations do not dominate the test.
+	write(t, term, fmt.Sprintf("head -c %d /dev/zero; echo flood-$((1+1))-done\n", 4*queueChunks*ChunkBytes))
 	time.Sleep(300 * time.Millisecond)
 	m.Detach(slow)
 	close(slow.block)
 	fresh := newSink()
-	if _, _, err := m.Attach(term.ID, -1, fresh); err != nil {
+	// Include retained output if the shell finished between detach and attach.
+	if _, _, err := m.Attach(term.ID, 0, fresh); err != nil {
 		t.Fatal(err)
 	}
 	// The shell was stalled by the slow receiver, not killed; it finishes now.
-	fresh.wait(t, "flood-done")
+	fresh.wait(t, "flood-2-done")
 	// Only the delivery that was in flight when the sink unblocked completes;
 	// a halted attachment never drains the chunks queued behind it.
 	slow.mu.Lock()

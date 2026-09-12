@@ -22,9 +22,11 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const WasmSHA256 = "b006d95d9475edf7c6648cc3eb391d3b780efdd99022fbfbb470f2359da460ff"
-const callbackName = "whip.quickjs.submit.v1"
-const operationTimeout = 30 * time.Second
+const (
+	WasmSHA256       = "b006d95d9475edf7c6648cc3eb391d3b780efdd99022fbfbb470f2359da460ff"
+	callbackName     = "whip.quickjs.submit.v1"
+	operationTimeout = 30 * time.Second
+)
 
 var (
 	ErrBusy           = errors.New("bridge: runtime busy")
@@ -78,11 +80,13 @@ func check(ok bool, message string) {
 		panic(failure{errors.New("bridge: " + message)})
 	}
 }
+
 func must(err error) {
 	if err != nil {
 		panic(failure{err})
 	}
 }
+
 func recoverError(err *error) {
 	if p := recover(); p != nil {
 		if f, ok := p.(failure); ok {
@@ -92,6 +96,7 @@ func recoverError(err *error) {
 		}
 	}
 }
+
 func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, operationTimeout)
 }
@@ -128,7 +133,7 @@ func normalize(options engine.Options) (engine.Options, error) {
 		if len(name) > 128 || !toolPattern.MatchString(name) {
 			return options, fmt.Errorf("bridge: invalid module-shaped tool %q", name)
 		}
-		for _, part := range strings.Split(name, ".") {
+		for part := range strings.SplitSeq(name, ".") {
 			if part == "prototype" || part == "constructor" || part == "__proto__" {
 				return options, errors.New("bridge: reserved tool name")
 			}
@@ -196,6 +201,7 @@ func hash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[
 func validID(id string) bool {
 	return id != "" && len(id) <= 512 && utf8.ValidString(id) && !strings.ContainsRune(id, 0)
 }
+
 func scope(session, cell string) string {
 	return "op:" + base64.RawURLEncoding.EncodeToString([]byte(session)) + ":" + base64.RawURLEncoding.EncodeToString([]byte(cell)) + ":"
 }
@@ -209,6 +215,7 @@ func (f *factory) instantiate(ctx context.Context, session string) *runtime {
 	f.vms.Store(m.Name(), v)
 	return v
 }
+
 func (f *factory) New(ctx context.Context, session string) (_ engine.Runtime, err error) {
 	if !validID(session) {
 		return nil, errors.New("bridge: invalid session ID")
@@ -226,7 +233,7 @@ func (f *factory) New(ctx context.Context, session string) (_ engine.Runtime, er
 		}
 	}()
 	v.call(ctx, "_initialize")
-	check(int32(v.call(ctx, "qjs_init")) == 0, "qjs_init failed")
+	check(v.call(ctx, "qjs_init") == 0, "qjs_init failed")
 	v.initialized = true
 	v.configure(ctx)
 	v.installHost(ctx)
@@ -240,6 +247,7 @@ func (f *factory) New(ctx context.Context, session string) (_ engine.Runtime, er
 	v.refreshAdmission(ctx)
 	return v, nil
 }
+
 func (v *runtime) configure(ctx context.Context) {
 	v.call(ctx, "qjs_set_memory_limit", v.factory.options.Limits.MemoryBytes)
 	v.call(ctx, "qjs_set_max_stack_size", 256<<10)
@@ -247,6 +255,7 @@ func (v *runtime) configure(ctx context.Context) {
 	v.call(ctx, "qjs_set_promise_rejection_handler", 1)
 	v.call(ctx, "qjs_set_module_loader", 0)
 }
+
 func (v *runtime) enter(ctx context.Context) error {
 	if !v.mu.TryLock() {
 		return ErrBusy
@@ -261,6 +270,7 @@ func (v *runtime) enter(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (v *runtime) RunCell(ctx context.Context, cellID, source string) (err error) {
 	if err = v.enter(ctx); err != nil {
 		return err
@@ -306,6 +316,7 @@ func (v *runtime) RunCell(ctx context.Context, cellID, source string) (err error
 	v.checkException(ctx, watched)
 	return nil
 }
+
 func (v *runtime) Drain(ctx context.Context, maxJobs int) (n int, err error) {
 	if maxJobs < 1 || maxJobs > 100000 {
 		return 0, errors.New("bridge: maxJobs must be 1..100000")
@@ -319,7 +330,7 @@ func (v *runtime) Drain(ctx context.Context, maxJobs int) (n int, err error) {
 	defer cancel()
 	defer v.refreshAdmission(ctx)
 	for n < maxJobs && v.call(ctx, "qjs_is_job_pending") != 0 {
-		if int32(v.call(ctx, "qjs_execute_pending_job")) < 0 {
+		if api.DecodeI32(v.call(ctx, "qjs_execute_pending_job")) < 0 {
 			e := v.valueCall(ctx, "qjs_get_exception")
 			defer v.freeValue(ctx, e)
 			return n, fmt.Errorf("bridge: pending job failed: %s", v.text(ctx, e, v.factory.options.Limits.MaxOutputBytes))
@@ -331,10 +342,12 @@ func (v *runtime) Drain(ctx context.Context, maxJobs int) (n int, err error) {
 	}
 	return n, nil
 }
+
 func cloneRequest(r engine.Request) engine.Request {
 	r.Args = append(json.RawMessage(nil), r.Args...)
 	return r
 }
+
 func (v *runtime) TakeRequests() []engine.Request {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -345,6 +358,7 @@ func (v *runtime) TakeRequests() []engine.Request {
 	v.queue = nil
 	return result
 }
+
 func (v *runtime) Deliver(ctx context.Context, out engine.Outcome) (accepted bool, err error) {
 	if err = v.enter(ctx); err != nil {
 		return false, err
@@ -370,6 +384,7 @@ func (v *runtime) Deliver(ctx context.Context, out engine.Outcome) (accepted boo
 	delete(v.pending, out.ID)
 	return true, nil
 }
+
 func (v *runtime) inspect(ctx context.Context) engine.View {
 	result := v.controlCall(ctx, "inspect")
 	defer v.freeValue(ctx, result)
@@ -387,9 +402,11 @@ func (v *runtime) refreshAdmission(ctx context.Context) {
 		_ = v.inspect(ctx)
 	}
 }
+
 func (v *runtime) viewLimit() int {
 	return v.factory.options.Limits.MaxOutputBytes + v.factory.options.Limits.MaxQueuedRequests*1600 + 4096
 }
+
 func (v *runtime) Inspect(ctx context.Context) (view engine.View, err error) {
 	if err = v.enter(ctx); err != nil {
 		return view, err
@@ -401,6 +418,7 @@ func (v *runtime) Inspect(ctx context.Context) (view engine.View, err error) {
 	view = v.inspect(ctx)
 	return view, nil
 }
+
 func (v *runtime) closeLocked(ctx context.Context) (err error) {
 	if v.closed {
 		return nil
@@ -420,6 +438,7 @@ func (v *runtime) closeLocked(ctx context.Context) (err error) {
 	v.pending = nil
 	return nil
 }
+
 func (v *runtime) Close(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -427,6 +446,7 @@ func (v *runtime) Close(ctx context.Context) error {
 	defer cancel()
 	return v.closeLocked(ctx)
 }
+
 func (f *factory) Close(ctx context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -435,7 +455,7 @@ func (f *factory) Close(ctx context.Context) error {
 	}
 	f.closed = true
 	var errs []error
-	f.vms.Range(func(_, value interface{}) bool { errs = append(errs, value.(*runtime).Close(ctx)); return true })
+	f.vms.Range(func(_, value any) bool { errs = append(errs, value.(*runtime).Close(ctx)); return true })
 	errs = append(errs, f.runtime.Close(ctx))
 	return errors.Join(errs...)
 }

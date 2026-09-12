@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/context-labs/whip/internal/rlm/engine/quickjs"
@@ -35,7 +36,8 @@ type EngineDescriptor struct {
 	Fidelity     string            `json:"fidelity"`
 }
 
-func Engines() []EngineDescriptor {
+// Bundled engine guides and their digests are static for this process.
+var engineDescriptors = sync.OnceValue(func() []EngineDescriptor {
 	descriptors := []EngineDescriptor{
 		{ID: EngineStarlark, Language: "starlark", Label: "Starlark", Build: "starlark-6dd8f160a37f", ABI: "whip-host-v2", Profile: "settled-v1", Fidelity: "tagged-partial"},
 		{ID: EngineQuickJS, Language: "javascript", Label: "JavaScript (QuickJS)", Build: quickjs.WasmSHA256, ABI: "whip-quickjs-v1-host-v2", Profile: "settled-v1", Fidelity: "whole-image"},
@@ -54,6 +56,15 @@ func Engines() []EngineDescriptor {
 		guide, _ := RuntimeGuide(d.ID, ModuleNames(), nil, nil, "", nil)
 		digest := sha256.Sum256([]byte(guide))
 		d.GuideSHA256 = hex.EncodeToString(digest[:])
+	}
+	return descriptors
+})
+
+func Engines() []EngineDescriptor {
+	descriptors := slices.Clone(engineDescriptors())
+	for i := range descriptors {
+		descriptors[i].Features = slices.Clone(descriptors[i].Features)
+		descriptors[i].Limits = maps.Clone(descriptors[i].Limits)
 	}
 	return descriptors
 }
@@ -75,10 +86,10 @@ func (kernel *Kernel) Describe() EngineDescriptor {
 	descriptor.Limits = maps.Clone(descriptor.Limits)
 	descriptor.Features = slices.Clone(descriptor.Features)
 	descriptor.Limits["process_memory_bytes"] = kernel.limits.MemoryBytes
-	descriptor.Limits["host_requests_per_cell"] = uint64(kernel.limits.HostRequests)
-	descriptor.Limits["default_compute_nanoseconds"] = uint64(kernel.limits.Wall)
+	descriptor.Limits["host_requests_per_cell"] = uint64(kernel.limits.HostRequests) //nolint:gosec // NewKernel requires HostRequests >= 1.
+	descriptor.Limits["default_compute_nanoseconds"] = uint64(kernel.limits.Wall)    //nolint:gosec // NewKernel requires Wall >= time.Millisecond.
 	if descriptor.ID == EngineQuickJS {
-		descriptor.Limits["concurrent_host_calls"] = uint64(kernel.limits.MaxConcurrentHostCalls)
+		descriptor.Limits["concurrent_host_calls"] = uint64(kernel.limits.MaxConcurrentHostCalls) //nolint:gosec // NewKernel requires MaxConcurrentHostCalls >= 1.
 	} else {
 		descriptor.Limits["concurrent_host_calls"] = 1
 	}

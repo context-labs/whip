@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -35,7 +36,7 @@ func (session *AgentSession) outputContract(schema json.RawMessage) (func(string
 		}
 		attempts++
 		if attempts > 1 {
-			return false, fmt.Errorf("output_invalid: the final message does not match the definition's output schema: %v", err)
+			return false, fmt.Errorf("output_invalid: the final message does not match the definition's output schema: %w", err)
 		}
 		session.addHookNotice(fmt.Sprintf("Output contract: your previous final message did not match the required schema (%v). Reply with exactly one JSON value matching the schema and nothing else.", err))
 		return true, nil
@@ -46,19 +47,19 @@ func (session *AgentSession) outputContract(schema json.RawMessage) (func(string
 // surrounding code fence.
 func decodeOutputMessage(text string) (json.RawMessage, any, error) {
 	trimmed := strings.TrimSpace(text)
-	if strings.HasPrefix(trimmed, "```") {
-		trimmed = strings.TrimPrefix(trimmed, "```")
+	if after, ok := strings.CutPrefix(trimmed, "```"); ok {
+		trimmed = after
 		if newline := strings.IndexByte(trimmed, '\n'); newline >= 0 && !strings.ContainsAny(trimmed[:newline], "{[\"") {
 			trimmed = trimmed[newline+1:]
 		}
 		trimmed = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(trimmed), "```"))
 	}
 	if trimmed == "" {
-		return nil, nil, fmt.Errorf("the message is empty")
+		return nil, nil, errors.New("the message is empty")
 	}
 	var value any
 	if err := json.Unmarshal([]byte(trimmed), &value); err != nil {
-		return nil, nil, fmt.Errorf("the message is not one JSON value: %v", err)
+		return nil, nil, fmt.Errorf("the message is not one JSON value: %w", err)
 	}
 	return json.RawMessage(trimmed), value, nil
 }

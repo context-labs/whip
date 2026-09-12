@@ -3,6 +3,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -675,7 +676,7 @@ func (c RLMConfig) Validate() error {
 		return fmt.Errorf("unknown rlm.defaultEngine %q", c.DefaultEngine)
 	}
 	if c.MaxConcurrentHostCalls < 0 || c.MaxConcurrentHostCalls > 16 {
-		return fmt.Errorf("rlm.maxConcurrentHostCalls must be 1..16, or 0 for the default")
+		return errors.New("rlm.maxConcurrentHostCalls must be 1..16, or 0 for the default")
 	}
 	return nil
 }
