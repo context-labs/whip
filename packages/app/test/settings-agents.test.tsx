@@ -17,7 +17,7 @@ const coding: Definition = {
   instructions: { persona: 'You are a coding agent.', rules: 'Rules.', project_files: ['CLAUDE.md'], skill_discovery: true, standing_instructions: true },
   modules: ['context', 'files', 'shell', 'agents', 'user'], capabilities: ['read', 'write', 'shell', 'mcp'],
   model: { model: '', provider: '', effort: '' }, compaction: { model: '', provider: '', threshold: 0 }, mcp: { servers: null },
-  tools: null, children: {}, surface: { auto_title: true, goal_loop: true }, hooks: null,
+  tools: null, output: null, children: {}, surface: { auto_title: true, goal_loop: true }, hooks: null,
 };
 const triage: Definition = { ...coding, id: 'support-triage', instructions: { ...coding.instructions, persona: 'You triage tickets.', project_files: null }, modules: ['context', 'files'], capabilities: ['read'], surface: { auto_title: true, goal_loop: false } };
 

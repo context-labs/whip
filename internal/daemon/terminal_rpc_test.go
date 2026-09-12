@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,10 +36,12 @@ func terminalTestServer(t *testing.T, network NetworkOptions) *Server {
 func terminalTestConn(t *testing.T, server *Server, network bool) *serverConn {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-	return &serverConn{ctx: ctx, cancel: cancel, server: server, network: network, id: "conn-" + t.Name(),
+	serverSide, clientSide := net.Pipe()
+	conn := &serverConn{ctx: ctx, cancel: cancel, server: server, conn: newUnixMessageTransport(serverSide), network: network, id: "conn-" + t.Name(),
 		out: make(chan []byte, 512), done: make(chan struct{}), inFlight: make(chan struct{}, 4),
 		client: InitializeParams{ClientID: "terminal-test", ClientKind: "human"}, subscriptions: map[string]*subscription{}}
+	t.Cleanup(func() { conn.close(); _ = clientSide.Close() })
+	return conn
 }
 
 func terminalCall(t *testing.T, server *Server, conn *serverConn, method string, params any, into any) *RPCError {
@@ -196,13 +199,12 @@ func TestTerminalRPCDisconnectDetachesAndReattachReplays(t *testing.T) {
 		t.Fatalf("write: %+v", failure)
 	}
 	_, seen := outputUntil(t, first, "one-2-marker")
-	// The connection drops; the shell keeps running and buffering. The fake has
-	// no transport, so mirror close() by hand before unregistering.
-	first.cancel()
-	first.mu.Lock()
-	first.closed = true
-	first.mu.Unlock()
-	close(first.done)
+	// The connection drops; the shell keeps running and buffering.
+	first.close()
+	// An in-flight output callback may already have passed its closed check.
+	if first.notify("terminal.output", protocol.TerminalOutputParams{ID: opened.ID, Cursor: seen, Bytes: []byte("late output")}) {
+		t.Fatal("disconnected client accepted terminal output")
+	}
 	server.unregister(first)
 	second := terminalTestConn(t, server, false)
 	if failure := terminalCall(t, server, second, "terminal.write", protocol.TerminalWriteParams{ID: opened.ID, Bytes: []byte("echo two-$((2+2))-marker\n")}, nil); failure != nil {
