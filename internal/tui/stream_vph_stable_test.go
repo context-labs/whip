@@ -36,7 +36,7 @@ func runStreamViewportStable(t *testing.T, oc bool) {
 	m.busy = true
 	m.turnStart = m.nowFn()
 	// Pre-fill the transcript so "the full chat" is taller than the viewport.
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		m.appendAssistant("prior turn line " + itoa(i) + " with some words to be real")
 	}
 	m.layout()
