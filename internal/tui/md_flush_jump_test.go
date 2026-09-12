@@ -121,40 +121,37 @@ func runMarkdownFlushJump(t *testing.T, oc bool) {
 	}
 }
 
-// Regression for the overlay-anchoring break the first version of the
-// bottom-anchor fix introduced: when the opencode view is short (viewH <
-// height — the streaming phase, where streamCap clamps the viewport to
-// minTranscriptRows), the lead blank rows must be prepended BEFORE the
-// overlays splice, so screen-fixed overlays keep their terminal position.
-// The toast (top-right, row 2) must NOT ride the content down toward the
-// bottom of the screen on a short view, and the completion popup must stay
-// anchored above the input box rather than floating in the blank lead area.
-func TestOpencodeOverlaysAnchoredOnShortView(t *testing.T) {
+// Overlays (toast, completion popup) must stay anchored to terminal geometry
+// while a response streams — the toast pinned top-right, the completion popup
+// above the input box — instead of riding the transcript content as it grows.
+// (An earlier bottom-anchor fix prepended the lead AFTER splicing overlays,
+// which let them ride the content down; that is still guarded here.) The
+// streaming view now fills the terminal (the old streamCap clamp that
+// collapsed the viewport to minTranscriptRows was the broken-streaming bug
+// fixed by liveAreaRows), so we verify anchoring under the corrected,
+// full-height streaming view rather than the obsolete short-view condition.
+func TestOpencodeOverlaysAnchoredDuringStreaming(t *testing.T) {
 	m := compactCmdModel()
 	m.applyUIMode(opencodeMode)
 	t.Cleanup(func() { m.applyUIMode("") })
 	m.Update(mkWinSize(80, 24))
 
-	// Force the short-view condition: a streaming turn holds the viewport at
-	// minTranscriptRows and renders a live tail below it, so viewH < height.
+	// A streaming turn: committed lines plus an in-flight partial. The view
+	// fills the terminal (viewH == height, lead 0) — the realistic state while
+	// markdown streams, and the one where overlays must not ride the content.
 	m.busy = true
 	m.turnStart = m.nowFn()
 	m.appendAssistant("a short committed line")
 	m.current = "streaming tail text still in flight"
 	m.layout()
 	m.View()
-	if m.viewH >= m.height {
-		t.Fatalf("test setup: view must be short (streaming), got viewH=%d height=%d", m.viewH, m.height)
-	}
-	lead := m.height - m.viewH
+	lead := max(m.height-m.viewH, 0)
 	if m.viewTop != lead {
 		t.Fatalf("viewTop should be lead=%d, got %d", lead, m.viewTop)
 	}
 
 	// Toast: ocSpliceToast paints at frame row y=2 (pad row 2, text row 3).
-	// With lead prepended FIRST, the toast stays at terminal row 2-3. If the
-	// lead were prepended AFTER splicing (the broken first version), the toast
-	// would sit at row lead+2..lead+3. Assert it stayed at the top.
+	// It must stay at terminal row 2-3, not ride the content.
 	m.toast = "Copied to clipboard"
 	m.layout()
 	v := m.View()
@@ -171,12 +168,12 @@ func TestOpencodeOverlaysAnchoredOnShortView(t *testing.T) {
 	}
 	// text row is y+1 = 3 in ocSpliceToast's [pad, mid, pad] slice.
 	if toastRow != 3 {
-		t.Errorf("toast rode the lead down: row %d, want 3 (terminal top-right); lead=%d\n%s", toastRow, lead, v)
+		t.Errorf("toast not at terminal top-right: row %d, want 3; lead=%d\n%s", toastRow, lead, v)
 	}
 
 	// Completion popup: bottom-anchored to the row just above the input box.
-	// Its screen row is viewTop + inputBodyOff - len(rows); on a short view
-	// (viewTop=lead) it must sit above the INPUT, not in the blank lead area.
+	// Its screen row is viewTop + inputBodyOff - len(rows); it must sit above
+	// the INPUT, not float elsewhere.
 	m.toast = ""
 	m.menu = &menu{cands: []cand{{Text: "/cd", Desc: "change dir"}}}
 	m.layout()

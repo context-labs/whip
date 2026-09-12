@@ -2070,14 +2070,19 @@ func (m *model) layout() {
 		}
 		chrome += m.dockRows // the blank above the input is already in the base
 	}
-	// Now budget the in-flight streaming area at its cap: fixed chrome + the
-	// capped live rows + the transcript floor must equal the terminal height,
-	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
-	// drops the live area (and its separator) entirely.
-	if m.current != "" || m.curThink != "" {
-		if liveCap := m.streamCap(chrome); liveCap > 0 {
-			chrome += liveCap + 1 // + the blank separator above it
-		}
+	// Now budget the in-flight streaming area: the live partial line renders
+	// below the viewport and is almost always just 1–2 rows, so budget its
+	// ACTUAL rendered height (capped at streamCap) rather than the full cap.
+	// Reserving the full streamCap whenever a partial line existed clamped the
+	// viewport to minTranscriptRows even though the live area was tiny, and the
+	// per-newline gate (m.current != "") then dropped the reservation to 0 the
+	// instant a line folded into the transcript — so vpH oscillated between the
+	// clamped floor and the full height (a ~16-row jump) several times per turn,
+	// and the transcript visibly thrashed between "full chat" and "tail only".
+	// The separator (blank above the live area) is counted only when the live
+	// area itself is non-empty. The height MUST match what viewBody renders.
+	if liveRows := m.liveAreaRows(); liveRows > 0 {
+		chrome += liveRows + 1 // + the blank separator above the live area
 	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
@@ -2103,6 +2108,29 @@ func (m *model) streamCap(fixedChrome int) int {
 	}
 	floor := min(minTranscriptRows, avail-1)
 	return avail - floor
+}
+
+// liveAreaRows is the ACTUAL height the live streaming area contributes to the
+// frame this paint: the wrapped, streamCap-capped height of whichever live
+// view viewBody will render (the partial answer line, or the live reasoning
+// line — never both at once). 0 means nothing renders and no rows (and no
+// separator) are budgeted. This MUST match viewBody, which paints
+// "\n"+thinkViewCapped()+"\n" and "\n"+currentViewCapped()+"\n" for whichever
+// of curThink/current is non-empty.
+func (m *model) liveAreaRows() int {
+	// curThink and current are never live simultaneously (thinkMsg flushes
+	// current first, textMsg flushes curThink first), so claim the whole cap.
+	switch {
+	case m.curThink != "":
+		if cv := m.thinkViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	case m.current != "":
+		if cv := m.currentViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	}
+	return 0
 }
 
 // dockTop returns the screen row of the first TASK row in the dock: the dock
