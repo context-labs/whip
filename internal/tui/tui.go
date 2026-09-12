@@ -4979,7 +4979,17 @@ const menuRows = 8
 
 func (m *model) currentView() string {
 	s := m.current
-	if !m.inMsg {
+	if ocActive {
+		// opencode assistant messages carry no bullet: the body is indented 3,
+		// matching the committed blockAssistant render so the live partial does
+		// not flash a "●" that the finalized text never has.
+		return strings.Repeat(" ", 3) + wrap(s, max(m.width-3, 1))
+	}
+	// Default mode: the committed block bakes "● " into its first line; show
+	// the same marker on the live partial for the WHOLE turn (gate on busy, not
+	// on !inMsg) so the dot doesn't vanish the instant the first line folds
+	// into the transcript — the marker must read identically live and final.
+	if m.busy {
 		s = botStyle.Render(glyphAssistant) + s
 	}
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -106,6 +107,67 @@ func runStreamViewportStable(t *testing.T, oc bool) {
 		}
 	}
 	_ = ansi.Strip // keep ansi import even if assertions evolve
+}
+
+// Regression for the disappearing-assistant-marker bug: the live partial line
+// (currentView) showed "● " only while !m.inMsg — i.e. before the first line
+// folded into the committed block — so the purple dot flashed on the first
+// fragment and vanished the instant that line completed, even though the same
+// turn kept streaming. The marker must read identically live and final: the
+// committed block always bakes "● " in (default mode) or never (opencode, a
+// 3-space indent with no bullet), so currentView must match for the whole turn.
+func TestStreamMarkerMatchesCommitted(t *testing.T) {
+	for _, mode := range []string{"default", "opencode"} {
+		t.Run(mode, func(t *testing.T) {
+			oc := mode == "opencode"
+			m := compactCmdModel()
+			if oc {
+				m.applyUIMode(opencodeMode)
+				t.Cleanup(func() { m.applyUIMode("") })
+			}
+			m.Update(mkWinSize(80, 30))
+			m.busy = true
+			m.turnStart = m.nowFn()
+			m.layout()
+			m.View()
+
+			// Stream three lines; record every partial that showed the ● marker.
+			var dotsAt []string
+			for i, tok := range tokenize("first line\nsecond line\nthird line\n") {
+				um, _ := m.Update(textMsg(tok))
+				m = um.(*model)
+				m.layout()
+				m.View()
+				if strings.Contains(ansi.Strip(m.currentView()), "●") {
+					dotsAt = append(dotsAt, itoa(i))
+				}
+			}
+			blk := ""
+			for _, b := range m.blocks {
+				if b.kind == blockAssistant {
+					blk = ansi.Strip(b.renderAt(76))
+				}
+			}
+
+			if oc {
+				// opencode assistant messages carry no bullet; the live partial
+				// must not flash one the finalized text never has.
+				if len(dotsAt) != 0 {
+					t.Errorf("opencode live partial showed ● at steps %v; want none (committed block has no bullet):\n%s", dotsAt, blk)
+				}
+			} else {
+				// default: the dot must persist for the whole turn, not just the
+				// first partial. Three streamed lines produce many partials, so
+				// the marker must appear on most of them.
+				if len(dotsAt) < 2 {
+					t.Errorf("default live partial showed ● only %d time(s); want it to persist for the whole turn (matches committed block):\n%s", len(dotsAt), blk)
+				}
+				if !strings.Contains(blk, "●") {
+					t.Errorf("default committed block lost its ● marker:\n%s", blk)
+				}
+			}
+		})
+	}
 }
 
 // tokenize splits s into small streaming deltas (~2–5 chars), the way SSE
