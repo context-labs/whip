@@ -365,7 +365,7 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 						}
 						code = "const result = " + call + `; print(result.output); await state.private_set({key: "helper-budget-write", value: "must not exist"});`
 					}
-					store, root, _ := modelAccountingRuntimeAt(t, path, func(w http.ResponseWriter, r *http.Request) {
+					store, root, runtime := modelAccountingRuntimeAt(t, path, func(w http.ResponseWriter, r *http.Request) {
 						request, ok := modelAccountingRequest(t, w, r)
 						if !ok {
 							return
@@ -419,6 +419,13 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 					if err := store.SetBudgetLimit(t.Context(), root.ID(), "", session.BudgetCost, 2_000_000); err != nil {
 						t.Fatal(err)
 					}
+					// Time accounting from a ready worker; cold QuickJS compilation
+					// under race instrumentation can exceed the receipt deadline.
+					startup := time.Now()
+					if err := runtime.rootNode.kernel.Start(); err != nil {
+						t.Fatal(err)
+					}
+					t.Logf("worker startup completed in %s", time.Since(startup))
 					receipt, err := root.Submit(t.Context(), "run the helper and then update state")
 					if err != nil {
 						t.Fatal(err)
