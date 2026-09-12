@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +59,96 @@ func TestHostDirectoryPickValidation(t *testing.T) {
 	}
 	if _, err := hostDirectoryPick(t.Context(), protocol.HostDirectoryPickParams{Start: "/" + strings.Repeat("a", 4096)}); err == nil {
 		t.Fatal("oversized start accepted")
+	}
+}
+
+func TestHostRejectsMalformedRPCParameters(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	fixture := newV2Fixture(t, &fakeRunner{})
+	client := fixture.dial("unix", "invalid-host-requests")
+	for _, method := range []string{"host.directories.list", "host.directory.pick", "host.attention", "host.themes.resolve", "mailbox.list", "mailbox.read"} {
+		t.Run(method, func(t *testing.T) {
+			var result json.RawMessage
+			err := client.Call(t.Context(), method, []string{"invalid parameters"}, &result)
+			var rpc *RPCError
+			if !errors.As(err, &rpc) || rpc.Code != -32602 {
+				t.Fatalf("malformed host request must return invalid params: %v", err)
+			}
+		})
+	}
+	for _, params := range []protocol.HostThemeResolveParams{{}, {Name: "dark", JSON: "{}"}, {JSON: "not json"}} {
+		var result json.RawMessage
+		err := client.Call(t.Context(), "host.themes.resolve", params, &result)
+		var rpc *RPCError
+		if !errors.As(err, &rpc) || rpc.Code != -32602 {
+			t.Fatalf("invalid theme selection must return invalid params: %v", err)
+		}
+	}
+}
+
+func TestHostDirectoryPickProcessResults(t *testing.T) {
+	var executable string
+	switch runtime.GOOS {
+	case "darwin":
+		executable = "osascript"
+	case "linux":
+		executable = "zenity"
+	default:
+		t.Skip("fixture executable requires a POSIX shell")
+	}
+	for _, test := range []struct {
+		name, script, path, wantError string
+		cancelled                     bool
+	}{
+		{"selected folder", "printf '/tmp/selected folder/\\n'", "/tmp/selected folder", "", false},
+		{"cancelled dialog", "printf 'User canceled.' >&2; exit 1", "", "", true},
+		{"empty selection", "exit 0", "", "no usable path", false},
+		{"oversized selection", "printf '" + strings.Repeat("a", 4097) + "'", "", "no usable path", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			t.Setenv("PATH", directory)
+			if err := os.WriteFile(filepath.Join(directory, executable), []byte("#!/bin/sh\n"+test.script+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			value, err, handled := (&Server{}).handleHost(t.Context(), rpcMessage{Method: "host.directory.pick", Params: json.RawMessage(`{"start":"/tmp"}`)})
+			result, ok := value.(protocol.HostDirectoryPickResult)
+			if !handled || !ok {
+				t.Fatalf("picker RPC was not handled: %T", value)
+			}
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("invalid selection was accepted: %+v %v", result, err)
+				}
+				return
+			}
+			if err != nil || result.Path != test.path || result.Cancelled != test.cancelled {
+				t.Fatalf("picker result: %+v %v", result, err)
+			}
+		})
+	}
+}
+
+func TestDirectoryPickLinuxFallback(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("PATH", directory)
+	if name, _, _ := directoryPickCommand("linux", "/tmp/start"); name != "" {
+		t.Fatalf("picker found in an empty PATH: %s", name)
+	}
+	kdialog := filepath.Join(directory, "kdialog")
+	if err := os.WriteFile(kdialog, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name, args, cancelled := directoryPickCommand("linux", "/tmp/start")
+	if name != kdialog || !slices.Equal(args, []string{"--getexistingdirectory", "/tmp/start"}) || !cancelled("") {
+		t.Fatalf("kdialog fallback: %s %q", name, args)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "zenity"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name, args, _ = directoryPickCommand("linux", "/tmp/start")
+	if name != filepath.Join(directory, "zenity") || !slices.Contains(args, "--directory") {
+		t.Fatalf("zenity should take precedence in directory selection mode: %s %q", name, args)
 	}
 }
 

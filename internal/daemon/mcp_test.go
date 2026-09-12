@@ -321,8 +321,14 @@ func TestMCPRememberedApprovalBindsDefinition(t *testing.T) {
 	}
 }
 
-func waitMCPPermission(t *testing.T, store *session.Store, root *Session) session.PermissionSnapshot {
+func waitMCPPermission(t *testing.T, store *session.Store, root *Session, calls ...<-chan error) session.PermissionSnapshot {
 	t.Helper()
+	var completed <-chan error
+	if len(calls) != 0 {
+		completed = calls[0]
+	}
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		pending, err := store.ListPendingPermissions(t.Context(), root.ID())
@@ -332,7 +338,11 @@ func waitMCPPermission(t *testing.T, store *session.Store, root *Session) sessio
 		if len(pending) == 1 {
 			return pending[0]
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case err := <-completed:
+			t.Fatalf("MCP execution completed before requesting durable permission: %v", err)
+		case <-ticker.C:
+		}
 	}
 	t.Fatal("MCP did not request durable permission")
 	return session.PermissionSnapshot{}
@@ -350,14 +360,23 @@ func TestMCPDurableConsentAndLifecycleWaiters(t *testing.T) {
 				if action == "revoke" {
 					node = spawnMCPChild(t, node, map[string]any{"name": "child"})
 				}
+				// Consent timing starts with a ready worker. QuickJS compilation in a
+				// race build can exceed the permission window on a contended runner.
+				startup := time.Now()
+				if err := node.kernel.Start(); err != nil {
+					t.Fatalf("start MCP worker: %v", err)
+				}
+				t.Logf("MCP worker startup: %s", time.Since(startup))
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				done := make(chan error, 1)
+				requested := time.Now()
 				go func() {
 					_, err := node.kernel.Exec(ctx, mcpCellCode(node, "mutate"))
 					done <- err
 				}()
-				pending := waitMCPPermission(t, store, root)
+				pending := waitMCPPermission(t, store, root, done)
+				t.Logf("MCP permission delivery: %s", time.Since(requested))
 				if effects.Load() != 0 {
 					t.Fatal("server called before consent")
 				}

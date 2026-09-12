@@ -306,6 +306,54 @@ func canonicalDir(t *testing.T, dir string) string {
 	return dir
 }
 
+func TestWorkspaceProcessHonorsPermissionAndEnvironment(t *testing.T) {
+	t.Setenv("WHIP_CHILD_VALUE", "parent")
+	services, ledger, _, authority := newMCPServices(t)
+	values := map[string]string{"WHIP_CHILD_VALUE": "child"}
+	services.SetProcessEnvironment(values)
+	values["WHIP_CHILD_VALUE"] = "changed caller map"
+	services.ProcessOptions().Env["WHIP_CHILD_VALUE"] = "changed returned map"
+	command := `printf '%s' "$WHIP_CHILD_VALUE"; printf done > proof.txt`
+	var prompt GateRequest
+	services.SetGate(func(_ context.Context, request GateRequest) (GateDecision, string) {
+		prompt = request
+		return GateReject, "not permitted"
+	})
+	if _, err := services.RunWorkspaceProcess(t.Context(), "/bin/sh", "-c", command); err == nil {
+		t.Fatal("workspace process ignored denial")
+	}
+	proof := filepath.Join(services.ProcessOptions().Cwd, "proof.txt")
+	if _, err := os.Stat(proof); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("denied process changed the workspace: %v", err)
+	}
+	if prompt.Tool != "workspace_process" || !strings.Contains(prompt.Command, command) {
+		t.Fatalf("permission prompt lost the process arguments: %+v", prompt)
+	}
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
+	out, err := services.RunWorkspaceProcess(t.Context(), "/bin/sh", "-c", command)
+	if err != nil || string(out) != "child" {
+		t.Fatalf("workspace process environment = %q, %v", out, err)
+	}
+	if data, err := os.ReadFile(proof); err != nil || string(data) != "done" {
+		t.Fatalf("approved process result = %q, %v", data, err)
+	}
+	if os.Getenv("WHIP_CHILD_VALUE") != "parent" {
+		t.Fatal("child process settings changed the daemon environment")
+	}
+	admission := ledger.lastAdmission()
+	if admission.Request.RootID != authority.RootID || admission.Mutation != capability.MutationWorkspace || !admission.RequirePermission {
+		t.Fatalf("workspace process bypassed its authority: %+v", admission)
+	}
+	services.SetScreenshotSink(func([][]byte) { t.Error("parent screenshot sink reached a clone") })
+	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), ledger.Processes(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !services.ScreenshotsEnabled() || clone.ScreenshotsEnabled() {
+		t.Fatal("authority clone inherited an agent-specific screenshot destination")
+	}
+}
+
 func TestServicesValidationPaths(t *testing.T) {
 	processes := capability.NewProcessManager()
 	defer processes.Close()

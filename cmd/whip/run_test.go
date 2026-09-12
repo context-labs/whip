@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -96,6 +97,30 @@ func TestRunTextOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "hello world") {
 		t.Fatalf("stdout should stream the reply, got %q", out)
+	}
+}
+
+func TestRunReasoningEffortIsSessionScoped(t *testing.T) {
+	var requests []llm.Request
+	runFixture(t, "done", &requests)
+	if _, err := runCapture(t, "", "--effort", "high", "think carefully"); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].ReasoningEffort != "high" {
+		t.Fatalf("reasoning effort did not reach provider: %#v", requests)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultEffort != "" {
+		t.Fatalf("one-off effort changed default: %q", cfg.DefaultEffort)
+	}
+	if _, err := runCapture(t, "", "--effort", "off", "reply directly"); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 || requests[1].ReasoningEffort != "" {
+		t.Fatalf("off leaked as an upstream reasoning effort: %#v", requests)
 	}
 }
 

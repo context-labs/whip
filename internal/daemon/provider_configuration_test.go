@@ -14,6 +14,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -226,6 +227,107 @@ func TestProviderConfigurationValidationAndRemoval(t *testing.T) {
 	}
 	if _, exists := config.LoadCatalogs()[p.Provider]; exists {
 		t.Fatal("removed provider's catalog remains")
+	}
+}
+
+func TestProviderConfigurationInvalidCreateLeavesSettingsUntouched(t *testing.T) {
+	s := customProviderService(t)
+	s.validate = func(context.Context, string, string) ([]llm.ModelInfo, error) {
+		t.Error("invalid configuration reached model discovery")
+		return nil, errors.New("unexpected discovery")
+	}
+	valid := customProviderParams(t, s)
+	before, err := s.ReadConfiguration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*protocol.ProviderCreateParams)
+	}{
+		{"missing display name", func(p *protocol.ProviderCreateParams) { p.Definition.Name = " " }},
+		{"unsupported API", func(p *protocol.ProviderCreateParams) { p.Definition.API = "anthropic" }},
+		{"keep without saved credential", func(p *protocol.ProviderCreateParams) { p.Credential = protocol.ProviderCredential{Mode: "keep"} }},
+		{"empty key", func(p *protocol.ProviderCreateParams) { p.Credential.Key = " " }},
+		{"header injection", func(p *protocol.ProviderCreateParams) { p.Credential.Key = "key\r\nInjected: header" }},
+		{"invalid environment name", func(p *protocol.ProviderCreateParams) {
+			p.Credential = protocol.ProviderCredential{Mode: "environment", EnvironmentVariable: "NOT-A-VARIABLE"}
+		}},
+		{"credential with no auth", func(p *protocol.ProviderCreateParams) { p.Credential.Mode = "none" }},
+		{"unknown auth mode", func(p *protocol.ProviderCreateParams) { p.Credential.Mode = "custom" }},
+		{"ambiguous model ID", func(p *protocol.ProviderCreateParams) {
+			p.ManualModel = &protocol.ProviderManualModel{Alias: "custom/model", ID: " model "}
+		}},
+		{"negative model limits", func(p *protocol.ProviderCreateParams) {
+			p.ManualModel = &protocol.ProviderManualModel{Alias: "custom/model", ID: "model", Context: -1}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			params := valid
+			test.change(&params)
+			if _, err := s.CreateProvider(t.Context(), params); err == nil {
+				t.Fatal("invalid connection accepted")
+			}
+			after, err := s.ReadConfiguration()
+			if err != nil || !reflect.DeepEqual(after, before) {
+				t.Fatalf("failed create changed persisted configuration: %+v %v", after, err)
+			}
+			if _, err := s.ReadProvider(valid.Provider); err == nil {
+				t.Fatal("failed create left a partial connection")
+			}
+		})
+	}
+}
+
+func TestProviderOperationsFailClosedForMalformedHostConfiguration(t *testing.T) {
+	s := customProviderService(t)
+	params := customProviderParams(t, s)
+	directory, err := config.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(path, []byte("{not valid configuration"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.validate = func(context.Context, string, string) ([]llm.ModelInfo, error) {
+		t.Error("unreadable configuration initiated discovery")
+		return nil, errors.New("unexpected request")
+	}
+	s.openAILogin = func(context.Context, func(string, string)) (openaiauth.Credentials, error) {
+		t.Error("unreadable configuration initiated sign-in")
+		return openaiauth.Credentials{}, errors.New("unexpected authorization")
+	}
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{"configuration", func() error { _, err := s.ReadConfiguration(); return err }},
+		{"editable provider", func() error { _, err := s.ReadProvider("openrouter"); return err }},
+		{"account status", func() error { _, err := s.ProviderStatus(openaiauth.Provider); return err }},
+		{"OpenAI sign-in", func() error { _, err := s.BeginProviderLogin(openaiauth.Provider); return err }},
+		{"Inference sign-in", func() error { _, err := s.BeginLogin(); return err }},
+		{"create", func() error { _, err := s.CreateProvider(t.Context(), params); return err }},
+		{"model client", func() error {
+			_, err := s.ModelClient(config.Provider{BaseURL: "https://example.test/v1", APIKey: "private-fixture-key"})
+			return err
+		}},
+		{"catalog refresh", func() error { return s.refreshCatalog(t.Context(), "openrouter", config.Provider{}) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.call(); err == nil {
+				t.Fatal("operation silently accepted malformed host configuration")
+			}
+		})
+	}
+	if len(s.Catalogs()) != 0 || len(s.ListLogins().Flows) != 0 {
+		t.Fatal("unreadable configuration exposed routes or admitted authorization")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := s.ReadConfiguration(); err != nil || recovered.Revision != params.Revision {
+		t.Fatalf("repaired configuration requires a daemon restart: %+v %v", recovered, err)
 	}
 }
 

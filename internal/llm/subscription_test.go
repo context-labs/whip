@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/context-labs/whip/internal/openaiauth"
@@ -214,6 +215,94 @@ func TestSubscriptionAccountChangeDuringAdmissionPreventsDispatch(t *testing.T) 
 				t.Fatalf("account change was not settled as undispatched: %+v %v", budget.results, err)
 			}
 		})
+	}
+}
+
+func TestSubscriptionCatalogRefreshUsesCurrentCredentials(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusUnauthorized} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			client, auth := subscriptionTestClient(t)
+			requests := 0
+			client.HTTP.Transport = subscriptionTransport(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if requests == 1 {
+					if err := auth.Install(t.Context(), auth.Generation(), openaiauth.Credentials{
+						AccessToken: "new-access", RefreshToken: "new-refresh", AccountID: "account", ExpiresAt: time.Now().Add(time.Hour),
+					}); err != nil {
+						t.Fatal(err)
+					}
+					return &http.Response{StatusCode: http.StatusUnauthorized, Body: io.NopCloser(strings.NewReader("private rejection"))}, nil
+				}
+				if request.Header.Get("Authorization") != "Bearer new-access" {
+					t.Fatal("catalog retry reused rejected credentials")
+				}
+				body := `{"models":[{"slug":"gpt-5.5","visibility":"list","max_context_window":100000,"effective_context_window_percent":101,"supported_reasoning_levels":[{"effort":"high"},{"effort":"bad\neffort"}]}]}`
+				if status != http.StatusOK {
+					body = `{"error":{"message":"private rejection"}}`
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			models, err := client.Models(t.Context())
+			if requests != 2 {
+				t.Fatalf("catalog requests = %d, want exactly one retry", requests)
+			}
+			if status != http.StatusOK {
+				if err == nil || !strings.Contains(err.Error(), "sign in again") || strings.Contains(err.Error(), "private rejection") {
+					t.Fatalf("second rejection was not safely surfaced: %v", err)
+				}
+				return
+			}
+			if err != nil || len(models) != 1 || models[0].ContextLength != 95000 ||
+				len(models[0].ReasoningEfforts) != 1 || models[0].ReasoningEfforts[0] != "high" {
+				t.Fatalf("refreshed catalog limits and efforts = %+v, %v", models, err)
+			}
+		})
+	}
+}
+
+func TestSubscriptionCatalogRejectsUnusableResponses(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, want string
+		readFailure      bool
+	}{
+		{name: "malformed", body: `{`, want: "malformed model catalog"},
+		{name: "too many models", body: `{"models":[` + strings.Repeat(`{},`, 512) + `{}]}`, want: "malformed model catalog"},
+		{name: "unbounded context", body: `{"models":[{"slug":"gpt-5.5","visibility":"list","context_window":16777217}]}`, want: "no models"},
+		{name: "missing context", body: `{"models":[{"slug":"gpt-5.5","visibility":"list"}]}`, want: "no models"},
+		{name: "unreadable", readFailure: true, want: "could not read bounded"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client, _ := subscriptionTestClient(t)
+			client.HTTP.Transport = subscriptionTransport(func(*http.Request) (*http.Response, error) {
+				var body io.Reader = strings.NewReader(tt.body)
+				if tt.readFailure {
+					body = iotest.ErrReader(errors.New("private transport failure"))
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(body)}, nil
+			})
+			models, err := client.Models(t.Context())
+			if err == nil || !strings.Contains(err.Error(), tt.want) || len(models) != 0 || strings.Contains(err.Error(), "private") {
+				t.Fatalf("unusable catalog = %+v, %v", models, err)
+			}
+		})
+	}
+}
+
+func TestSubscriptionCatalogRequiresLoginAndSanitizesTransportFailure(t *testing.T) {
+	client, auth := subscriptionTestClient(t)
+	requests := 0
+	client.HTTP.Transport = subscriptionTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, errors.New("private transport failure")
+	})
+	if _, err := client.Models(t.Context()); err == nil || strings.Contains(err.Error(), "private") {
+		t.Fatalf("transport error was not sanitized: %v", err)
+	}
+	if err := auth.Logout(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Models(t.Context()); !errors.Is(err, openaiauth.ErrSignInRequired) || requests != 1 {
+		t.Fatalf("signed-out catalog request reached transport: requests=%d err=%v", requests, err)
 	}
 }
 

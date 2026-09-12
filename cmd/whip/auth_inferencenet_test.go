@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/inferencenet"
 )
 
@@ -164,6 +165,38 @@ func TestCLIChooser(t *testing.T) {
 			})
 			if (err != nil) != test.wantErr || got != test.want {
 				t.Fatalf("choice=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestProviderChoiceUsesStableIDsWithDuplicateNames(t *testing.T) {
+	for _, test := range []struct {
+		name, input, want string
+		choices           []daemon.ProviderChoice
+		wantErr           bool
+	}{
+		{name: "no workspaces", wantErr: true},
+		{name: "one workspace", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
+		{name: "duplicate names", input: "2\n", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
+		{name: "new project", input: "2\n", choices: []daemon.ProviderChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
+		{name: "invalid choice", input: "3\n", choices: []daemon.ProviderChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := writer.WriteString(test.input); err != nil {
+				t.Fatal(err)
+			}
+			_ = writer.Close()
+			previous := os.Stdin
+			os.Stdin = reader
+			t.Cleanup(func() { os.Stdin = previous; _ = reader.Close() })
+			got, err := chooseProviderID("workspace", test.choices)
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("selected %q, error %v; want %q, error %t", got, err, test.want, test.wantErr)
 			}
 		})
 	}

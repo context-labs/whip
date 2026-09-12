@@ -22,6 +22,110 @@ func openAITestCredentials() openaiauth.Credentials {
 	}
 }
 
+func TestOpenAILoginFailureCanRetryAndCatalogFailureKeepsLogin(t *testing.T) {
+	for _, failure := range []string{"authorization", "credential storage"} {
+		t.Run(failure, func(t *testing.T) {
+			t.Setenv("WHIP_HOME", t.TempDir())
+			service := NewProviderService(t.Context(), "retry")
+			t.Cleanup(service.Close)
+			attempts := 0
+			service.openAILogin = func(_ context.Context, onCode func(string, string)) (openaiauth.Credentials, error) {
+				onCode("https://auth.openai.com/codex/device", "expired-code")
+				attempts++
+				if attempts == 1 {
+					if failure == "authorization" {
+						return openaiauth.Credentials{}, errors.New("device authorization expired")
+					}
+					return openaiauth.Credentials{}, nil
+				}
+				return openAITestCredentials(), nil
+			}
+			service.refreshModels = func(context.Context, string, config.Provider) error {
+				return errors.New("upstream failed with private-access-token")
+			}
+			first, err := service.BeginProviderLogin(openaiauth.Provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed := waitProviderState(t, service, first.FlowID, "failed")
+			if failed.Error == "" || failed.UserCode != "" {
+				t.Fatalf("failed authorization retained a code or lost its error: %+v", failed)
+			}
+			status, err := service.ProviderStatus(openaiauth.Provider)
+			if err != nil || status.AuthState != "signed_out" {
+				t.Fatalf("failed login became connected: %+v %v", status, err)
+			}
+			retry, err := service.BeginProviderLogin(openaiauth.Provider)
+			if err != nil || retry.FlowID == first.FlowID {
+				t.Fatalf("failed flow cannot be retried: %+v %v", retry, err)
+			}
+			completed := waitProviderState(t, service, retry.FlowID, "succeeded")
+			if completed.UserCode != "" || !strings.Contains(completed.Error, "Model discovery failed") || strings.Contains(completed.Error, "private-") {
+				t.Fatalf("discovery failure did not preserve a safe completed login: %+v", completed)
+			}
+			status, err = service.ProviderStatus(openaiauth.Provider)
+			if err != nil || status.AuthState != "connected" || status.Available == nil || !*status.Available {
+				t.Fatalf("catalog failure invalidated saved login: %+v %v", status, err)
+			}
+		})
+	}
+}
+
+func TestOpenAICancelledLogoutPreservesCredentials(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	service := NewProviderService(t.Context(), "cancelled-logout")
+	t.Cleanup(service.Close)
+	if err := service.openAI.Install(t.Context(), service.openAI.Generation(), openAITestCredentials()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := service.LogoutProvider(ctx, openaiauth.Provider); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled logout: %v", err)
+	}
+	credentials, err := service.openAI.Snapshot()
+	if err != nil || credentials.AccessToken != openAITestCredentials().AccessToken {
+		t.Fatalf("cancelled logout discarded credentials: %v", err)
+	}
+}
+
+func TestOpenAILoginPreservesConcurrentConfigurationConflict(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	service := NewProviderService(t.Context(), "conflict")
+	t.Cleanup(service.Close)
+	service.openAILogin = func(context.Context, func(string, string)) (openaiauth.Credentials, error) {
+		_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+			cfg.Providers[openaiauth.Provider] = config.Provider{API: "openai-completions", BaseURL: "https://custom.example/v1"}
+			return nil
+		})
+		return openAITestCredentials(), err
+	}
+	service.refreshModels = func(context.Context, string, config.Provider) error {
+		t.Error("discovery ran for a conflicting route")
+		return errors.New("discovery must not run for a conflicting route")
+	}
+	flow, err := service.BeginProviderLogin(openaiauth.Provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitProviderState(t, service, flow.FlowID, "failed")
+	if !strings.Contains(failed.Error, "configuration could not be saved") || failed.UserCode != "" {
+		t.Fatalf("partial setup needs recovery guidance: %+v", failed)
+	}
+	status, err := service.ProviderStatus(openaiauth.Provider)
+	if err != nil || status.AuthState != "configuration_error" || status.Available == nil || *status.Available {
+		t.Fatalf("conflicting setup reported ready: %+v %v", status, err)
+	}
+	configuration, err := config.Load()
+	if err != nil || configuration.Providers[openaiauth.Provider].BaseURL != "https://custom.example/v1" {
+		t.Fatalf("sign-in overwrote the concurrent route edit: %v", err)
+	}
+	credentials, err := service.openAI.Snapshot()
+	if err != nil || credentials.AccessToken != openAITestCredentials().AccessToken {
+		t.Fatalf("partial setup lost completed authorization: %v", err)
+	}
+}
+
 func TestOpenAILoginRecoveryPersistenceAndLogout(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "first")

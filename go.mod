@@ -22,6 +22,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.28
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
+	github.com/tetratelabs/wazero v1.12.0
 	go.starlark.net v0.0.0-20260828210309-6dd8f160a37f
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
@@ -58,7 +59,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
-	github.com/tetratelabs/wazero v1.12.0
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect

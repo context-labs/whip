@@ -1,6 +1,6 @@
 {
   "purpose": "Staged host integration; not signed/fused installed-app acceptance or a startup benchmark",
-  "recordedAt": "2026-09-08T21:17:38.097Z",
+  "recordedAt": "2026-09-12T03:44:12.965Z",
   "noNetwork": true,
   "canonicalRuntimeInstalled": true,
   "noRetainedRuntime": true,
@@ -11,5 +11,7 @@
   "desktopOriginURL": true,
   "independentHostDisconnect": true,
   "multipleHostsRestored": true,
+  "movingTabPreview": true,
+  "tabReorderPreservesDraft": true,
   "rendererErrors": []
 }

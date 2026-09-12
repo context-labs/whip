@@ -552,3 +552,23 @@ func TestRLMHostConcurrencyConfiguration(t *testing.T) {
 		t.Fatalf("default concurrency=%d", got)
 	}
 }
+
+func TestRLMLimitsPreserveConfiguredUnitsAndDefaultOmissions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	writeConfig(t, home, `{"rlm":{"steps":1250,"hostRequests":3,"wallMillis":250,"memoryMiB":32,"outputBytes":1024,"frameBytes":2048,"maxWorkers":2}}`)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := rlmLimits(cfg.RLM)
+	if limits.Wall != 250*time.Millisecond || limits.MemoryBytes != 32*1024*1024 {
+		t.Fatalf("configuration units were not converted: %+v", limits)
+	}
+	if limits.Steps != 1250 || limits.HostRequests != 3 || limits.OutputBytes != 1024 || limits.FrameBytes != 2048 || limits.MaxWorkers != 2 {
+		t.Fatalf("configured execution budgets lost: %+v", limits)
+	}
+	if limits.MaxConcurrentHostCalls != rlm.DefaultLimits().MaxConcurrentHostCalls {
+		t.Fatalf("omitted host concurrency lost its default: %+v", limits)
+	}
+}

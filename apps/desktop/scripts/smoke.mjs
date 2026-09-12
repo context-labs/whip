@@ -52,7 +52,7 @@ try {
   assert.equal(await fileDigest(executable), manifest.files.whipcode.sha256);
   await assert.rejects(lstat(path.join(env.WHIP_DESKTOP_USER_DATA, 'runtimes')), { code: 'ENOENT' });
   await assert.rejects(lstat(path.join(env.HOME, '.whip')), { code: 'ENOENT' });
-  await page.getByRole('button', { name: 'Manage servers', exact: true }).click();
+  await page.locator('#whip-session-navigation').getByRole('button', { name: 'Manage servers', exact: true }).click();
   await page.getByRole('button', { name: 'Add server', exact: true }).click();
   const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
   await hosts.getByRole('textbox', { name: /Server name/ }).fill('Smoke URL');
@@ -119,12 +119,18 @@ try {
     await page.goto(route.href);
     await expect(page.getByText('Follow-up completed.', { exact: true })).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Manage servers', exact: true }).click();
+  await page.locator('#whip-session-navigation').getByRole('button', { name: 'Manage servers', exact: true }).click();
   const openActions = name => page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
   await openActions('Smoke URL');
   await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).click();
+  const disconnect = page.getByRole('alertdialog', { name: 'Disconnect Smoke URL?', exact: true });
+  await disconnect.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await disconnect.waitFor({ state: 'hidden' });
+  await openActions('Smoke URL');
+  await expect(page.getByRole('menuitem', { name: 'Connect', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
   await openActions('This Mac');
-  assert.equal(await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).count(), 1, 'Disconnecting URL detached This Mac');
+  await expect(page.getByRole('menuitem', { name: 'Disconnect', exact: true }), 'Disconnecting URL detached This Mac').toBeVisible();
   await page.keyboard.press('Escape');
   await openActions('Smoke URL');
   await page.getByRole('menuitem', { name: 'Connect', exact: true }).click();
@@ -133,9 +139,9 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
-  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
   await page.reload();
-  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
   assert.deepEqual(errors, []);
   // Force only the fixture GUI process to disappear: daemon lifetime is separate.
   await electron.evaluate(({ app }) => app.exit(0)).catch(error => {
@@ -152,7 +158,7 @@ try {
   if (await reopened.locator('[data-settings-layout]').isVisible()) {
     await reopened.getByRole('button', { name: 'Servers', exact: true }).click();
   } else {
-    await reopened.getByRole('button', { name: 'Manage servers', exact: true }).click();
+    await reopened.locator('#whip-session-navigation').getByRole('button', { name: 'Manage servers', exact: true }).click();
   }
   for (const name of ['This Mac', 'Smoke URL']) {
     await reopened.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
