@@ -202,24 +202,7 @@ Settled with Sam:
 - **Testing: the scripted-daemon unit test of the runner is enough.** No live
   acceptance through the Node fixture.
 
-Still open, restated in plain terms below:
-
-1. **How the reviewer hands Loupe the review.** Today it calls the
-   `submit_review` tool mid-turn. The alternative is an output contract: the
-   review is the model's final message, the daemon checks its shape and
-   corrects it once, and Loupe reads `result.output`. The catch is that the
-   daemon checks the final message of every turn, and the model-driven panel
-   spans turns (spawn confirmers, end the turn, wake on their replies), so a
-   waiting turn would fail the check. Choosing the output contract means Loupe
-   runs the confirmers itself from a `suspected` list in the reviewer's
-   output and asks the reviewer for the final review in a second turn.
-   Recommended: the output contract with Loupe-driven confirmers.
-2. **Whether to keep a `check_anchors` tool.** The `submit_review` tool tells
-   the model which findings sit on lines outside the diff and names the
-   nearest commentable lines, so it can fix them before finishing. An output
-   contract checks only the shape, so that in-turn correction disappears and
-   Loupe falls back to snapping within ten lines and demoting the rest to
-   notes, as the original Loupe did. `check_anchors` would be an optional
-   tool the model may call before answering to get the same feedback back.
-   Recommended: leave it out and add it only if dry runs show more findings
-   landing off the diff than before.
+Also settled: **the output contract with Loupe-driven confirmers (option B)**, and
+**no `check_anchors` tool** unless dry runs show more findings landing off
+the diff than before. Execution started the same day on Loupe's
+`feature/whip-sdk`.
