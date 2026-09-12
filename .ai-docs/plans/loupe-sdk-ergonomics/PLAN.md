@@ -189,19 +189,37 @@ become output-normalization tests.
 - **The daemon must be at 6.6.** The installed desktop daemon is
   (`8e577056e`); CI still waits for a whip release that contains this branch.
 
-## Open questions
+## Decisions (September 12, 2026)
 
-1. Direction for the review deliverable: B (output contract, Loupe-driven
-   confirmers, no settle or nudge), A (keep `submit_review` and the
-   model-driven panel), or something else?
-2. Is a zod 3 → 4 upgrade in Loupe acceptable? The alternative is raw JSON
-   Schema tools typed `unknown`, which forgoes the typed `execute` arguments.
-3. Keep an optional `check_anchors` tool from the start, or add it only if
-   dry runs show findings landing off-diff?
-4. Vendor from `codex/mobile-ui@8e577056e` now, or wait until the SDK work is
-   on `feature/agent-definition` or `main`?
-5. Should the fixer also get an output contract (`{ changed: string[],
-   summary }`) so `@loupe fix` can report what it edited, or leave it prose?
-6. Add a live acceptance through `@whip/sdk/testing/node` (`liveDaemon`,
-   which builds Go from a whip checkout) for local use, or is the scripted
-   daemon test plus manual dry runs enough?
+Settled with Sam:
+
+- **zod 4.** Loupe upgrades from zod 3 to zod 4 so tool inputs and outputs are
+  typed from the schema.
+- **Vendor from `whip-rlm`.** The branches were consolidated; `whip-rlm`
+  carries the SDK work and both Loupe plans. Loupe's `vendor/@whip` refreshes
+  from its tip.
+- **Fixer stays prose.** No output contract for `@loupe fix`.
+- **Testing: the scripted-daemon unit test of the runner is enough.** No live
+  acceptance through the Node fixture.
+
+Still open, restated in plain terms below:
+
+1. **How the reviewer hands Loupe the review.** Today it calls the
+   `submit_review` tool mid-turn. The alternative is an output contract: the
+   review is the model's final message, the daemon checks its shape and
+   corrects it once, and Loupe reads `result.output`. The catch is that the
+   daemon checks the final message of every turn, and the model-driven panel
+   spans turns (spawn confirmers, end the turn, wake on their replies), so a
+   waiting turn would fail the check. Choosing the output contract means Loupe
+   runs the confirmers itself from a `suspected` list in the reviewer's
+   output and asks the reviewer for the final review in a second turn.
+   Recommended: the output contract with Loupe-driven confirmers.
+2. **Whether to keep a `check_anchors` tool.** The `submit_review` tool tells
+   the model which findings sit on lines outside the diff and names the
+   nearest commentable lines, so it can fix them before finishing. An output
+   contract checks only the shape, so that in-turn correction disappears and
+   Loupe falls back to snapping within ten lines and demoting the rest to
+   notes, as the original Loupe did. `check_anchors` would be an optional
+   tool the model may call before answering to get the same feedback back.
+   Recommended: leave it out and add it only if dry runs show more findings
+   landing off the diff than before.
