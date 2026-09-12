@@ -263,6 +263,10 @@ restarts the shared daemon, checks its build ID and reopens Whip. **Running this
 command interrupts active agent work across connected clients.** Sessions,
 configuration, credentials and app settings stay in place. If Whip has unsaved
 attachments, resolve its normal quit dialog; the script never force-quits it.
+macOS may report “User canceled (-128)” while Whip saves drafts asynchronously;
+the updater waits up to 30 seconds for the app to exit before replacing it.
+If you cancel the quit dialog or Whip stays open, the update stops with the
+installed app and backend unchanged.
 An already open browser tab may need a reload to load the new web UI.
 
 Requirements: Node 24, Go 1.27+, Xcode/Swift and a Developer ID Application signing

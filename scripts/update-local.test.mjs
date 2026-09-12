@@ -7,7 +7,72 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { sha256 } from './renderer-artifact.mjs';
-import { installLocalBuild, main } from './update-local.mjs';
+import { installLocalBuild, main, quitApp } from './update-local.mjs';
+
+for (const cancelled of [false, true]) {
+  test(`waits for observed app exit after ${cancelled ? 'deferred (-128)' : 'normal'} quit`, async () => {
+    const states = ['true', 'true', 'false'];
+    let requests = 0, waits = 0;
+    await quitApp('/Applications/Whip.app', {
+      execute: async (file, args) => {
+        assert.equal(file, '/usr/bin/osascript');
+        assert.equal(args.at(-1), '/Applications/Whip.app');
+        if (args[3].includes('app.quit()')) {
+          requests++;
+          if (cancelled) throw Object.assign(new Error('quit deferred'), { stderr: 'execution error: Error: User canceled. (-128)\n' });
+          return '';
+        }
+        return states.shift();
+      },
+      wait: async milliseconds => { assert.equal(milliseconds, 1000); waits++; },
+    });
+    assert.equal(requests, 1);
+    assert.equal(waits, 2);
+    assert.deepEqual(states, []);
+  });
+}
+
+test('a cancelled quit that leaves the app running blocks installation without forcing or retrying quit', async t => {
+  const f = await fixture(t);
+  let requests = 0, polls = 0;
+  f.dependencies.quit = app => quitApp(app, {
+    execute: async (_file, args) => {
+      if (args[3].includes('app.quit()')) {
+        requests++;
+        throw Object.assign(new Error('quit cancelled'), { stderr: 'execution error: User canceled. (-128)\n' });
+      }
+      polls++;
+      return 'true';
+    },
+    wait: async () => {},
+  });
+  await assert.rejects(installLocalBuild(f.options, f.dependencies), /Whip did not quit/);
+  assert.equal(requests, 1);
+  assert.equal(polls, 30);
+  assert.equal(await readFile(path.join(f.app, 'old-app'), 'utf8'), 'previous app');
+  assert.equal(await readFile(f.executable, 'utf8'), 'previous backend');
+  assert.deepEqual(await f.backups(), []);
+  assert(!f.events.includes('sync') && !f.events.includes('open'));
+});
+
+test('automation failures other than deferred quit are preserved', async () => {
+  const failure = Object.assign(new Error('Not authorized to send Apple events'), { stderr: 'execution error: Not authorized. (-1743)\n' });
+  await assert.rejects(quitApp('/Applications/Whip.app', {
+    execute: async () => { throw failure; },
+    wait: async () => assert.fail('must not wait after an automation failure'),
+  }), error => error === failure);
+});
+
+test('a failed running-state query does not count as app exit', async () => {
+  const failure = new Error('cannot inspect app');
+  await assert.rejects(quitApp('/Applications/Whip.app', {
+    execute: async (_file, args) => {
+      if (args[3].includes('app.quit()')) return '';
+      throw failure;
+    },
+    wait: async () => assert.fail('must not wait after a query failure'),
+  }), error => error === failure);
+});
 
 test('the desktop packaging verifier loads directly in Node without bundling', async () => {
   const { verifyDesktop } = await import('../apps/desktop/scripts/verify.mjs');

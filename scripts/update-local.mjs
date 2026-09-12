@@ -35,13 +35,19 @@ async function build(env) {
   }
 }
 
-async function quitApp(app) {
-  await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
-    'function run(argv) { const app = Application(argv[0]); if (app.running()) app.quit(); }', app]);
+export async function quitApp(app, { execute = run, wait = delay } = {}) {
+  try {
+    await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
+      'function run(argv) { const app = Application(argv[0]); if (app.running()) app.quit(); }', app]);
+  } catch (error) {
+    // Electron cancels the initial Apple event while it saves drafts, then quits
+    // asynchronously. Only observed exit authorizes replacing the installed app.
+    if (!/\(-128\)\s*$/.test(error.stderr || '')) throw error;
+  }
   for (let attempt = 0; attempt < 30; attempt++) {
-    if (await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
+    if (await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
       'function run(argv) { return Application(argv[0]).running(); }', app]) === 'false') return;
-    await delay(1000);
+    await wait(1000);
   }
   throw new Error('Whip did not quit. Resolve any unsaved-draft dialog or quit it normally, then retry.');
 }
