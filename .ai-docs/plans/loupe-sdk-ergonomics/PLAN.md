@@ -217,7 +217,7 @@ the first migration's commits:
 | 1 Vendor + typed tools | `92684e8` | `vendor/@whip` from `whip-rlm@6d16c869f` (protocol 6.6); zod 4.6; `pr_*` tools typed with inputs and outputs; derived schemas pinned. |
 | 2 Runtime handle + `session.run` | `0763246` | `RunProgress` over turn events; first runner tests via `@whip/sdk/testing`. |
 | 3 + 4 Output contracts + panel | `7755a70` | Landed together: they share the `output` plumbing. Reviewer, verifier, and confirmer contracts; Loupe-driven panel; `submit_*` tools, settle, nudge, children, and spawn hook deleted. Provider routing added in the docs commit. |
-| 5 Docs | `(see loupe log)` | README, configuration, architecture. |
+| 5 Docs | `37bea3e`, `10d0988` | README, configuration, architecture, guide. |
 
 `task check` green at every step; dry runs against `context-labs/loupe#15`
 through the installed desktop daemon (`8e577056e`) after steps 1, 2, and 4,
