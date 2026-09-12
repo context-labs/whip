@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"syscall"
 )
 
 const MaxReadSize = 64 << 10
@@ -112,6 +113,9 @@ func (s *Store) Read(digest string, offset int64, length int) ([]byte, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, err
+	}
+	if info.IsDir() {
+		return nil, &os.PathError{Op: "read", Path: f.Name(), Err: syscall.EISDIR}
 	}
 	if offset > info.Size() {
 		return nil, fmt.Errorf("content offset %d exceeds size %d", offset, info.Size())

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -199,5 +201,24 @@ func TestStoreValidationAndFilesystemErrors(t *testing.T) {
 	}
 	if _, err := broken.Orphans(nil); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Orphans missing directory error = %v", err)
+	}
+}
+
+func TestReadRejectsDirectoryBodies(t *testing.T) {
+	st, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("0", 64)
+	if err := os.Mkdir(st.path(digest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, length := range []int{0, MaxReadSize} {
+		t.Run(strconv.Itoa(length), func(t *testing.T) {
+			data, err := st.Read(digest, 0, length)
+			if data != nil || !errors.Is(err, syscall.EISDIR) {
+				t.Fatalf("directory read returned %d bytes, %v; want EISDIR", len(data), err)
+			}
+		})
 	}
 }
