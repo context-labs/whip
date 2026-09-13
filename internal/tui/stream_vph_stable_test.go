@@ -170,6 +170,47 @@ func TestStreamMarkerMatchesCommitted(t *testing.T) {
 	}
 }
 
+// Regression for the live-partial hanging-indent gap (Bugbot): a long in-flight
+// line must wrap its continuation rows under the marker (default) / under the
+// 3-space indent (opencode), matching the committed blockAssistant render — not
+// flush-left. The committed block's indent comes from glamour's document margin
+// + indentLines; the live partial is plain text, so currentView indents every
+// wrapped row directly.
+func TestStreamHangingIndentMatchesCommitted(t *testing.T) {
+	long := "this is a long streaming line that should wrap under the marker for sure"
+	for _, mode := range []string{"default", "opencode"} {
+		t.Run(mode, func(t *testing.T) {
+			oc := mode == "opencode"
+			m := compactCmdModel()
+			if oc {
+				m.applyUIMode(opencodeMode)
+				t.Cleanup(func() { m.applyUIMode("") })
+			}
+			m.Update(mkWinSize(40, 20)) // narrow to force wrapping
+			m.busy = true
+			m.turnStart = m.nowFn()
+			m.current = long
+			m.inMsg = true // past the first line — the old drop-the-marker state
+
+			live := ansi.Strip(m.currentView())
+			b := block{kind: blockAssistant, text: long}
+			committed := ansi.Strip(b.renderAt(40))
+
+			liveLines := strings.Split(live, "\n")
+			commLines := strings.Split(committed, "\n")
+			n := min(len(liveLines), len(commLines))
+			for i := 1; i < n; i++ { // skip row 0 (marker/prefix, identical by design)
+				liveLead := len(liveLines[i]) - len(strings.TrimLeft(liveLines[i], " "))
+				commLead := len(commLines[i]) - len(strings.TrimLeft(commLines[i], " "))
+				if liveLead != commLead {
+					t.Errorf("mode=%s continuation row %d: live lead=%d, committed lead=%d (hanging indent mismatch)\n  live:   %q\n  commit: %q",
+						mode, i, liveLead, commLead, liveLines[i], commLines[i])
+				}
+			}
+		})
+	}
+}
+
 // tokenize splits s into small streaming deltas (~2–5 chars), the way SSE
 // chunks arrive — crucially NOT aligned to line boundaries.
 func tokenize(s string) []string {
