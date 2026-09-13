@@ -2070,14 +2070,19 @@ func (m *model) layout() {
 		}
 		chrome += m.dockRows // the blank above the input is already in the base
 	}
-	// Now budget the in-flight streaming area at its cap: fixed chrome + the
-	// capped live rows + the transcript floor must equal the terminal height,
-	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
-	// drops the live area (and its separator) entirely.
-	if m.current != "" || m.curThink != "" {
-		if liveCap := m.streamCap(chrome); liveCap > 0 {
-			chrome += liveCap + 1 // + the blank separator above it
-		}
+	// Now budget the in-flight streaming area: the live partial line renders
+	// below the viewport and is almost always just 1–2 rows, so budget its
+	// ACTUAL rendered height (capped at streamCap) rather than the full cap.
+	// Reserving the full streamCap whenever a partial line existed clamped the
+	// viewport to minTranscriptRows even though the live area was tiny, and the
+	// per-newline gate (m.current != "") then dropped the reservation to 0 the
+	// instant a line folded into the transcript — so vpH oscillated between the
+	// clamped floor and the full height (a ~16-row jump) several times per turn,
+	// and the transcript visibly thrashed between "full chat" and "tail only".
+	// The separator (blank above the live area) is counted only when the live
+	// area itself is non-empty. The height MUST match what viewBody renders.
+	if liveRows := m.liveAreaRows(); liveRows > 0 {
+		chrome += liveRows + 1 // + the blank separator above the live area
 	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
@@ -2103,6 +2108,29 @@ func (m *model) streamCap(fixedChrome int) int {
 	}
 	floor := min(minTranscriptRows, avail-1)
 	return avail - floor
+}
+
+// liveAreaRows is the ACTUAL height the live streaming area contributes to the
+// frame this paint: the wrapped, streamCap-capped height of whichever live
+// view viewBody will render (the partial answer line, or the live reasoning
+// line — never both at once). 0 means nothing renders and no rows (and no
+// separator) are budgeted. This MUST match viewBody, which paints
+// "\n"+thinkViewCapped()+"\n" and "\n"+currentViewCapped()+"\n" for whichever
+// of curThink/current is non-empty.
+func (m *model) liveAreaRows() int {
+	// curThink and current are never live simultaneously (thinkMsg flushes
+	// current first, textMsg flushes curThink first), so claim the whole cap.
+	switch {
+	case m.curThink != "":
+		if cv := m.thinkViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	case m.current != "":
+		if cv := m.currentViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	}
+	return 0
 }
 
 // dockTop returns the screen row of the first TASK row in the dock: the dock
@@ -4951,10 +4979,49 @@ const menuRows = 8
 
 func (m *model) currentView() string {
 	s := m.current
-	if !m.inMsg {
-		s = botStyle.Render(glyphAssistant) + s
+	if ocActive {
+		// opencode assistant messages carry no bullet: the body is indented 3,
+		// matching the committed blockAssistant render so the live partial does
+		// not flash a "●" the finalized text never has. Indent every wrapped row
+		// — not just the first — so a long in-flight line keeps the same hanging
+		// indent as the committed block instead of wrapping flush-left. The
+		// committed block runs renderMarkdown (glamour adds a 2-space document
+		// margin) then indentLines(_, 3) which subtracts that margin to net 3;
+		// plain wrapped text has no glamour margin, so indent every line a flat 3.
+		w := max(m.width-3, 1)
+		return indentPlain(wrap(s, w), 3)
+	}
+	// Default mode: mirror the committed blockAssistant render — it wraps the
+	// body at width-2, indents every row 2 (glamour's margin already inside the
+	// text nets to 2 via indentLines), then bakes "● " into the first row. Do
+	// the same for the live partial so the marker persists for the whole turn
+	// (gate on busy, not on !inMsg — otherwise the dot vanishes the instant the
+	// first line folds into the transcript) and continuation rows wrap under
+	// the marker instead of flush-left. The marker must read identically live
+	// and final.
+	if m.busy {
+		w := max(m.width-2, 1)
+		body := indentPlain(wrap(s, w), 2)
+		return botStyle.Render(glyphAssistant) + strings.TrimPrefix(body, "  ")
 	}
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush
+}
+
+// indentPlain prepends n spaces to every non-empty line of s (empty lines stay
+// empty). Unlike indentLines it does NOT subtract glamour's document margin —
+// use it for plain wrapped text (the live streaming partial), not for glamour
+// output.
+func indentPlain(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(ansi.Strip(l)) == "" {
+			lines[i] = ""
+			continue
+		}
+		lines[i] = pad + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // minTranscriptRows is the smallest window the transcript viewport keeps while
