@@ -238,6 +238,19 @@ func reverseRange(line string, start, end int) string {
 				for j++; j < len(line) && (line[j] < 0x40 || line[j] > 0x7e); j++ {
 				}
 				j++ // the final byte
+			} else if j < len(line) && line[j] == ']' {
+				// OSC (hyperlinks): runs to BEL or ST (ESC \). Skipping only
+				// ESC ] would print the URI as text.
+				for j++; j < len(line); j++ {
+					if line[j] == '\a' {
+						j++
+						break
+					}
+					if line[j] == 0x1b && j+1 < len(line) && line[j+1] == '\\' {
+						j += 2
+						break
+					}
+				}
 			} else if j < len(line) {
 				j++
 			}
