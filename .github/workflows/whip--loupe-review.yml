@@ -64,7 +64,7 @@ jobs:
           include-imports: true
       - name: Review
         continue-on-error: true
-        uses: context-labs/loupe@v0
+        uses: context-labs/loupe@main
         with:
           config: .loupe/config.json
         env:
