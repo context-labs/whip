@@ -5,6 +5,7 @@ planning, host effects, child sessions and recovery remain in the Whip daemon.
 """
 
 import asyncio
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -94,7 +95,26 @@ class PierDockerEnvironment(DockerEnvironment):
 
     def _prepare_egress_proxy_compose(self):
         # Pinned Pier 0.3.1 private hook: fail visibly if its proxy shape changes.
-        super()._prepare_egress_proxy_compose()
+        # The VM bootstrap alone supplies this immutable ownership marker.
+        # Pier's synchronous pinned hook uses trial_paths only for its two
+        # credential-bearing outputs. Restore native paths before any await.
+        if os.environ.get("WHIP_EVAL_OWNER_ID"):
+            if getattr(self, "_whip_proxy_directory", None) is not None:
+                raise RuntimeError("private proxy was already prepared")
+            private = tempfile.TemporaryDirectory(prefix="whip-eval-proxy-", dir="/tmp")
+            self._whip_proxy_directory = private
+            original = self.trial_paths
+            try:
+                self.trial_paths = replace(original, trial_dir=Path(private.name))
+                super()._prepare_egress_proxy_compose()
+            except BaseException:
+                private.cleanup()
+                self._whip_proxy_directory = None
+                raise
+            finally:
+                self.trial_paths = original
+        else:
+            super()._prepare_egress_proxy_compose()
         path = self._egress_proxy_compose_path
         if path is None:
             if not self.task_env_config.allow_internet and self.network_allowlist.domains:
@@ -104,6 +124,16 @@ class PierDockerEnvironment(DockerEnvironment):
         proxy = compose["services"]["pier-egress-proxy"]
         proxy.setdefault("ulimits", {})["nofile"] = {"soft": 65536, "hard": 65536}
         write_json(path, compose)
+
+
+    async def stop(self, delete):
+        try:
+            await super().stop(delete)
+        finally:
+            private = getattr(self, "_whip_proxy_directory", None)
+            if private is not None:
+                private.cleanup()
+                self._whip_proxy_directory = None
 
 
 class WhipAdapter:
@@ -148,6 +178,21 @@ class WhipAdapter:
         configure = getattr(environment, "agent_process_env", None)
         return configure(values) if configure else values
 
+    async def setup_probe(self, environment, stage, command, **kwargs):
+        clock = asyncio.get_running_loop().time
+        started = clock()
+        receipt = {"stage": stage, "timeout_seconds": kwargs.get("timeout_sec")}
+        try:
+            result = await environment.exec(command, **kwargs)
+            receipt["return_code"] = result.return_code
+            return result
+        except BaseException as error:
+            receipt["error_code"] = type(error).__name__
+            raise
+        finally:
+            receipt["elapsed_seconds"] = clock() - started
+            write_json(self.logs_dir / ("setup-" + stage + ".json"), receipt)
+
     async def setup(self, environment):
         if self.ripgrep.exists():
             await environment.exec("mkdir -p /usr/local/bin", timeout_sec=15, user="root")
@@ -155,7 +200,7 @@ class WhipAdapter:
             installed = await environment.exec("chmod 755 /usr/local/bin/rg && /usr/local/bin/rg --version", timeout_sec=15, user="root")
             if installed.return_code != 0:
                 raise RuntimeError("bundled ripgrep failed startup")
-        result = await environment.exec(
+        result = await self.setup_probe(environment, "dependencies",
             "mkdir -p /opt/whip /logs/agent/whip && "
             "(command -v python3 >/dev/null && command -v curl >/dev/null && command -v rg >/dev/null && command -v git >/dev/null || "
             "(apt-get update -qq && apt-get install -y -qq python3 ca-certificates curl ripgrep git))",
@@ -234,7 +279,11 @@ class WhipAdapter:
                     probes["last_timeout_elapsed_seconds"] = clock() - started
                     continue
                 if (probe.stdout or "").strip():
-                    self.update_context(context, json.loads(probe.stdout))
+                    sample = json.loads(probe.stdout)
+                    self.update_context(context, sample)
+                    # This host-side receipt survives runner/observer death even
+                    # when final native export cannot run. It never proves finality.
+                    write_json(self.logs_dir / "metrics.interim.json", sample)
                     now = clock()
                     probes["max_staleness_seconds"] = max(probes["max_staleness_seconds"], now - last_sample)
                     last_sample = now

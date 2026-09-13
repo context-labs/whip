@@ -1,0 +1,3 @@
+id,task_id,candidate_id,repetition,runner,started,success,grader_status,execution_status,termination_source,evidence_complete,accounting_complete,known_cost_usd,cost_usd,agent_seconds,trial_seconds,input_tokens,output_tokens,cache_tokens
+t0001,terminal-bench/openssl-selfsigned-cert,candidate,1,harbor,True,True,passed,completed,,True,True,0.089130,0.089130,46.966235613,78.18297734400001,32049,2512,24564
+t0002,datacurve/httpx-multipart-response-parsing,candidate,1,pier,True,True,passed,completed,,True,True,5.235390,5.235390,1137.741782377,1209.427845917,7487036,60544,7193589

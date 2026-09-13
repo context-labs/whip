@@ -162,7 +162,12 @@ def normalize_trial(trial, raw, artifact_root):
     row.update(execution_status=outcome.get("status", row["execution_status"]),
                termination_source=termination(outcome, raw, diagnostic))
     if row["termination_source"] is None and row["grader_status"] == "error":
-        row["termination_source"] = "verifier_error"
+        # A native exception before agent execution is setup, not grading. Keep
+        # the native timing boundary authoritative; do not infer from log prose.
+        executed = (native.get("agent_execution") or {}).get("started_at")
+        verifying = (native.get("verifier") or {}).get("started_at")
+        row["termination_source"] = "verifier_error" if verifying else "agent_error" if executed else "setup_error"
+
     if outcome.get("final_snapshot") is not True or outcome.get("evidence_errors"):
         errors.append("incomplete_final_snapshot")
     duration = outcome.get("agent_duration_seconds")
@@ -339,6 +344,8 @@ def build_result(manifest, rows, *, finished_at=None, wall_seconds=None):
               "status": "complete" if all(r["success"] is not None and r["evidence_complete"] for r in ordered) else "partial",
               "finished_at": finished_at or utc_now(), "wall_seconds": wall_seconds,
               "methodology_comparable": False, "arms": arms, "trials": ordered, "comparisons": []}
+    result.update({key: manifest[key] for key in
+                   ("fixture", "excluded_from_scores", "external_provider_calls") if key in manifest})
     if len(manifest["candidates"]) == 2:
         control, candidate = [c["id"] for c in manifest["candidates"]]
         result["comparisons"].append({"control_id": control, "candidate_id": candidate,
@@ -362,8 +369,17 @@ def write_report(directory, manifest, result):
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "result.json").exists():
         raise FileExistsError(directory / "result.json")
+    methodology = "Local Frontier adaptation; no published leaderboard ranking."
+    if result.get("fixture"):
+        methodology = "Authored native qualification fixtures; not a scored benchmark campaign."
+        if result.get("excluded_from_scores"):
+            methodology += " Excluded from benchmark scores and leaderboard rankings."
+        if result.get("external_provider_calls") == 0:
+            methodology += " No external provider calls (0)."
+        else:
+            methodology += f" External provider calls: {result.get('external_provider_calls', 'unknown')}."
     lines = [f"# Whip evaluation: {result['run_id']}", "", f"Status: **{result['status']}**. Profile: **{result['profile']}**.",
-             "", "Local Frontier adaptation; no published leaderboard ranking.", "",
+             "", methodology, "",
              "| Candidate | Verified successes / planned | Graded | Known cost (USD) | Complete cost (USD) | Agent median (s) |",
              "| --- | --- | --- | --- | --- | --- |"]
     for name, arm in result["arms"].items():

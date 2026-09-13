@@ -1,0 +1,475 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 0,
+      "agent_median_seconds": 4.389030714999999,
+      "agent_p95_seconds": 4.3913000614,
+      "agent_time_count": 2,
+      "cache_read_ratio": null,
+      "cancelled": 0,
+      "cost_usd": null,
+      "effective_cost_per_pass_usd": null,
+      "evidence_complete": 0,
+      "failed": 0,
+      "graded": 2,
+      "graded_pass_rate": 1.0,
+      "known_cost_usd": "0.000000",
+      "passed": 2,
+      "planned": 2,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 0,
+          "agent_median_seconds": 4.389030714999999,
+          "agent_p95_seconds": 4.3913000614,
+          "agent_time_count": 2,
+          "cache_read_ratio": null,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 0,
+          "failed": 0,
+          "graded": 2,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 2,
+          "planned": 2,
+          "started": 2,
+          "success_median_seconds": 4.389030714999999,
+          "success_time_count": 2,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": 10,
+            "output_tokens": null,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "started": 2,
+      "success_median_seconds": 4.389030714999999,
+      "success_time_count": 2,
+      "suites": {
+        "fixture": {
+          "accounting_complete": 0,
+          "agent_median_seconds": 4.389030714999999,
+          "agent_p95_seconds": 4.3913000614,
+          "agent_time_count": 2,
+          "cache_read_ratio": null,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 0,
+          "failed": 0,
+          "graded": 2,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 2,
+          "planned": 2,
+          "started": 2,
+          "success_median_seconds": 4.389030714999999,
+          "success_time_count": 2,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": 10,
+            "output_tokens": null,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "termination_sources": {
+        "none": 2
+      },
+      "tokens": {
+        "cache_tokens": null,
+        "input_tokens": null,
+        "model_calls": 10,
+        "output_tokens": null,
+        "unknown_cost_calls": 0
+      },
+      "ungraded": 0,
+      "verified_success_rate": 1.0
+    }
+  },
+  "cloud": {
+    "infra_cost_status": "not_reconciled",
+    "infra_cost_usd": null,
+    "request": {
+      "bundle_sha256": "7af4da19622fb00c66b58b81ea26b9eaca41f901aa2746ade1000ac33b87454c",
+      "controller_source_sha256": "796412002c8cf0e0da9aab1bb0a59f063b3e8a7407ed21aba25ebc6607db171a",
+      "created_at": "2026-09-11T18:10:31.113668Z",
+      "planned": 2,
+      "run_id": "modal-native-fixture-20260911-c",
+      "settings": {
+        "app": "whip-eval",
+        "environment": "whipcode",
+        "fixture": true,
+        "jobs": 2,
+        "qualification_receipt": "modal-qualification-20260911",
+        "qualification_status": "passed",
+        "shapes": {
+          "harbor": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          },
+          "pier": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          }
+        },
+        "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3"
+      }
+    },
+    "status": {
+      "concurrency": {
+        "peak_active_trials": 2
+      },
+      "finished_at": "2026-09-11T18:12:27.145983Z",
+      "infra_cost_status": "not_reconciled",
+      "infra_cost_usd": null,
+      "planned": 2,
+      "recorded": 2,
+      "run_id": "modal-native-fixture-20260911-c",
+      "status": "partial"
+    }
+  },
+  "comparison_key": "a07b49a23d557c6b7f18cc328fd2689c9e0c07c29b52c55413b59593d9af6435",
+  "comparisons": [],
+  "finished_at": "2026-09-11T18:13:37.689143Z",
+  "manifest_sha256": "dfe4894a3b6c88350198f4ca1fc2aca197bccc4cb9446d93082cd5f19e1fdffa",
+  "methodology_comparable": false,
+  "profile": "fixture",
+  "profile_version": 1,
+  "run_id": "modal-native-fixture-20260911-c",
+  "schema_version": 1,
+  "status": "partial",
+  "trials": [
+    {
+      "accounting_complete": false,
+      "agent_seconds": 4.3915522110000005,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/cli.ndjson": "4dcc74bf7ed90e4c37ef19a799c3f7cd897855dc05796695af4a5d4852e9b24f",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/configuration.json": "f1247386fc13e7eb8d91334e0aba8ee2d879177279c81ec9489c25c98f782f12",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/content-export.json": "7d7c0f4cf1d73b25cb12c8f2e0d0ac5bb3a3ff3f17d9eb5fe80eb7e58935baef",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/events.ndjson": "b42e3af867b57d339979492dda28cd123a98d173e0f7ec0242d01d2083a3a051",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/identity.json": "b327aa6736fa58fc8223810eaf8a169402ae62928ba6234b5f69e2aae30eff52",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/metrics.json": "ee9870965191512a458ecedcec556872e719e632c847b80ba4bf8112da7cb885",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/outcome.json": "12de4fa3c6d2ed70549f7504cbfecb6f5e1e6153dfd18fb67793b1b0a1802f51",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/provider-catalog.json": "11a91a09c9e281676f1bbc259dd3a406ce342f440487edae76c2ed8f539a8bd6",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/sessions.db": "e912e04118d2d1fd291ae5be28e0bdb73a5d19740f8fe073f58c6d6fe60cd434",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/state.json": "e198abfe86bce82597fc38805c0f11d20292acde6d11e874a5cdd166f9a8b9cd"
+        },
+        "native_result": "attempts/t0001/artifacts/jobs/t0001/harbor-shared__7wsNgQp/result.json",
+        "native_result_sha256": "b45838a8027501485c0e9b4fe1c8e15a5ecb7370ace1b1e4737f338b089aad86"
+      },
+      "cache_tokens": null,
+      "calls_by_purpose": {
+        "turn": 5
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 50214
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 650
+        }
+      ],
+      "cost_sources": {
+        "reported": 5
+      },
+      "cost_usd": null,
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 2,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 100,
+        "reported_cost_calls": 5,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1.81,
+        "sampled_peak_container_rss_bytes": 248315904,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [
+        "adapter_export_error",
+        "content_digest_mismatch"
+      ],
+      "evidence_complete": false,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0001",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": 5,
+      "output_tokens": null,
+      "partial_observation": {
+        "event_cursor": 90,
+        "not_final": true,
+        "observed_cache_tokens": 0,
+        "observed_input_tokens": 500,
+        "observed_output_tokens": 150,
+        "path": "artifacts/jobs/t0001/harbor-shared__7wsNgQp/agent/metrics.json"
+      },
+      "phase_seconds": {
+        "agent_execution": 5.601666,
+        "agent_setup": 0.726136,
+        "cleanup": 0.13276129100000134,
+        "environment_setup": 8.737775,
+        "verifier": 0.281945
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "fixture/harbor-shared",
+      "termination_source": null,
+      "trial_seconds": 31.153278708000002,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": 4.386509218999997,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/cli.ndjson": "7e2b46805bf410f8af57b1c129832f18818e7fc86f4b87176d352f96e50245e3",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/configuration.json": "e846e27889c22ca2db9a72967487f0277685dfd90aacb372cbd9d695399237f1",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/content-export.json": "d99809f74c2bdf158158b47f9a2a7f540ba071c363b84e53e98dbe1821afb531",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/events.ndjson": "a76b322c7bc2c8662e7f68f6adeab45bb0cab8ee8840e94c843a3f84172c2a62",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/identity.json": "3be70287b1872c84e49ee26503e07ffdebb64b6db3a6ff7fa08343447bf29563",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/metrics.json": "64c48f12823ba6192c34a516b3eb05d62a5700fe6cce2bc6f88d512401441879",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/outcome.json": "632778faddf44f7328df84c92632a837bb3bcf5e39f98fbe1de23e2f11c96f24",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/provider-catalog.json": "11a91a09c9e281676f1bbc259dd3a406ce342f440487edae76c2ed8f539a8bd6",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/sessions.db": "2edc485a7b8e05d5b48521f3f48682d56e35e8a55d1436b8fa0c9f3344ba8a7a",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/state.json": "20e25dd65d5f924eee769ab9a76146ac2883036f18ecd3af06f1f4c09e580933"
+        },
+        "native_result": "attempts/t0002/artifacts/jobs/t0002/pier-separate__N3XP4nm/result.json",
+        "native_result_sha256": "664d1cb23fe6187359da5748260fc28a57848a292376f41ce2d7bedcd5f1d6a6"
+      },
+      "cache_tokens": null,
+      "calls_by_purpose": {
+        "turn": 5
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 50214
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 7
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 650
+        }
+      ],
+      "cost_sources": {
+        "reported": 5
+      },
+      "cost_usd": null,
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 2,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 100,
+        "reported_cost_calls": 5,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1.83,
+        "sampled_peak_container_rss_bytes": 220094464,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [
+        "adapter_export_error",
+        "content_digest_mismatch",
+        "cloud_integrity_failure",
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0002",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": 5,
+      "output_tokens": null,
+      "partial_observation": {
+        "event_cursor": 90,
+        "not_final": true,
+        "observed_cache_tokens": 0,
+        "observed_input_tokens": 500,
+        "observed_output_tokens": 150,
+        "path": "artifacts/jobs/t0002/pier-separate__N3XP4nm/agent/metrics.json"
+      },
+      "phase_seconds": {
+        "agent_execution": 6.773602,
+        "agent_setup": 0.69983,
+        "cleanup": 2.2826974890000002,
+        "environment_setup": 14.639171,
+        "verifier": 12.133889
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "fixture/pier-separate",
+      "termination_source": null,
+      "trial_seconds": 54.318411260000005,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    }
+  ],
+  "wall_seconds": null
+}

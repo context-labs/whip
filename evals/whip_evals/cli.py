@@ -23,6 +23,30 @@ def parser():
     run.add_argument("--run-id")
     run.add_argument("--promote", action="store_true", help="three Full repetitions and automatic baseline policy")
     run.add_argument("--dry-run", action="store_true", help="expand workload only; no Docker, builds, network, or model calls")
+    modal = sub.add_parser("modal", help="detached Modal campaigns; never promotes the native baseline")
+    actions = modal.add_subparsers(dest="modal_action", required=True)
+    submit = actions.add_parser("submit", help="freeze and submit one qualified, detached campaign")
+    submit.add_argument("profile", choices=["smoke", "medium", "full"])
+    submit.add_argument("--engines", default="quickjs")
+    submit.add_argument("--ref")
+    submit.add_argument("--against")
+    submit.add_argument("--repetitions", type=int, default=3)
+    submit.add_argument("--jobs", type=int, default=10)
+    submit.add_argument("--seed", type=int, default=20260910)
+    submit.add_argument("--label", default="")
+    submit.add_argument("--run-id")
+    submit.add_argument("--settings", type=Path, help="qualified image/resource receipt JSON (no secrets)")
+    submit.add_argument("--allow-model-calls", action="store_true")
+    submit.add_argument("--fixture", action="store_true", help="authored fake-provider qualification; never scored")
+    submit.add_argument("--fixture-repetitions", type=int, default=1,
+                        help="repeat authored fixtures 1..45 times; at most 90 total fixture trials")
+    submit.add_argument("--dry-run", action="store_true")
+    for name in ("status", "logs", "fetch", "cancel", "reconcile"):
+        action = actions.add_parser(name)
+        action.add_argument("run_id")
+        if name == "logs":
+            action.add_argument("--trial")
+            action.add_argument("--tail-bytes", type=int, default=8192)
     doctor = sub.add_parser("doctor", help="check local prerequisites; no model calls")
     doctor.add_argument("--integration", action="store_true", help="explicitly execute authored fixture trials with a fake provider")
     doctor.add_argument("--ref", help="build this Git ref for integration; default captures current working files")
@@ -46,6 +70,20 @@ def main(argv=None):
         if args.command == "run":
             from .run import run
             value = run(args)
+        elif args.command == "modal":
+            from . import modal_cli
+            if args.modal_action == "submit":
+                if not args.dry_run and args.settings is None:
+                    raise ValueError("--settings is required for cloud submission")
+                value = modal_cli.submit(args)
+            elif args.modal_action in ("status", "reconcile"):
+                value = modal_cli.status(args.run_id, reconcile=args.modal_action == "reconcile")
+            elif args.modal_action == "logs":
+                value = modal_cli.logs(args.run_id, args.trial, tail_bytes=args.tail_bytes)
+            elif args.modal_action == "fetch":
+                value = modal_cli.fetch(args.run_id)
+            else:
+                value = modal_cli.cancel(args.run_id)
         elif args.command == "doctor":
             from .doctor import doctor
             value = doctor(integration=args.integration, ref=args.ref)
@@ -70,6 +108,11 @@ def main(argv=None):
         # subprocess output / provider errors can contain secrets; don't echo it.
         detail = str(error) if isinstance(error, ValueError) else type(error).__name__
         print("whip-eval: " + detail, file=sys.stderr)
+        return 2
+    except Exception as error:
+        if args.command != "modal":
+            raise
+        print("whip-eval: Modal operation failed (" + type(error).__name__ + "); inspect run status", file=sys.stderr)
         return 2
 
 
