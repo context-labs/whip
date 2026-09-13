@@ -37,8 +37,13 @@ The buffer of 1 is the lock. First acquirer fills it and proceeds; later
 acquirers block on send until the holder receives. No explicit unlock, no
 registration race, no promise plumbing — the channel *is* the mutex, and the
 compiler checks direction. Two spellings of the same file share a lock via
-`filepath.Abs` + `filepath.Clean`. `bash` (side effects not attributable to a
-path) takes a single global channel.
+`filepath.Abs` + `filepath.Clean`.
+
+`bash`, whose side effects aren't attributable to a path, has to exclude every
+path mutation and not merely other `bash` calls, so the two gates are one
+`sync.RWMutex` rather than a second channel: a path mutation read-locks it for
+as long as it holds its path channel, `bash` write-locks it. Mutations still run
+in parallel with each other, because readers do.
 
 The batch itself is fanned out with a goroutine per call and a buffered results
 channel (`runTools` in `internal/agent/agent.go`); results land back in call
