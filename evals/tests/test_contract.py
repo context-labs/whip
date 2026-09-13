@@ -269,6 +269,30 @@ class ContractTests(unittest.TestCase):
                 self.assertEqual(request.get_header('User-agent'), 'whip-evals/0.1.0')
                 self.assertEqual(kwargs, {'timeout': 30})
 
+    def test_catalog_accepts_org_prefixed_listing_but_keeps_pinned_id(self):
+        protocol = load_spec()[2]
+        base = {'context_length': 1048576, 'max_completion_tokens': 131072,
+                'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001'}}
+        accepted = {'prefixed only': ([{'id': 'moonshotai/kimi-k3', **base}], 'moonshotai/kimi-k3'),
+                    'exact listing wins': ([{'id': 'moonshotai/kimi-k3', **base}, {'id': 'kimi-k3', **base}], None)}
+        for name, (data, listed) in accepted.items():
+            with self.subTest(name=name):
+                response = io.BytesIO(json.dumps({'data': data}).encode())
+                with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
+                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response):
+                    frozen = catalog(protocol)
+                self.assertEqual(frozen['id'], 'kimi-k3')
+                self.assertEqual(frozen.get('listed_id'), listed)
+                cached = contract({'engine': 'quickjs', 'configuration': configuration('quickjs')}, protocol, frozen)
+                self.assertEqual(cached['catalog_cache']['inference-net']['models'][0]['id'], 'kimi-k3')
+        for data in ([{'id': 'a/kimi-k3', **base}, {'id': 'b/kimi-k3', **base}], [{'id': 'kimi-k3-fast', **base}]):
+            with self.subTest(ids=[m['id'] for m in data]):
+                response = io.BytesIO(json.dumps({'data': data}).encode())
+                with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
+                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response), \
+                     self.assertRaisesRegex(ValueError, 'pinned model/effort is not available'):
+                    catalog(protocol)
+
     def test_pier_native_proxy_has_only_the_descriptor_cap_changed(self):
         from pier.environments.docker.docker import DockerEnvironment
         from pier.environments.factory import EnvironmentFactory

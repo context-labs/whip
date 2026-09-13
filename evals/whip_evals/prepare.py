@@ -127,7 +127,13 @@ def catalog(protocol):
         "Authorization": "Bearer " + key, "User-Agent": "whip-evals/0.1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         models = json.load(response)["data"]
-    selected = [m for m in models if m["id"] == protocol["model"]]
+    pin = protocol["model"]
+    selected = [m for m in models if m["id"] == pin]
+    if not selected:
+        # ponytail: the provider may list the pinned route under an org prefix
+        # (moonshotai/kimi-k3) while the bare id still routes; keep calling the
+        # pinned id and record the listed one as provenance.
+        selected = [m for m in models if m["id"].rpartition("/")[2] == pin]
     if len(selected) != 1 or protocol["effort"] not in selected[0].get("reasoning_efforts", []):
         raise ValueError("pinned model/effort is not available")
     model = selected[0]
@@ -135,6 +141,8 @@ def catalog(protocol):
     selected = {key: model[key] for key in ("id", "context_length", "max_completion_tokens", "reasoning_efforts", "pricing")}
     if "input_modalities" in model:
         selected["input_modalities"] = model["input_modalities"]
+    if model["id"] != pin:
+        selected["id"], selected["listed_id"] = pin, model["id"]
     return selected
 
 
