@@ -113,10 +113,16 @@ def build_candidate(candidate_id, engine, *, repo=REPO, evals=EVALS, ref=None):
             "configuration": configuration(engine)}
 
 
+# ponytail: Inference.net rejects prompt + max_tokens above the 1,048,576 context,
+# and the pinned whip binary sends max_tokens = catalog max_completion_tokens when
+# maxOut is 0. 262,144 cannot realistically bind and leaves ~786K for prompts.
+MAX_OUTPUT_TOKENS = 262144
+
+
 def configuration(engine):
     # Share the existing observer's production-default configuration constructor.
     with tempfile.TemporaryDirectory() as temporary:
-        return write_config(Path(temporary) / "home", engine, 0, native_defaults=True)
+        return write_config(Path(temporary) / "home", engine, MAX_OUTPUT_TOKENS, native_defaults=True)
 
 
 def catalog(protocol):

@@ -236,7 +236,7 @@ class ContractTests(unittest.TestCase):
                 frozen = catalog(protocol)
             cfg = configuration('quickjs')
             self.assertTrue(cfg['models']['kimi-k3']['vision'])
-            self.assertEqual(cfg['models']['kimi-k3']['maxOut'], 0)
+            self.assertEqual(cfg['models']['kimi-k3']['maxOut'], 262144)
             self.assertEqual(cfg['rlm'], {'defaultEngine': 'quickjs'})
             cached = contract({'engine': 'quickjs', 'configuration': cfg}, protocol, frozen)['catalog_cache']['inference-net']['models'][0]
             self.assertEqual('inputModalities' in cached, modalities is not None)
