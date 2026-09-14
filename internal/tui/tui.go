@@ -99,6 +99,7 @@ type menu struct {
 type model struct {
 	hostCompletion   *clientCompletion
 	cfg              *config.Config
+	mcpInventory     []daemon.MCPStatusResult // the daemon's last mcp.status rows; the MCP palette builds server rows from these, never from local config
 	client           *Client
 	clientView       clientPresentation
 	clientState      ClientState

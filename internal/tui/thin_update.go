@@ -285,6 +285,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			var renderErr error
 			switch msg.action.Operation {
 			case "mcp.status":
+				m.cacheMCPInventory(msg.result.Output)
 				rendered, renderErr = renderMCPStatus(msg.result.Output)
 			case "lsp.status":
 				rendered, renderErr = renderLSPStatus(msg.result.Output)
