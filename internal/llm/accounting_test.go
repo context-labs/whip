@@ -245,6 +245,7 @@ func TestAccountingFailurePreservesResponseWithoutRetry(t *testing.T) {
 
 func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	t.Run("short elapsed permit", func(t *testing.T) {
+		noSleep(t) // a budget-shortened permit is retried like any other ceiling
 		var result ModelAttemptResult
 		budget := attemptBudgetFunc(func(_ context.Context, attempt ModelAttempt) (ModelPermit, error) {
 			return ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: 10 * time.Millisecond, Settle: func(got ModelAttemptResult) error { result = got; return nil }}, nil
@@ -286,19 +287,25 @@ func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	})
 }
 
-func TestModelLogicalDeadlineIncludesBackoff(t *testing.T) {
+// The caller's own deadline bounds the whole call including backoff; whip no
+// longer imposes a total of its own (only the per-attempt ceiling).
+func TestCallerDeadlineBoundsBackoff(t *testing.T) {
 	calls := 0
 	client := New("https://provider.example", "secret")
-	client.HTTP.Timeout = 10 * time.Millisecond
 	client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		calls++
 		response := accountingResponse(503, "busy")
 		response.Status = "503 Service Unavailable"
 		return response, nil
 	})
-	_, _, err := client.Complete(context.Background(), Request{Model: "m"})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	_, _, err := client.Complete(ctx, Request{Model: "m"})
 	if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
 		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+	if retryable(err) {
+		t.Fatalf("a caller's deadline must not be retryable: %v", err)
 	}
 }
 

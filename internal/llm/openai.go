@@ -382,6 +382,14 @@ type Client struct {
 	// MaxRetries caps retries of transient request failures. 0 uses
 	// DefaultMaxAttempts; 1 disables retries (a single attempt).
 	MaxRetries int
+	// StallTimeout overrides the idle deadline for one attempt: the wait for
+	// response headers and the gap between chunks. 0 uses DefaultStallTimeout
+	// for chat streams and DefaultResponsesStallTimeout for the OpenAI
+	// Responses and subscription streams.
+	StallTimeout time.Duration
+	// AttemptCeiling bounds one attempt end to end. 0 uses defaultCallTimeout.
+	// Hitting it is a retryable failure; the stall deadline does the real work.
+	AttemptCeiling time.Duration
 	// OnRetry, when set, is invoked before each retry of a transient request
 	// failure. Optional — nil means silent retries.
 	OnRetry func(RetryEvent)
@@ -404,7 +412,7 @@ func New(baseURL, apiKey string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		APIKey:  apiKey,
-		HTTP:    &http.Client{Timeout: 10 * time.Minute},
+		HTTP:    &http.Client{}, // no total timeout: stall detection and the attempt ceiling bound a call
 	}
 }
 
@@ -570,7 +578,18 @@ func (p preTokenError) Unwrap() error { return p.err }
 // retryable HTTP status. Context-limit 4xxs are deliberately excluded so the
 // agent's compaction retry path still sees them immediately.
 func retryable(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil {
+		return false
+	}
+	// Whip's own deadlines (a stalled stream, the per-attempt ceiling) are
+	// transient; a caller's cancellation or deadline is not.
+	if _, ok := errors.AsType[stallError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[ceilingError](err); ok {
+		return true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	if _, ok := errors.AsType[nonRetryable](err); ok {
@@ -715,15 +734,15 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // accumulated tool calls) plus the usage the provider reports on the terminal
 // chunk (stream_options:include_usage).
 //
-// Transient failures (transport errors, 429, 5xx) are retried with backoff —
-// but only until the first text, reasoning, or tool-call delta is received.
-// After that point a retry would regenerate a partially received response, so
-// the error is surfaced instead. A retry regenerates the whole assistant
-// message server-side; nothing in the request messages is mutated by a failed
-// attempt. Each attempt may incur usage and is settled independently.
+// Transient failures (transport errors, 429, 5xx, a stream that stalls for
+// the stall timeout, an attempt that hits its ceiling) are retried with
+// backoff — but only until the first text, reasoning, or tool-call delta is
+// received. After that point a retry would regenerate a partially received
+// response, so the error is surfaced instead. A retry regenerates the whole
+// assistant message server-side; nothing in the request messages is mutated
+// by a failed attempt. Each attempt may incur usage and is settled
+// independently. Only the caller's context bounds the call as a whole.
 func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
-	ctx, cancel := c.callContext(ctx)
-	defer cancel()
 	req.Stream = true
 	req.StreamOptions = &struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -802,7 +821,7 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	if c.APIKey != "" {
 		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	resp, err := c.HTTP.Do(hr)
+	resp, err := c.do(hr, c.stallTimeout(chatStall))
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
@@ -953,8 +972,6 @@ func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, erro
 		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
 		return message.Content, usage, err
 	}
-	ctx, cancel := c.callContext(ctx)
-	defer cancel()
 	req.Stream = false
 	req.StreamOptions = nil
 	logicalID := logicalCallID()
@@ -988,7 +1005,7 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 	if c.APIKey != "" {
 		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	resp, err := c.HTTP.Do(hr)
+	resp, err := c.do(hr, c.stallTimeout(chatStall))
 	if err != nil {
 		return "", Usage{}, err
 	}

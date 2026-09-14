@@ -37,7 +37,7 @@ func (c *Client) apiResponsesOnce(
 	if c.APIKey != "" {
 		request.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	response, err := c.HTTP.Do(request)
+	response, err := c.do(request, c.stallTimeout(responsesStall))
 	if err != nil {
 		return Message{}, Usage{}, err
 	}

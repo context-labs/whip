@@ -338,14 +338,23 @@ func requestTokens(req Request) (int64, error) {
 	return input + toolTokens, nil
 }
 
+// defaultCallTimeout is the per-attempt ceiling. Accounting needs a finite
+// reservation timeout for terminal recovery; the stall deadline in stall.go is
+// what ends a quiet stream in practice.
 const defaultCallTimeout = 10 * time.Minute
 
-func (c *Client) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	timeout := defaultCallTimeout
-	if c.HTTP != nil && c.HTTP.Timeout > 0 {
-		timeout = c.HTTP.Timeout
+// attemptTimeout is one attempt's bound: the ceiling, or less when the caller's
+// own deadline is nearer. callerBound says which one applies, so the ceiling
+// is retried and the caller's deadline is not.
+func (c *Client) attemptTimeout(ctx context.Context) (timeout time.Duration, callerBound bool) {
+	timeout = defaultCallTimeout
+	if c.AttemptCeiling > 0 {
+		timeout = c.AttemptCeiling
 	}
-	return context.WithTimeout(ctx, timeout)
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < timeout {
+		return time.Until(deadline), true
+	}
+	return timeout, false
 }
 
 func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, number int, invoke func(context.Context, []byte) (Message, Usage, error)) (Message, Usage, error) {
@@ -368,9 +377,9 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 		ctx = context.WithValue(ctx, subscriptionAuthKey{}, credentials)
 		req.MaxTokens = ceiling
 	}
-	deadline, _ := ctx.Deadline()
+	timeout, callerBound := c.attemptTimeout(ctx)
 	requestedMaxTokens := max(req.MaxTokens, 1)
-	permit := ModelPermit{MaxTokens: req.MaxTokens, Timeout: time.Until(deadline)}
+	permit := ModelPermit{MaxTokens: req.MaxTokens, Timeout: timeout}
 	if req.Accounting != nil && req.Accounting.Budget != nil {
 		input, err := requestTokens(req)
 		if err != nil {
@@ -439,7 +448,13 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 	if permit.Timeout <= 0 {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, context.DeadlineExceeded)
 	}
-	attemptCtx, cancel := context.WithTimeout(ctx, permit.Timeout)
+	var attemptCtx context.Context
+	var cancel context.CancelFunc
+	if callerBound {
+		attemptCtx, cancel = context.WithTimeout(ctx, permit.Timeout)
+	} else {
+		attemptCtx, cancel = context.WithTimeoutCause(ctx, permit.Timeout, ceilingError{Ceiling: permit.Timeout})
+	}
 	started := time.Now()
 	message, usage, err := invoke(attemptCtx, body)
 	elapsed := time.Since(started)
