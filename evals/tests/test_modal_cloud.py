@@ -261,7 +261,7 @@ class CloudTests(unittest.TestCase):
         value = modal_cli.submit(args)
         self.assertEqual((len(value["task_ids"]), value["repetitions"], value["trial_count"]), (30, 3, 90))
         self.assertFalse(value["promote"])
-        self.assertEqual((value["model"], value["effort"]), ("kimi-k3", "high"))
+        self.assertEqual((value["model"], value["effort"]), ("kimi-k3-fast", "high"))
 
     def test_settings_restrict_environment_and_secrets(self):
         self.assertEqual(cloud.validate_settings(settings()), settings())

@@ -319,14 +319,14 @@ def process_sample():
     return rss, cpu
 
 
-def write_config(home, engine, max_output, base_url="https://api.inference.net/v1", native_defaults=False):
+def write_config(home, engine, max_output, base_url="https://api.inference.net/v1", native_defaults=False, model="kimi-k3"):
     home.mkdir(parents=True, exist_ok=False)
     configuration = {
-        "defaultModel": "kimi-k3", "defaultProvider": "inference-net", "defaultEffort": "high",
-        "compactModel": "kimi-k3", "compactProvider": "inference-net",
+        "defaultModel": model, "defaultProvider": "inference-net", "defaultEffort": "high",
+        "compactModel": model, "compactProvider": "inference-net",
         "providers": {"inference-net": {"name": "Inference.net", "baseUrl": base_url,
                                         "api": "openai-completions", "apiKeyEnv": "INFERENCE_API_KEY"}},
-        "models": {"kimi-k3": {"providers": ["inference-net"], "maxOut": max_output, "context": 1048576, "vision": True}},
+        "models": {model: {"providers": ["inference-net"], "maxOut": max_output, "context": 1048576, "vision": True}},
         "rlm": {"defaultEngine": engine, "maxWorkers": 4, "memoryMiB": 256, "hostRequests": 1024,
                 "maxConcurrentHostCalls": 1},
         "browser": {"enabled": False}, "computer": {"enabled": False},
@@ -338,14 +338,14 @@ def write_config(home, engine, max_output, base_url="https://api.inference.net/v
     return configuration
 
 
-def discover_catalog(home, evidence, base_url, key):
+def discover_catalog(home, evidence, base_url, key, model_id="kimi-k3"):
     request = urllib.request.Request(base_url + "/models", headers={
         "Authorization": "Bearer " + key, "User-Agent": "whip-runtime-benchmark/1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
-    models = [m for m in payload["data"] if m["id"] == "kimi-k3"]
+    models = [m for m in payload["data"] if m["id"] == model_id]
     if len(models) != 1:
-        raise ValueError("requested kimi-k3 route unavailable")
+        raise ValueError("requested " + model_id + " route unavailable")
     model = models[0]
     atomic_json(evidence / "provider-catalog.json", model)
     if "high" not in model.get("reasoning_efforts", []):
@@ -378,8 +378,9 @@ def run(args):
         atomic_json(home / "models.json", contract["catalog_cache"])
         atomic_json(evidence / "provider-catalog.json", contract["catalog_model"])
     else:
-        config = write_config(home, args.engine, args.max_output, base_url, getattr(args, "native_defaults", False))
-        discover_catalog(home, evidence, base_url, os.environ["INFERENCE_API_KEY"])
+        legacy_model = getattr(args, "model", "kimi-k3")
+        config = write_config(home, args.engine, args.max_output, base_url, getattr(args, "native_defaults", False), legacy_model)
+        discover_catalog(home, evidence, base_url, os.environ["INFERENCE_API_KEY"], legacy_model)
     atomic_json(evidence / "configuration.json", config)
     env = dict(os.environ, WHIP_HOME=str(home))
     prompt = Path(args.instruction).read_text()
@@ -389,10 +390,10 @@ def run(args):
     command = [args.binary, "run", "--format", "json", "--quiet", "--rlm-engine", args.engine,
                "--permission-mode", "automatic", "--max-cost", str(args.max_cost),
                "--max-tokens", str(args.max_tokens), "--max-turns", str(args.max_turns),
-               "--timeout", str(args.timeout) + "s", "-m", "kimi-k3", "-p", "inference-net"]
+               "--timeout", str(args.timeout) + "s", "-m", config["defaultModel"], "-p", "inference-net"]
     binary_hash = hashlib.sha256(Path(args.binary).read_bytes()).hexdigest()
     atomic_json(evidence / "identity.json", {"binary_sha256": binary_hash, "engine": args.engine,
-                "model": "kimi-k3", "provider": "inference-net", "reasoning_effort": "high",
+                "model": config["defaultModel"], "provider": "inference-net", "reasoning_effort": "high",
                 "instruction_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                 "command": command, "live_provider": not args.fixture, "provider_endpoint": base_url,
                 "finality_policy": "CLI exited plus tree settled with no events for 2 seconds; verified daemon SIGSTOP and settled readback before grading",
@@ -543,6 +544,7 @@ def main():
     parser.add_argument("--max-cost", type=float, default=2.5)
     parser.add_argument("--max-tokens", type=int, default=120000)
     parser.add_argument("--max-output", type=int, default=8192)
+    parser.add_argument("--model", default="kimi-k3", help="legacy no-contract route; canonical trials take the model from the contract")
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--fixture", action="store_true")

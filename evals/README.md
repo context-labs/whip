@@ -2,7 +2,7 @@
 
 Use `whip-eval` for new Frontier evaluations. It runs the real Whip CLI and
 native Harbor/Pier graders, freezes the inputs, and writes a comparable report.
-Kimi K3 on Inference.net, with high reasoning effort, is the initial model route.
+Kimi K3 on Inference.net, with high reasoning effort, was the initial model route; since 2026-09-13 the pinned route is `kimi-k3-fast` (`frontier/protocol.json`, `whip_evals.common.MODEL`), after the provider renamed `kimi-k3` and its stream stalled on long calls. Reports from the two routes are separate environments.
 
 **Execution environments:** the native Docker workflow and its retained reports
 remain authoritative. The detached Modal workflow below is a separately qualified

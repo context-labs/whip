@@ -337,7 +337,7 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
         for engine in planned["engines"]:
             candidate = copy.deepcopy(shared)
             candidate.update(id=engine if len(planned["engines"]) == 2 else "candidate",
-                             engine=engine, configuration=configuration(engine))
+                             engine=engine, configuration=configuration(engine, protocol["model"]))
             candidates.append(candidate)
         prepared = (_prepare_fixtures(tasks, artifact_root / "fixture-tasks") if fixture
                     else prepare_tasks(lock, tasks, evals / "cache" / "tasks"))

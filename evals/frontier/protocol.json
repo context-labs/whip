@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "id": "frontier-v1-local-v1",
-  "track": "frontier-v1-local-v1/kimi-k3-inference-high",
+  "track": "frontier-v1-local-v1/kimi-k3-fast-inference-high",
   "methodology_comparable": false,
   "methodology": "Frontier v1 task selection, local Docker adaptation; not a published leaderboard ranking",
-  "model": "kimi-k3",
+  "model": "kimi-k3-fast",
   "provider": "inference-net",
   "endpoint": "https://api.inference.net/v1",
   "effort": "high",

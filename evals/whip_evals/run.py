@@ -133,7 +133,7 @@ def run(args, *, evals=EVALS, repo=REPO):
         for engine in planned["engines"]:
             name = engine if len(planned["engines"]) == 2 else "candidate"
             candidate = copy.deepcopy(shared)
-            candidate.update(id=name, engine=engine, configuration=configuration(engine))
+            candidate.update(id=name, engine=engine, configuration=configuration(engine, protocol["model"]))
             candidates.append(candidate)
         if args.promote and any(c["dirty"] for c in candidates):
             raise ValueError("promotion requires clean source; commit changes or use --ref")

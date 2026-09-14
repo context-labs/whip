@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 import urllib.request
 
-from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json
+from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json, MODEL
 from .observe import write_config
 from .prepare_ripgrep import prepare as prepare_ripgrep
 
@@ -119,10 +119,10 @@ def build_candidate(candidate_id, engine, *, repo=REPO, evals=EVALS, ref=None):
 MAX_OUTPUT_TOKENS = 262144
 
 
-def configuration(engine):
+def configuration(engine, model=MODEL):
     # Share the existing observer's production-default configuration constructor.
     with tempfile.TemporaryDirectory() as temporary:
-        return write_config(Path(temporary) / "home", engine, MAX_OUTPUT_TOKENS, native_defaults=True)
+        return write_config(Path(temporary) / "home", engine, MAX_OUTPUT_TOKENS, native_defaults=True, model=model)
 
 
 def catalog(protocol):

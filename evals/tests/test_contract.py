@@ -224,7 +224,7 @@ class ContractTests(unittest.TestCase):
 
     def test_provider_modalities_and_production_defaults_survive_freezing(self):
         protocol = load_spec()[2]
-        base = {'id': 'kimi-k3', 'context_length': 1048576, 'max_completion_tokens': 131072,
+        base = {'id': protocol['model'], 'context_length': 1048576, 'max_completion_tokens': 131072,
                 'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001', 'completion': '0.000003'}}
         for modalities in (None, [], ['text', 'image']):
             model = dict(base)
@@ -235,8 +235,9 @@ class ContractTests(unittest.TestCase):
                  patch('urllib.request.urlopen', return_value=response):
                 frozen = catalog(protocol)
             cfg = configuration('quickjs')
-            self.assertTrue(cfg['models']['kimi-k3']['vision'])
-            self.assertEqual(cfg['models']['kimi-k3']['maxOut'], 262144)
+            self.assertTrue(cfg['models'][protocol['model']]['vision'])
+            self.assertEqual(cfg['models'][protocol['model']]['maxOut'], 262144)
+            self.assertEqual(cfg['defaultModel'], protocol['model'])
             self.assertEqual(cfg['rlm'], {'defaultEngine': 'quickjs'})
             cached = contract({'engine': 'quickjs', 'configuration': cfg}, protocol, frozen)['catalog_cache']['inference-net']['models'][0]
             self.assertEqual('inputModalities' in cached, modalities is not None)
@@ -245,7 +246,7 @@ class ContractTests(unittest.TestCase):
 
     def test_catalog_request_identity_and_validation(self):
         protocol = load_spec()[2]
-        model = {'id': 'kimi-k3', 'context_length': 1048576, 'max_completion_tokens': 131072,
+        model = {'id': protocol['model'], 'context_length': 1048576, 'max_completion_tokens': 131072,
                  'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001'},
                  'input_modalities': ['text', 'image'], 'provider_extension': 'not-public'}
         for efforts in (['high'], ['low']):
@@ -271,27 +272,35 @@ class ContractTests(unittest.TestCase):
 
     def test_catalog_accepts_org_prefixed_listing_but_keeps_pinned_id(self):
         protocol = load_spec()[2]
+        pin = protocol['model']
         base = {'context_length': 1048576, 'max_completion_tokens': 131072,
                 'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001'}}
-        accepted = {'prefixed only': ([{'id': 'moonshotai/kimi-k3', **base}], 'moonshotai/kimi-k3'),
-                    'exact listing wins': ([{'id': 'moonshotai/kimi-k3', **base}, {'id': 'kimi-k3', **base}], None)}
+        accepted = {'prefixed only': ([{'id': 'moonshotai/' + pin, **base}], 'moonshotai/' + pin),
+                    'exact listing wins': ([{'id': 'moonshotai/' + pin, **base}, {'id': pin, **base}], None)}
         for name, (data, listed) in accepted.items():
             with self.subTest(name=name):
                 response = io.BytesIO(json.dumps({'data': data}).encode())
                 with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
                      patch('whip_evals.prepare.urllib.request.urlopen', return_value=response):
                     frozen = catalog(protocol)
-                self.assertEqual(frozen['id'], 'kimi-k3')
+                self.assertEqual(frozen['id'], pin)
                 self.assertEqual(frozen.get('listed_id'), listed)
-                cached = contract({'engine': 'quickjs', 'configuration': configuration('quickjs')}, protocol, frozen)
-                self.assertEqual(cached['catalog_cache']['inference-net']['models'][0]['id'], 'kimi-k3')
-        for data in ([{'id': 'a/kimi-k3', **base}, {'id': 'b/kimi-k3', **base}], [{'id': 'kimi-k3-fast', **base}]):
+                cached = contract({'engine': 'quickjs', 'configuration': configuration('quickjs', pin)}, protocol, frozen)
+                self.assertEqual(cached['catalog_cache']['inference-net']['models'][0]['id'], pin)
+        for data in ([{'id': 'a/' + pin, **base}, {'id': 'b/' + pin, **base}], [{'id': pin + '-x', **base}]):
             with self.subTest(ids=[m['id'] for m in data]):
                 response = io.BytesIO(json.dumps({'data': data}).encode())
                 with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
                      patch('whip_evals.prepare.urllib.request.urlopen', return_value=response), \
                      self.assertRaisesRegex(ValueError, 'pinned model/effort is not available'):
                     catalog(protocol)
+
+    def test_protocol_pin_matches_the_code_constant(self):
+        from whip_evals.common import MODEL, PROVIDER_MODEL
+        protocol = load_spec()[2]
+        self.assertEqual(protocol['model'], MODEL)
+        self.assertEqual(PROVIDER_MODEL, protocol['provider'] + '/' + MODEL)
+        self.assertIn(MODEL, protocol['track'])
 
     def test_pier_native_proxy_has_only_the_descriptor_cap_changed(self):
         from pier.environments.docker.docker import DockerEnvironment

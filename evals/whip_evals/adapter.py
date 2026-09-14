@@ -18,7 +18,7 @@ from harbor.agents.base import BaseAgent as HarborBaseAgent
 from pier.agents.base import BaseAgent as PierBaseAgent
 from pier.models.agent.network import NetworkAllowlist
 from pier.environments.docker.docker import DockerEnvironment
-from .common import write_json
+from .common import write_json, MODEL, PROVIDER_MODEL
 from .observe import final_accounting_complete
 
 
@@ -158,8 +158,8 @@ class WhipAdapter:
         if self.contract and any((self.max_cost, self.max_tokens, self.max_turns, self.max_output)):
             raise ValueError("canonical trials cannot use experimental caps")
         super().__init__(*args, **kwargs)
-        if self.model_name not in ("kimi-k3", "inference-net/kimi-k3"):
-            raise ValueError("this matched study pins inference-net/kimi-k3")
+        if self.model_name not in (MODEL, PROVIDER_MODEL):
+            raise ValueError("this matched study pins " + PROVIDER_MODEL)
 
     @staticmethod
     def name():

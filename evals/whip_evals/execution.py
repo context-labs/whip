@@ -13,7 +13,7 @@ import time
 import tomllib
 
 from .adapter import OBSERVER_GRACE_SECONDS, CLEANUP_TIMEOUT_SECONDS
-from .common import read_json, write_json
+from .common import read_json, write_json, PROVIDER_MODEL
 
 
 def schedule(tasks, candidates, repetitions, seed):
@@ -101,7 +101,7 @@ def job_config(trial, task, binary, contract, task_path, job_dir, *, fixture=Fal
               "n_concurrent_trials": 1, "retry": {"max_retries": 0},
               "environment": {"type": "docker", "delete": True},
               "agents": [{"import_path": "whip_evals.adapter:" + ("HarborWhip" if trial["runner"] == "harbor" else "PierWhip"),
-                          "model_name": "inference-net/kimi-k3",
+                          "model_name": PROVIDER_MODEL,
                           "override_timeout_sec": envelope["agent_runner_seconds"],
                           "override_setup_timeout_sec": AGENT_SETUP_SECONDS, "kwargs": kwargs}],
               "tasks": [{"path": str(task_path)}]}

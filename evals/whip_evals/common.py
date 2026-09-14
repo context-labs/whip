@@ -12,6 +12,9 @@ from uuid import uuid4
 EVALS = Path(__file__).resolve().parents[1]
 REPO = EVALS.parent
 SCHEMA_VERSION = 1
+# Pinned evaluation model; frontier/protocol.json must agree (asserted by tests).
+MODEL = "kimi-k3-fast"
+PROVIDER_MODEL = "inference-net/" + MODEL
 
 
 def utc_now():
