@@ -4,7 +4,7 @@ import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
-import { Button, Combobox, Field, Input, Menu, Popover, Select, Tooltip, type Styled } from '@whip/ui';
+import { Button, Combobox, Field, Input, Menu, Popover, Select, Skeleton, Tooltip, type Styled } from '@whip/ui';
 import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface } from '@whip/ui/tokens.stylex';
@@ -207,6 +207,11 @@ export function SessionModelPicker({ agentId, ...props }: ModelProps & Pick<Insp
   </>;
 }
 
+/** Holds the mode/model/effort footprint while a session or provider inventory is still opening. */
+export function PickerSkeletons({ count = 3 }: { count?: number }) {
+  return <>{[128, 108, 72].slice(-count).map(width => <Skeleton key={width} data-picker-skeleton xstyle={styles.skeleton} style={{ width }} />)}</>;
+}
+
 /** Shared by the session inspector; the composer uses ModelPicker/EffortPicker. */
 export function ModelSelection({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
@@ -242,6 +247,7 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
 
 const styles = stylex.create({
   trigger: { minWidth: 0, maxWidth: 220, flexShrink: 1, paddingInline: 6, gap: 6 },
+  skeleton: { alignSelf: 'stretch', borderRadius: 6, flexShrink: 0 },
   chevron: { flexShrink: 0, marginInlineStart: 'auto' },
   childModel: { color: surface.secondaryText, fontSize: typography.size12, paddingInline: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   popup: { padding: 4, maxHeight: 'min(320px, var(--available-height))', overflow: 'auto' },

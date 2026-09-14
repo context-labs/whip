@@ -4,7 +4,7 @@ import { ChevronDown, Code2, MoreHorizontal, PanelRight } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
-export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onDetails, actions = [], onPrepare }: {
+export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onDetails, actions = [], onPrepare, pending = false }: {
   host: string;
   cwd?: string;
   agentName?: string;
@@ -16,10 +16,12 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
   onDetails?(): void;
   actions?: readonly MenuItem[];
   onPrepare?(open: boolean): void;
+  /** Opening: the directory is not known yet, so no “unavailable” copy. */
+  pending?: boolean;
 }) {
-  const missingProject = kind === 'new' ? 'Choose a project' : 'Directory unavailable';
+  const missingProject = kind === 'new' ? 'Choose a project' : pending ? '' : 'Directory unavailable';
   const project = cwd?.split(/[\\/]/).filter(Boolean).at(-1) || cwd || missingProject;
-  const identity = `${host} / ${cwd || missingProject}`;
+  const identity = [host, cwd || missingProject].filter(Boolean).join(' / ');
   const menu: MenuItem[] = [
     ...(onRepl ? [{ id: 'repl', label: 'Open REPL', onSelect: onRepl }] : []),
     ...(onDetails ? [{ id: 'details', label: 'Session details', onSelect: onDetails }] : []),
@@ -30,7 +32,7 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
     <div {...stylex.props(styles.row)}>
       <Tooltip label={identity}>
         <span tabIndex={0} aria-label={identity} {...stylex.props(styles.project)}>
-          <span {...stylex.props(styles.host)}>{host}<span aria-hidden="true"> / </span></span>{project}
+          <span {...stylex.props(styles.host)}>{host}{project && <span aria-hidden="true"> / </span>}</span>{project}
         </span>
       </Tooltip>
       {agentName && <><span aria-hidden="true" {...stylex.props(styles.separator)}>/</span>

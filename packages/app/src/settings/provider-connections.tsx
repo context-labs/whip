@@ -1,4 +1,5 @@
 import { ErrorNotice } from '../error-feedback';
+import { recallProviderReady, rememberProviderReady } from '../provider-readiness';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
@@ -50,6 +51,9 @@ export function useProviderConnections(client: WhipClient, enabled: boolean) {
     return () => { discoveryRequest.current?.abort(); discoveryRequest.current = null; };
   }, [client, host, enabled]);
   const inventory = useQuery({ queryKey: ['provider-list', host], queryFn: ({ signal }) => client.providers.list({ signal }), enabled });
+  useEffect(() => { if (inventory.data) rememberProviderReady(runtime.platform.storage, host, inventory.data.selection?.ready === true); }, [runtime, host, inventory.data]);
+  /** Last answer on this device; lets a New Chat paint the right layout before this host's inventory arrives. */
+  const lastKnownReady = recallProviderReady(runtime.platform.storage, host);
   const flows = useQuery({
     queryKey: ['provider-login-flows', host], queryFn: ({ signal }) => client.providers.login.list({ signal }), enabled,
     refetchInterval: query => enabled && query.state.data?.flows?.some(flow => !terminalLoginStates.includes(flow.state)) ? 2000 : false,
@@ -82,7 +86,7 @@ export function useProviderConnections(client: WhipClient, enabled: boolean) {
   useEffect(() => {
     if (flows.data?.flows?.some(flow => flow.state === 'succeeded')) void refresh();
   }, [flows.data, refresh]);
-  return { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError };
+  return { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError, lastKnownReady };
 }
 
 /** Provider identity and actions shared by Settings and first-session setup. */
