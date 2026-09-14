@@ -183,7 +183,11 @@ root prompt (`evals/rlm`).
   remote credentials never follow a cross-origin redirect
   (`TestRemoteRedirectKeepsCredentialsOnOrigin`); auto-reconnect re-arms after
   a failed redial until its three-attempt cap
-  (`TestManagerAutoReconnectRecoversAfterFailedRedial`).
+  (`TestManagerAutoReconnectRecoversAfterFailedRedial`); a server that withholds
+  the end of its standalone stream's header block (Executor 1.0.0) cannot stall
+  connect past a two-second grace, and its events still arrive if the stream
+  completes later (`TestStandaloneStreamWithoutHeaderTerminatorDoesNotStallConnect`,
+  `TestStandaloneStreamCompletingLateStillDeliversNotifications`).
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
   reconnect generation guards, complete cursor-paged tool discovery, and

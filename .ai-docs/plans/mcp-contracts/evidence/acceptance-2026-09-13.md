@@ -41,6 +41,17 @@ rejected `{target}` (missing `targets`).
 | ahrefs `public-domain-rating-free {targets: ["example.com"]}` | one output carrying the text payload (`domain_rating … 94.0`, the `render-scorecard` instruction) followed by the server's structured content as JSON (`{"apiUsageCosts":{…}}`) — structured content no longer dropped |
 | chrome-devtools `new_page {url}` then `take_screenshot {pageId}` | `Took a screenshot of the current page's viewport.` `[image 1: image/png, 109996 bytes; handle bc391b0960b8b2f2de460616a93bd8ba]` — the image stored as a content handle owned by the caller and named in the text |
 
+## Executor (added 2026-09-14)
+
+Adding the Codex `executor` entry to a native block surfaced a stall: every
+connect timed out at the startup deadline while curl succeeded. Raw-socket
+capture showed Executor 1.0.0 answering the standalone GET with a status line
+and headers but no terminating blank line; Go and Python wait for a complete
+header block, curl prints partial headers as they arrive. The SDK opens that
+GET synchronously inside `Connect`. With the header grace in
+`internal/mcp/http_transport.go`, `whip mcp test executor` connects in 2.08 s
+with 7 tools (`execute`, `resume`, `create-artifact`, …).
+
 ## Not exercised live
 
 - Reconnect after killing a stdio server's process, and the three-attempt

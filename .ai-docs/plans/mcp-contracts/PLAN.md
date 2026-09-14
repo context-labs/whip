@@ -408,6 +408,7 @@ tests); `npm run check -w @whip/protocol` (regenerated schemas, no drift).
 | B3 TUI palette | `Build the TUI MCP palette from the daemon's status inventory` | an empty inventory offers one row that loads status; rows appear after the first `/mcp status` |
 | B4 permission wording | `Explain remembered MCP permission rules in words in the web app` | none |
 | B5 docs | `Document the MCP contracts` | roadmap gained a checked line for this work and an unchecked discovery follow-up |
+| A12 standalone stream grace (added 2026-09-14) | `Keep a withheld standalone stream from stalling MCP connect` | found while adding Executor to a native block: Executor sends the standalone GET's status line and headers but not the terminating blank line until its first event, and the SDK opens that stream synchronously inside `Connect`, so every connect timed out. whip's HTTP wrapper now hands the SDK an idle stream after a two-second header grace and splices the real body in if it ever completes |
 
 Out of scope and left alone, as decided: discovery/search, host-rule
 revocation, web add/edit/remove, OAuth, accounts, generated TypeScript,

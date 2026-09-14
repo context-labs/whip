@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -401,4 +402,109 @@ func TestRemoteRedirectSameOriginKeepsHeaders(t *testing.T) {
 	if authorized.Load() == 0 {
 		t.Error("configured headers did not follow the same-origin redirect")
 	}
+}
+
+// heldStreamFixture serves MCP over the SDK's streamable handler but answers
+// the standalone GET the way Executor 1.0.0 does: status line and headers
+// without the terminating blank line, held open until the test completes it.
+type heldStreamFixture struct {
+	server *httptest.Server
+	srv    *sdkmcp.Server
+	mu     sync.Mutex
+	conns  []net.Conn
+}
+
+func newHeldStreamFixture(t *testing.T) *heldStreamFixture {
+	t.Helper()
+	f := &heldStreamFixture{srv: newTestServer("held")}
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return f.srv }, nil)
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		conn, buffered, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_, _ = buffered.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n")
+		_ = buffered.Flush()
+		f.mu.Lock()
+		f.conns = append(f.conns, conn)
+		f.mu.Unlock()
+	}))
+	t.Cleanup(func() {
+		f.mu.Lock()
+		for _, conn := range f.conns {
+			_ = conn.Close()
+		}
+		f.mu.Unlock()
+		f.server.CloseClientConnections()
+		f.server.Close()
+	})
+	return f
+}
+
+// complete finishes the held header block and writes one SSE event.
+func (f *heldStreamFixture) complete(t *testing.T, event string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.conns) == 0 {
+		t.Fatal("no standalone GET was held")
+	}
+	if _, err := f.conns[0].Write([]byte("\r\n" + event)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func shortStreamHeaderGrace(t *testing.T) {
+	t.Helper()
+	previous := streamHeaderGrace
+	streamHeaderGrace = 200 * time.Millisecond
+	t.Cleanup(func() { streamHeaderGrace = previous })
+}
+
+// TestStandaloneStreamWithoutHeaderTerminatorDoesNotStallConnect: a server
+// that never ends the standalone stream's header block must not hold connect
+// hostage until the startup deadline.
+func TestStandaloneStreamWithoutHeaderTerminatorDoesNotStallConnect(t *testing.T) {
+	shortStreamHeaderGrace(t)
+	f := newHeldStreamFixture(t)
+	res := Probe(context.Background(), "held", ServerConfig{URL: f.server.URL, StartupTimeout: 5})
+	if res.Status != StatusReady || res.Tools != 4 {
+		t.Fatalf("probe = %+v, want ready with the 4 fixture tools", res)
+	}
+	if res.Elapsed > 3*time.Second {
+		t.Fatalf("connect took %s; the held stream gated it", res.Elapsed)
+	}
+}
+
+// TestStandaloneStreamCompletingLateStillDeliversNotifications: when the
+// server eventually finishes the header block, its events reach the SDK
+// through the spliced body and refresh the catalog.
+func TestStandaloneStreamCompletingLateStillDeliversNotifications(t *testing.T) {
+	shortStreamHeaderGrace(t)
+	f := newHeldStreamFixture(t)
+	m := NewManager(map[string]ServerConfig{"held": {URL: f.server.URL, StartupTimeout: 5, ToolTimeout: 5}})
+	t.Cleanup(m.Close)
+	m.Start(context.Background())
+	waitReady(t, m)
+	if st := m.Statuses()[0]; st.Status != StatusReady || st.Tools != 4 {
+		t.Fatalf("status = %+v", st)
+	}
+	sdkmcp.AddTool(f.srv, &sdkmcp.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdkmcp.CallToolRequest, struct{}) (*sdkmcp.CallToolResult, any, error) {
+			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "late"}}}, nil, nil
+		})
+	f.complete(t, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if st := m.Statuses()[0]; st.Tools == 5 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("catalog did not refresh from the late stream: %+v", m.Statuses()[0])
 }
