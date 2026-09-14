@@ -405,7 +405,11 @@ func (m *Manager) defaultTransport(ctx context.Context, cfg ServerConfig, stderr
 			cwd = filepath.Join(baseCwd, cwd)
 		}
 	}
-	maps.Copy(env, cfg.Env)
+	resolved, _, err := connectSecrets(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(env, resolved)
 	return &managedTransport{processes: processes, rootID: rootID, cwd: cwd, env: env, command: cfg.Command, stderr: stderr}, nil
 }
 
@@ -1043,19 +1047,9 @@ func (m *Manager) Close() {
 // StreamableClientTransport (remote, header-injecting client).
 func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
 	if cfg.Remote() {
-		// Header values may be secret references ("$VAR"/"${VAR}"/"!cmd") —
-		// resolve them at connect time (the point of use) so configs hold only
-		// references and resolved secrets never reach the log or session store.
-		// Unresolvable references drop the header: the connect then fails
-		// cleanly instead of sending the literal reference upstream.
-		headers := make(map[string]string, len(cfg.Headers))
-		for k, v := range cfg.Headers {
-			rv, err := config.ResolveHeader(v)
-			if err != nil {
-				logf("header %s: %v (dropped)", k, err)
-				continue
-			}
-			headers[k] = rv
+		_, headers, err := connectSecrets(ctx, cfg)
+		if err != nil {
+			return nil, err
 		}
 		return &sdkmcp.StreamableClientTransport{
 			Endpoint:   cfg.URL,
@@ -1072,15 +1066,9 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 	// stdio server right after a successful connect. The process must live
 	// until the session is closed (CommandTransport terminates it then).
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), cfg.Command[0], cfg.Command[1:]...)
-	// Env values may be secret references ("$VAR"/"${VAR}"/"!cmd") — resolve
-	// them at spawn time (the point of use), same as remote headers. A
-	// reference whose var is unset DROPS the entry rather than spawning with
-	// "KEY=", which would mask a KEY the child could inherit from whip's own
-	// environment (and is how an imported "$CUSTOMERIO_API_KEY" used to
-	// become an empty literal).
-	env, err := config.ResolveEnvMap(cfg.Env)
+	env, _, err := connectSecrets(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("env: %w", err)
+		return nil, err
 	}
 	// Inherit whip's environment and layer the server's vars on top (opencode
 	// does the same — users expect $PATH etc. to work).
@@ -1094,6 +1082,32 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 	// Own process group: detached grandchildren of the server die with it.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return &sdkmcp.CommandTransport{Command: cmd, TerminateDuration: 3 * time.Second}, nil
+}
+
+// connectSecrets resolves a server's env and header references at the point
+// of use. It is the one place both transports call, so a daemon-managed child
+// and a fallback child see the same values: configs hold only references
+// ("$VAR"/"${VAR}"/"!cmd"), resolved values never reach the log or session
+// store, and a "!cmd" helper is bounded by the connect's own deadline. An
+// env entry whose reference cannot resolve is dropped rather than spawned as
+// "KEY=" (an empty override would mask a var the child could inherit); an
+// unresolvable header is dropped so the connect fails cleanly upstream instead
+// of sending the literal reference.
+func connectSecrets(ctx context.Context, cfg ServerConfig) (env, headers map[string]string, err error) {
+	env, err = config.ResolveEnvMapContext(ctx, cfg.Env)
+	if err != nil {
+		return nil, nil, fmt.Errorf("env: %w", err)
+	}
+	headers = make(map[string]string, len(cfg.Headers))
+	for k, v := range cfg.Headers {
+		rv, herr := config.ResolveHeaderContext(ctx, v)
+		if herr != nil {
+			logf("header %s: %v (dropped)", k, herr)
+			continue
+		}
+		headers[k] = rv
+	}
+	return env, headers, nil
 }
 
 func envPairs(env map[string]string) []string {

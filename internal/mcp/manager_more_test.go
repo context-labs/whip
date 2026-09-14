@@ -74,9 +74,10 @@ func TestManagedTransportUsesProcessScope(t *testing.T) {
 	m := NewManager(nil)
 	dir := t.TempDir()
 	m.SetProcessOptions(processes, "root", dir, map[string]string{"SESSION": "one"})
+	t.Setenv("WHIP_TEST_MCP_SECRET", "resolved")
 	transport, err := m.defaultTransport(context.Background(), ServerConfig{
 		Command: []string{"server", "--stdio"},
-		Env:     map[string]string{"SERVER": "two"},
+		Env:     map[string]string{"SERVER": "two", "SECRET": "$WHIP_TEST_MCP_SECRET", "MISSING": "$WHIP_TEST_MCP_UNSET_VAR"},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +88,15 @@ func TestManagedTransportUsesProcessScope(t *testing.T) {
 	}
 	if managed.rootID != "root" || managed.cwd != dir || managed.env["SESSION"] != "one" || managed.env["SERVER"] != "two" {
 		t.Fatalf("managed scope = %+v", managed)
+	}
+	// The managed path resolves references at spawn like the fallback path:
+	// a "$VAR" reaches the child as its value, never the literal, and an
+	// unset reference is dropped instead of spawning "KEY=".
+	if managed.env["SECRET"] != "resolved" {
+		t.Errorf("managed env SECRET = %q, want resolved value", managed.env["SECRET"])
+	}
+	if _, present := managed.env["MISSING"]; present {
+		t.Errorf("managed env kept unresolvable MISSING entry")
 	}
 }
 
