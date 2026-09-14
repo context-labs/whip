@@ -150,14 +150,18 @@ Servers connect in the background at startup and lazily on first use — a
 slow or broken server never blocks the loop (calls fail fast with an
 actionable message, and dropped sessions auto-reconnect with backoff).
 `/mcp` shows live status; `/mcp <name> reconnect|enable|disable` manages
-servers without restarting. Server instructions teach the model how to use
+servers for the current session without restarting (host configuration is
+unchanged; `/mcp import <source> on|off` is the host-level switch). Server instructions teach the model how to use
 each server's tools automatically. CLI: `whip mcp list|add|remove|import`
-(`import [--dry-run]` copies imported servers into whip's own config), and
+(`import [--dry-run]` copies imported servers into whip's own config, where
+they become trusted like hand-written entries), and
 `whip mcp test <name>` to doctor one server (status, timing, tool names,
 stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
 other harnesses through a daemon-owned root; the stdio adapter never opens
-SQLite or invokes tool handlers directly. Codex configs with `http_headers` and
+SQLite or invokes tool handlers directly. The bridge cannot obtain new
+consent: saved rules still apply, but an outer client's approval of a call is
+not forwarded as whip consent. Codex configs with `http_headers` and
 `bearer_token_env_var` import correctly (the env var becomes an
 `Authorization: Bearer $VAR` header reference, resolved in the daemon's
 environment at connect), and codex's `[mcp_servers.X.tools.*]` per-tool

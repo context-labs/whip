@@ -160,9 +160,30 @@ root prompt (`evals/rlm`).
 
 ## MCP
 
-- Stdio and streamable HTTP servers are discovered from project, Codex, and
-  WHIP configuration (`internal/mcp`).
+- Stdio and streamable HTTP servers are discovered from four sources merged
+  by name with this precedence: native WHIP configuration, the project's
+  `.mcp.json`, the user's Codex file, the user's global Claude file
+  (`internal/mcp/config.go`, `TestMergePrecedence`). Each import source has
+  its own gate; the project source is off unless enabled because a repository
+  author wrote it (`TestLoadMergedFilteredPolicy`).
+- Only native configuration is trusted. `whip mcp import` writes native,
+  trusted entries (`cmd/whip/mcp_import_test.go`). The definition's server
+  list is applied by one selection step for startup, reload and attachment
+  (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
+  name outside the list or belonging to a native server becomes a blocked row
+  (`TestMCPAttachmentIsAdditiveAndBounded`).
 - Root and child kernels use `mcp.list_servers/list_tools/call`.
+- Status rows distinguish `blocked` (policy-filtered or refused at attach) and
+  `unreadable` (a discovery source that failed to parse) from live servers;
+  the web panel, TUI palette and `whip mcp list` derive their controls from
+  those states (`TestSourceErrorsAreStatusRows`, `mcp_palette_test.go`,
+  `packages/app/test/inspector.test.tsx`).
+- Secrets resolve once at connect for both transports, bounded by the
+  connect's context (`connectSecrets`, `TestResolveSecretContextCancelled`);
+  remote credentials never follow a cross-origin redirect
+  (`TestRemoteRedirectKeepsCredentialsOnOrigin`); auto-reconnect re-arms after
+  a failed redial until its three-attempt cap
+  (`TestManagerAutoReconnectRecoversAfterFailedRedial`).
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
   reconnect generation guards, complete cursor-paged tool discovery, and
@@ -315,7 +336,8 @@ An onboarding draft requires explicit Enter after connection; late login replies
 poll ticks or earlier launch prompts cannot submit or clear an edited draft.
 Preparation errors allow Enter to retry; a terminal connection failure displays
 its cause and instructions to quit/relaunch. Fresh installations
-leave external Claude/Codex MCP imports off and no longer use `setup.done`.
+leave external Claude/Codex MCP imports off, keep the repository's `.mcp.json`
+source off until enabled, and no longer use `setup.done`.
 
 Welcome retains the draft during setup, requires a project folder, and creates
 the session with the chosen tool permission mode before sending. Its bounded

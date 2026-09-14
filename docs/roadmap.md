@@ -68,6 +68,15 @@ direct-tool and RLM agents.
   budget pressure, and repeated worker crashes.
 - [ ] Expand Linux/macOS race and restart coverage for recursive trees and MCP
   reconnection.
+- [x] Repair the MCP contracts and make the MCP surfaces honest: one selection
+  step for the definition's server list, additive untrusted attach, a separate
+  project import source, import as the trust path, origin-bound credentials,
+  complete paged discovery, chained reconnects, visible source errors, and
+  structured/binary results kept. See the
+  [MCP contracts plan](../.ai-docs/plans/mcp-contracts/PLAN.md).
+- [ ] MCP progressive discovery: paged per-server listing, lexical search and
+  describe, built once in the daemon and reused by model, web and TUI. Recorded
+  as a follow-up in the MCP contracts plan; not started.
 
 The original runtime plan and implementation learnings live in
 [`docs/plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md`](plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md).

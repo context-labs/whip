@@ -215,7 +215,10 @@ reconnecting a manager invalidates pending calls; transmitted calls are never
 automatically retried because their external outcome may be uncertain.
 
 `whip mcp serve` is a protocol bridge for external MCP clients. It hosts
-daemon-owned tool services directly and does not create a model agent.
+daemon-owned tool services directly and does not create a model agent. It
+cannot obtain new consent: operations covered by saved rules run, everything
+else is denied, and an outer client's approval is never treated as whip
+consent.
 
 ## Authorization and output
 
