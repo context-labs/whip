@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1051,9 +1052,13 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 		if err != nil {
 			return nil, err
 		}
+		endpoint, err := url.Parse(cfg.URL)
+		if err != nil {
+			return nil, fmt.Errorf("MCP url: %w", err)
+		}
 		return &sdkmcp.StreamableClientTransport{
 			Endpoint:   cfg.URL,
-			HTTPClient: &http.Client{Transport: headerTransport(headers)},
+			HTTPClient: &http.Client{Transport: headerTransport(headers), CheckRedirect: sameOriginRedirect(endpoint)},
 			// Catalog notifications invalidate queued admissions before refresh.
 			DisableStandaloneSSE: false,
 		}, nil
@@ -1116,6 +1121,24 @@ func envPairs(env map[string]string) []string {
 		pairs = append(pairs, k+"="+v)
 	}
 	return pairs
+}
+
+// sameOriginRedirect refuses redirects that leave the configured endpoint's
+// origin. headerTransport injects configured credentials into every request,
+// including the ones Go's client issues after a redirect (after its own logic
+// has already decided to strip Authorization), so following a cross-origin
+// hop would hand the bearer token to another host. Same-origin hops keep the
+// headers; an endpoint that bounces elsewhere is misconfigured.
+func sameOriginRedirect(endpoint *url.URL) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if req.URL.Scheme != endpoint.Scheme || req.URL.Host != endpoint.Host {
+			return fmt.Errorf("refusing redirect to %s://%s: MCP credentials stay on %s://%s", req.URL.Scheme, req.URL.Host, endpoint.Scheme, endpoint.Host)
+		}
+		return nil
+	}
 }
 
 // headerTransport injects static headers (e.g. Authorization) into every

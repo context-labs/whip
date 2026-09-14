@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // This local legacy endpoint exercises the SDK's standalone SSE path. The
@@ -337,5 +340,65 @@ func TestConnectionHTTPTransportDeleteRedirectsShareCleanupDeadline(t *testing.T
 	}
 	if requests.Load() < 2 {
 		t.Fatal("DELETE never followed the fixture redirect")
+	}
+}
+
+// TestRemoteRedirectKeepsCredentialsOnOrigin: a remote server that redirects
+// to another origin must not receive whip's configured credentials there.
+// headerTransport re-adds Authorization after Go's client strips it for a
+// cross-origin hop, so the client refuses the hop instead.
+func TestRemoteRedirectKeepsCredentialsOnOrigin(t *testing.T) {
+	var elsewhereHits atomic.Int32
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhereHits.Add(1)
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("credentials for the configured origin reached %s", r.Host)
+		}
+		http.Error(w, "not here", http.StatusNotFound)
+	}))
+	defer elsewhere.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	res := Probe(context.Background(), "bouncer", ServerConfig{
+		URL: origin.URL, Headers: map[string]string{"Authorization": "Bearer test-token"}, StartupTimeout: 5,
+	})
+	if res.Status != StatusFailed || !strings.Contains(res.Err, "refusing redirect") {
+		t.Fatalf("probe = %+v, want failed with a refused redirect", res)
+	}
+	if elsewhereHits.Load() != 0 {
+		t.Errorf("the other origin received %d request(s)", elsewhereHits.Load())
+	}
+}
+
+// TestRemoteRedirectSameOriginKeepsHeaders: a same-origin redirect is an
+// ordinary deployment detail and keeps the configured headers.
+func TestRemoteRedirectSameOriginKeepsHeaders(t *testing.T) {
+	srv := newTestServer("moved")
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return srv }, nil)
+	var authorized atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/real", http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/real", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer test-token" {
+			authorized.Add(1)
+		}
+		handler.ServeHTTP(w, r)
+	})
+	hs := httptest.NewServer(mux)
+	defer hs.Close()
+
+	res := Probe(context.Background(), "moved", ServerConfig{
+		URL: hs.URL + "/mcp", Headers: map[string]string{"Authorization": "Bearer test-token"}, StartupTimeout: 10,
+	})
+	if res.Status != StatusReady {
+		t.Fatalf("probe = %+v, want ready through a same-origin redirect", res)
+	}
+	if authorized.Load() == 0 {
+		t.Error("configured headers did not follow the same-origin redirect")
 	}
 }
