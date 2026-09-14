@@ -190,6 +190,7 @@ type clientPermissionRunner interface {
 type clientMCPManager interface {
 	Statuses() []mcp.Server
 	Blocked() []mcp.Server
+	SourceErrors() []mcp.Server
 	Reconnect(string) bool
 	Enable(string) bool
 	Disable(string) bool
@@ -1226,6 +1227,7 @@ func (s *Session) clientMCP(ctx context.Context, operation string, payload clien
 	}
 	if operation == "mcp.status" {
 		statuses := append(manager.Statuses(), manager.Blocked()...)
+		statuses = append(statuses, manager.SourceErrors()...)
 		slices.SortFunc(statuses, func(a, b mcp.Server) int { return strings.Compare(a.Name, b.Name) })
 		result := make([]MCPStatusResult, 0, len(statuses))
 		for _, status := range statuses {

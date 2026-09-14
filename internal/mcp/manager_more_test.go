@@ -677,3 +677,25 @@ func TestProbeContextCancelled(t *testing.T) {
 		t.Errorf("probe waited %s, should have given up with the caller's context", elapsed)
 	}
 }
+
+// TestSourceErrorsAreStatusRows: an unreadable discovery source shows up in
+// the status snapshot as a failed row named by source, so "no tools" and
+// "the codex config failed to parse" never look the same.
+func TestSourceErrorsAreStatusRows(t *testing.T) {
+	m := NewManager(nil)
+	t.Cleanup(m.Close)
+	m.SetSourceErrors(map[string]error{
+		CodexPath():       errors.New("codex config: line 3: expected key = value"),
+		"/repo/.mcp.json": errors.New("unexpected end of JSON input"),
+	})
+	rows := m.SourceErrors()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].Name != ".mcp.json" || rows[0].Status != StatusFailed || !strings.Contains(rows[0].Err, "unexpected end") || rows[0].Source != "/repo/.mcp.json" {
+		t.Errorf("project row = %+v", rows[0])
+	}
+	if rows[1].Name != "codex config" || rows[1].Status != StatusFailed || !strings.Contains(rows[1].Err, "line 3") {
+		t.Errorf("codex row = %+v", rows[1])
+	}
+}

@@ -186,7 +186,8 @@ type Manager struct {
 	// blocked holds servers an mcpImport policy filtered out. They never
 	// connect, but stay visible in the status view so a gated import isn't
 	// silent. Set at startup; read via Blocked.
-	blocked []Server
+	blocked      []Server
+	sourceErrors []Server
 
 	// connectTransport builds the transport for a server config. A var so
 	// tests can substitute in-process transports without spawning processes.
@@ -995,6 +996,28 @@ func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 		m.blocked = append(m.blocked, Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source})
 	}
 	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
+}
+
+// SetSourceErrors records discovery sources that could not be read or
+// parsed, as failed rows named by source. "No tools" and "the config failed
+// to parse" must not look the same in /mcp. Called once at startup, before
+// Start.
+func (m *Manager) SetSourceErrors(errs map[string]error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourceErrors = make([]Server, 0, len(errs))
+	for path, err := range errs {
+		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusFailed, Err: "not imported: " + err.Error(), Source: path})
+	}
+	sort.Slice(m.sourceErrors, func(i, j int) bool { return m.sourceErrors[i].Name < m.sourceErrors[j].Name })
+}
+
+// SourceErrors returns the name-sorted snapshot of unreadable discovery
+// sources.
+func (m *Manager) SourceErrors() []Server {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]Server(nil), m.sourceErrors...)
 }
 
 // Blocked returns the name-sorted snapshot of policy-filtered servers.

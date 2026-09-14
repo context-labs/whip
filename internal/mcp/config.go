@@ -259,6 +259,21 @@ type Filtered struct {
 	Errs    map[string]error
 }
 
+// SourceLabel names a discovery source the way /mcp and `whip mcp list`
+// refer to it, so a failed-source row reads like the servers it would have
+// produced.
+func SourceLabel(path string) string {
+	switch {
+	case path == CodexPath():
+		return "codex config"
+	case path == ClaudeGlobalPath():
+		return "~/.claude.json"
+	case filepath.Base(path) == ".mcp.json":
+		return ".mcp.json"
+	}
+	return filepath.Base(path)
+}
+
 // setSource stamps every entry of src with the file it was discovered from.
 func setSource(src map[string]ServerConfig, path, origin string) {
 	for name, c := range src {

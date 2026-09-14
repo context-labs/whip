@@ -283,6 +283,9 @@ func mcpImportCLI(args []string) error {
 	}
 	wd, _ := os.Getwd()
 	disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
+	for src, e := range disc.Errs {
+		fmt.Fprintf(os.Stderr, "mcp: %s: %s (its servers were not imported)\n", src, e)
+	}
 	add := map[string]config.MCPServer{}
 	for name, sc := range disc.Merged {
 		if _, owned := cfg.MCPServers[name]; owned {

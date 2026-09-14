@@ -194,9 +194,13 @@ func runDaemon(ctx context.Context, args []string) error {
 				}
 			}
 		}
-		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
+		for source, err := range discovery.Errs {
+			config.LogEvent("mcp", fmt.Sprintf("discovery: %s: %v", source, err))
+		}
+		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 || len(discovery.Errs) > 0 {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)
+			mcpManager.SetSourceErrors(discovery.Errs)
 		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
 			Engine: meta.ExecutionEngine, Definition: definition, Agent: ag, History: history, Limits: limits, Kernels: kernels,
