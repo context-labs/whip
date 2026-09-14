@@ -756,7 +756,8 @@ func (m *Manager) Call(ctx context.Context, serverName, toolName string, argumen
 		return "", err
 	}
 	call.Arguments = arguments
-	return m.CallChecked(ctx, call, nil)
+	result, err := m.CallChecked(ctx, call, nil)
+	return result.Text, err
 }
 
 // bridge converts one listed MCP tool into the agent-loop tools.Tool. The
@@ -781,7 +782,8 @@ func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
 			}
 			call := call
 			call.Arguments = args
-			return s.owner.CallChecked(ctx, call, nil)
+			result, err := s.owner.CallChecked(ctx, call, nil)
+			return result.Text, err
 		},
 	}
 }
@@ -820,14 +822,27 @@ func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (s
 	return s.owner.Call(ctx, s.name, tool, args)
 }
 
-// flattenResult renders a CallToolResult as text for host storage (pure).
-// Text content is concatenated; binary/resource parts become placeholders
-// (ponytail: feed images to vision models); structured content is appended
-// as JSON when no text exists (opencode catalog.ts does the same). IsError
-// prefixes "Error: " so the model sees failure, per the MCP spec's own
-// guidance that tool errors belong in content.
-func flattenResult(res *sdkmcp.CallToolResult) string {
+// flattenResult renders a CallToolResult for host storage (pure). Text parts
+// are concatenated; structured content is always appended as JSON, because a
+// tool that returns a human summary and a machine payload means both; binary
+// parts (image, audio, blob resource) get a numbered placeholder line and
+// travel alongside as attachments so the caller can store them as handles
+// instead of losing them. IsError prefixes "Error: " so the model sees
+// failure, per the MCP spec's own guidance that tool errors belong in content.
+func flattenResult(res *sdkmcp.CallToolResult) tools.MCPResult {
 	var b strings.Builder
+	var attachments []tools.MCPAttachment
+	attach := func(kind, mime string, data []byte, detail string) {
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		placeholder := fmt.Sprintf("[%s %d: %s, %d bytes]", kind, len(attachments)+1, detail, len(data))
+		if detail == "" {
+			placeholder = fmt.Sprintf("[%s %d: %s, %d bytes]", kind, len(attachments)+1, mime, len(data))
+		}
+		b.WriteString("\n" + placeholder)
+		attachments = append(attachments, tools.MCPAttachment{MIME: mime, Data: data, Placeholder: placeholder})
+	}
 	for _, c := range res.Content {
 		switch c := c.(type) {
 		case *sdkmcp.TextContent:
@@ -836,23 +851,26 @@ func flattenResult(res *sdkmcp.CallToolResult) string {
 			}
 			b.WriteString(c.Text)
 		case *sdkmcp.ImageContent:
-			fmt.Fprintf(&b, "\n[image content omitted: %s, %d bytes]", c.MIMEType, len(c.Data))
+			attach("image", c.MIMEType, c.Data, "")
 		case *sdkmcp.AudioContent:
-			fmt.Fprintf(&b, "\n[audio content omitted: %s, %d bytes]", c.MIMEType, len(c.Data))
+			attach("audio", c.MIMEType, c.Data, "")
 		case *sdkmcp.EmbeddedResource:
 			if c.Resource != nil && c.Resource.Text != "" {
 				fmt.Fprintf(&b, "\n[resource %s]\n%s", c.Resource.URI, c.Resource.Text)
 			} else if c.Resource != nil {
-				fmt.Fprintf(&b, "\n[binary resource omitted: %s, %d bytes]", c.Resource.URI, len(c.Resource.Blob))
+				attach("binary resource", c.Resource.MIMEType, c.Resource.Blob, c.Resource.URI)
 			}
 		case *sdkmcp.ResourceLink:
 			fmt.Fprintf(&b, "\n[resource link: %s (%s)]", c.URI, c.Name)
 		}
 	}
 	out := b.String()
-	if out == "" && res.StructuredContent != nil {
+	if res.StructuredContent != nil {
 		if data, err := json.MarshalIndent(res.StructuredContent, "", "  "); err == nil {
-			out = string(data)
+			if out != "" {
+				out += "\n"
+			}
+			out += string(data)
 		}
 	}
 	if out == "" {
@@ -861,7 +879,7 @@ func flattenResult(res *sdkmcp.CallToolResult) string {
 	if res.IsError {
 		out = "Error: " + out
 	}
-	return out
+	return tools.MCPResult{Text: out, Attachments: attachments}
 }
 
 // normalizeSchema passes the server's input schema through as a JSON string,

@@ -165,7 +165,8 @@ root prompt (`evals/rlm`).
 - Root and child kernels use `mcp.list_servers/list_tools/call`.
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
-  reconnect generation guards, and bounded structured/media flattening.
+  reconnect generation guards, complete cursor-paged tool discovery, and
+  results that keep structured content and store binary parts as handles.
 - Remote HTTP requests remain tied to the transport lifetime through SSE body
   reads, including startup before a session is published. Retirement cancels
   stalled streams and permits a one-second best-effort session DELETE. Healthy

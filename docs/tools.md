@@ -178,7 +178,12 @@ marks which definitions the caller is authorized to use. Each call runs through
 the durable capability dispatcher, reserves operation capacity, and rechecks its
 grant and current server definition after permission and the server's call queue.
 Large results become handles through the same bounded-output path as built-in
-operations.
+operations. A call's text keeps every text part and appends any
+`structuredContent` as JSON; image, audio and binary resource parts are stored
+as content handles owned by the calling agent and named in the text
+(`[image 1: image/png, 48213 bytes; handle …]`), and image parts also reach the
+root's next turn as vision input through the same path browser and computer
+screenshots use. Children receive the handle only.
 
 Servers explicitly configured in native WHIP configuration are trusted.
 Definitions discovered from the project's `.mcp.json`, the Codex file, or the

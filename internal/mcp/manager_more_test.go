@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -105,20 +106,47 @@ func TestFlattenResultEdges(t *testing.T) {
 		&sdkmcp.TextContent{Text: "one"},
 		&sdkmcp.TextContent{Text: "two"},
 	}})
-	if multi != "one\ntwo" {
-		t.Errorf("two text parts = %q", multi)
+	if multi.Text != "one\ntwo" {
+		t.Errorf("two text parts = %q", multi.Text)
 	}
-	if got := flattenResult(&sdkmcp.CallToolResult{}); got != "(no output)" {
-		t.Errorf("empty result = %q", got)
+	if got := flattenResult(&sdkmcp.CallToolResult{}); got.Text != "(no output)" {
+		t.Errorf("empty result = %q", got.Text)
 	}
-	if got := flattenResult(&sdkmcp.CallToolResult{IsError: true}); got != "Error: (no output)" {
-		t.Errorf("empty error result = %q", got)
+	if got := flattenResult(&sdkmcp.CallToolResult{IsError: true}); got.Text != "Error: (no output)" {
+		t.Errorf("empty error result = %q", got.Text)
 	}
 	// A resource part with no contents contributes nothing rather than a
 	// half-rendered placeholder.
 	got := flattenResult(&sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.EmbeddedResource{}}})
-	if got != "(no output)" {
-		t.Errorf("empty embedded resource = %q", got)
+	if got.Text != "(no output)" {
+		t.Errorf("empty embedded resource = %q", got.Text)
+	}
+	// Structured content rides along with text instead of being dropped by it:
+	// an ahrefs-style result carries a human summary and a machine payload.
+	both := flattenResult(&sdkmcp.CallToolResult{
+		Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: "summary"}},
+		StructuredContent: map[string]any{"rows": 2},
+	})
+	if !strings.HasPrefix(both.Text, "summary\n{") || !strings.Contains(both.Text, `"rows": 2`) {
+		t.Errorf("text+structured = %q", both.Text)
+	}
+	// Binary parts keep a numbered placeholder in the text and travel as
+	// attachments whose Placeholder matches it exactly.
+	media := flattenResult(&sdkmcp.CallToolResult{Content: []sdkmcp.Content{
+		&sdkmcp.TextContent{Text: "shot"},
+		&sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte{1, 2, 3}},
+		&sdkmcp.ImageContent{MIMEType: "image/jpeg", Data: []byte{4}},
+	}})
+	if len(media.Attachments) != 2 {
+		t.Fatalf("attachments = %+v", media.Attachments)
+	}
+	for i, a := range media.Attachments {
+		if !strings.Contains(media.Text, a.Placeholder) || !strings.HasPrefix(a.Placeholder, fmt.Sprintf("[image %d: ", i+1)) {
+			t.Errorf("attachment %d placeholder %q not in text %q", i, a.Placeholder, media.Text)
+		}
+	}
+	if string(media.Attachments[0].Data) != "\x01\x02\x03" || media.Attachments[1].MIME != "image/jpeg" {
+		t.Errorf("attachment payloads = %+v", media.Attachments)
 	}
 }
 

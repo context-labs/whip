@@ -544,6 +544,15 @@ func (session *AgentSession) bind(root *Session) error {
 		return errors.New("agent services are required")
 	}
 	session.agent.Services.SetMCPProvider(root.mcpProvider)
+	// Binary MCP result parts become content handles owned by this agent. The
+	// id is read at call time: bind runs before a fresh agent's id is assigned.
+	session.agent.Services.SetMCPAttachmentStore(func(ctx context.Context, mime string, data []byte) (string, error) {
+		value, err := root.StoreContent(ctx, session.id, sessionstore.RuntimePayload{Data: data, MediaType: mime, Source: "MCP tool result"})
+		if err != nil {
+			return "", err
+		}
+		return value.ReferenceID, nil
+	})
 	if root.executors != nil {
 		session.agent.Services.SetCustomTools(root.definition.ID, root.meta.DefinitionRevision, customTools(root.definition), root.executors)
 	}

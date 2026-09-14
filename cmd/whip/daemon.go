@@ -135,7 +135,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		if route.Vision {
 			services.SetScreenshotSink(func(images [][]byte) {
-				ag.SteerImages("browser/computer screenshots attached:", screenshotParts(images))
+				ag.SteerImages("images attached (browser/computer screenshots or MCP results):", screenshotParts(images))
 			})
 		}
 		ag.Vision = route.Vision

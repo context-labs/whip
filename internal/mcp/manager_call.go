@@ -14,6 +14,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 func (s *server) unavailableLocked() error {
@@ -184,94 +185,95 @@ func (m *Manager) ValidateArguments(call capability.MCPCall) error {
 // CallChecked checks the advertised schema before queueing, then rechecks the
 // exact definition and authority after acquiring the server's serialized slot.
 // Cancellation retires local work; effects already transmitted are never retried.
-func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (string, error) {
+func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (tools.MCPResult, error) {
+	var none tools.MCPResult
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	call.Arguments = slices.Clone(call.Arguments)
 	s, err := m.lookup(call.Server)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	s.mu.Lock()
 	current, schema, err := s.descriptorLocked(call.Tool)
 	connectionCtx, timeout := s.connectionCtx, s.cfg.ToolTimeoutDuration()
 	s.mu.Unlock()
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	if !matchesCall(current, call) {
-		return "", errors.New("MCP tool definition changed; resolve and admit again")
+		return none, errors.New("MCP tool definition changed; resolve and admit again")
 	}
 	args, err := toolArguments(schema, call.Arguments)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	stop := context.AfterFunc(connectionCtx, cancel)
 	defer stop()
 	if err := connectionCtx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	select {
 	case s.calling <- struct{}{}:
 		defer func() { <-s.calling }()
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return none, ctx.Err()
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	if err := connectionCtx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	s.mu.Lock()
 	current, _, err = s.descriptorLocked(call.Tool)
 	s.mu.Unlock()
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	if !matchesCall(current, call) {
-		return "", errors.New("MCP tool definition changed while queued; resolve and admit again")
+		return none, errors.New("MCP tool definition changed while queued; resolve and admit again")
 	}
 	if before != nil {
 		if err := before(ctx); err != nil {
-			return "", err
+			return none, err
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	s.mu.Lock()
 	current, _, err = s.descriptorLocked(call.Tool)
 	sess := s.sess
 	s.mu.Unlock()
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	if !matchesCall(current, call) {
-		return "", errors.New("MCP tool definition changed during admission; resolve and admit again")
+		return none, errors.New("MCP tool definition changed during admission; resolve and admit again")
 	}
 	if err := connectionCtx.Err(); err != nil {
-		return "", err
+		return none, err
 	}
 	result, err := sess.CallTool(ctx, &sdkmcp.CallToolParams{Name: call.Tool, Arguments: args})
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("mcp tool %s timed out after %s: %w", call.Tool, timeout, context.DeadlineExceeded)
+			return none, fmt.Errorf("mcp tool %s timed out after %s: %w", call.Tool, timeout, context.DeadlineExceeded)
 		}
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return none, ctx.Err()
 		}
-		return "", err
+		return none, err
 	}
 	if result == nil {
-		return "", errors.New("MCP server returned no tool result")
+		return none, errors.New("MCP server returned no tool result")
 	}
 	output := flattenResult(result)
 	if result.IsError {
-		return output, errors.New(strings.TrimPrefix(output, "Error: "))
+		return output, errors.New(strings.TrimPrefix(output.Text, "Error: "))
 	}
 	return output, nil
 }

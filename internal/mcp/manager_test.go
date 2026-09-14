@@ -156,7 +156,7 @@ func TestManagerStructuredAndMedia(t *testing.T) {
 		t.Errorf("structured = %q", out)
 	}
 	out = tools.Execute(context.Background(), ts, "mcp__docs__media", nil)
-	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image content omitted: image/png, 3 bytes]") {
+	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image 1: image/png, 3 bytes]") {
 		t.Errorf("media = %q", out)
 	}
 }
@@ -517,8 +517,8 @@ func TestFlattenPreservesLargeText(t *testing.T) {
 	big := strings.Repeat("x", 60_000) + "middle evidence" + strings.Repeat("y", 60_000)
 	res := &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: big}}}
 	out := flattenResult(res)
-	if out != big {
-		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out), len(big))
+	if out.Text != big {
+		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out.Text), len(big))
 	}
 }
 

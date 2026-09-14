@@ -36,6 +36,13 @@ func localMCPFixture(t *testing.T, instructions string, extraTools ...string) (s
 		func(_ context.Context, request *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(request.Params.Arguments)}}}, nil
 		})
+	server.AddTool(&sdkmcp.Tool{Name: "image", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "shot"},
+				&sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte{1, 2, 3}},
+			}}, nil
+		})
 	server.AddTool(&sdkmcp.Tool{Name: "large", InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: strings.Repeat("begin-", 8000) + "MIDDLE_EVIDENCE" + strings.Repeat("-end", 8000)}}}, nil
@@ -333,6 +340,31 @@ func TestMCPAttachmentIsAdditiveAndBounded(t *testing.T) {
 	}
 	if nativeEffects.Load() != 1 || adminEffects.Load() != 0 {
 		t.Fatalf("native=%d admin=%d", nativeEffects.Load(), adminEffects.Load())
+	}
+}
+
+// TestMCPImageResultsBecomeHandles: an image part of a tool result is stored
+// as a content handle the calling agent can read back, and the call's text
+// names that handle instead of dropping the image.
+func TestMCPImageResultsBecomeHandles(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	url, _ := localMCPFixture(t, "native")
+	_, root, runtime := mcpRuntimeFixture(t, url, true)
+	value, err := runtime.rootNode.host.Call(t.Context(), "mcp", "call", map[string]any{"server": "local", "tool": "image", "arguments": map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := value.(map[string]any)["output"].(string)
+	marker := "; handle "
+	start := strings.Index(text, marker)
+	if !strings.HasPrefix(text, "shot\n[image 1: image/png, 3 bytes") || start < 0 {
+		t.Fatalf("call text = %q, want the image placeholder with a handle", text)
+	}
+	handle := text[start+len(marker):]
+	handle = handle[:strings.Index(handle, "]")]
+	body, metadata, err := root.ReadContent(t.Context(), root.AgentID(), handle, 0, 16)
+	if err != nil || string(body) != "\x01\x02\x03" || metadata.MediaType != "image/png" {
+		t.Fatalf("stored image body=%v metadata=%+v err=%v", body, metadata, err)
 	}
 }
 
