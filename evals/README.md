@@ -47,8 +47,9 @@ attempts stay in the denominator.
 tries before any model call; the runner setup budget covers all three. Every
 try leaves a `setup-*.json` receipt in the trial's agent directory.
 
-**Fetch.** Downloads the run's evidence prefix with the public volume API (eight
-files at a time, three tries each), verifies every hash the marker listed, reads
+**Fetch.** Downloads the run's evidence prefix with `modal volume get` (the CLI's
+parallel transfer; three tries), checks every listed file arrived, verifies every
+hash the marker listed, reads
 each trial's native result and the observer's `agent/whip/` files, and writes
 `reports/<run>/fetches/<id>/`. Trials whose marker or hashes are missing are
 `cloud_snapshot_incomplete`; their observed cost is kept as a lower bound.

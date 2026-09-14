@@ -1,6 +1,7 @@
 """Cloud lifecycle contracts with no Docker, Modal API, credentials, or model calls."""
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -319,9 +320,18 @@ class FetchTests(unittest.TestCase):
                             "r/attempt/t2": {"trial_id": "t2", "sandbox_id": "sb-2", "cleanup_complete": False},
                             "r/progress/t1": {"id": "t1"}})
 
+    @staticmethod
+    def collect(evidence, run_id, root):
+        for path, data in evidence.files.items():
+            target = Path(root) / path.split("/", 2)[2]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        return len(evidence.files)
+
     def fetch(self, state, **kwargs):
         inputs, evidence = self.volumes()
-        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)), \
+             patch.object(modal_cli, "collect_files", side_effect=self.collect):
             return modal_cli.fetch("r", evals=self.evals, **kwargs), inputs, evidence
 
     def test_fetch_verifies_marker_hashes_retains_partial_cost_and_prunes(self):
@@ -365,7 +375,8 @@ class FetchTests(unittest.TestCase):
         state = self.state()
         inputs, evidence = self.volumes()
         evidence.files["/r/attempts/t1/artifacts/record.json"] = b'{"started": true, "job_path": "jobs/t1", "cleanup": {"complete": true}} '
-        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)), \
+             patch.object(modal_cli, "collect_files", side_effect=self.collect):
             outcome = modal_cli.fetch("r", evals=self.evals, keep=True)
         result = read_json(Path(outcome["report"]).with_name("result.json"))
         self.assertIn("cloud_snapshot_incomplete", result["trials"][0]["error_codes"])
@@ -380,17 +391,38 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(modal_cli.prune("r", force=True)["state_keys"], 5)
         self.assertEqual(state.values, {})
 
-    def test_downloads_retry_transient_failures_then_fail_without_partial_files(self):
-        volume = MemoryVolume({"/r/a": b"payload"})
-        target = self.evals / "out" / "a"
-        volume.failures["/r/a"] = 2
-        with patch.object(modal_cli.time, "sleep"):
-            modal_cli.download_file(volume, "/r/a", target)
-            self.assertEqual(target.read_bytes(), b"payload")
-            volume.failures["/r/a"] = 3
-            with self.assertRaises(ConnectionError):
-                modal_cli.download_file(volume, "/r/a", self.evals / "out" / "b")
-        self.assertEqual(sorted(p.name for p in (self.evals / "out").iterdir()), ["a"])
+    def test_collect_uses_the_cli_transfer_flattens_and_verifies_presence(self):
+        _, evidence = self.volumes()
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            destination = Path(command[-1]) / "r"
+            for path, data in evidence.files.items():
+                target = destination / path.split("/", 2)[2]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+            return SimpleNamespace(returncode=0)
+        root = self.evals / "collected"
+        with patch.object(modal_cli.subprocess, "run", side_effect=run):
+            count = modal_cli.collect_files(evidence, "r", root)
+        self.assertEqual(count, len(evidence.files))
+        self.assertEqual(commands[0][1:6], ["-m", "modal", "volume", "get", "--env"])
+        self.assertIn("--force", commands[0])
+        self.assertEqual(commands[0][-3:], [cloud.EVIDENCE_VOLUME, "/r", str(root)])
+        self.assertTrue((root / "attempts/t1/complete.json").is_file())
+        self.assertFalse((root / "r").exists())
+        # A transfer that silently drops a file is an error, never a quiet partial snapshot.
+        def drop_one(command, **kwargs):
+            run(command)
+            (Path(command[-1]) / "r/attempts/t1/started.json").unlink()
+            return SimpleNamespace(returncode=0)
+        with patch.object(modal_cli.subprocess, "run", side_effect=drop_one), self.assertRaisesRegex(RuntimeError, "not downloaded"):
+            modal_cli.collect_files(evidence, "r", self.evals / "collected-2")
+        failing = subprocess.CalledProcessError(1, "modal", stderr=b"boom")
+        with patch.object(modal_cli.subprocess, "run", side_effect=failing), patch.object(modal_cli.time, "sleep"), \
+             self.assertRaisesRegex(RuntimeError, "boom"):
+            modal_cli.collect_files(evidence, "r", self.evals / "collected-3")
+        self.assertEqual(modal_cli.collect_files(MemoryVolume(), "r", self.evals / "collected-4"), 0)
 
     def test_status_cancel_and_cli_surface(self):
         state = self.state("running")

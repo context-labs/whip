@@ -1,16 +1,16 @@
 """Local CLI attachment to the one deployed Modal campaign controller."""
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
-import tempfile
+import shutil
+import subprocess
+import sys
 import time
 
 from .common import EVALS, file_hash, identifier, inside, new_id, read_json, utc_now, write_json
 from . import modal_cloud as cloud
 
 TERMINAL_STATUSES = ("completed", "cancelled", "failed")
-FETCH_WORKERS = 8
 FETCH_TRIES = 3
 
 
@@ -143,42 +143,53 @@ def retain_partial(row, directory, attempt):
     return row
 
 
-def download_file(volume, path, target):
-    target.parent.mkdir(parents=True, exist_ok=True)
-    for attempt in range(1, FETCH_TRIES + 1):
-        try:
-            with tempfile.NamedTemporaryFile(prefix="." + target.name + "-", dir=target.parent, delete=False) as stream:
-                for chunk in volume.read_file(path):
-                    stream.write(chunk)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(stream.name, target)
-            return
-        except Exception:
-            Path(stream.name).unlink(missing_ok=True)
-            if attempt == FETCH_TRIES:
-                raise
-            time.sleep(2 * attempt)
-
-
-def collect_files(evidence, run_id, root):
-    """Download the run's evidence prefix with a small thread pool; fail loudly."""
+def remote_files(evidence, run_id):
+    """Regular files under the run's evidence prefix, relative to it."""
     try:
         entries = list(evidence.iterdir(f"/{run_id}", recursive=True))
     except FileNotFoundError:
-        return 0
+        return []
     files = []
     for entry in entries:
         if int(entry.type) != 1:
             continue
         if not entry.path.startswith((run_id + "/", "/" + run_id + "/")):
             raise ValueError("unexpected remote evidence path")
-        relative = entry.path.lstrip("/")[len(run_id) + 1:]
-        files.append((entry.path, inside(root, relative)))
-    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
-        for _ in pool.map(lambda item: download_file(evidence, *item), files):
-            pass
-    return len(files)
+        files.append(entry.path.lstrip("/")[len(run_id) + 1:])
+    return files
+
+
+def collect_files(evidence, run_id, root):
+    """Download the run's evidence prefix with the Modal CLI's parallel transfer.
+
+    Per-file reads through the SDK ran at about 12 files/s (46 min for a
+    90-attempt campaign); the CLI moved the same data in a few minutes.
+    """
+    expected = remote_files(evidence, run_id)
+    if not expected:
+        return 0
+    root = Path(root)
+    command = [sys.executable, "-m", "modal", "volume", "get", "--env", cloud.ENVIRONMENT, "--force",
+               cloud.EVIDENCE_VOLUME, "/" + run_id, str(root)]
+    for attempt in range(1, FETCH_TRIES + 1):
+        try:
+            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                           env={**os.environ, "MODAL_ENVIRONMENT": cloud.ENVIRONMENT})
+            break
+        except subprocess.CalledProcessError as error:
+            if attempt == FETCH_TRIES:
+                raise RuntimeError("modal volume get failed: " + (error.stderr or b"")[-2000:].decode(errors="replace")) from error
+            time.sleep(5 * attempt)
+    # The CLI writes a directory prefix as <destination>/<prefix name>/...; flatten it.
+    nested = root / run_id
+    if nested.is_dir():
+        for child in nested.iterdir():
+            shutil.move(str(child), root / child.name)
+        nested.rmdir()
+    missing = [name for name in expected if not inside(root, name).is_file()]
+    if missing:
+        raise RuntimeError(f"{len(missing)} evidence files were not downloaded (first: {missing[0]})")
+    return len(expected)
 
 
 def prune(run_id, *, force=False):
