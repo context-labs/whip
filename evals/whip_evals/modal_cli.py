@@ -143,11 +143,17 @@ def retain_partial(row, directory, attempt):
     return row
 
 
+def not_found():
+    # The SDK raises its own NotFoundError for a missing volume path; it is not
+    # a FileNotFoundError subclass.
+    return (FileNotFoundError, cloud.sdk().exception.NotFoundError)
+
+
 def remote_files(evidence, run_id):
     """Regular files under the run's evidence prefix, relative to it."""
     try:
         entries = list(evidence.iterdir(f"/{run_id}", recursive=True))
-    except FileNotFoundError:
+    except not_found():
         return []
     files = []
     for entry in entries:
@@ -206,7 +212,7 @@ def prune(run_id, *, force=False):
         try:
             volume.remove_file("/" + run_id, recursive=True)
             removed[name] = True
-        except FileNotFoundError:
+        except not_found():
             pass
     for key in [k for k, _ in state.items() if isinstance(k, str) and k.startswith(run_id + "/") and k != run_id + "/fetched"]:
         state.pop(key)

@@ -331,6 +331,7 @@ class FetchTests(unittest.TestCase):
     def fetch(self, state, **kwargs):
         inputs, evidence = self.volumes()
         with patch.object(cloud, "resources", return_value=(state, inputs, evidence)), \
+             patch.object(cloud, "sdk", return_value=fake_sdk()), \
              patch.object(modal_cli, "collect_files", side_effect=self.collect):
             return modal_cli.fetch("r", evals=self.evals, **kwargs), inputs, evidence
 
@@ -384,11 +385,15 @@ class FetchTests(unittest.TestCase):
     def test_prune_refuses_unfinished_runs_without_force(self):
         state = self.state("running")
         inputs, evidence = self.volumes()
-        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)), patch.object(cloud, "sdk", return_value=fake_sdk()):
             with self.assertRaisesRegex(ValueError, "not finished"):
                 modal_cli.prune("r")
             self.assertTrue(evidence.files)
             self.assertEqual(modal_cli.prune("r", force=True)["state_keys"], 5)
+            # Pruning again (data already gone) is a quiet no-op for the volumes.
+            state.put("r/request", self.request)
+            state.put("r/status", {"status": "completed"})
+            self.assertEqual(modal_cli.prune("r")["inputs"], False)
         self.assertEqual(state.values, {})
 
     def test_collect_uses_the_cli_transfer_flattens_and_verifies_presence(self):
@@ -403,7 +408,7 @@ class FetchTests(unittest.TestCase):
                 target.write_bytes(data)
             return SimpleNamespace(returncode=0)
         root = self.evals / "collected"
-        with patch.object(modal_cli.subprocess, "run", side_effect=run):
+        with patch.object(modal_cli.subprocess, "run", side_effect=run), patch.object(cloud, "sdk", return_value=fake_sdk()):
             count = modal_cli.collect_files(evidence, "r", root)
         self.assertEqual(count, len(evidence.files))
         self.assertEqual(commands[0][1:6], ["-m", "modal", "volume", "get", "--env"])
@@ -416,13 +421,19 @@ class FetchTests(unittest.TestCase):
             run(command)
             (Path(command[-1]) / "r/attempts/t1/started.json").unlink()
             return SimpleNamespace(returncode=0)
-        with patch.object(modal_cli.subprocess, "run", side_effect=drop_one), self.assertRaisesRegex(RuntimeError, "not downloaded"):
+        with patch.object(modal_cli.subprocess, "run", side_effect=drop_one), patch.object(cloud, "sdk", return_value=fake_sdk()), \
+             self.assertRaisesRegex(RuntimeError, "not downloaded"):
             modal_cli.collect_files(evidence, "r", self.evals / "collected-2")
         failing = subprocess.CalledProcessError(1, "modal", stderr=b"boom")
         with patch.object(modal_cli.subprocess, "run", side_effect=failing), patch.object(modal_cli.time, "sleep"), \
-             self.assertRaisesRegex(RuntimeError, "boom"):
+             patch.object(cloud, "sdk", return_value=fake_sdk()), self.assertRaisesRegex(RuntimeError, "boom"):
             modal_cli.collect_files(evidence, "r", self.evals / "collected-3")
-        self.assertEqual(modal_cli.collect_files(MemoryVolume(), "r", self.evals / "collected-4"), 0)
+        class SdkNotFoundVolume:
+            def iterdir(self, prefix, recursive=True):
+                raise NotFound("No such file or directory")
+        with patch.object(cloud, "sdk", return_value=fake_sdk()):
+            self.assertEqual(modal_cli.collect_files(MemoryVolume(), "r", self.evals / "collected-4"), 0)
+            self.assertEqual(modal_cli.collect_files(SdkNotFoundVolume(), "r", self.evals / "collected-5"), 0)
 
     def test_status_cancel_and_cli_surface(self):
         state = self.state("running")
