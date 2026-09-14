@@ -1,11 +1,14 @@
 # MCP contracts: repair the boundaries, make the surfaces honest
 
-Status: PLANNED 2026-09-13. Decisions recorded from the September 13
-conversation with Sam. Implementation branch `mcp-contracts` off `main`
-(`0232b8632`), one commit per work item.
+Status: IMPLEMENTED 2026-09-13 on branch `mcp-contracts`, one commit per
+work item (A1–A11, B1–B5). Decisions recorded from the September 13
+conversation with Sam. The branch was cut from `compaction-loop-and-ui-cleanup`
+at `cac044b3b` rather than from `main`, at Sam's request, in the worktree
+`.claude/worktrees/mcp-contracts`. See the implementation record and the
+acceptance run at the end.
 
 Written against the working tree of `compaction-loop-and-ui-cleanup` at
-`cac044b3b`. Line numbers below are from that tree; re-pin on the branch.
+`cac044b3b`. Line numbers below are from that tree.
 
 Supersedes the improvement sequence in the 2026-09-11 MCP review
 ([evidence/2026-09-11-review.md](evidence/2026-09-11-review.md)). Continues
@@ -376,3 +379,40 @@ npm test && npm run test:web
 - Host-rule revocation: a protocol operation and a web control.
 - Web add/edit/remove for native servers, if the CLI proves insufficient.
 - Decision 19 items.
+
+## Implementation record (2026-09-13)
+
+Every item landed as planned with a regression test in the same commit. Test
+gates run at the end, all green: `go test -race` over `internal/mcp`,
+`internal/tools`, `internal/daemon`, `internal/session`, `internal/acp`,
+`cmd/whip`, `internal/tui`, `internal/config`, `internal/protocol`,
+`internal/capability`, `internal/agentdef`; `gofmt -s`, `go vet ./...`,
+`whipvet`; `npm test` (SDK, 323 tests); `npm run test:web` (60 files, 641
+tests); `npm run check -w @whip/protocol` (regenerated schemas, no drift).
+
+| Item | Commit | Deviation from the plan as written |
+| --- | --- | --- |
+| A1 smoke test gate | `Gate the real Codex config smoke test` | none |
+| A2 one secret step | `Resolve MCP secrets once, at the point of use` | `ResolveSecretContext`, `ResolveEnvMapContext`, `ResolveHeaderContext` added; the old names wrap them |
+| A3 origin-bound credentials | `Keep remote MCP credentials on their configured origin` | none |
+| A4 SDK empty list | `Preserve an explicit empty MCP server list` | none |
+| A5 paged discovery | `Load every tools/list page` | `toolLister` interface so the loop is unit-tested with a paged fake; live test uses the SDK server's `PageSize` |
+| A6 reconnect chain | `Re-arm MCP auto-reconnect after a failed redial` | the give-up test now asserts the exact attempt count |
+| A7 Codex isolation, source errors | `Isolate Codex MCP parsing and show unreadable sources` | source errors are `SourceErrors()` rows on the manager, not synthetic entries in `Blocked()`; `[[array]]` tables *under* `mcp_servers` still error (an existing test required it) |
+| A8 project source, precedence | `Give the project .mcp.json its own import source` | blocked notes name their source, e.g. `blocked by mcpImport config (project)`; the client-control test fake gained `SourceErrors` here |
+| A9 import confers trust | `Make whip mcp import write native, trusted entries` | dry-run prints the trust note before the JSON fragment (a test parses the fragment) |
+| A10 selection step, additive attach | `Apply the definition's MCP server list everywhere and make attach additive` | re-attaching a non-native name replaces that entry (ACP re-attaches on resume); a native name is refused as a blocked row |
+| A11 results | `Keep structured MCP content and store binary result parts as handles` | `CallChecked` returns `tools.MCPResult`; the store is bound per agent in `AgentSession.bind` and reads the agent id at call time |
+| B1 statuses | `Report blocked and unreadable MCP rows with their own status values` | two values, `blocked` and `unreadable`, so clients can tell a row they can act on from one they cannot |
+| B2 web panel | `Make the web MCP panel honest about scope and state` | none |
+| B3 TUI palette | `Build the TUI MCP palette from the daemon's status inventory` | an empty inventory offers one row that loads status; rows appear after the first `/mcp status` |
+| B4 permission wording | `Explain remembered MCP permission rules in words in the web app` | none |
+| B5 docs | `Document the MCP contracts` | roadmap gained a checked line for this work and an unchecked discovery follow-up |
+
+Out of scope and left alone, as decided: discovery/search, host-rule
+revocation, web add/edit/remove, OAuth, accounts, generated TypeScript,
+aggregate serve.
+
+## Acceptance run (2026-09-13)
+
+Recorded in [evidence/acceptance-2026-09-13.md](evidence/acceptance-2026-09-13.md).
