@@ -1,3 +1,0 @@
-id,task_id,candidate_id,repetition,runner,started,success,grader_status,execution_status,termination_source,evidence_complete,accounting_complete,known_cost_usd,cost_usd,agent_seconds,trial_seconds,input_tokens,output_tokens,cache_tokens
-t0001,fixture/harbor-shared,candidate,1,harbor,True,True,passed,completed,,True,True,0.000000,0.000000,4.389788598999999,30.350525716,500,150,0
-t0002,fixture/pier-separate,candidate,1,pier,True,True,passed,completed,,True,True,0.000000,0.000000,4.102573855999999,46.45150559699999,500,150,0
