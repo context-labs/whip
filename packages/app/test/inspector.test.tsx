@@ -469,6 +469,26 @@ describe('read-only mailbox and ephemeral integration workflows', () => {
     await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
     expect(list.mock.calls[2]?.[0]?.cursor).toBeUndefined();
   });
+  it('explains a remembered MCP rule in words and keeps the digest under a disclosure', async () => {
+    const f = fixture();
+    const selector = JSON.stringify({ server: 'docs', tool: 'search', definition: 'deadbeef' });
+    f.client.query.mockImplementation(async (operation: string) => ({
+      result:
+        operation === 'permission.rules'
+          ? {
+              rules: [{ id: 'r1', operation: 'mcp.call', rule: selector, principal_id: 'sam', created_at: '2026-09-13T00:00:00Z' }],
+              global: [`mcp.call:${selector}`],
+            }
+          : operation === 'mcp.import.status'
+            ? { claude: true, codex: false, project: false }
+            : [],
+    }));
+    f.render(<Permissions {...f.props} />);
+    expect((await screen.findAllByText('MCP server docs, tool search, this exact definition only')).length).toBe(2);
+    expect(screen.getAllByText('Technical identity').length).toBe(2);
+    expect(screen.getAllByText('definition deadbeef').length).toBe(2);
+    expect(screen.queryByText(selector)).toBeNull();
+  });
   it('offers each MCP row only the controls its state supports, named by subject, and has no attach box', async () => {
     const f = fixture();
     f.client.query.mockImplementation(async (operation: string) => ({

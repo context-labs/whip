@@ -6,6 +6,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
+import { describeRule, splitGlobalRule } from '../permission-scope';
 import {
   Action,
   CollectionMore,
@@ -519,6 +520,22 @@ export function Compaction(props: InspectorProps) {
     </>
   );
 }
+// A saved rule's scope in words. MCP rules bind one exact server, tool and
+// definition digest; the digest stays under a disclosure so the scope reads
+// as a sentence rather than a JSON selector.
+function RuleScope({ operation, rule }: { operation: string; rule: string }) {
+  const scope = describeRule(operation, rule);
+  if (!scope.detail) return <code>{scope.summary}</code>;
+  return (
+    <>
+      <span>{scope.summary}</span>
+      <details>
+        <summary>Technical identity</summary>
+        <code>{scope.detail}</code>
+      </details>
+    </>
+  );
+}
 export function Permissions(props: InspectorProps) {
   const runtime = useRuntime();
   const query = useDetailQuery(props, 'permission.rules', {});
@@ -573,7 +590,7 @@ export function Permissions(props: InspectorProps) {
         {query.data?.result?.rules?.map((rule) => (
           <div key={rule.id} {...stylex.props(layout.column, layout.notice)}>
             <strong>{rule.operation}</strong>
-            <code>{rule.rule}</code>
+            <RuleScope operation={rule.operation} rule={rule.rule} />
             <span {...stylex.props(layout.muted)}>
               {rule.principal_id} · {rule.created_at}
             </span>
@@ -593,9 +610,15 @@ export function Permissions(props: InspectorProps) {
         {query.data?.result?.rules?.length === 0 && <Empty>No saved session rules.</Empty>}
       </Section>
       <Section title="Global host rules">
-        {query.data?.result?.global?.map((rule, index) => (
-          <code key={index}>{rule}</code>
-        ))}
+        {query.data?.result?.global?.map((entry, index) => {
+          const { operation, rule } = splitGlobalRule(entry);
+          return (
+            <div key={index} {...stylex.props(layout.column, layout.notice)}>
+              <strong>{operation}</strong>
+              <RuleScope operation={operation} rule={rule} />
+            </div>
+          );
+        })}
         {query.data?.result?.global?.length === 0 && <Empty>No global rules.</Empty>}
       </Section>
     </>

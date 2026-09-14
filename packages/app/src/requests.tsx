@@ -10,6 +10,7 @@ import { CircleHelp, PenLine, ShieldAlert, X } from 'lucide-react';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
+import { describeRule } from './permission-scope';
 
 function captureAnswerFocus() {
   const previous = document.activeElement;
@@ -127,7 +128,7 @@ function PermissionRequest({
         <pre aria-label="Requested operation" tabIndex={0} {...stylex.props(layout.pre, permissionStyles.command)}>
           {permission.command || permission.canonical_path || permission.operation}
         </pre>
-        {permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {permission.rule}</p>}
+        {permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {describeRule(permission.operation, permission.rule).summary}</p>}
         {error !== undefined && <ErrorNotice type="action" owner={`permission:${permission.id}`} error={error} title="Approval status needs checking" tone="warning" />}
         {uncertain ? (
           <Button
