@@ -213,10 +213,15 @@ func TestMCPChildInheritanceAndNarrowing(t *testing.T) {
 	}
 }
 
-func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
+// TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild: re-attaching
+// a name that is not native replaces that entry in the live manager (no
+// manager swap), stays untrusted, and invalidates a child whose grant was
+// bound to the earlier definition.
+func TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	firstURL, firstEffects := localMCPFixture(t, "old instructions")
-	_, root, runtime := mcpRuntimeFixture(t, firstURL, true)
+	_, root, runtime := mcpRuntimeFixture(t, firstURL, false)
+	before := root.mcpManager()
 	child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "child"})
 	secondInstructions := strings.TrimSpace(strings.Repeat("current server guidance\n", 1000))
 	secondURL, secondEffects := localMCPFixture(t, secondInstructions)
@@ -227,6 +232,9 @@ func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
 		t.Fatalf("attach=%+v", result)
 	}
 	manager := root.mcpManager()
+	if manager != before {
+		t.Fatal("attach replaced the running manager instead of adding to it")
+	}
 	waitMCPReady(t, manager)
 	call, err := manager.ResolveTool("local", "mutate")
 	if err != nil || call.Trusted {
@@ -266,6 +274,65 @@ func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
 	}
 	if body.String() != secondInstructions {
 		t.Fatal("instructions continuation lost content")
+	}
+}
+
+// TestMCPAttachmentIsAdditiveAndBounded: attachments accumulate across names,
+// stay out of a definition's explicit server list, and never take a native
+// name. Refusals are visible as blocked rows.
+func TestMCPAttachmentIsAdditiveAndBounded(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	nativeURL, nativeEffects := localMCPFixture(t, "native")
+	_, root, runtime := mcpRuntimeFixture(t, nativeURL, true)
+	extraURL, _ := localMCPFixture(t, "extra")
+	adminURL, adminEffects := localMCPFixture(t, "admin")
+	root.definition.MCP.Servers = []string{"local", "extra"}
+
+	result := clientCommand(t, root, "acp", "attach-extra", "mcp.attach", protocol.MCPAttachParams{
+		Servers: map[string]mcp.ServerConfig{"extra": {URL: extraURL, StartupTimeout: 2, ToolTimeout: 2}},
+	})
+	if result.Status != "succeeded" {
+		t.Fatalf("attach extra=%+v", result)
+	}
+	result = clientCommand(t, root, "acp", "attach-admin", "mcp.attach", protocol.MCPAttachParams{
+		Servers: map[string]mcp.ServerConfig{
+			"admin": {URL: adminURL, StartupTimeout: 2, ToolTimeout: 2},
+			"local": {URL: adminURL, Origin: "whip", Trusted: true, StartupTimeout: 2, ToolTimeout: 2},
+		},
+	})
+	if result.Status != "succeeded" {
+		t.Fatalf("attach admin=%+v", result)
+	}
+	manager := root.mcpManager()
+	waitMCPReady(t, manager)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := manager.ResolveTool("extra", "mutate"); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := manager.ResolveTool("extra", "mutate"); err != nil {
+		t.Fatalf("second attachment did not keep the first: %v (%+v)", err, manager.Statuses())
+	}
+	if _, err := manager.ResolveTool("admin", "mutate"); err == nil {
+		t.Fatal("attachment outside the definition's server list became callable")
+	}
+	if call, err := manager.ResolveTool("local", "mutate"); err != nil || !call.Trusted {
+		t.Fatalf("attachment took over the native name: call=%+v err=%v", call, err)
+	}
+	notes := map[string]string{}
+	for _, row := range manager.Blocked() {
+		notes[row.Name] = row.Note
+	}
+	if !strings.Contains(notes["admin"], "server list") || !strings.Contains(notes["local"], "native") {
+		t.Fatalf("refusals must stay visible as blocked rows, got %+v", notes)
+	}
+	if err := mcpCell(t, runtime.rootNode, "mutate"); err != nil {
+		t.Fatal(err)
+	}
+	if nativeEffects.Load() != 1 || adminEffects.Load() != 0 {
+		t.Fatalf("native=%d admin=%d", nativeEffects.Load(), adminEffects.Load())
 	}
 }
 

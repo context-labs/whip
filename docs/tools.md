@@ -186,7 +186,10 @@ global Claude file retain their provenance and require consent or a saved
 allow rule; `whip mcp import` materializes them into native configuration,
 which is how an imported server becomes trusted. The project file is an
 import source of its own and is off unless enabled. ACP attachments are
-untrusted for calls. Only the daemon's native configuration establishes native
+additive and untrusted for calls: they join the running manager, an
+attachment outside the agent definition's server list or one that names a
+native server is recorded as blocked instead, and re-attaching a
+non-native name replaces that entry. Only the daemon's native configuration establishes native
 trust. A client cannot claim it or replace a native definition by attaching a
 server of the same name.
 Explicit permission denials and revoked grants still win. Headless execution

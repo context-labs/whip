@@ -521,6 +521,29 @@ func TestImportPolicyFrom(t *testing.T) {
 	}
 }
 
+// TestSelect pins the one selection step every manager construction path
+// uses: nil means every host server, an explicit list is a boundary.
+func TestSelect(t *testing.T) {
+	f := Filtered{
+		Merged:  map[string]ServerConfig{"docs": {URL: "http://docs"}, "admin": {URL: "http://admin"}},
+		Blocked: map[string]ServerConfig{"ghost": {Note: "blocked"}, "docs-old": {Note: "blocked"}},
+	}
+	same := Select(f, nil)
+	if len(same.Merged) != 2 || len(same.Blocked) != 2 {
+		t.Fatalf("nil list must leave discovery unchanged, got %+v", same)
+	}
+	narrowed := Select(f, []string{"docs", "ghost"})
+	if _, ok := narrowed.Merged["admin"]; ok || len(narrowed.Merged) != 1 {
+		t.Errorf("admin must not survive an explicit list, got %+v", narrowed.Merged)
+	}
+	if _, ok := narrowed.Blocked["docs-old"]; ok || len(narrowed.Blocked) != 1 {
+		t.Errorf("blocked rows follow the same list, got %+v", narrowed.Blocked)
+	}
+	if len(Select(f, []string{}).Merged) != 0 {
+		t.Error("an empty list means no servers")
+	}
+}
+
 func TestToolNameRoundTrip(t *testing.T) {
 	// Safe names pass through unchanged with claude-style double underscores.
 	name := ToolName("my-server", "get_doc.v2")

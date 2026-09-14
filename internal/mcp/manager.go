@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1010,6 +1011,23 @@ func (m *Manager) SetSourceErrors(errs map[string]error) {
 		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusFailed, Err: "not imported: " + err.Error(), Source: path})
 	}
 	sort.Slice(m.sourceErrors, func(i, j int) bool { return m.sourceErrors[i].Name < m.sourceErrors[j].Name })
+}
+
+// AddBlocked records more never-connected servers beside the startup set: an
+// attachment outside the agent's server list, or one that tried to take a
+// native name. A repeated name replaces its earlier row.
+func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, c := range cfgs {
+		row := Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source}
+		if i := slices.IndexFunc(m.blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
+			m.blocked[i] = row
+			continue
+		}
+		m.blocked = append(m.blocked, row)
+	}
+	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
 }
 
 // SourceErrors returns the name-sorted snapshot of unreadable discovery

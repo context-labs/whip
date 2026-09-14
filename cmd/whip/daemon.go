@@ -180,20 +180,9 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
-		if definition.MCP.Servers != nil {
-			// The definition names the servers it uses; everything else the host
-			// configured stays out of this session.
-			for name := range discovery.Merged {
-				if !slices.Contains(definition.MCP.Servers, name) {
-					delete(discovery.Merged, name)
-				}
-			}
-			for name := range discovery.Blocked {
-				if !slices.Contains(definition.MCP.Servers, name) {
-					delete(discovery.Blocked, name)
-				}
-			}
-		}
+		// The definition names the servers it uses; everything else the host
+		// configured stays out of this session. Attachment applies the same step.
+		discovery = mcp.Select(discovery, definition.MCP.Servers)
 		for source, err := range discovery.Errs {
 			config.LogEvent("mcp", fmt.Sprintf("discovery: %s: %v", source, err))
 		}

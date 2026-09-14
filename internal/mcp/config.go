@@ -264,6 +264,30 @@ type Filtered struct {
 	Errs    map[string]error
 }
 
+// Select narrows a discovery result to the servers an agent definition
+// names. A nil list means every server the host configures and returns f
+// unchanged; an explicit list drops everything else from both the live and
+// the blocked sets. Every manager construction path (the daemon factory at
+// startup and reload, and client attachment) goes through this one step, so
+// the definition's server list is an authority boundary rather than a
+// startup convenience.
+func Select(f Filtered, allowed []string) Filtered {
+	if allowed == nil {
+		return f
+	}
+	keep := func(in map[string]ServerConfig) map[string]ServerConfig {
+		out := make(map[string]ServerConfig, len(in))
+		for name, cfg := range in {
+			if slices.Contains(allowed, name) {
+				out[name] = cfg
+			}
+		}
+		return out
+	}
+	f.Merged, f.Blocked = keep(f.Merged), keep(f.Blocked)
+	return f
+}
+
 // SourceLabel names a discovery source the way /mcp and `whip mcp list`
 // refer to it, so a failed-source row reads like the servers it would have
 // produced.
