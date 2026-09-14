@@ -18,7 +18,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => route.navigate,
   useRouter: () => ({ state: { location: route.location } }),
 }));
-vi.mock('../src/directory-picker', () => ({ DirectoryPicker: ({ onSelect, disabled }: { onSelect(value: string): void; disabled: boolean }) => <button type="button" disabled={disabled} onClick={() => onSelect('/edited')}>Choose folder</button> }));
+vi.mock('../src/directory-picker', () => ({ DirectoryPicker: ({ onSelect, disabled, value }: { onSelect(value: string): void; disabled: boolean; value: string }) => <button type="button" title={value} disabled={disabled} onClick={() => onSelect('/edited')}>Choose folder</button> }));
 beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })); route.search = { cwd: '/repo', runtimeId: 'host' }; route.location = { state: { __TSR_key: 'initial' } }; route.navigate.mockClear(); });
 afterEach(() => vi.unstubAllGlobals());
 const provider = (id: string, available: boolean) => ({ id, name: id === 'inference-net' ? 'Inference.net' : 'OpenRouter', custom: false, recommended: id === 'inference-net', suggested_model: available ? 'coding-model' : '', methods: ['api_key'], status: { provider: id, available, configured: available, key_source: available ? 'environment' : 'none', auth_state: available ? 'connected' : 'key_required', warnings: [] } });
@@ -63,8 +63,13 @@ function fixture(ready = true, entries = [provider('inference-net', ready), prov
   const view = render(tree());
   return { runtime, client, inventory, start, drafts, query, tabs, first, focus: (value: boolean) => { focused = value; view.rerender(tree()); }, select: (id: string) => { active = id; view.rerender(tree()); }, ...view, rerender: () => view.rerender(tree()) };
 }
+async function openSessionOptions() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Session options', exact: true }));
+}
 it('keeps independent drafts and setup through tab and host switches without sending', async () => {
   const f = fixture();
+  await screen.findByLabelText('Your first message');
   expect(screen.getByTitle('/repo')).toBeTruthy(); expect(f.start).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Local draft' } });
   fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
@@ -72,24 +77,23 @@ it('keeps independent drafts and setup through tab and host switches without sen
   let second!: NewChatTab;
   act(() => { second = f.tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/second' }); });
   f.select(second.id);
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('');
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('');
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Second draft' } });
   act(() => { f.tabs.updateNew(second.id, { hostProfileId: 'remote', runtimeId: 'another' }); });
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Second draft');
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Second draft');
   expect(screen.getByTitle('/second')).toBeTruthy();
   f.select(f.first.id);
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Local draft');
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Local draft');
   expect(screen.getByTitle('/edited')).toBeTruthy(); expect(f.start).not.toHaveBeenCalled();
 });
 it('sends the edited folder, explicit ready pair, prompt and default Ask only after Send', async () => {
   const f = fixture();
   await screen.findByRole('button', { name: 'Send first message' });
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
-  expect(f.client.providers.catalogs).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Explain auth' } });
   fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.start).toHaveBeenCalledExactlyOnceWith(f.first.id, f.client, { cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt', execution_engine: 'starlark' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledExactlyOnceWith(f.first.id, f.client, { cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt', execution_engine: 'starlark' }, { effort: undefined }));
   expect(f.drafts.get(welcomeDraftKey(f.first.id))).toBe('Explain auth');
   expect(route.navigate).not.toHaveBeenCalled(); // App-owned completion promotes; a panel never navigates on acceptance.
 });
@@ -97,20 +101,22 @@ it('sends the edited folder, explicit ready pair, prompt and default Ask only af
 it('retains the selected execution language in its draft and sends it explicitly', async () => {
   const f = fixture();
   await screen.findByRole('button', { name: 'Send first message' });
+  await openSessionOptions();
   fireEvent.click(screen.getByRole('combobox', { name: 'Execution language' }));
   const option = await screen.findByRole('option', { name: 'JavaScript (QuickJS)' });
   fireEvent.pointerDown(option); fireEvent.click(option);
   expect((f.tabs.workspace().tabs[0] as NewChatTab).executionEngine).toBe('quickjs');
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Use this language' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.first.id, f.client, expect.objectContaining({ execution_engine: 'quickjs' })));
+  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.first.id, f.client, expect.objectContaining({ execution_engine: 'quickjs' }), { effort: undefined }));
 });
 
 it('does not offer unadvertised execution engines or send with missing discovery', async () => {
   const f = fixture();
   f.client.getSnapshot().info.execution_engines = [];
   f.rerender();
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Keep this task' } });
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this task' } });
   expect((await screen.findByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
   expect(f.start).not.toHaveBeenCalled();
@@ -123,31 +129,45 @@ it('offers only one default confirmation for the detected OpenRouter route with 
   const connect = within(panel).getByRole('button', { name: 'Connect Inference.net' });
   expect(available.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getAllByText('Recommended')).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Retain this task' } });
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Retain this task'); });
   fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
   await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalledExactlyOnceWith({ revision: '1', default_model: 'coding-model', default_provider: 'openrouter', default_effort: '' }, { signal: expect.any(AbortSignal) }));
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
   expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Retain this task');
   expect(f.start).not.toHaveBeenCalled();
 });
-it('connects a key directly beside the welcome draft, masks it, then asks for the explicit model pair', async () => {
+it('connects a key during setup, masks it, and preserves the draft until model confirmation', async () => {
   const f = fixture(false);
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Keep me while signing in' } });
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep me while signing in'); });
+  fireEvent.click(await screen.findByRole('button', { name: 'Show all providers' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   const key = await screen.findByLabelText('API key') as HTMLInputElement;
   expect(key.type).toBe('password'); fireEvent.change(key, { target: { value: 'secret-key' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   await screen.findByRole('button', { name: 'Use coding-model' });
   expect(f.client.configuration.update).not.toHaveBeenCalled();
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Keep me while signing in');
+  expect(screen.queryByLabelText('Your first message')).toBeNull();
+  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep me while signing in');
   expect(JSON.stringify([...f.drafts])).not.toContain('secret-key');
   expect(JSON.stringify(f.query.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('replaces an unavailable draft route after explicit provider setup confirmation', async () => {
+  const f = fixture();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this draft' } });
+  act(() => { f.tabs.updateNew(f.first.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }); });
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Inference.net' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
+  const tab = f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as NewChatTab;
+  expect(tab.model).toBeUndefined(); expect(tab.provider).toBeUndefined(); expect(tab.effort).toBeUndefined();
+  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Keep this draft');
   expect(f.start).not.toHaveBeenCalled();
 });
 it('does not navigate away from a later route when the first submission resolves', async () => {
   const f = fixture(); let finish!: (rootId: string) => void;
   f.start.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Task' } });
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Task' } });
   fireEvent.click(await screen.findByRole('button', { name: 'Send first message' }));
   await waitFor(() => expect(f.start).toHaveBeenCalledOnce());
   route.location = { state: { __TSR_key: 'another-visit' } }; f.rerender();
@@ -157,14 +177,13 @@ it('does not navigate away from a later route when the first submission resolves
 
 it('retains the draft and explains a compatible old host needs updating instead of looping through setup', async () => {
   const f = fixture(false, [provider('inference-net', true)], true);
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Keep this task' } });
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep this task'); });
   await screen.findByText('Update Whip on Local to use provider setup. Your draft is preserved.');
   expect(screen.queryByRole('button', { name: 'Use Inference.net' })).toBeNull();
-  expect((screen.getByRole('button', { name: 'Set up provider' }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
+  expect(screen.queryByLabelText('Your first message')).toBeNull();
   expect(f.start).not.toHaveBeenCalled(); expect(f.client.configuration.update).not.toHaveBeenCalled();
-  expect(f.client.providers.catalogs).not.toHaveBeenCalled();
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Keep this task');
+  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep this task');
 });
 
 it('does not focus a background pane composer when provider setup completes', async () => {
@@ -182,7 +201,7 @@ it('locks editable text for both active admission and retained unresolved first 
   const f = fixture();
   let finish!: (id: string) => void;
   f.start.mockImplementation(() => new Promise<string>(resolve => { finish = resolve; }));
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Frozen task' } });
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Frozen task' } });
   fireEvent.click(await screen.findByRole('button', { name: 'Send first message' }));
   expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).disabled).toBe(true);
   vi.spyOn(f.runtime.welcome, 'get').mockReturnValue({ state: 'creating', create: { commandId: 'create', runtimeId: 'host' }, input: { commandId: 'input' } } as never);
@@ -210,12 +229,14 @@ it('retries accepted journal retirement from recovery even when its tab is alrea
 
 it('offers the host’s agent definitions and sends the chosen one with the first message', async () => {
   const f = fixture();
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Triage the queue' } });
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Triage the queue' } });
+  await openSessionOptions();
   const picker = await screen.findByRole('combobox', { name: 'Agent' });
   fireEvent.click(picker);
   const option = await screen.findByRole('option', { name: 'support-triage' });
   fireEvent.pointerDown(option); fireEvent.click(option);
   await waitFor(() => expect((f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as { definition?: string }).definition).toBe('support-triage'));
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await waitFor(() => expect(f.start).toHaveBeenCalledOnce());
   expect(f.start.mock.calls[0][2]).toMatchObject({ cwd: '/repo', definition: 'support-triage', execution_engine: 'starlark' });

@@ -1,5 +1,5 @@
 import type { ConnectionProfile, ConnectionTarget } from './connections';
-import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor } from './platform';
+import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor, SSHProfileList } from './platform';
 export type { LocalRuntimeStatus } from './platform';
 
 /** Serialized contract only. Electron implementation and IPC objects stay in the host. */
@@ -45,6 +45,7 @@ export interface DesktopBridge {
   copy(text: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   pickDirectory(): Promise<string | undefined>;
+  listSSHProfiles?(): Promise<SSHProfileList>;
   listProjectEditors(): Promise<readonly ProjectEditor[]>;
   /** connectionId is a native handle. URL sources never gain local folder authority. */
   openProject(request: OpenProjectRequest, urlSource?: ConnectionProfile): Promise<void>;

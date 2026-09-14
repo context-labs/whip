@@ -17,6 +17,7 @@ type Auth struct {
 	SessionToken   string `json:"sessionToken,omitempty"`
 	UserEmail      string `json:"userEmail,omitempty"`
 	TeamID         string `json:"teamId,omitempty"`
+	TeamName       string `json:"teamName,omitempty"`
 	ProjectID      string `json:"projectId,omitempty"`
 	ProjectName    string `json:"projectName,omitempty"`
 	MachineKeyID   string `json:"machineKeyId,omitempty"`

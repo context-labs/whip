@@ -182,7 +182,12 @@ export class HostConnections {
     return setup.promise;
   }
   async connectOnLaunch() {
-    await Promise.allSettled([...this.records.values()].filter(record => record.profile.connect_on_launch).map(record => this.connect(record.profile.id)));
+    const local = this.connect('local');
+    // Saved remote hosts restore in the background; they must not gate the shell.
+    for (const record of this.records.values())
+      if (record.profile.id !== 'local' && record.profile.connect_on_launch)
+        void this.connect(record.profile.id).catch(() => {});
+    await local.catch(() => {});
   }
   private persistDevice(profile: ConnectionProfile) {
     if (this.preserveDeviceRecords) throw new Error('Saved execution hosts need recovery. Original device records have been preserved.');
@@ -212,7 +217,13 @@ export class HostConnections {
     signal?.addEventListener('abort', cancel, { once: true });
     try { await this.connect(target.id); signal?.throwIfAborted(); this.persistDevice(record.target); }
     catch (error) {
-      if (this.records.get(target.id) === record) { this.detach(record); if (existing) { this.records.set(target.id, existing); existing.error = errorMessage(error); } else record.error = errorMessage(error); this.publish(); }
+      if (this.records.get(target.id) === record) {
+        this.detach(record);
+        const message = signal?.aborted ? undefined : errorMessage(error);
+        if (existing) { this.records.set(target.id, existing); existing.error = message; }
+        else record.error = message;
+        this.publish();
+      }
       throw error;
     }
     finally { signal?.removeEventListener('abort', cancel); }

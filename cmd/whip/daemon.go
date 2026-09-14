@@ -164,6 +164,11 @@ func runDaemon(ctx context.Context, args []string) error {
 			ag.CompactClient = compact.Client
 			ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
 			ag.CompactPricing = compact.Pricing
+		} else {
+			// Summaries fall back to the conversation's own model. Say so:
+			// silently folding on an expensive reasoning model cost a session
+			// 160 s per fold before anyone noticed the cheap model was unused.
+			config.LogEvent("compaction.fallback", fmt.Sprintf("compact model %q (provider %q) unavailable, summaries run on the conversation model: %v", compactName, compactProvider, resolveErr))
 		}
 		ag.CompactThreshold = definition.Compaction.Threshold
 		if ag.CompactThreshold == 0 {

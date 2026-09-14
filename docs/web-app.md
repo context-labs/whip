@@ -248,6 +248,18 @@ WHIP_NETWORK=1 ./whip daemon restart
 
 ## Develop against an existing daemon
 
+For UI iteration, run `npm run dev:web` from the repository root and open
+`http://127.0.0.1:3000`. Vite reloads changes in `apps/web`, `packages/app` and
+`packages/ui`; `task update:local` is only needed to rebuild/install the packaged
+desktop app. Run `npm run build` after changing SDK source, since the renderer
+consumes its built output. Backend changes require a matching rebuilt daemon.
+
+`task run -- web` runs the source **whip** CLI and opens daemon-served production
+assets; it does not start Vite. By default, whip uses `~/.whip` and `WHIP_*`, while
+the installed **whipcode** uses `~/.whipcode` and `WHIPCODE_*`. Restarting one does
+not replace the other's daemon. An `unsupported protocol major` error can mean
+the source CLI is attaching to an older daemon in that other runtime directory.
+
 Vite proxies `/api`, including WebSockets, to `http://127.0.0.1:8080` by default,
 matching the desktop-managed local whipcode endpoint. Set `WHIP_WEB_DAEMON` to
 override that address. The browser still connects to port 3000; Vite forwards
@@ -284,7 +296,8 @@ allow the Origin where this web app is open.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check the daemon's protocol and allowed origins. A running older daemon is not
-upgraded by starting Vite: this app requires protocol 5. Build it with `task build`,
+upgraded by starting Vite: the daemon must match the protocol major in
+`internal/protocol/types.go` and the generated SDK contract. Build it with `task build`,
 stop the old daemon using its original binary, and start `./whip` with the network
 settings above. Use the same `WHIP_HOME` on both commands to retain the same
 runtime. Stopping a daemon interrupts active work. Do not reset a compatible

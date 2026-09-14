@@ -1,0 +1,163 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
+import { ThemeProvider, UIProvider } from '@whip/ui';
+import type { WhipClient } from '@whip/sdk';
+import { AppRuntime } from '../src/runtime';
+import { RuntimeContext, useSessionTabs } from '../src/context';
+import { Welcome } from '../src/welcome';
+import { welcomeDraftKey } from '../src/welcome-submission';
+import type { HostConnection } from '../src/hosts';
+import type { NewChatTab } from '../src/session-tabs';
+
+const runtimes: AppRuntime[] = [];
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
+afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); vi.unstubAllGlobals(); });
+
+function fixture(remoteHost = false, providerReady = true) {
+  const values = new Map<string, string>();
+  const storage = { keys: () => [...values.keys()], getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
+  const pickDirectory = vi.fn(async () => '/selected/project');
+  const runtime = new AppRuntime({ storage, pickDirectory, defaultEndpoint: 'http://localhost:8080', copy: async () => {}, download: async () => {}, openExternal: async () => {} });
+  runtimes.push(runtime);
+  runtime.queries.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } });
+  const snapshot = { state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'starlark', execution_engines: [{ id: 'starlark', label: 'Starlark' }, { id: 'quickjs', label: 'JavaScript' }] } };
+  const inventory = { revision: '1', selection: { ready: providerReady, model: 'gpt-6-astra', provider: 'openai' }, providers: [{ id: 'openai', name: 'OpenAI', methods: ['api_key'], suggested_model: 'gpt-6-astra', status: { available: providerReady, key_source: providerReady ? 'literal' : 'none' } }] };
+  const catalog = { result: { models: {}, providers: { openai: { available: true } }, catalogs: { openai: { models: [{ id: 'gpt-6-astra', reasoning_efforts: ['low', 'high'] }, { id: 'gpt-5.5', reasoning_efforts: ['low', 'high'] }] } } } };
+  const configuration = { revision: '1', default_effort: 'high', default_execution_engine: 'starlark' };
+  const raw = {
+    getSnapshot: () => snapshot, subscribe: () => () => {}, supports: () => false,
+    configuration: { get: vi.fn(async () => configuration), update: vi.fn() },
+    providers: { setKey: vi.fn(async () => ({})), catalogs: vi.fn(async () => catalog), list: vi.fn(async () => inventory), login: { list: vi.fn(async () => ({ flows: [] })) } },
+    host: { directories: vi.fn(async ({ path }: { path?: string }) => ({ path: path || '/project/whip', entries: [] })), pickDirectory: vi.fn() },
+  };
+  const client = raw as unknown as WhipClient;
+  const recent = { page: { items: [{ cwd: '/remote/recent', updated_at: '2026-09-13' }] } };
+  const host = { id: 'local', runtimeId: 'host', name: remoteHost ? 'Kuzco' : 'Local', local: !remoteHost, state: 'connected', client,
+    profile: { target: remoteHost ? { kind: 'ssh', user: 'sam', host: 'kuzco' } : { kind: 'local' } },
+    list: { subscribe: () => () => {}, getSnapshot: () => recent },
+  } as unknown as HostConnection;
+  const remote = { id: 'remote', runtimeId: 'remote-host', name: 'Mac mini', local: false, state: 'closed', endpoint: 'http://mm.local:8080', profile: { target: { kind: 'url', endpoint: 'http://mm.local:8080' } } } as HostConnection;
+  const appState = { ...runtime.getSnapshot(), hosts: [host, remote] };
+  vi.spyOn(runtime, 'getSnapshot').mockReturnValue(appState);
+  const connect = vi.spyOn(runtime.connections, 'connect').mockResolvedValue();
+  const start = vi.spyOn(runtime.welcome, 'start').mockResolvedValue('created');
+  const tab = runtime.tabs.openNew({ hostProfileId: 'local', runtimeId: 'host', cwd: '/project/whip' });
+  for (const [key, data] of [['provider-list', inventory], ['provider-catalogs', catalog], ['runtime-configuration', configuration], ['provider-login-flows', { flows: [] }]] as const)
+    runtime.queries.setQueryData([key, 'host'], data);
+  function Content() {
+    useSessionTabs();
+    return <Welcome tab={runtime.tabs.workspace().tabs.find(item => item.id === tab.id) as NewChatTab} />;
+  }
+  const route = createRootRoute({ component: () => <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.queries}><ThemeProvider initialTheme="dark"><UIProvider><Content /></UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider> });
+  const router = createRouter({ routeTree: route, history: createMemoryHistory({ initialEntries: ['/'] }) });
+  return { runtime, tab, raw, inventory, start, connect, pickDirectory, render: () => render(<RouterProvider router={router} />) };
+}
+
+it('keeps the ready composer focused and saves model/effort choices to this draft only', async () => {
+  const f = fixture(); f.render();
+  const input = await screen.findByRole('textbox', { name: 'Your first message' });
+  expect(screen.queryByText('Change host')).toBeNull();
+  expect(screen.queryByLabelText('Execution language')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  fireEvent.change(input, { target: { value: 'Explain the code' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name: /gpt-5.5/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }));
+  expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ model: 'gpt-5.5', provider: 'openai', effort: 'high' });
+  expect(f.raw.configuration.update).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Explain the code');
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.tab.id, expect.anything(), expect.objectContaining({ cwd: '/project/whip', model: 'gpt-5.5', provider: 'openai', permission_mode: 'prompt' }), { effort: 'high' }));
+});
+
+it('switches execution host without sending or losing the prompt and clears host-specific choices', async () => {
+  const f = fixture(); f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Keep this task' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Execution host' }));
+  const item = await screen.findByRole('menuitem', { name: /Mac mini/ });
+  expect(item.textContent).toContain('Disconnected'); expect(item.textContent).toContain('mm.local:8080');
+  fireEvent.click(item);
+  await waitFor(() => expect(f.connect).toHaveBeenCalledWith('remote'));
+  expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ hostProfileId: 'remote', cwd: '' });
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('opens the native system picker directly from the local folder control', async () => {
+  const f = fixture(); f.render();
+  const folder = await screen.findByRole('button', { name: 'Project folder' });
+  expect(screen.queryByRole('button', { name: 'Browse host' })).toBeNull();
+  fireEvent.click(folder);
+  await waitFor(() => expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ cwd: '/selected/project' }));
+  expect(f.pickDirectory).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(f.raw.host.pickDirectory).not.toHaveBeenCalled();
+  expect(f.raw.host.directories).not.toHaveBeenCalled();
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('uses remote recents and sends the confirmed remote directory with the retained draft', async () => {
+  const f = fixture(true); f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Explain the remote project' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Project folder' }));
+  await screen.findByRole('dialog', { name: 'Choose a folder' });
+  expect(screen.getByText('sam@kuzco')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'recent', exact: true }));
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Choose folder', exact: true }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose folder', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ cwd: '/remote/recent' });
+  expect(f.pickDirectory).not.toHaveBeenCalled(); expect(f.raw.host.pickDirectory).not.toHaveBeenCalled();
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Explain the remote project');
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.tab.id, expect.anything(), expect.objectContaining({ cwd: '/remote/recent' }), expect.anything()));
+});
+
+it('keeps an unsupported saved effort visible and requires an explicit replacement before sending', async () => {
+  const f = fixture();
+  f.runtime.tabs.updateNew(f.tab.id, { effort: 'high' });
+  f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Use my saved choice' } });
+  act(() => { f.runtime.queries.setQueryData(['provider-catalogs', 'host'], { result: { models: {}, providers: {}, catalogs: {} } }); });
+  await screen.findByText('Choose an available reasoning effort for this model before sending.');
+  expect(screen.getByRole('button', { name: 'Reasoning effort' }).textContent).toContain('High');
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your first message' }), { key: 'Enter' });
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ effort: 'high' });
+  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Default' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.tab.id, expect.anything(), expect.anything(), { effort: 'off' }));
+});
+
+it('shows standalone provider setup, reuses the connection dialog and restores the draft after explicit model confirmation', async () => {
+  const f = fixture(false, false);
+  f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep my task'); f.render();
+  await screen.findByRole('heading', { name: 'Connect a provider to get started', level: 1 });
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Project folder' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Connect Remote' })).toBeTruthy();
+  f.raw.providers.setKey.mockImplementation(async () => {
+    f.raw.providers.list.mockResolvedValue({ ...f.inventory, providers: [{ ...f.inventory.providers[0], status: { available: true, key_source: 'literal' } }] });
+    return {};
+  });
+  f.raw.configuration.update.mockImplementation(async () => {
+    f.raw.providers.list.mockResolvedValue({ ...f.inventory, selection: { ...f.inventory.selection, ready: true }, providers: [{ ...f.inventory.providers[0], status: { available: true, key_source: 'literal' } }] });
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI' }));
+  fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'fixture-api-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra', exact: true });
+  expect(f.raw.configuration.update).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  const input = await screen.findByRole('textbox', { name: 'Your first message' });
+  expect((input as HTMLTextAreaElement).value).toBe('Keep my task');
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  expect(f.raw.providers.setKey).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'openai', key: 'fixture-api-key' }), expect.anything());
+  expect(f.raw.configuration.update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ default_model: 'gpt-6-astra', default_provider: 'openai' }), expect.anything());
+  expect(f.start).not.toHaveBeenCalled();
+});

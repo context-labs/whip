@@ -106,7 +106,7 @@ func TestCompleteLoginAndMachineKey(t *testing.T) {
 	if gotCode != "ABCD-1234" {
 		t.Errorf("user code not surfaced: %q", gotCode)
 	}
-	if auth.SessionToken != "sess-tok" || auth.UserEmail != "abe@x.dev" || auth.TeamID != "user-1" {
+	if auth.SessionToken != "sess-tok" || auth.UserEmail != "abe@x.dev" || auth.TeamID != "user-1" || auth.TeamName != "personal" {
 		t.Errorf("unexpected session: %+v", auth)
 	}
 	if auth.ProjectID != "proj-1" || auth.ProjectName != "Primary" {
@@ -153,7 +153,7 @@ func TestAuthStoreRoundTrip(t *testing.T) {
 	if a, _ := LoadAuth(); a != (Auth{}) {
 		t.Errorf("missing file should yield zero Auth, got %+v", a)
 	}
-	want := Auth{SessionToken: "tok", UserEmail: "abe@x.dev", TeamID: "t1", ProjectID: "p1", MachineKey: "mk"}
+	want := Auth{SessionToken: "tok", UserEmail: "abe@x.dev", TeamID: "t1", TeamName: "Personal", ProjectID: "p1", MachineKey: "mk"}
 	if err := SaveAuth(want); err != nil {
 		t.Fatalf("SaveAuth: %v", err)
 	}

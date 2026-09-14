@@ -12,6 +12,7 @@ import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
 import { ProjectEditors, validateOpenProject, verifyProjectRuntime } from './project-open';
 import { SSHConnection } from './ssh';
+import { listSSHProfiles } from './ssh-profiles';
 import { DesktopUpdates, readDesktopConfig } from './updates';
 import { sessionLinkPath } from './links';
 import { attachStartupProbe } from './startup-probe';
@@ -136,6 +137,11 @@ async function start() {
     });
   };
   let runtimeActionPending = false;
+  let readingSSHProfiles: ReturnType<typeof listSSHProfiles> | undefined;
+  handle('listSSHProfiles', (...args: unknown[]) => {
+    if (args.length) throw new Error('SSH profile discovery does not accept arguments.');
+    return readingSSHProfiles ??= listSSHProfiles().finally(() => { readingSSHProfiles = undefined; });
+  });
   handle('getSystemContrast', (...args: unknown[]) => {
     if (args.length) throw new Error('System appearance does not accept arguments.');
     return nativeTheme.shouldUseHighContrastColors;
@@ -247,20 +253,12 @@ async function start() {
   handle('checkForUpdates', () => updates.check());
   handle('installUpdate', () => updates.install());
   let rendererReady = false;
-  let checkedLocalUpdate = false;
   openSession = path => {
     window.show(); window.focus();
     if (rendererReady) emit({ kind: 'navigate', path }); else pendingSessionPath = path;
   };
   listen('ready', () => {
     rendererReady = true; updates.ready(); if (!window.isVisible()) window.show();
-    if (!checkedLocalUpdate) {
-      checkedLocalUpdate = true;
-      const signal = runtimeLifetime.signal;
-      void localRuntime.synchronize(signal).catch(error => {
-        if (!signal.aborted && !(error instanceof Error && error.name === 'AbortError')) dialog.showErrorBox('Local backend update needs attention', error instanceof Error ? error.message : 'Connect This Mac to retry the update.');
-      });
-    }
     if (pendingSessionPath) { const path = pendingSessionPath; pendingSessionPath = undefined; openSession?.(path); }
   });
   let quitApproved = false;

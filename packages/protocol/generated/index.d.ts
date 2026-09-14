@@ -60,6 +60,9 @@ export type AgentListResult =
           media_type: string;
           source: string;
         };
+        model_calls?: number;
+        compactions?: number;
+        last_activity_at?: string;
       };
       id: string;
       root_id: string;
@@ -121,6 +124,9 @@ export interface AgentTranscriptResult {
         media_type: string;
         source: string;
       };
+      model_calls?: number;
+      compactions?: number;
+      last_activity_at?: string;
     };
     id: string;
     root_id: string;
@@ -1681,6 +1687,7 @@ export interface ProviderList {
           account_id?: string;
           plan?: string;
           email?: string;
+          team_name?: string;
           project_id?: string;
           project_name?: string;
           machine_key_name?: string;
@@ -1809,6 +1816,7 @@ export interface ProviderStatus {
   account_id?: string;
   plan?: string;
   email?: string;
+  team_name?: string;
   project_id?: string;
   project_name?: string;
   machine_key_name?: string;
@@ -2030,6 +2038,9 @@ export interface RootCollectionPage {
               media_type: string;
               source: string;
             };
+            model_calls?: number;
+            compactions?: number;
+            last_activity_at?: string;
           };
           id: string;
           root_id: string;
@@ -2167,6 +2178,9 @@ export interface RootCollectionPage {
                   media_type: string;
                   source: string;
                 };
+                model_calls?: number;
+                compactions?: number;
+                last_activity_at?: string;
               };
               id: string;
               root_id: string;
@@ -2446,6 +2460,9 @@ export interface RootSnapshot {
             media_type: string;
             source: string;
           };
+          model_calls?: number;
+          compactions?: number;
+          last_activity_at?: string;
         };
         id: string;
         root_id: string;

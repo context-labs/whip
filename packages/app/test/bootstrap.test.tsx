@@ -6,21 +6,34 @@ import { createFallbackStorage, resolveURLConnection, urlProfile, type AppPlatfo
 import type { DesktopBridge, DesktopEvent } from '../src/desktop-bridge';
 import { mountApplication } from '../../../apps/web/src/bootstrap';
 
+const renderStartup = vi.hoisted(() => vi.fn());
+
 // Exercise the real bootstrap and draft runtime without mounting unrelated product screens.
 vi.mock('@whip/app', async () => ({
   ...await import('../src/host-prompts'),
   ...await import('../src/session-tab-routing'),
   createWhipApplication(platform: AppPlatform) {
     const runtime = new AppRuntime(platform);
-    return { runtime, Application: () => null, router: { history: { push: vi.fn() } }, dispose: () => runtime.dispose() };
+    return { runtime, Application: ({ startup }: { startup: Promise<unknown> }) => { renderStartup(startup); return null; }, router: { history: { push: vi.fn() } }, dispose: () => runtime.dispose() };
   },
 }));
 
 const mounted: ReturnType<typeof mountApplication>[] = [];
 beforeEach(() => {
+  renderStartup.mockClear();
   vi.useFakeTimers();
   vi.spyOn(HostConnections.prototype, 'connectOnLaunch').mockResolvedValue();
   document.body.innerHTML = '<div id="root"></div>';
+});
+
+it('connects once and shows the desktop window while startup is still pending', () => {
+  const startup = new Promise<void>(() => {});
+  vi.mocked(HostConnections.prototype.connectOnLaunch).mockReturnValue(startup);
+  const f = fixture();
+  expect(HostConnections.prototype.connectOnLaunch).toHaveBeenCalledOnce();
+  expect(renderStartup).toHaveBeenCalledWith(startup);
+  act(() => vi.advanceTimersByTime(40));
+  expect(f.bridge.ready).toHaveBeenCalledOnce();
 });
 afterEach(() => {
   act(() => { for (const app of mounted.splice(0)) app.dispose(); });

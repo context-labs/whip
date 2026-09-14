@@ -8,6 +8,17 @@ function storage(): AppStorage {
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
 describe('window session tabs', () => {
+  it('restores each draft model route and reasoning choice without sharing defaults', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const first = state.openNew({ model: 'gpt-6-astra', provider: 'openai', effort: 'high' });
+    const second = state.openNew({});
+    state.updateNew(first.id, { effort: 'low' });
+    const restored = new SessionTabs(disk).workspace().tabs;
+    expect(restored.find(tab => tab.id === first.id)).toMatchObject({ model: 'gpt-6-astra', provider: 'openai', effort: 'low' });
+    expect(restored.find(tab => tab.id === second.id)).not.toHaveProperty('model');
+    expect(() => state.updateNew(first.id, { provider: undefined })).toThrow('Invalid New Chat options');
+    expect(() => state.updateNew(first.id, { effort: 'high\nlow' })).toThrow('Invalid New Chat options');
+  });
   it('opens fresh REPL views next to their source and restores each identity independently', () => {
     const disk = storage(), state = new SessionTabs(disk);
     state.open('mac', 'before'); state.visit('mac', 'root', { agent: 'child', panel: 'context' }); state.open('mac', 'after');

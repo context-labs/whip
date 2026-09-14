@@ -20,6 +20,9 @@ export interface NewChatTab {
   readonly cwd: string;
   readonly permissionMode: PermissionMode;
   readonly executionEngine?: 'starlark' | 'quickjs';
+  readonly model?: string;
+  readonly provider?: string;
+  readonly effort?: string;
   /** Agent definition id the session runs; absent means the host's default (coding). */
   readonly definition?: string;
 }
@@ -36,7 +39,7 @@ export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab;
 /** Chat and REPL descriptors carry session identity; New Chat and terminal descriptors do not. */
 export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl';
 export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
-export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 export interface SessionPane {
@@ -151,9 +154,15 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
       (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
       (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
+      (value.model !== undefined && !identity(value.model)) ||
+      (value.provider !== undefined && !identity(value.provider)) ||
+      ((value.model === undefined) !== (value.provider === undefined)) ||
+      (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||
       (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
       (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
+      ...(value.model === undefined ? {} : { model: value.model as string, provider: value.provider as string }),
+      ...(value.effort === undefined ? {} : { effort: value.effort as string }),
       ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
       ...(value.definition === undefined ? {} : { definition: value.definition as string }),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),

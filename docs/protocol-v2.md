@@ -477,9 +477,14 @@ configuration to distinguish loaded model catalogs from unverified public or
 bundled lists. Ordinary configuration reads omit it; it is not persisted state
 or proof of a successful inference call.
 `provider.disconnect` requires `{ provider, revision }`, removes the selected
-WHIP-owned credential and disables the route. External/environment credentials
-can only be disabled. Legacy `provider.logout` retains account-only behavior.
-Disabling rejects subsequent model-request admissions, including helpers,
+WHIP-owned credentials and clears any disabled flag for that provider.
+Built-in endpoints return to their default environment-key reference; custom
+endpoints and model defaults are preserved. Existing host credentials can make
+the default provider available again. External/environment credentials must be
+removed at their source; reset of a disabled route never deletes them.
+Legacy `provider.logout` retains account-only behavior. The configuration API
+accepts disabled IDs without deleting credentials; re-enabling reuses the existing
+credentials. Disabling rejects subsequent model-request admissions, including helpers,
 subagents and compaction; already admitted calls keep their route snapshot.
 
 `host.directories.list` browses directories on the execution machine before a

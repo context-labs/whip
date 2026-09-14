@@ -23,6 +23,14 @@ type TurnOutcome struct {
 	Error          string        `json:"error,omitempty"`
 	ErrorTruncated bool          `json:"error_truncated,omitempty"`
 	ErrorDetails   *RuntimeValue `json:"error_details,omitempty"`
+	// Activity of the turn, kept current from the model-call lifecycle so a
+	// parent polling agents.list or a client rendering the agent row can tell
+	// steady work from a stalled loop without loading transcripts: how many
+	// conversation calls the turn has made, how many compaction summaries it
+	// ran, and when it was last heard from. Carried onto the finished outcome.
+	ModelCalls     int    `json:"model_calls,omitempty"`
+	Compactions    int    `json:"compactions,omitempty"`
+	LastActivityAt string `json:"last_activity_at,omitempty"`
 }
 
 // Scan decodes the nullable JSON projection using database/sql's pointer scan.
@@ -57,6 +65,9 @@ func turnEventStatus(kind string) string {
 }
 
 func (s *Store) projectTurnEvent(ctx context.Context, q runtimeValueWriter, rootID, kind string, payload []byte, seq int64, stamp string) error {
+	if kind == "model.call.started" || kind == "model.call.settled" {
+		return s.projectTurnActivity(ctx, q, rootID, kind, payload, seq, stamp)
+	}
 	status := turnEventStatus(kind)
 	if status == "" || len(payload) == 0 {
 		return nil
@@ -98,6 +109,7 @@ func (s *Store) projectTurnEvent(ctx context.Context, q runtimeValueWriter, root
 			}
 			if outcome.TurnID != "" && outcome.TurnID == prior.TurnID {
 				outcome.StartedAt = prior.StartedAt
+				outcome.ModelCalls, outcome.Compactions, outcome.LastActivityAt = prior.ModelCalls, prior.Compactions, prior.LastActivityAt
 			}
 		}
 		outcome.FinishedAt = stamp
@@ -120,6 +132,50 @@ func (s *Store) projectTurnEvent(ctx context.Context, q runtimeValueWriter, root
 		}
 	}
 	data, err := json.Marshal(outcome)
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `UPDATE agents SET last_turn=? WHERE root_id=? AND id=?`, data, rootID, agentID)
+	return err
+}
+
+// projectTurnActivity updates the running turn's counters from a model-call
+// lifecycle event. Calls outside a running turn (titles, idle compaction) and
+// stale replays are ignored; a new turn.started rebuilds the outcome from
+// scratch, which resets the counters.
+func (s *Store) projectTurnActivity(ctx context.Context, q runtimeValueWriter, rootID, kind string, payload []byte, seq int64, stamp string) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	var event LifecycleEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("decode turn activity: %w", err)
+	}
+	agentID := event.AgentID
+	if agentID == "" {
+		agentID = rootID
+	}
+	var prior *TurnOutcome
+	err := q.QueryRowContext(ctx, `SELECT last_turn FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&prior)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if prior == nil || prior.Status != "running" || seq <= prior.EventSeq {
+		return nil
+	}
+	if kind == "model.call.started" {
+		if event.ModelCall != nil && event.ModelCall.Purpose == "compaction" {
+			prior.Compactions++
+		} else {
+			prior.ModelCalls++
+		}
+	}
+	prior.LastActivityAt = stamp
+	prior.EventSeq = seq
+	data, err := json.Marshal(prior)
 	if err != nil {
 		return err
 	}

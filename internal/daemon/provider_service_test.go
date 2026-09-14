@@ -67,7 +67,7 @@ func TestProviderLoginReconnectChoicesAndSecretIsolation(t *testing.T) {
 	}
 	status = waitProviderState(t, s, started.FlowID, "succeeded")
 	auth := <-finished
-	if auth.SessionToken != "secret-session-token" || auth.ProjectID != "project" {
+	if auth.SessionToken != "secret-session-token" || auth.ProjectID != "project" || auth.TeamName != "Team" {
 		t.Fatal("missing host-side auth")
 	}
 	encoded, err := json.Marshal(status)
@@ -213,5 +213,57 @@ func TestProviderFailureDoesNotExposeUpstreamSecret(t *testing.T) {
 	encoded, _ := json.Marshal(result)
 	if strings.Contains(string(encoded), "secret-token") {
 		t.Fatal("upstream secret exposed to client")
+	}
+}
+
+func TestProviderLoginChangesWorkspaceBeforeProvisioning(t *testing.T) {
+	s := NewProviderService(t.Context(), "workspace-change")
+	defer s.Close()
+	s.login = func(context.Context, func(string, string)) (providerLoginIdentity, error) {
+		return providerLoginIdentity{token: "test-token", teams: []inferencenet.Team{{ID: "a"}, {ID: "b"}}}, nil
+	}
+	release := make(chan struct{})
+	s.projects = func(ctx context.Context, _ string, team inferencenet.Team) ([]inferencenet.Project, error) {
+		if team.ID == "b" {
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return []inferencenet.Project{{ID: team.ID + "-1"}, {ID: team.ID + "-2"}}, nil
+	}
+	started, err := s.BeginLogin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitProviderState(t, s, started.FlowID, "choose_team")
+	if _, err := s.SelectLoginTeam(started.FlowID, "a"); err != nil {
+		t.Fatal(err)
+	}
+	waitProviderState(t, s, started.FlowID, "choose_project")
+	loading, err := s.SelectLoginTeam(started.FlowID, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loading.State != "loading_projects" || loading.TeamID != "b" || len(loading.Projects) != 0 {
+		t.Fatalf("retained previous workspace: %+v", loading)
+	}
+	if _, err := s.SelectLoginTeam(started.FlowID, "a"); err == nil {
+		t.Fatal("allowed overlapping project discovery")
+	}
+	close(release)
+	ready := waitProviderState(t, s, started.FlowID, "choose_project")
+	if len(ready.Projects) != 2 || ready.Projects[0].ID != "b-1" {
+		t.Fatalf("wrong workspace projects: %+v", ready.Projects)
+	}
+	if _, err := s.SelectLoginProject(started.FlowID, "a-1"); err == nil {
+		t.Fatal("accepted previous workspace project")
+	}
+	if _, err := s.CancelLogin(started.FlowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SelectLoginTeam(started.FlowID, "a"); err == nil {
+		t.Fatal("resumed a cancelled login")
 	}
 }

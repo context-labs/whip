@@ -118,6 +118,8 @@ in
   Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [x] React web implementation with separate UI/app/web source packages, TanStack
   application primitives, Base UI controls and extracted StyleX styles.
+- [x] Shared web/desktop startup splash with Whip's wordmark, HALO animations,
+  reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.

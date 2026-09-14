@@ -34,6 +34,26 @@ fraction of the model window. A provider context-limit error may trigger one
 reactive compaction and retry. Compaction summaries and raw-history cutoffs
 are committed with the root turn.
 
+A fold keeps the system prompt, one running summary, and a token-budgeted
+tail of recent whole turns. When the newest turn alone exceeds the tail
+budget, as a long tool-heavy turn does, the tail boundary moves inside that
+turn onto an assistant/tool-pair boundary and the turn's opening user message
+is kept verbatim between the summary and the tail, so the model keeps acting
+on its exact instructions. Before this rule existed the newest turn was always
+kept whole, so a single turn of dozens of tool exchanges could never be
+folded; each round re-summarized only the prior summary, and one agent spent
+40 minutes and 52 model calls making six tool calls of progress
+(`.ai-docs/plans/compaction-loop`). Two guards now stop that loop: a fold with
+nothing left to fold makes no model call, and a fold that cannot get back
+under the threshold stalls further proactive folds for the rest of the turn.
+The window itself is left to the provider: a rejection with nothing left to
+fold fails the turn with `ErrCompactionExhausted`, which reaches the parent
+through the usual failure notice. While a turn runs, `last_turn` on the agent
+record carries `model_calls`, `compactions`, and `last_activity_at`, so a
+parent polling `agents.list` or a client rendering the agent row can tell
+steady work from a stalled loop. On reload the pinned message is re-derived
+from the raw log, so a resumed agent sees the same view the live one had.
+
 ## Child activation
 
 `agents.spawn` performs these steps:

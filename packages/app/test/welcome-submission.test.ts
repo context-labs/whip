@@ -21,7 +21,7 @@ function fixture(standalone = true, windowOverride?: AppStorage | null) {
   const outcomes = new Map<string, any>();
   const sends: any[] = [];
   let failStatus = false;
-  let lose: 'session.create' | 'submit' | undefined;
+  let lose: 'session.create' | 'session.effort' | 'submit' | undefined;
   let admit = true;
   const raw = {
     clientId: 'client', requireConnected: () => ({ runtime_id: 'host' }),
@@ -44,7 +44,10 @@ function fixture(standalone = true, windowOverride?: AppStorage | null) {
   };
   const client = raw as unknown as WhipClient;
   raw.sessions.create.mockImplementation((params, options) => CommandHandle.submit(client, 'host', 'session.create', params, options));
-  raw.session.mockImplementation((rootId: string) => ({ submit: (payload: { text: string }, options: { commandId: string }) => CommandHandle.submit(client, 'host', 'submit', payload, { ...options, rootId }) }));
+  raw.session.mockImplementation((rootId: string) => ({
+    submit: (payload: { text: string }, options: { commandId: string }) => CommandHandle.submit(client, 'host', 'submit', payload, { ...options, rootId }),
+    command: (operation: 'session.effort', payload: { effort: string; persist_default: boolean }, options: { commandId: string }) => CommandHandle.submit(client, 'host', operation, payload, { ...options, rootId }),
+  }));
   raw.recover.mockImplementation((record, payload) => CommandHandle.recover(client, record, payload));
   vi.spyOn(app.connections, 'isAttached').mockReturnValue(true);
   vi.spyOn(app.connections, 'signal').mockReturnValue(new AbortController().signal);
@@ -68,6 +71,36 @@ it('writes recovery before sending, creates once, sends the exact draft once, an
   expect(write.mock.calls.filter(([key]) => key.startsWith('whip.web.welcome')).every(([, value]) => !value.includes('Explain auth'))).toBe(true);
   await f.app.welcome.finish('host', f.app.welcome.get('host')!.create.commandId); expect(f.app.welcome.get('host')).toBeUndefined();
   f.app.dispose();
+});
+
+it('applies draft reasoning before the first message without changing host defaults', async () => {
+  const f = fixture();
+  await f.app.welcome.start('host', f.client, { cwd: '/project' }, { effort: 'high' });
+  expect(f.sends.map(request => request.operation)).toEqual(['session.create', 'session.effort', 'submit']);
+  expect(f.sends[1].payload).toEqual({ effort: 'high', persist_default: false });
+  expect(f.app.welcome.get('host')?.effort?.applied).toBe(true);
+  f.app.dispose();
+});
+
+it.each([true, false])('recovers an uncertain reasoning choice before sending (accepted=%s)', async accepted => {
+  const f = fixture(); f.lose('session.effort', accepted);
+  await expect(f.app.welcome.start('host', f.client, { cwd: '/project' }, { effort: 'high' })).rejects.toThrow();
+  const journal = f.app.welcome.get('host')!;
+  expect(f.sends.map(request => request.operation)).toEqual(['session.create', 'session.effort']);
+  const restored = journalRuntime({ ...f.app.platform, storage: f.storage });
+  vi.spyOn(restored.connections, 'isAttached').mockReturnValue(true);
+  vi.spyOn(restored.connections, 'signal').mockReturnValue(new AbortController().signal);
+  f.restore();
+  if (!accepted) {
+    await expect(restored.welcome.resume('host', f.client)).rejects.toThrow('Original request absent');
+    expect(f.sends).toHaveLength(2);
+  }
+  await restored.welcome.resume('host', f.client, !accepted);
+  const efforts = f.sends.filter(request => request.operation === 'session.effort');
+  expect(efforts).toHaveLength(accepted ? 1 : 2);
+  expect(efforts.at(-1).command_id).toBe(journal.effort!.record.commandId);
+  expect(f.sends.filter(request => request.operation === 'submit')).toHaveLength(1);
+  restored.dispose(); f.app.dispose();
 });
 
 it('recovers an uncertain created session without allocating another and preserves later edits', async () => {

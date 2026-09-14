@@ -111,6 +111,15 @@
                           "source"
                         ],
                         "additionalProperties": false
+                      },
+                      "model_calls": {
+                        "type": "integer"
+                      },
+                      "compactions": {
+                        "type": "integer"
+                      },
+                      "last_activity_at": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -745,6 +754,15 @@
                               "source"
                             ],
                             "additionalProperties": false
+                          },
+                          "model_calls": {
+                            "type": "integer"
+                          },
+                          "compactions": {
+                            "type": "integer"
+                          },
+                          "last_activity_at": {
+                            "type": "string"
                           }
                         },
                         "required": [

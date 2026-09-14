@@ -278,6 +278,16 @@ changes. Cancellation preserves the directory; unavailable native choosers fall
 back to browsing directories on the original host.
 Bootstrap calls `platform.dispose()` after the shared application unmounts.
 
+Browser and desktop bootstrap share a centered `WhipcodeWordmark` splash in
+[`startup-screen.tsx`](../packages/app/src/startup-screen.tsx). It uses HALO's
+logo rise, fade-out and content entrance with Whip theme colors. The mounted
+router is inert while covered; the initial Local connection settling releases the
+splash, with a three-second ceiling to expose recovery for slow/offline hosts.
+Saved remote connections continue in the background and never gate the splash.
+There is no minimum hold or replay on navigation/reconnection. System and saved
+reduced-motion preferences skip animation. Native prompts remain outside the
+inert subtree, and desktop `ready()` still signals the mounted shell.
+
 The desktop window hides its native title bar on macOS (`titleBarStyle:
 'hiddenInset'` in [`main.ts`](../apps/desktop/src/main.ts)) and the renderer
 owns the top chrome. The bridge reports this as `chrome: 'inset'`
@@ -313,6 +323,13 @@ before local connection, coordinates restart with the Go maintenance lock, and
 consumes the existing update approval after matching readiness. Any running daemon
 requires explicit interruption approval; a UI status snapshot is not an idle fence.
 An explicitly chosen external binary is never automatically adopted or replaced.
+Local connection preparation owns startup synchronization; the window-ready
+event does not launch a second check. Synchronization and attachment share one
+shell environment and reuse a successful unchanged-runtime probe under the same
+mutation lock. Starting a stopped daemon or replacing an executable triggers a
+fresh readiness check. Results are discarded after the attempt; reconnect,
+diagnostics and restart reread the environment. Restart also shares one
+environment across its preflight, command and readiness checks.
 Normal stable and beta desktop channels share the default `~/.whipcode` runtime
 home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
 redirects local work. The canonical installation on the development Mac is
@@ -350,14 +367,33 @@ runtime-identity acceptance remain unchanged. Disconnecting, switching hosts and
 quitting the GUI do not stop accepted work. Browser adapters omit `localRuntime`;
 URL and SSH connections retain their existing transport paths.
 
-[`HostPrompts`](../packages/app/src/host-prompts.tsx) uses the shared Application
-child slot and its existing theme/UI/Query providers. Bootstrap observes prompts
-before starting a connection, so SSH challenges cannot race the first render.
-One dialog presents a bounded queue of four prompts; host-key fingerprints are
-plain selectable text and require explicit confirmation. Answers are ephemeral:
-clear inputs on submission, dismissal and unmount, and never put them in drafts,
-preferences or logs. Queue identities reject stale answer completions, failures
-remain visible, and final teardown declines outstanding challenges. Subscription
+[`HostConnectionDialog`](../packages/app/src/host-connection-dialog.tsx) is the
+shared SSH connection surface for Add server and the saved server's Connect action.
+Configuration remains mounted but hidden while the same dialog presents progress,
+host-key verification, authentication, or failure. Cancel stops the attempt and
+returns a new connection to its preserved form; saved reconnects close. Error
+recovery offers retry and editing. Success closes only after `HostConnections`
+verifies the daemon and, for new profiles, saves it. The dialog observes that owner;
+it does not create another transport or persist connection state.
+
+The desktop adapter creates the bounded
+[`host-prompt-controller`](../packages/app/src/host-prompt-controller.ts) before
+startup, exposed through `AppPlatform.hostPrompts`. It registers each native attempt
+ID against its profile ID before preparation and retires prompts when that attempt
+is released. The foreground dialog claims its host's prompts; unrelated prompts
+remain queued rather than stacking dialogs. [`HostPrompts`](../packages/app/src/host-prompts.tsx)
+uses the Application child slot for background authentication, opening the same
+connection surface only when input is needed. Ordinary background connection
+progress does not open a dialog. Server rows retain status badges; detailed SSH
+progress and errors stay in the active dialog, with host error notices available
+after dismissal.
+
+[`HostPromptForm`](../packages/app/src/host-prompt-form.tsx) renders selectable
+host-key fingerprints with explicit confirmation and bounded authentication fields.
+Answers are ephemeral: clear inputs on submission, dismissal and unmount, and never
+put them in drafts, preferences or logs. The four-prompt queue identifies answers
+by serial and connection attempt, rejects stale completions, and leaves failed
+answers visible. Final teardown declines outstanding challenges. Subscription
 cleanup permits React StrictMode's immediate effect replay before disposal.
 
 The desktop adapter owns one disposable update listener and a referentially
@@ -404,12 +440,21 @@ on platforms that support SSH. Fields, alerts, and advanced/recovery disclosures
 use shared `@whip/ui` components. Blank names derive from the normalized URL
 host (including a non-default port), while SSH names derive from the host/alias. URL
 connect-on-launch and explicit replacement-identity acceptance remain collapsed
-under Advanced. SSH overrides remain in their disclosure with no invented
-auto-connect control. URL saves require Local's loaded shared registry; native
+under Advanced. New SSH connections show a searchable single-selection profile list from the
+viewing Mac’s configuration. `AppPlatform.listSSHProfiles` is an optional native
+capability; older desktop bridges retain manual entry. Discovery runs only while
+SSH setup is mounted, through one transient Query entry, never on app startup.
+Refresh retains the previous rows and fixed list viewport; failures, empty config,
+no matches, and truncated results remain distinct. Already verified SSH aliases
+show Added. Advanced switches to the manual form, with both drafts owned by the
+parent form so method/mode switches retain input. The shared RadioGroup card
+variant owns accessible selection; no app-specific radio controls are introduced.
+SSH overrides retain their existing meanings, with no auto-connect control. URL saves require Local's loaded shared registry; native
 SSH saves do not. Pending native saves can be cancelled through their scoped
-AbortSignal without detaching other hosts. Validation/save failures preserve the form. A successful save
-selects and initiates connection before closing; connection failure remains on
-the row, not mislabeled as successful connection. Dialogs restore focus to the
+AbortSignal without detaching other hosts. Validation/save failures preserve the form. Native save verifies the connection before selecting the server and closing;
+progress and failures stay in the dialog, and retry reuses the form’s target ID.
+URL save selects and initiates connection before closing; subsequent connection
+failure remains on its server row. Dialogs restore focus to the
 originating Add button or row menu trigger. No additional controller or store
 owns these effects.
 
@@ -541,7 +586,8 @@ mount and from its last cursor on reconnect, redraws on a cursor gap, forwards t
 composer and terminal shortcuts to the app, and offers Restart (a new shell behind the same
 tab) or Reattach when the daemon reports exit or a takeover. Session-backed descriptors store runtime/root identity;
 New Chat descriptors store an independent draft ID, optional host profile/runtime,
-working directory, permission mode and optional execution engine selection. Prompt text and recovery payloads never enter
+working directory, permission mode and optional execution engine, agent definition,
+model/provider pair and reasoning effort selections. Prompt text and recovery payloads never enter
 the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
 leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
 The global session view ID identifies one presentation of that host’s session. Duplicates share
@@ -840,14 +886,46 @@ Optional `discovery_error` is shown in Settings; a failed save does not hide
 available effective routes.
 Rows and model controls share `ProviderLogo`, backed by bundled SVGs under
 `src/assets/` with source attribution. Unknown providers use the sparkle fallback.
-Rows use source labels and shared Dialog primitives.
+Color variants retain their source brand fills. OpenRouter uses its official
+purple or lime SVG according to the resolved Whip theme; OpenAI and xAI retain
+their monochrome primary marks. SVG viewBoxes are fitted to the artwork for
+consistent visible sizing, and provider connection rows use 20px icons.
+Connected Settings rows show credential-source badges; unconnected rows omit them
+because a configured environment variable does not mean a key is present.
+Rows use shared Dialog primitives. `ProviderConnectionList` owns the same compact
+connection-choice list for Settings and onboarding: Inference.net, OpenRouter,
+OpenAI, and ChatGPT subscription by default, with Show all/fewer providers.
+Settings keeps connected, disabled, and attention groups visible independently
+of this expansion; onboarding also keeps custom and attention/disabled choices
+accessible. A configured environment reference alone does not expand the list.
+API-key entry and replacement show the input first, followed by shared guidance
+for saving a key on the host or supplying its environment variable. The account
+status block is hidden during key entry; connected-account management retains
+source details and controls. Connected-account dialogs lead with connection status
+and a compact list of account details. A shared Connection options menu holds
+sign-in replacement, key replacement, rotation, enable/disable, and disconnect
+actions according to the credential source; Done is the only primary action.
+Inference.net account sign-in persists the selected team name with its ID, and
+provider status exposes the optional `team_name` for a Team row below Email.
+Older saved accounts without a name omit the row until the next sign-in;
+rendering account details does not make a network lookup or guess the name.
+First-time sign-in shows the browser/API-key choices without credential-source
+status controls. An empty environment definition belongs in Connect a provider,
+not Needs attention. Disabled providers have their own Settings group and an
+Enable on this host action. Enable/disable updates only the selected provider in
+the revision-checked disabled list; credentials, account details, and model defaults
+remain intact. Enabling reuses the existing connection without key entry or sign-in.
 Provider marks align with the title line; the Inference.net mark retains its
 monorepo brand colors, with the neutral bar following the active theme.
 The daemon owns readiness, default-provider resolution, environment discovery,
-and durable `disabledProviders` opt-outs. The renderer never probes environment
+and `disabledProviders` opt-outs. The renderer never probes environment
 variables or infers connection state from the existence of a config entry.
-Connect/disconnect invalidate that host's inventory, defaults and model queries.
-`provider.disconnect` requires the inventory's configuration revision.
+Connect/disconnect and enable/disable invalidate that host's inventory, defaults and model queries.
+`provider.disconnect` requires the inventory's configuration revision. It clears
+Whip-owned credentials and legacy disable flags, restoring built-in environment
+references without changing custom endpoints or model defaults. The dialog
+reports when host-managed credentials still make a provider available. External
+credentials are removed at their source; opening the dialog never modifies them.
 The shared host API also exposes `provider.get/create/update/remove` for custom
 connection configuration. `get` returns editable endpoint metadata, credential
 source summaries and removal blockers without reading back secrets or executing
@@ -857,7 +935,26 @@ commands. A lost reply requires rereading the stable provider ID before an
 explicit retry. The TUI currently supplies the custom form; web/desktop use the
 saved inventory without a second file editor or a database-backed provider store.
 The screen requires `provider.list`; it has no alternate editor for older hosts.
-The connection dialogs use `provider-login.tsx` for account login flows.
+The connection dialogs use `provider-login.tsx` for account login flows. Method
+choice, API-key entry, active browser sign-in, and connected-account management
+are mutually exclusive screens. API-key drafts survive rejected validation and
+temporary host disconnects; Back and Close ask before discarding a nonempty key.
+Closing a login dialog aborts only renderer requests, not the host-owned login.
+Explicit Cancel returns to method choice only when the host reports `cancelled`;
+interrupted provisioning retains recovery guidance because its outcome can be
+uncertain. Retry reconciles active host flows before beginning a replacement.
+Login mutation responses update the host-scoped `provider-login-flows` Query
+entry; polling remains the authority for asynchronous progress. Workspace and
+project choices stay local until Continue/Connect. Workspace changes are allowed
+from `choose_project`, clearing the old project inventory before discovery;
+loading and provisioning cannot accept a concurrent workspace change. Project
+creation validation errors retain the entered name, while terminal host failures
+require a new sign-in. Loading, provisioning, expiry, and host unavailability
+have separate presentations; no API-key form is shown beside an active login.
+Dialog bodies reserve progress/footer space and bound long choice lists using
+shared ScrollArea and RadioGroup components. Successful observed flows refresh
+that host's inventory before returning to setup; authentication never changes
+the user's default model.
 Unavailable provider descriptors are filtered from model choices while aliases
 and saved defaults remain intact; an unavailable default offers explicit repair.
 Provider defaults use the composer’s `CatalogModelPicker`: one choice sets both
@@ -870,8 +967,9 @@ shared effort helper offers catalog-supported levels or the model default when
 capabilities are unknown. Selecting a different route resets an unsupported
 effort; background catalog refreshes never change saved defaults or dirty drafts.
 
-Welcome and Settings reuse `provider-setup.tsx` and the existing connection/login
-dialogs. `provider.list` accepts optional model/provider inputs and returns an
+Welcome and Settings share `ProviderConnectionRow`, `SettingsGroup` and the existing
+connection/login dialogs. `provider-setup.tsx` owns onboarding and explicit default
+model confirmation. `provider.list` accepts optional model/provider inputs and returns an
 optional `selection` (resolved pair, local readiness and reason); provider entries
 carry `recommended`, `suggested_model`, `category`, `family` and `key_url`.
 These optional non-secret fields describe preset presentation; `family` never
@@ -899,11 +997,75 @@ singleton team/project login choices under the existing flow owner; clients only
 observe states and present actual choices. Browser/device-code actions and keys
 remain ephemeral and host-pinned.
 
-`welcome.tsx` is a pre-session composer. It uses the native folder picker where
-available and a host directory browser otherwise. A folder, explicit send and a
+`welcome.tsx` is a pre-session composer. Its ready state follows Paper EA1-0:
+a centered 620px column with a heading, composer, and compact host/folder buttons.
+The composer retains chat's control order: attachment/context on the left and
+permission, model, effort and send on the right, wrapping on narrow panes. It uses
+the shared Whip controls and theme tokens. Attachment and context controls remain
+disabled until a session exists; their backend operations require a root identity.
+The folder button opens the native system picker directly for the local machine
+and the host directory browser for remote hosts. If a local host has no native
+picker available, the existing host-browser fallback remains available.
+
+`remote-directory-dialog.tsx` implements the remote picker from Paper FYQ-1,
+G8C-1 and GHR-1 using shared Dialog, Input, Checkbox, Menu and Button components.
+It shows the selected host, breadcrumbs, an editable absolute or home-relative
+path, Home/File system locations and up to five distinct recent directories from
+that host's loaded session catalog. Recent folders are not separately persisted.
+Single-click selects; double-click, Enter or the trailing chevron opens a folder.
+Arrow keys move selection, Cmd/Ctrl+Shift+G edits the path and Cmd/Ctrl+Enter
+confirms. Escape first leaves path editing, then closes the dialog. Confirmation
+updates only the draft folder; it never sends the first message.
+
+Listings use `client.host.directories` with a 64-entry page, a debounced filename
+prefix and hidden folders off by default. Next/First controls expose pagination;
+counts describe the displayed page and host truncation remains visible. Navigation
+history is capped at 32 entries. `directory-queries.ts` shares listing reads across
+browsing, selection validation and prefetching, with abort signals and runtime,
+path, prefix, hidden-folder and page scope. Unlike ordinary detail queries, these
+reads stay fresh for 10 seconds and inactive results remain for up to 60 seconds
+to support Back and reopening. Inactive results share a 32-page / 2 MiB serialized
+UTF-16 data budget across hosts; eviction also removes saved scroll positions.
+Active listings remain bounded by the 64-entry API page. Nothing is persisted.
+The remote trigger warms its initial path on hover/focus. While open, the picker
+warms Home, parent, recent locations and the next page, plus hovered/focused rows.
+The shared prefetch queue holds at most eight destinations and runs at most two
+requests, yielding to observed reads. Navigation cancels unrelated speculative
+reads; closing or changing the host cancels pending unused reads.
+A selected child's own listing establishes readability and serves a subsequent
+open. Confirmation revalidates expired results. Loading, path editing, unreadable
+selections and disconnections disable confirmation; a late validation result
+cannot confirm a changed choice. Reconnect revalidates the listing and selection;
+changing client/runtime retires the picker.
+Rows and their breadcrumbs remain together during pending navigation, with
+interaction disabled until the destination is ready. Refreshes preserve rows,
+uncached initial reads use row-sized placeholders, and a delayed indicator avoids
+flashing on fast reads. Section borders use the theme's border color. The footer
+reserves a scrollable validation area so pending/error messages do not move its
+actions; long host labels truncate and Recent avoids repeating the host name.
+On phones, Locations moves into a menu and the selected path stacks above actions.
+The behavior is covered by `remote-directory-dialog.test.tsx`,
+`directory-queries.test.ts`, `directory-picker.test.tsx` and the welcome flow tests.
+
+The host menu shows names, endpoints and connection status,
+plus **Manage servers**. Switching hosts preserves the prompt and clears the
+host-specific folder, model/provider and effort choices. A folder, explicit send and a
 usable route are required before execution. The shared permission control starts
 at Ask; `session.create.permission_mode` saves that mode atomically with creation
 and command acceptance. Retrying creation never resets a later session choice.
+Model and effort choices belong to the draft and never write host defaults.
+An unavailable saved effort remains visible and requires an explicit replacement.
+When no ready route exists, provider setup replaces the composer with the Paper
+ELF-0 layout in the same centered column: the 24px heading, 16px heading gap,
+12px panel inset, rows at least 64px tall, 8px row/footer gaps and shared buttons.
+The initial list shows common providers (including OpenRouter) plus configured connections needing
+attention, preserving host inventory order. **Show all providers** reveals the
+remaining inventory and Refresh. **Connect Remote** opens the shared Add server
+dialog for local setup; remote setup retains its execution-host selector.
+Provider rows grow for wrapped labels and mobile touch targets. Connection and
+model confirmation reuse the existing flows; completing setup restores the draft
+composer without sending it. Recovery controls remain available independently
+of provider readiness.
 
 `WelcomeSubmissions` in `welcome-submission.ts` owns first-message recovery in
 `AppRuntime`. Per-draft metadata journals freeze the original host/client,
@@ -919,7 +1081,9 @@ Durable draft revisions distinguish later edits even when text becomes identical
 Revision-only metadata is removed on startup; keys and tokens never enter either
 store. Storage failure prevents sending instead of leaving an unrecorded request.
 
-Welcome offers **Execution language** only before session creation, using the
+Welcome offers **Session options** in the model picker's footer for the agent
+definition and **Execution language**, keeping them out of the initial composer.
+Execution language is available only before session creation, using the
 host's advertised `execution_engines`. Starlark is the initial default; JavaScript
 (QuickJS) is opt-in. The selected value survives draft navigation and is frozen
 as an explicit `execution_engine` in the creation journal before admission.
@@ -930,7 +1094,11 @@ Execution settings change `default_execution_engine` for future sessions only,
 through the existing revisioned configuration query and editor. Missing discovery
 disables creation instead of assuming a language is supported.
 
-Create and submit retain separate original command identities. Reload/reattach
+Create and submit retain separate original command identities. An explicit draft
+effort has its own journaled `session.effort` identity and is applied after creation,
+before submitting the prompt, with `persist_default: false`. Recovery checks that
+original command before continuing; an uncertain effort never sends the prompt early.
+Drafts without an effort override inherit the host's creation default. Reload/reattach
 checks status; a confirmed absent request requires explicit retry with the original
 identity. Accepted input durably promotes the same draft descriptor to a session
 before retiring its journal and clears only the matching draft revision. App-owned
@@ -948,7 +1116,7 @@ command identities survive. Neither reconnect, host switching nor auth completio
 silently submits the draft. New-draft admission, metadata edits and promotion reject
 storage failure rather than claiming an unpersisted durable transition.
 
-Provider/runtime/recovery settings share `HostSelector` with new-session setup:
+Provider/runtime/recovery settings share `HostSelector`:
 the dropdown shows the host name and connection dot, followed by a status badge.
 The initial selection follows the last session's host or Local. Pin the resolved host for the Settings visit: disappearance or
 identity replacement preserves the old form disabled, rather than silently
@@ -1480,6 +1648,12 @@ CSS layers and extraction with runtime injection disabled, and explicit
 prebundling of Base UI/TanStack's CommonJS store shims. App/UI source must be
 compiled even when installed from package archives. Do not rely only on workspace
 symlinks to prove package correctness. Generated routes are not edited by hand.
+In development, a pre-middleware transforms `packages/ui/src/tokens.stylex.ts`
+before serving StyleX's virtual CSS. This ensures `defineConsts` values (including
+media queries) are available even when the browser requests CSS before importing
+the token module. Use Vite's transform cache so token edits still invalidate normally.
+`apps/web/scripts/stylex-dev.test.mjs` reproduces that cold partial-module graph and
+runs in `task web`; production extraction remains unchanged.
 
 Both `whip` and the `whipcode` branch distribution embed this same application.
 `whipcode` owns `~/.whipcode` and uses `WHIPCODE_NETWORK`, `WHIPCODE_LISTEN`,

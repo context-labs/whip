@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createHostPrompts, createSessionNavigator, createWhipApplication, HostPrompts } from '@whip/app';
+import { createSessionNavigator, createWhipApplication, HostPrompts } from '@whip/app';
 import { initializeTheme } from '@whip/ui/themes';
 import type { AppPlatform } from '@whip/app/platform';
 import type { DesktopBridge } from '@whip/app/desktop-bridge';
@@ -14,9 +14,10 @@ export function mountApplication(platform: AppPlatform, desktop?: DesktopBridge)
   const element = document.getElementById('root');
   if (!element) throw new Error('The application root is missing');
   const root = createRoot(element);
-  const prompts = desktop ? createHostPrompts(desktop) : undefined;
+  const prompts = platform.hostPrompts;
   const sessionNavigator = createSessionNavigator(application.runtime, path => application.router.history.push(path), () => application.router.state.location);
-  root.render(<StrictMode><application.Application>{prompts && <HostPrompts prompts={prompts} />}</application.Application></StrictMode>);
+  const startup = application.runtime.connections.connectOnLaunch();
+  root.render(<StrictMode><application.Application startup={startup}>{prompts && <HostPrompts prompts={prompts} />}</application.Application></StrictMode>);
   const warnBeforeUnload = (event: BeforeUnloadEvent) => {
     const drafts = application.runtime.flushDrafts();
     if (application.runtime.compositions.hasAttachments() || !drafts.saved) {
@@ -57,6 +58,5 @@ export function mountApplication(platform: AppPlatform, desktop?: DesktopBridge)
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (!disposed) { performance.mark('whip-shell-ready'); desktop?.ready(); }
   }));
-  void application.runtime.connections.connectOnLaunch();
   return { ...application, dispose };
 }

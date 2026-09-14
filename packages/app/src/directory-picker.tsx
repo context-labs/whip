@@ -1,12 +1,13 @@
-import { ErrorNotice } from './error-feedback';
-import { useLayoutEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { RemoteDirectoryDialog, type RemoteDirectoryHost } from './remote-directory-dialog';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
-import { Button, Dialog, Field, Input } from '@whip/ui';
-import { ChevronUp, Folder, FolderOpen } from 'lucide-react';
+import { Button } from '@whip/ui';
+import { ChevronDown, Folder, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
+import { directoryCache } from './directory-queries';
 
 export function DirectoryPicker({
   client,
@@ -16,6 +17,8 @@ export function DirectoryPicker({
   native = true,
   pickDirectory,
   compact = false,
+  sessionTrigger = false,
+  host,
 }: {
   client: WhipClient;
   value: string;
@@ -24,29 +27,20 @@ export function DirectoryPicker({
   native?: boolean;
   pickDirectory?(): Promise<string | undefined>;
   compact?: boolean;
+  sessionTrigger?: boolean;
+  host?: RemoteDirectoryHost;
 }) {
-  const connected = useWhipConnection(client).state === 'connected';
+  const connection = useWhipConnection(client);
+  const cache = directoryCache(useQueryClient());
+  useEffect(() => () => cache.cancel(client), [cache, client, connection.info?.runtime_id]);
+  const warm = () => { if (!native && !disabled) cache.warm(client, { path: value }); };
   const request = useRef<symbol | undefined>(undefined);
-  useLayoutEffect(() => { setPicking(false); return () => { request.current = undefined; }; }, [client]);
+  useLayoutEffect(() => { setPicking(false); setOpen(false); return () => { request.current = undefined; }; }, [client, connection.info?.runtime_id]);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
-  const [path, setPath] = useState('');
-  const [typed, setTyped] = useState('');
-  const [after, setAfter] = useState<string>();
-  const query = useQuery({
-    queryKey: ['directories', client.getSnapshot().info?.runtime_id, path, after],
-    queryFn: ({ signal }) =>
-      client.host.directories(
-        { path: path || undefined, after, limit: 64 },
-        { signal },
-      ),
-    enabled: open && !disabled,
-  });
-  const navigate = (target: string) => {
-    setPath(target);
-    setTyped(target);
-    setAfter(undefined);
-  };
+  const [browserClient, setBrowserClient] = useState<WhipClient>();
+  const [browserRuntime, setBrowserRuntime] = useState<string>();
+  const browse = () => { setBrowserClient(client); setBrowserRuntime(connection.info?.runtime_id); setOpen(true); };
   const pickNative = async () => {
     const id = Symbol();
     request.current = id;
@@ -56,110 +50,38 @@ export function DirectoryPicker({
       if (request.current !== id) return;
       if (result.path) {
         onSelect(result.path);
+        setOpen(false);
       }
     } catch {
       if (request.current !== id) return;
       // Host has no desktop picker (headless, unsupported platform); use the web browser dialog.
-      navigate(value);
-      setOpen(true);
+      browse();
     } finally {
       if (request.current === id) { request.current = undefined; setPicking(false); }
     }
   };
   return (
     <>
-      {native && <Button variant={compact ? "ghost" : "primary"} disabled={disabled || picking} onClick={pickNative}>
+      {sessionTrigger ? <Button variant="ghost" aria-label="Project folder" title={value || 'Choose a project folder'} disabled={disabled || picking} xstyle={styles.trigger}
+        onPointerEnter={warm} onFocus={warm} onClick={native ? pickNative : browse}>
+        <FolderOpen size={14} /><span {...stylex.props(layout.ellipsis)}>{value.split(/[\\/]/).filter(Boolean).at(-1) || value || 'Choose folder'}</span><ChevronDown size={14} />
+      </Button> : native && <Button variant={compact ? "ghost" : "primary"} disabled={disabled || picking} onClick={pickNative}>
         <FolderOpen size={14} /> {picking ? 'Choosing folder…' : 'Choose folder…'}
       </Button>}
-      {compact && native ? <details><summary>Folder options</summary><Button variant="ghost" disabled={disabled} onClick={() => { navigate(value); setOpen(true); }}>Browse host or enter a path</Button></details> : <Button
+      {!sessionTrigger && (compact && native ? <details><summary>Folder options</summary><Button variant="ghost" disabled={disabled} onClick={browse}>Browse host or enter a path</Button></details> : <Button
         variant={compact ? "ghost" : "secondary"}
         disabled={disabled}
-        onClick={() => {
-          navigate(value);
-          setOpen(true);
-        }}
+        onPointerEnter={warm} onFocus={warm}
+        onClick={browse}
       >
         <Folder size={14} /> {compact ? "Choose folder…" : "Browse host"}
-      </Button>}
-      <Dialog
-        open={open}
-        onOpenChange={setOpen}
-        title="Choose a working directory"
-        description="Directories on the execution host."
-        footer={
-          <Button
-            disabled={!query.data || disabled}
-            onClick={() => {
-              if (query.data) {
-                onSelect(query.data.path);
-                setOpen(false);
-              }
-            }}
-          >
-            Use this folder
-          </Button>
-        }
-      >
-        <form
-          {...stylex.props(layout.row)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            navigate(typed);
-          }}
-        >
-          <Field label="Host path">
-            <Input
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-            />
-          </Field>
-          <Button type="submit" variant="secondary">
-            Go
-          </Button>
-        </form>
-        <div {...stylex.props(layout.column)}>
-          <p {...stylex.props(layout.muted)}>{query.data?.path}</p>
-          {query.data?.parent && (
-            <Button
-              variant="ghost"
-              onClick={() => navigate(query.data!.parent!)}
-            >
-              <ChevronUp size={14} /> Parent folder
-            </Button>
-          )}
-          {query.isFetching && <p role="status">Loading directories…</p>}
-          {query.error && connected && <ErrorNotice type="resource" owner={`directories:${path}`} title="Could not load folders" error={query.error} action={<Button variant="ghost" onClick={() => void query.refetch()}>Retry</Button>} />}
-          {!connected && <p role="status">Folders are unavailable while this host is offline.</p>}
-          {query.data?.entries?.map((entry) => (
-            <Button
-              variant="ghost"
-              key={entry.path}
-              onClick={() => navigate(entry.path)}
-            >
-              <Folder size={14} /> {entry.name}
-            </Button>
-          ))}
-          {query.data?.has_more && (
-            <Button
-              variant="secondary"
-              onClick={() => setAfter(query.data?.next_after)}
-            >
-              Next folders
-            </Button>
-          )}
-          {after && (
-            <Button variant="ghost" onClick={() => setAfter(undefined)}>
-              First folders
-            </Button>
-          )}
-          {query.data?.truncated && (
-            <p>
-              Directory listing is bounded; choose a subfolder or enter a path.
-            </p>
-          )}
-        </div>
-      </Dialog>
+      </Button>)}
+      {open && browserClient === client && browserRuntime === connection.info?.runtime_id && <RemoteDirectoryDialog
+        client={client} value={value} disabled={disabled} host={host} onClose={() => setOpen(false)}
+        onSelect={path => { onSelect(path); setOpen(false); }} />}
+
     </>
   );
 }
+
+const styles = stylex.create({ trigger: { maxWidth: '100%', minWidth: 0 } });

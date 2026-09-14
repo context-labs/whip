@@ -366,6 +366,18 @@ func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string,
 	if len(prior) > 0 {
 		out = append(out, prior[len(prior)-1])
 	}
+	// A fold point inside a turn means the live agent pinned that turn's
+	// opening user message verbatim after the summary (see agent.compact);
+	// the raw row sits before the cutoff, so re-derive the pin here or a
+	// resumed agent would continue its turn on a paraphrase of its orders.
+	if fold < len(msgs) && msgs[fold].Role != "user" {
+		for i := fold - 1; i >= start; i-- {
+			if msgs[i].Role == "user" {
+				out = append(out, msgs[i])
+				break
+			}
+		}
+	}
 	return append(out, msgs[fold:]...), nil
 }
 

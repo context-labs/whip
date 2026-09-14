@@ -158,8 +158,18 @@ type Agent struct {
 	pending     []pendingSteer // steered user messages awaiting injection
 	launcher    func(string, func()) bool
 	modelBudget ModelCallBudget
-	compacted   bool        // a compaction already happened this turn — don't retry-loop
-	running     atomic.Bool // a turn is in flight
+	compacted   bool // a compaction already happened this turn — skip the final-round fold
+	// compactStalled: a fold this turn could not get back under the threshold
+	// (the floor of system prompt, summary, pinned message, and newest pairs
+	// is what is left). Further proactive folds would remove one pair per
+	// round for a full summary call each, so the turn runs on until the
+	// reactive retry or the window itself decides.
+	compactStalled bool
+	// retriedOverflow: the reactive fold-and-retry after a provider
+	// context-limit rejection has been spent this turn. Independent of
+	// proactive folds so a stalled turn still gets its one retry at the edge.
+	retriedOverflow bool
+	running         atomic.Bool // a turn is in flight
 
 	// msgsMu guards Messages for concurrent READERS: the turn goroutine
 	// mutates Messages freely, but a test/UI reader taking msgsMu sees a
@@ -525,8 +535,8 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		}
 		if err != nil {
 			a.preserveModelResponse(ev, msg, usage, err)
-			if !llm.IsAccountingError(err) && !a.compacted && llm.IsContextLimit(err) && ctx.Err() == nil {
-				a.compacted = true
+			if !llm.IsAccountingError(err) && !a.retriedOverflow && llm.IsContextLimit(err) && ctx.Err() == nil {
+				a.retriedOverflow, a.compacted = true, true
 				before := append([]llm.Message(nil), a.Messages...)
 				took := len(before)
 				if ev.OnCompactStart != nil {
@@ -537,6 +547,11 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 					// restore the guard on hard errors so a manual /compact
 					// can still attempt a compaction for the next turn
 					a.compacted = false
+					if errors.Is(cerr, errNoHistory) {
+						// The provider rejected the request and nothing is
+						// left to fold: the floor alone overflows the window.
+						return "", fmt.Errorf("%w: %v", ErrCompactionExhausted, err)
+					}
 					return "", cerr
 				}
 				if ev.OnCompact != nil {
@@ -618,7 +633,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				}
 			}
 			a.running.Store(false)
-			a.compacted = false // reset for the next Turn
+			a.compacted, a.compactStalled, a.retriedOverflow = false, false, false // reset for the next Turn
 			return msg.Content, nil
 		}
 	}
@@ -793,6 +808,17 @@ const (
 // 50% keeps compaction deterministic instead of letting the context bloat.
 const defaultCompactThreshold = 0.5
 
+// errNoHistory: a fold found nothing it may remove. The system prompt, the
+// running summary, and a pinned opening message are not folded material.
+var errNoHistory = errors.New("not enough history to compact")
+
+// ErrCompactionExhausted reports a fold that cannot bring the context back
+// inside the model window: what remains (system prompt, running summary,
+// pinned user message, newest tool exchange) fills it on its own. Continuing
+// would only buy a provider rejection, so the turn fails with the cause named
+// and the parent's failure notice carries it.
+var ErrCompactionExhausted = errors.New("context cannot be compacted to fit the model window")
+
 // threshold is the proactive-compaction fraction of ContextLimit.
 func (a *Agent) threshold() float64 {
 	if a.CompactThreshold > 0 {
@@ -808,7 +834,7 @@ func (a *Agent) threshold() float64 {
 // It no-ops when the provider didn't advertise a limit (ContextLimit == 0) —
 // the reactive context-limit retry in Turn still covers that case.
 func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
-	if a.ContextLimit == 0 {
+	if a.ContextLimit == 0 || a.compactStalled {
 		return nil
 	}
 	limit := int(a.threshold() * float64(a.ContextLimit))
@@ -832,8 +858,11 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	}
 	sum, cutoff, info, err := a.compact(ctx)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
-		if err.Error() == "not enough history to compact" {
-			return nil // too little history to fold; rely on the reactive retry
+		if errors.Is(err, errNoHistory) {
+			// Nothing left to fold and the view is unchanged: stall rather
+			// than ask again every round; the reactive retry covers the edge.
+			a.compactStalled = true
+			return nil
 		}
 		return err
 	}
@@ -849,7 +878,23 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	// Mark that this turn compacted so the final-round check does not fold a
 	// fresh fold again; the reactive error path sets a.compacted itself.
 	a.compacted = true
+	a.compactOutcome(limit)
 	return err
+}
+
+// compactOutcome classifies the context after a fold. Under the threshold is
+// normal. At or over it, the fold could not reach the threshold — what is
+// left is the floor of system prompt, summary, pinned message, and newest
+// pairs — so further proactive folds this turn are stalled: each would remove
+// only the pairs added since, one summary call per round, the loop that
+// turned a 40-minute review into six tool calls. The window itself is left to
+// the provider: the chars/4 estimate is not trusted to fail a turn, and the
+// reactive retry in Turn names the exhaustion when a real rejection arrives
+// with nothing left to fold.
+func (a *Agent) compactOutcome(limit int) {
+	if EstimateTokens(a.Messages) >= limit {
+		a.compactStalled = true
+	}
 }
 
 // EstimateTokens approximates the token count of a conversation. No real
@@ -877,30 +922,48 @@ func (a *Agent) compactTailBudget() int {
 // compactTailStart picks the tail boundary: the index where the kept tail
 // begins. It walks user turns newest→oldest, accumulating each turn's tokens
 // (the user message plus its assistant replies and tool results) until adding
-// one more turn would exceed the budget. Whole turns only — a turn boundary
-// is the only place a summary can start without orphaning a tool_call. The
-// newest turn is always kept even when it alone exceeds the budget; the caller
+// one more turn would exceed the budget. Whole turns are the preferred unit:
+// a turn boundary is where a summary can start without orphaning a tool_call.
+// When the newest turn alone exceeds the budget the boundary moves inside it,
+// onto the oldest assistant message whose pairs (assistant + its tool results
+// and everything after) still fit — a single agentic turn of many tool
+// exchanges must stay foldable, or compaction can never shrink it and re-runs
+// as a no-op every round. The newest pair is always kept even when it alone
+// exceeds the budget; the caller pins the turn's opening user message and
 // clamps so the first user message is never folded.
-func compactTailStart(msgs []llm.Message, budget int) int {
+func compactTailStart(msgs []llm.Message, budget int) (start int, split bool) {
 	acc := 0
-	start := len(msgs)
-	// Walk back turn by turn. A turn starts at each authored (or first) user
-	// message and runs to just before the next one.
+	start = len(msgs)
+	pair := len(msgs) // oldest assistant boundary inside the newest turn that still fits
 	for i := len(msgs) - 1; i >= 1; i-- {
 		acc += EstimateTokens(msgs[i : i+1])
-		if msgs[i].Role == "user" {
+		switch {
+		case msgs[i].Role == "user":
 			if acc > budget && start < len(msgs) {
-				break // adding this turn would bust the budget; tail stays as-is
+				return start, false // adding this turn would bust the budget; tail stays as-is
+			}
+			if acc > budget && pair < len(msgs) {
+				return pair, true // the newest turn alone busts the budget: cut inside it
 			}
 			start = i
+		case start == len(msgs) && msgs[i].Role == "assistant":
+			if acc > budget {
+				if pair == len(msgs) {
+					pair = i // the newest pair is always kept
+				}
+				return pair, true
+			}
+			pair = i
 		}
 	}
-	return start
+	return start, false
 }
 
 // compact replaces old turns with an LLM-generated summary, keeping the
 // system prompt and a token-budgeted tail of recent whole turns so recent
-// tool results and any in-flight assistant action stay intact. It runs a
+// tool results and any in-flight assistant action stay intact. When the tail
+// begins inside a turn, that turn's opening user message is kept verbatim
+// between the summary and the tail. It runs a
 // single non-streaming completion — on CompactClient/CompactModel when set,
 // else on the conversation's own client and model — and stores the summary as
 // a system-role message (it must carry no tool_call IDs that the kept tail
@@ -913,12 +976,12 @@ func compactTailStart(msgs []llm.Message, budget int) int {
 // and cutoff as a compaction event so the raw log survives on disk.
 func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info CompactInfo, err error) {
 	if len(a.Messages) <= 3 { // system + ≥1 user + tail: nothing to fold
-		return "", 0, CompactInfo{}, errors.New("not enough history to compact")
+		return "", 0, CompactInfo{}, errNoHistory
 	}
 	const sysIdx = 0
 	sysPrompt := a.Messages[sysIdx]
 	budget := a.compactTailBudget()
-	tailStart := compactTailStart(a.Messages, budget)
+	tailStart, split := compactTailStart(a.Messages, budget)
 	if tailStart <= sysIdx+1 {
 		tailStart = sysIdx + 2 // never drop the first user message entirely
 	}
@@ -940,6 +1003,23 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 		strings.HasPrefix(history[0].Content, summaryPrefix) {
 		prior = strings.TrimPrefix(history[0].Content, summaryPrefix)
 		history = history[1:] // don't re-transcript the summary itself
+	}
+	// A boundary inside a turn pins that turn's opening user message: the
+	// model keeps acting on its exact instructions and authorization text,
+	// not on a paraphrase. The pinned message still informs the summary but
+	// is not folded material, so a fold that would remove nothing else has
+	// no history to fold and must not spend a summary call.
+	var pinned []llm.Message
+	if split {
+		for i := tailStart - 1; i > sysIdx; i-- {
+			if a.Messages[i].Role == "user" {
+				pinned = []llm.Message{a.Messages[i]}
+				break
+			}
+		}
+	}
+	if len(history)-len(pinned) <= 0 {
+		return "", 0, CompactInfo{}, errNoHistory
 	}
 	summaryPrompt := buildSummaryPrompt(history, prior, a.ExecutionLanguage)
 	cli, mdl := a.CompactClient, a.CompactModel
@@ -975,9 +1055,9 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	summary = strings.TrimSpace(sum)
 	kept := append([]llm.Message(nil), tail...)
 	a.msgsMu.Lock()
-	a.Messages = append(append([]llm.Message{}, sysPrompt,
+	a.Messages = append(append(append([]llm.Message{}, sysPrompt,
 		llm.Message{Role: "system", Content: summaryPrefix + summary, RawSequence: RawCompactionCutoff(a.Messages, tailStart)},
-	), kept...)
+	), pinned...), kept...)
 	a.msgsMu.Unlock()
 	// The pre-fold prompt size is stale now; fall back to the estimate until
 	// the next request reports the real post-fold size, else the next round
@@ -1133,6 +1213,7 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		return err
 	}
+	a.compactStalled = false
 	if ev.OnCompact != nil {
 		ev.OnCompact(0, len(a.Messages))
 	}
@@ -1175,6 +1256,6 @@ func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 	msg.Usage = &usage
 	msg.Model = a.Model + " @ " + a.Provider
 	a.appendTurnMessages(ev, msg)
-	a.compacted = false
+	a.compacted, a.compactStalled, a.retriedOverflow = false, false, false
 	return msg.Content, nil
 }

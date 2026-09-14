@@ -259,9 +259,11 @@ source labels and per-provider connect/manage dialogs. Existing API/account
 flows are reused. Known-preset environment and declared key-file discovery save
 missing provider references during daemon startup and setup/Refresh; regular
 inventory reads remain read-only. Secret values stay in their original sources.
-Saved overrides win; revision-checked disable/disconnect preserves aliases and
-defaults. Disabled routes stop at model admission across root, child, helper and
-compaction requests. Model menus exclude unavailable routes; catalog publication
+Saved overrides win; revision-checked disconnect removes Whip-owned credentials
+and restores normal setup, preserving aliases, custom endpoints, and defaults.
+Disable on this host preserves credentials; Enable on this host restores the
+existing connection without entering a key or signing in again. Disabled providers
+appear in their own Settings group. Disconnect also clears the disabled flag. Model menus exclude unavailable routes; catalog publication
 rejects stale route/account responses. Desktop recovers only the supported local
 shell keys, bounded and without forwarding them to remote hosts.
 
@@ -542,6 +544,16 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 
 ## macOS desktop application
 
+Web and desktop share a themed startup splash with the centered whipcode logo
+and HALO's entrance/exit animations. The initial Local connection releases the
+splash with no minimum hold and a three-second ceiling; remote connections run
+in the background and reduced motion is supported. Desktop preparation shares
+one shell environment and reuses unchanged-runtime verification per attempt;
+reconnect and restart refresh it. See [desktop startup](desktop.md).
+Implementation: `packages/app/src/startup-screen.tsx`, `apps/web/src/bootstrap.tsx`.
+Coverage: `packages/app/test/startup-screen.test.tsx`, `packages/app/test/bootstrap.test.tsx`,
+`packages/app/test/hosts.test.ts`, `apps/desktop/tests/runtime.test.ts`.
+
 The Electron host packages the same production renderer as the web application.
 The [desktop guide](desktop.md) documents local builds, canonical runtime installation,
 signing and release configuration. [Desktop acceptance](../.ai-docs/plans/desktop-app/progress.md)
@@ -565,6 +577,8 @@ provider message passed; see the
 | Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
 | Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |
 | This Mac setup before daemon availability, read-only Test Connection, native executable choice, explicit installation/restart and expandable path/build diagnostics | `packages/app/src/{platform,desktop-bridge}.ts`, `packages/app/src/host-dialog.tsx`, `apps/web/src/platform/desktop.ts`, `apps/desktop/src/{main,preload,runtime}.ts` | `packages/app/test/{local-runtime,desktop-adapter,architecture}.test.ts*`; `TestDaemonStatusDoesNotInitializeHome`, `TestDaemonStatusPreservesExistingRuntime`; Chromium missing-daemon UI check |
+| Lazy SSH alias discovery with bounded Includes, filter/refresh, single selection, retained manual drafts and cancellation/retry | `apps/desktop/src/ssh-profiles.ts`, `packages/app/src/connection-dialog.tsx`, `packages/app/src/host-dialog.tsx`, shared RadioGroup card variant and desktop bridge | Desktop `ssh-profiles.test.ts`, app `ssh-profile-picker.test.tsx`, Chromium/Firefox light/dark/narrow fixture `apps/web/scripts/ssh-profiles.mjs` |
+| Shared SSH connection dialog for initial setup and saved reconnects; inline authentication, cancellation, retry, and preserved configuration | `packages/app/src/{host-connection-dialog,host-prompts,host-prompt-form}.tsx`, `host-prompt-controller.ts`, desktop platform adapter | `host-connection-dialog`, `host-prompts`, `server-manager`, `desktop-adapter` tests; Chromium/Firefox SSH fixture with stable progress/authentication geometry |
 | System SSH configuration, private Unix forwarding, in-app prompts and owned helper cleanup on GUI death | `apps/desktop/src/ssh.ts`, `cmd/whip/desktop_{ssh,askpass,wait_darwin,wait_linux}.go`, `packages/app/src/host-prompts.tsx` | Real isolated sshd native tests, Go race/integration process-group and askpass tests, shared prompt stale/cancel tests |
 | Native save/copy/folder/link effects, opt-in attention notifications, restored tabs and draft-aware close | `apps/desktop/src/{main,native,links}.ts`, `packages/app/src/{attention-notifications,session-tab-routing,session-tab-strip,settings}.ts*` | Native save/disposal tests, app attention/close-tab/settings tests, signed Finder launch and tab/draft checks |
 | Deferred updater, one-action managed backend synchronization, attested candidate staging and conditional feed promotion | `apps/desktop/src/{updates,runtime}.ts`, `cmd/whip/desktop_runtime_sync.go`, `internal/daemon/maintenance_unix.go`, `apps/desktop/scripts/{ci-signing,publish,publish-github,release-candidate,notices}.mjs`, `.github/workflows/release-desktop.yml` | Updater release-name/approval/retry tests, `TestDesktopCompiledUpdate` (real two-build handoff and session/config preservation), maintenance-lock race tests, candidate/publisher identity and conditional-write tests; actual Squirrel N→N+1 remains a release gate ([runbook](desktop-releases.md)) |

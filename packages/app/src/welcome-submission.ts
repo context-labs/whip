@@ -14,6 +14,7 @@ export interface WelcomeSubmission {
   readonly input: RecoveryRecord<'submit'>;
   readonly params: CreateSessionParams;
   readonly draftRevision: string;
+  readonly effort?: { readonly value: string; readonly record: RecoveryRecord<'session.effort'>; readonly applied: boolean };
   readonly rootId?: string;
   readonly state: 'creating' | 'sending' | 'accepted' | 'absent' | 'failed';
   readonly error?: string;
@@ -51,6 +52,10 @@ export class WelcomeSubmissions {
       (item.rootId !== undefined && !identity(item.rootId)) || (item.state === 'accepted' && !item.rootId) ||
       item.input.rootId !== item.rootId || !['creating', 'sending', 'accepted', 'absent', 'failed'].includes(item.state))
       throw new Error('The saved first-message recovery record is invalid.');
+    if (item.effort && (typeof item.effort.value !== 'string' || item.effort.value.length > 64 ||
+      typeof item.effort.applied !== 'boolean' || item.effort.record?.version !== 1 || item.effort.record.operation !== 'session.effort' ||
+      item.effort.record.runtimeId !== item.create.runtimeId || item.effort.record.clientId !== item.create.clientId ||
+      !identity(item.effort.record.commandId))) throw new Error('The saved reasoning choice is invalid.');
     // Journals written before language selection could only create Starlark.
     // Status recovery sends no payload; an explicitly retried absent creation
     // must retain that language even if the host now defaults to QuickJS.
@@ -151,7 +156,7 @@ export class WelcomeSubmissions {
     if (snapshot.state !== 'connected' || !snapshot.info || !this.runtime.connections.isAttached(client)) throw new Error('Reconnect to the original execution host first.');
     return snapshot.info.runtime_id;
   }
-  start(id: string, client: WhipClient, params: Create): Promise<string> {
+  start(id: string, client: WhipClient, params: Create, options?: { effort?: string }): Promise<string> {
     const runtimeId = this.identity(client);
     if (!id || id.length > 256) throw new Error('Invalid New Chat draft identity.');
     if (this.running.has(id)) return this.running.get(id)!;
@@ -162,6 +167,8 @@ export class WelcomeSubmissions {
     const executionEngine = params.execution_engine ?? client.getSnapshot().info?.default_execution_engine ?? 'starlark';
     if (executionEngine !== 'starlark' && executionEngine !== 'quickjs') throw new Error('This host’s default execution language is unsupported. Choose a supported language.');
     const frozenParams: CreateSessionParams = JSON.parse(JSON.stringify({ kind: 'agent', model: '', provider: '', ...params, execution_engine: executionEngine }));
+    const effort = options?.effort;
+    if (effort !== undefined && (typeof effort !== 'string' || effort.length > 64)) throw new Error('Invalid reasoning effort.');
     return this.track(id, async () => {
       const prepare = () => {
         if (this.identity(client) !== runtimeId) throw new Error('The execution host changed before submission.');
@@ -172,7 +179,8 @@ export class WelcomeSubmissions {
         if (!persisted.saved) throw new Error(persisted.error);
         const create: RecoveryRecord<'session.create'> = { version: 1, runtimeId, clientId: client.clientId, commandId: crypto.randomUUID(), operation: 'session.create' };
         const input: RecoveryRecord<'submit'> = { ...create, commandId: crypto.randomUUID(), operation: 'submit' };
-        const item: WelcomeSubmission = { draftId: id, create, input, draftRevision, params: frozenParams, state: 'creating' };
+        const item: WelcomeSubmission = { draftId: id, create, input, draftRevision, params: frozenParams, state: 'creating',
+          ...(effort === undefined ? {} : { effort: { value: effort, record: { ...create, commandId: crypto.randomUUID(), operation: 'session.effort' as const }, applied: false } }) };
         this.save(id, item);
         return item;
       };
@@ -212,7 +220,7 @@ export class WelcomeSubmissions {
     let item = saved;
     const text = this.runtime.draft(submittedKey(id));
     const signal = this.runtime.connections.signal(client);
-    let handle: CommandHandle<'session.create'> | CommandHandle<'submit'> | undefined;
+    let handle: CommandHandle<'session.create'> | CommandHandle<'session.effort'> | CommandHandle<'submit'> | undefined;
     try {
       if (!item.rootId) {
         const create = mode === 'start' ? client.sessions.create(item.params, { commandId: item.create.commandId }) : client.recover(item.create, item.params);
@@ -230,6 +238,17 @@ export class WelcomeSubmissions {
       // Persist the input identity with its root before any request can leave.
       item = await this.transition(id, item);
       if (item.state === 'accepted') return this.accepted(item);
+      if (item.effort && !item.effort.applied) {
+        const record = { ...item.effort.record, rootId };
+        const payload = { effort: item.effort.value, persist_default: false };
+        const effort = mode === 'start' ? client.session(rootId).command('session.effort', payload, { commandId: record.commandId })
+          : client.recover(record, payload);
+        handle = effort;
+        if (mode === 'retry') await effort.retry({ signal });
+        await this.runtime.run(effort, 'Set initial reasoning effort', undefined, welcomeDraftKey(id));
+        item = await this.transition(id, { ...item, effort: { ...item.effort, record, applied: true } });
+        mode = 'start';
+      }
       const input = mode === 'start' ? client.session(rootId).submit({ text }, { commandId: item.input.commandId }) : client.recover(item.input, text ? { text } : undefined);
       handle = input;
       if (mode === 'retry') await input.retry({ signal });
