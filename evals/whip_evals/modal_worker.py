@@ -5,15 +5,12 @@ from pathlib import Path
 import signal
 import shutil
 import tempfile
-import subprocess
 import threading
-import time
 
-from .common import file_hash, identifier, read_json, tree_files, utc_now, write_json
+from .common import identifier, read_json, tree_files, utc_now, write_json
 from .execution import execute_job
-from .integrity import inventory
 from .prepare import environment, pull_images
-from .report import empty_trial, normalize_trial
+from .report import normalize_trial
 
 
 WORK = Path("/work")
@@ -26,41 +23,44 @@ def worker_paths(run_id, trial_id, *, root=EVIDENCE):
 
 def verify_bundle(archive, digest, destination):
     from .modal_bundle import verify_bundle as verify
-    if file_hash(archive) != digest:
-        raise ValueError("bundle hash changed after extraction")
     return verify(archive, digest)
 
 
-def preflight(host, trial, headroom, *, proc=Path("/proc")):
+def preflight(host, trial, headroom):
     available = {"cpus": host["cpus"], "memory_mb": host["memory_bytes"] // (1024 * 1024),
                  "storage_mb": host["disk_free_mb"]}
     for key, value in available.items():
         if value < trial["resources"][key] + headroom[key]:
             raise ValueError("outer VM cannot fit unchanged native resources and headroom")
-    for name in ("tcp", "tcp6"):
-        path = proc / "net" / name
-        if not path.exists():
+
+
+def publish_receipts(receipts, target):
+    """Copy the runner's closed VM-local receipts once; Volume has no hard links."""
+    if not receipts.exists():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    for source in receipts.iterdir():
+        if not source.is_file() or source.is_symlink():
             continue
-        for line in path.read_text().splitlines()[1:]:
-            fields = line.split()
-            if fields[3] == "0A" and int(fields[1].rsplit(":", 1)[1], 16) in (2375, 2376):
-                raise ValueError("Docker TCP listener is forbidden")
+        fd, temporary = tempfile.mkstemp(prefix=".receipt-", dir=target)
+        try:
+            with os.fdopen(fd, "wb") as output, source.open("rb") as stream:
+                shutil.copyfileobj(stream, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target / source.name)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE):
     """Never reuse a work directory or a native attempt, even after a crash."""
     run_id, trial_id = identifier(run_id), identifier(trial_id)
-    # Modal exposes the trusted mount root as an alias. Canonicalize only that
-    # root; the adapter still rejects symlinks in untrusted evidence descendants.
     evidence = Path(evidence).resolve(strict=True)
     destination = worker_paths(run_id, trial_id, root=evidence)
-    # The durable pre-create intent owns exactly one worker. Reserve its namespace
-    # once; cloud-owned receipts use atomic replace because Volume has no links.
     destination.mkdir(parents=True, exist_ok=False)
-    claim = destination / "started.json"
-    write_json(claim, {"run_id": run_id, "trial_id": trial_id,
-                      "bundle_sha256": bundle_sha256, "owner_id": os.environ.get("WHIP_EVAL_OWNER_ID"),
-                      "started_at": utc_now()})
+    write_json(destination / "started.json", {"run_id": run_id, "trial_id": trial_id,
+               "bundle_sha256": bundle_sha256, "started_at": utc_now()})
     cancelled = threading.Event()
     stop_watcher = threading.Event()
     def watch_cancel():
@@ -72,6 +72,7 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
     watcher.start()
     previous = {sig: signal.signal(sig, lambda *_: cancelled.set())
                 for sig in (signal.SIGTERM, signal.SIGINT)}
+    # The native runner needs exclusive-create receipts; keep those on VM-local ext4.
     receipts = Path("/tmp/whip-eval-native") / trial_id
     artifact_root = destination / "artifacts"
     artifact_root.mkdir(exist_ok=False)
@@ -96,20 +97,6 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
         selected = [t for t in lock["tasks"] if t["id"] == trial["task_id"]]
         if selected:
             pull_images(selected)
-        # Preserve native exclusive writes on ext4; only the wrapper receipts
-        # require hard links. Native job and observer logs remain Volume-backed.
-        write_json(Path("/tmp/whip-eval-hardlink-proof.json"), {"tested": True}, exclusive=True)
-        write_json(destination / "ready.json", {"run_id": run_id, "trial_id": trial_id,
-                   "bundle_sha256": bundle_sha256, "native_receipts": "vm-local-ext4",
-                   "native_jobs": "durable-volume", "hardlink_proof": True, "at": utc_now()})
-        # Verify publication through the independent Volume API before any model
-        # can start. ACK is VM-local filesystem, never an inbound Volume update.
-        for _ in range(300):
-            if cancelled.is_set() or Path("/tmp/whip-eval-admitted").exists():
-                break
-            time.sleep(1)
-        if cancelled.is_set() or not Path("/tmp/whip-eval-admitted").exists():
-            raise ValueError("worker admission not confirmed")
         write_json(destination / "phase.json", {"phase": "native_trial", "at": utc_now()})
         record = execute_job(trial, config, envelope, receipts, cancelled, evals=evals)
         record["job_path"] = str(Path(record["job_path"]).relative_to(artifact_root))
@@ -128,37 +115,18 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
         watcher.join(timeout=2)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
-        # execute_job has closed these files; publish them once without changing
-        # its local exclusive-write contract or copying any live SQLite/WAL.
-        receipt_target = artifact_root / "trials" / trial_id
-        if receipts.exists():
-            receipt_target.mkdir(parents=True, exist_ok=True)
-            for source in receipts.iterdir():
-                if not source.is_file() or source.is_symlink():
-                    continue
-                fd, temporary = tempfile.mkstemp(prefix=".receipt-", dir=receipt_target)
-                try:
-                    with os.fdopen(fd, "wb") as output, source.open("rb") as stream:
-                        shutil.copyfileobj(stream, output)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(temporary, receipt_target / source.name)
-                finally:
-                    Path(temporary).unlink(missing_ok=True)
-        audit = inventory(artifact_root, destination / "integrity.json")
-        write_json(destination / "integrity.json", audit)
-        result["integrity_complete"] = not audit["errors"] and not audit["skipped_nonregular"] and not audit["exact_key_matches"]
-        if audit["exact_key_matches"] or audit["potential_proxy_configs"]:
-            result.update(status="security_failure", security_failure=True, accounting_complete=False)
-            result["integrity_complete"] = False
+        try:
+            publish_receipts(receipts, artifact_root / "trials" / trial_id)
+        except OSError as error:
+            result["receipt_error"] = type(error).__name__
         result["finished_at"] = utc_now()
         try:
             result["files"] = tree_files(destination)
         except ValueError:
             result["files"] = {}
-            result["integrity_complete"] = False
-        # Marker is not proof of durability: the coordinator verifies every hash
-        # through the Volume API before acknowledging or reporting completion.
+            result["inventory_error"] = True
+        # The marker is written last and the VM exits right after. The controller
+        # waits for the exit, then reads the marker; fetch verifies the listed hashes.
         write_json(destination / "complete.json", result)
     return result
 
@@ -170,14 +138,6 @@ def main(argv=None):
     parser.add_argument("bundle_sha256")
     args = parser.parse_args(argv)
     result = run_worker(args.run_id, args.trial_id, args.bundle_sha256)
-    # Native evidence files are closed. Modal background commits persist them
-    # independently of the coordinator. Keep the VM available for explicit flush
-    # and hash verification; TTL is the crash backstop, never a task retry.
-    acknowledged = Path("/tmp/whip-eval-exported")
-    for _ in range(600):
-        if acknowledged.exists():
-            break
-        time.sleep(1)
     return 0 if result["status"] == "completed" else 2
 
 

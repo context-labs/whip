@@ -13,7 +13,6 @@ from . import baseline
 from .common import (EVALS, REPO, atomic_write, file_hash, identifier, inside, new_id, read_json,
                      utc_now, value_hash, write_json)
 from .execution import execute_job, job_config, run_pool, schedule
-from .integrity import inventory
 from .prepare import (available_capacity, build_candidate, catalog, configuration,
                       contract, environment, pull_images)
 from .report import build_result, compare_results, empty_trial, money, normalize_trial, write_report
@@ -182,11 +181,13 @@ def run(args, *, evals=EVALS, repo=REPO):
         atomic_write(report_dir / "report.md", (f"# Whip evaluation: {run_id}\n\nPreparation failed ({type(error).__name__}). No trials started; no score is asserted.\n").encode(), exclusive=True)
         raise
     cancelled = threading.Event()
+    user_cancelled = threading.Event()
     cancellation_source = "controller_cancelled"
     previous_handlers = {}
     def cancel_from_signal(*_):
         nonlocal cancellation_source
         cancellation_source = "user_cancelled"
+        user_cancelled.set()
         cancelled.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -227,14 +228,9 @@ def run(args, *, evals=EVALS, repo=REPO):
         cancelled.set()
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
-        result = build_result(manifest, list(normalized.values()), wall_seconds=time.monotonic() - started)
+        result = build_result(manifest, list(normalized.values()), wall_seconds=time.monotonic() - started,
+                              cancelled=user_cancelled.is_set())
         result.update(concurrency={"requested": args.jobs, **pool_stats}, preparation_seconds=preparation_seconds)
-        audit_path = artifact_root / "integrity.json"
-        audit = inventory(artifact_root, audit_path)
-        write_json(audit_path, audit, exclusive=True)
-        result["integrity"] = {"path": audit_path.relative_to(evals).as_posix(), "sha256": file_hash(audit_path),
-            "complete": not audit["errors"] and not audit["skipped_nonregular"],
-            "exact_key_match_count": len(audit["exact_key_matches"])}
         if previous:
             result["historical_comparison"] = compare_results(previous[1], result,
                 control_id=pointer["candidate_id"], seed=args.seed)

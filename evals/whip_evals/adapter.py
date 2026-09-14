@@ -1,6 +1,6 @@
 """Whip adapters for the actual Harbor 0.22.0 and Pier 0.3.1 AgentContexts.
 
-Only launch, observation, accounting, and evidence transfer live here. All model
+Only launch, observation, accounting, and evidence collection live here. All model
 planning, host effects, child sessions and recovery remain in the Whip daemon.
 """
 
@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import stat
 import tempfile
 
 from harbor.agents.base import BaseAgent as HarborBaseAgent
@@ -25,16 +24,11 @@ from .observe import final_accounting_complete
 OBSERVER_GRACE_SECONDS = 45
 CLEANUP_TIMEOUT_SECONDS = 240
 PROBE_INTERVAL_SECONDS = 2
-PROBE_TIMEOUT_SECONDS = 15
-
-
-def probe_timed_out(error):
-    # Pier 0.3.1 wraps its Docker exec timeout in this exact RuntimeError;
-    # Harbor may expose TimeoutError. Other transport errors remain fatal.
-    return isinstance(error, TimeoutError) or (
-        type(error) is RuntimeError
-        and str(error) == f"Command timed out after {PROBE_TIMEOUT_SECONDS} seconds"
-    )
+# Dependency bootstrap (apt/pip inside the task container) precedes any model
+# call, so retrying it is not pass-chasing. The runner's own setup budget is
+# widened to cover every try (see execution.AGENT_SETUP_SECONDS).
+DEPENDENCY_SETUP_SECONDS = 600
+DEPENDENCY_SETUP_TRIES = 3
 
 
 def clear_accounting(context):
@@ -44,61 +38,16 @@ def clear_accounting(context):
         context.peak_context_tokens = None
 
 
-async def download_content(environment, logs_dir, manifest):
-    """Publish only a complete, validated native bulk copy of scoped content."""
-    bodies = manifest.get("bodies") if isinstance(manifest, dict) else None
-    if not isinstance(bodies, list):
-        raise ValueError("invalid content manifest")
-    expected = {}
-    for body in bodies:
-        digest = body.get("digest") if isinstance(body, dict) else None
-        size = body.get("bytes") if isinstance(body, dict) else None
-        if (not isinstance(digest, str) or len(digest) != 64
-                or any(c not in "0123456789abcdef" for c in digest)
-                or type(size) is not int or size < 0 or digest in expected):
-            raise ValueError("invalid content identity")
-        expected[digest] = size
-    destination = logs_dir / "content" / "sha256"
-    if os.path.lexists(destination):
-        raise ValueError("content destination already exists")
-    if not expected:
-        return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.parent.resolve() != destination.parent.absolute():
-        raise ValueError("content destination must not follow symlinks")
-    with tempfile.TemporaryDirectory(prefix=".transfer-", dir=destination.parent) as temporary:
-        staging = Path(temporary)
-        await environment.download_dir("/logs/agent/whip/content/sha256", staging)
-        if staging.is_symlink() or {p.name for p in staging.iterdir()} != set(expected):
-            raise ValueError("content transfer inventory mismatch")
-        for digest, size in expected.items():
-            path = staging / digest
-            if not stat.S_ISREG(path.lstat().st_mode):
-                raise ValueError("content transfer requires regular files")
-            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-                if os.fstat(stream.fileno()).st_size != size:
-                    raise ValueError("content transfer size mismatch")
-                sha = hashlib.sha256()
-                while chunk := stream.read(1024 * 1024):
-                    sha.update(chunk)
-                    await asyncio.sleep(0)
-                if sha.hexdigest() != digest:
-                    raise ValueError("content transfer digest mismatch")
-            await asyncio.sleep(0)
-        if os.path.lexists(destination):
-            raise ValueError("content destination already exists")
-        staging.rename(destination)
-
-
 class PierDockerEnvironment(DockerEnvironment):
     """Bound only the inference proxy's FD table; task policy remains native."""
 
     def _prepare_egress_proxy_compose(self):
         # Pinned Pier 0.3.1 private hook: fail visibly if its proxy shape changes.
-        # The VM bootstrap alone supplies this immutable ownership marker.
+        # On a cloud worker the generated compose (which carries the proxy token)
+        # is written to a private VM-local directory instead of the evidence volume.
         # Pier's synchronous pinned hook uses trial_paths only for its two
         # credential-bearing outputs. Restore native paths before any await.
-        if os.environ.get("WHIP_EVAL_OWNER_ID"):
+        if os.environ.get("WHIP_EVAL_CLOUD"):
             if getattr(self, "_whip_proxy_directory", None) is not None:
                 raise RuntimeError("private proxy was already prepared")
             private = tempfile.TemporaryDirectory(prefix="whip-eval-proxy-", dir="/tmp")
@@ -124,7 +73,6 @@ class PierDockerEnvironment(DockerEnvironment):
         proxy = compose["services"]["pier-egress-proxy"]
         proxy.setdefault("ulimits", {})["nofile"] = {"soft": 65536, "hard": 65536}
         write_json(path, compose)
-
 
     async def stop(self, delete):
         try:
@@ -193,6 +141,28 @@ class WhipAdapter:
             receipt["elapsed_seconds"] = clock() - started
             write_json(self.logs_dir / ("setup-" + stage + ".json"), receipt)
 
+    async def install_dependencies(self, environment):
+        command = ("mkdir -p /opt/whip /logs/agent/whip && "
+                   "(command -v python3 >/dev/null && command -v curl >/dev/null && command -v rg >/dev/null && command -v git >/dev/null || "
+                   "(apt-get update -qq && apt-get install -y -qq python3 ca-certificates curl ripgrep git))")
+        failures = []
+        for attempt in range(1, DEPENDENCY_SETUP_TRIES + 1):
+            try:
+                result = await self.setup_probe(environment, f"dependencies-{attempt}", command,
+                                                timeout_sec=DEPENDENCY_SETUP_SECONDS, user="root")
+            except Exception as error:
+                failures.append(type(error).__name__)
+                continue
+            if result.return_code == 0:
+                write_json(self.logs_dir / "setup-dependencies.json",
+                           {"tries": attempt, "failures": failures, "timeout_seconds": DEPENDENCY_SETUP_SECONDS})
+                return
+            failures.append("exit " + str(result.return_code) + ": " + (result.stderr or "")[-500:])
+        write_json(self.logs_dir / "setup-dependencies.json",
+                   {"tries": DEPENDENCY_SETUP_TRIES, "failures": failures, "timeout_seconds": DEPENDENCY_SETUP_SECONDS})
+        raise RuntimeError("Whip dependency installation failed after "
+                           f"{DEPENDENCY_SETUP_TRIES} tries: {failures[-1][:2000]}")
+
     async def setup(self, environment):
         if self.ripgrep.exists():
             await environment.exec("mkdir -p /usr/local/bin", timeout_sec=15, user="root")
@@ -200,13 +170,7 @@ class WhipAdapter:
             installed = await environment.exec("chmod 755 /usr/local/bin/rg && /usr/local/bin/rg --version", timeout_sec=15, user="root")
             if installed.return_code != 0:
                 raise RuntimeError("bundled ripgrep failed startup")
-        result = await self.setup_probe(environment, "dependencies",
-            "mkdir -p /opt/whip /logs/agent/whip && "
-            "(command -v python3 >/dev/null && command -v curl >/dev/null && command -v rg >/dev/null && command -v git >/dev/null || "
-            "(apt-get update -qq && apt-get install -y -qq python3 ca-certificates curl ripgrep git))",
-            timeout_sec=300, user="root")
-        if result.return_code != 0:
-            raise RuntimeError("Whip dependency installation failed: " + (result.stderr or "")[-2000:])
+        await self.install_dependencies(environment)
         await environment.upload_file(self.binary, "/opt/whip/whip")
         await environment.upload_file(Path(__file__).with_name("observe.py"), "/opt/whip/observe.py")
         if self.fixture:
@@ -228,6 +192,12 @@ class WhipAdapter:
         context.metadata = {**(context.metadata or {}), "whip": metrics, "execution_engine": self.engine,
                             "binary_sha256": self.binary_digest,
                             "methodology_comparable": False}
+
+    def evidence_dir(self):
+        # The observer writes to /logs/agent/whip inside the container, which the
+        # runner bind-mounts from this trial's agent directory. Everything it
+        # writes is already on the host; nothing is downloaded a second time.
+        return self.logs_dir / "whip"
 
     async def run(self, instruction, environment, context):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -253,43 +223,28 @@ class WhipAdapter:
             shlex.join(args), env=self.process_env(environment, {"INFERENCE_API_KEY": key}), timeout_sec=self.timeout + OBSERVER_GRACE_SECONDS))
         observer_exit_code = None
         evidence_errors = []
-        downloaded = set()
+        evidence = self.evidence_dir()
         clock = asyncio.get_running_loop().time
         started = clock()
-        last_sample = started
-        probes = {"attempts": 0, "samples": 0, "timeouts": 0,
-                  "last_sample_elapsed_seconds": None, "max_staleness_seconds": 0.0}
+        probes = {"samples": 0, "last_sample_elapsed_seconds": None}
         cleanup_truncated = False
         try:
             while not operation.done():
                 await asyncio.wait({operation}, timeout=PROBE_INTERVAL_SECONDS)
                 if operation.done():
                     break
-                # Optional intermediate samples never establish finality. Keep
-                # the last observation if only this Docker probe times out.
-                probes["attempts"] += 1
-                try:
-                    probe = await environment.exec(
-                        "cat /logs/agent/whip/metrics.json 2>/dev/null || true",
-                        timeout_sec=PROBE_TIMEOUT_SECONDS)
-                except Exception as error:
-                    if not probe_timed_out(error):
-                        raise
-                    probes["timeouts"] += 1
-                    probes["last_timeout_elapsed_seconds"] = clock() - started
-                    continue
-                if (probe.stdout or "").strip():
-                    sample = json.loads(probe.stdout)
+                # Interim samples come straight from the bind-mounted evidence
+                # directory; they never establish finality.
+                interim = evidence / "metrics.json"
+                if interim.is_file():
+                    try:
+                        sample = json.loads(interim.read_text())
+                    except ValueError:
+                        continue  # torn read of an atomic replace in flight
                     self.update_context(context, sample)
-                    # This host-side receipt survives runner/observer death even
-                    # when final native export cannot run. It never proves finality.
                     write_json(self.logs_dir / "metrics.interim.json", sample)
-                    now = clock()
-                    probes["max_staleness_seconds"] = max(probes["max_staleness_seconds"], now - last_sample)
-                    last_sample = now
                     probes["samples"] += 1
-                    probes["last_sample_elapsed_seconds"] = now - started
-            # A probe timeout must never swallow the observer's own failure.
+                    probes["last_sample_elapsed_seconds"] = clock() - started
             result = await operation
             observer_exit_code = result.return_code
             (self.logs_dir / "observer.stdout").write_text(result.stdout or "")
@@ -297,8 +252,6 @@ class WhipAdapter:
             if observer_exit_code != 0:
                 raise RuntimeError(f"Whip observer exited with code {observer_exit_code}")
         finally:
-            probes["staleness_at_observer_exit_seconds"] = clock() - last_sample
-            probes["max_staleness_seconds"] = max(probes["max_staleness_seconds"], clock() - last_sample)
             # Cancellation during cleanup must not leave interim usage looking
             # final. Raw partial metrics remain available under metadata.whip.
             clear_accounting(context)
@@ -320,45 +273,28 @@ class WhipAdapter:
                                 evidence_errors.append("abnormal observer cleanup failed")
                         except Exception as error:
                             evidence_errors.append("abnormal observer cleanup: " + type(error).__name__)
-                    # Descendants are evidence, never nested result.json leaves.
-                    for name in ("metrics.json", "outcome.json", "state.json", "events.ndjson", "identity.json", "configuration.json", "provider-catalog.json", "cli.ndjson", "cli.stderr", "sessions.db", "content-export.json"):
-                        try:
-                            await environment.download_file("/logs/agent/whip/" + name, self.logs_dir / name)
-                            downloaded.add(name)
-                        except Exception as error:
-                            evidence_errors.append(name + ": " + type(error).__name__)
-                            self.logger.warning("Whip evidence %s unavailable: %s", name, type(error).__name__)
-                    if "content-export.json" in downloaded:
-                        try:
-                            content = json.loads((self.logs_dir / "content-export.json").read_text())
-                            await download_content(environment, self.logs_dir, content)
-                        except TimeoutError:
-                            raise
-                        except Exception as error:
-                            evidence_errors.append("content transfer: " + type(error).__name__)
             except TimeoutError:
                 cleanup_truncated = True
-                evidence_errors.append("evidence/daemon cleanup exceeded deadline")
+                evidence_errors.append("daemon cleanup exceeded deadline")
             except asyncio.CancelledError:
                 cleanup_truncated = True
-                evidence_errors.append("evidence/daemon cleanup cancelled")
+                evidence_errors.append("daemon cleanup cancelled")
                 raise
             finally:
-                # Parse only completed transfers; a cancelled copy may leave a
-                # partial local file. Export errors cannot replace the original
-                # observer exception or an external cancellation.
                 for name in ("metrics.json", "outcome.json"):
-                    if name not in downloaded:
+                    path = evidence / name
+                    if not path.is_file():
+                        evidence_errors.append(name + ": missing")
                         continue
                     try:
-                        value = json.loads((self.logs_dir / name).read_text())
+                        value = json.loads(path.read_text())
                         if name == "metrics.json":
                             self.update_context(context, value)
                         else:
                             context.metadata["whip_outcome"] = value
                     except Exception as error:
                         evidence_errors.append(name + " decode: " + type(error).__name__)
-                if "metrics.json" not in downloaded:
+                if not (evidence / "metrics.json").is_file():
                     context.metadata["whip_error"] = "no final usage evidence; not zero usage"
                 context.metadata.update(
                     execution_engine=self.engine,
@@ -366,8 +302,7 @@ class WhipAdapter:
                     whip_evidence_errors=evidence_errors,
                     whip_cleanup={"timeout_seconds": CLEANUP_TIMEOUT_SECONDS,
                                   "elapsed_seconds": clock() - cleanup_started,
-                                  "truncated": cleanup_truncated,
-                                  "downloaded": sorted(downloaded)})
+                                  "truncated": cleanup_truncated})
                 complete = observer_exit_code == 0 and not cleanup_truncated and not evidence_errors and final_accounting_complete(
                     context.metadata.get("whip"), context.metadata.get("whip_outcome"))
                 context.metadata["whip_accounting_complete"] = complete

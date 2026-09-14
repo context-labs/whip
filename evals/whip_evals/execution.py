@@ -12,7 +12,8 @@ import threading
 import time
 import tomllib
 
-from .adapter import OBSERVER_GRACE_SECONDS, CLEANUP_TIMEOUT_SECONDS
+from .adapter import (OBSERVER_GRACE_SECONDS, CLEANUP_TIMEOUT_SECONDS,
+                      DEPENDENCY_SETUP_SECONDS, DEPENDENCY_SETUP_TRIES)
 from .common import read_json, write_json, PROVIDER_MODEL
 
 
@@ -75,7 +76,8 @@ def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, 
                     results[trial["id"]] = result
                     result.setdefault("phase_seconds", {})["queue"] = queue_times[trial["id"]]
                     if result.get("cleanup", {}).get("complete") is not True:
-                        cancelled.set()  # Unproven resources remain reserved.
+                        # Unproven resources stay reserved; the run continues.
+                        result["cleanup_incomplete"] = True
                     else:
                         for key in available:
                             available[key] += trial["resources"][key]
@@ -180,7 +182,8 @@ def execute_job(trial, config, envelope, directory, cancelled, *, evals):
 
 # These envelopes describe the pinned Harbor 0.22.0 / Pier 0.3.1 single-step
 # runners. Native task verifier limits are read, never overridden.
-AGENT_SETUP_SECONDS = 600
+# Runner-side setup budget: every dependency bootstrap try plus the fixed steps.
+AGENT_SETUP_SECONDS = DEPENDENCY_SETUP_SECONDS * DEPENDENCY_SETUP_TRIES + 120
 RUNNER_GUARD_SECONDS = 60
 
 

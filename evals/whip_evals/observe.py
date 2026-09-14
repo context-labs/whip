@@ -414,7 +414,7 @@ def run(args):
     content_export_complete = False
     final_snapshot = False
     daemon_stopped = False
-    with (evidence / "cli.ndjson").open("w") as stdout, (evidence / "cli.stderr").open("w") as stderr, (evidence / "events.ndjson").open("w") as events:
+    with (evidence / "cli.ndjson").open("w") as stdout, (evidence / "cli.stderr").open("w") as stderr:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, env=env, start_new_session=True)
         try:
             process.stdin.write(prompt.encode())
@@ -436,9 +436,7 @@ def run(args):
                         last = current
                         previous_cursor = cursor
                         for event in last.pop("events"):
-                            events.write(json.dumps(event) + "\n")
                             cursor = event["seq"]
-                        events.flush()
                         metrics = aggregate(last["calls"])
                         metrics.update({"duration_seconds": time.monotonic() - started,
                                         "engine": args.engine, "pending": last["pending"], "event_cursor": cursor,
@@ -496,9 +494,7 @@ def run(args):
                 if database.exists():
                     last = snapshot(database, cursor)
                     for event in last.pop("events"):
-                        events.write(json.dumps(event) + "\n")
                         cursor = event["seq"]
-                    events.flush()
                     atomic_json(evidence / "state.json", last)
                     metrics = aggregate(last["calls"])
                     metrics.update({"duration_seconds": time.monotonic() - started, "engine": args.engine,

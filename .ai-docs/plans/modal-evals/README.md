@@ -1,3 +1,5 @@
+> **Superseded 2026-09-14.** The qualification-era design below (ownership nonces, admission and export acknowledgements, reconciliation, integrity scanning, fixture campaigns, settings receipts) was removed by the eval harness simplification; see `.ai-docs/plans/eval-harness-simplification/PLAN.md` and the "Modal campaigns" section of `evals/README.md` for the current path. Kept as the record of how the Modal environment was qualified.
+
 # Modal Docker eval execution
 
 Branch: feature/agent-definition (existing checkout; do not switch or discard unrelated work)

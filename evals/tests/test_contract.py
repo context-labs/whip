@@ -19,16 +19,14 @@ from whip_evals.run import plan_run, run
 from whip_evals.tasks import file_inventory, load_spec, prepare_tasks, task_archive_files
 
 
-class ContentTransferTests(unittest.IsolatedAsyncioTestCase):
+class EvidenceReadTests(unittest.IsolatedAsyncioTestCase):
+    """The observer writes /logs/agent/whip, bind-mounted from the trial's agent dir."""
     def setUp(self):
         from whip_evals.adapter import WhipAdapter
         from whip_evals.observe import aggregate
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.body = b'synthetic content'
-        self.digest = hashlib.sha256(self.body).hexdigest()
-        self.manifest = {'bodies': [{'digest': self.digest, 'bytes': len(self.body)}]}
         self.metrics = aggregate([])
         self.outcome = dict(final_snapshot=True, frozen_daemon_pid=123, pending={}, evidence_errors=[])
         self.adapter = object.__new__(WhipAdapter)
@@ -39,151 +37,68 @@ class ContentTransferTests(unittest.IsolatedAsyncioTestCase):
         self.adapter.commit, self.adapter.fixture = False, True
         self.adapter.logger = MagicMock()
 
-    def environment(self, manifest, transfer=None, exit_code=0):
-        async def download(source, target):
-            value = (self.metrics if target.name == 'metrics.json' else
-                     self.outcome if target.name == 'outcome.json' else
-                     manifest if target.name == 'content-export.json' else {})
-            target.write_text(json.dumps(value))
-        async def copy(source, target):
-            self.assertEqual(source, '/logs/agent/whip/content/sha256')
-            (target / self.digest).write_bytes(self.body)
-        return SimpleNamespace(
-            exec=AsyncMock(return_value=SimpleNamespace(return_code=exit_code, stdout='', stderr='')),
-            upload_file=AsyncMock(), download_file=AsyncMock(side_effect=download),
-            download_dir=AsyncMock(side_effect=transfer or copy))
+    def environment(self, *, exit_code=0, evidence=True):
+        async def observer(*args, **kwargs):
+            if evidence:
+                whip = self.adapter.logs_dir / 'whip'
+                whip.mkdir(parents=True, exist_ok=True)
+                (whip / 'metrics.json').write_text(json.dumps(self.metrics))
+                (whip / 'outcome.json').write_text(json.dumps(self.outcome))
+            return SimpleNamespace(return_code=exit_code, stdout='', stderr='')
+        return SimpleNamespace(exec=AsyncMock(side_effect=observer), upload_file=AsyncMock(),
+                               download_file=AsyncMock(), download_dir=AsyncMock())
 
-    async def run_adapter(self, env):
+    async def test_final_evidence_is_read_in_place_and_never_downloaded(self):
         from harbor.models.agent.context import AgentContext
+        env = self.environment()
         context = AgentContext()
         await self.adapter.run('synthetic fixture', env, context)
-        self.assertEqual(env.download_file.await_count, 11)
-        return context
-
-    async def test_native_bulk_2138_bodies_and_atomic_flat_destination(self):
-        from harbor.environments.docker.docker_unix import UnixOps as HarborUnix
-        from pier.environments.docker.docker_unix import UnixOps as PierUnix
-        from whip_evals.adapter import CLEANUP_TIMEOUT_SECONDS
-        self.assertEqual(CLEANUP_TIMEOUT_SECONDS, 240)
-        source = self.root / 'source'
-        source.mkdir()
-        bodies = []
-        for index in range(2138):
-            body = (f'synthetic body {index}:'.encode() * 800)[:12000]
-            digest = hashlib.sha256(body).hexdigest()
-            (source / digest).write_bytes(body)
-            bodies.append(dict(digest=digest, bytes=len(body)))
-        for name, native_type in [('harbor', HarborUnix), ('pier', PierUnix)]:
-            with self.subTest(runner=name):
-                self.adapter.logs_dir = self.root / name
-                destination = self.adapter.logs_dir / 'content/sha256'
-                async def compose(args, check=False):
-                    self.assertTrue(check)
-                    self.assertEqual(args[:2], ['cp', 'main:/logs/agent/whip/content/sha256/.'])
-                    self.assertFalse(destination.exists())
-                    shutil.copytree(source, args[2], dirs_exist_ok=True, symlinks=True)
-                    self.assertFalse(destination.exists())
-                native = SimpleNamespace(_chown_to_host_user=AsyncMock(),
-                                         _run_docker_compose_command=AsyncMock(side_effect=compose))
-                env = self.environment({'bodies': bodies}, native_type(native).download_dir)
-                context = await self.run_adapter(env)
-                self.assertTrue(context.metadata['whip_accounting_complete'])
-                self.assertEqual(env.download_dir.await_count, 1)
-                self.assertEqual(native._run_docker_compose_command.await_count, 1)
-                self.assertEqual(native._chown_to_host_user.await_count, int(name == 'pier'))
-                self.assertEqual(len(list(destination.iterdir())), 2138)
-                self.assertFalse((destination / 'sha256').exists())
-                for body in bodies:
-                    path = destination / body['digest']
-                    self.assertEqual(path.stat().st_size, body['bytes'])
-                    self.assertEqual(file_hash(path), body['digest'])
-                self.assertEqual(list(destination.parent.glob('.transfer-*')), [])
-
-    async def test_empty_manifest_skips_bulk(self):
-        env = self.environment({'bodies': []})
-        context = await self.run_adapter(env)
         self.assertTrue(context.metadata['whip_accounting_complete'])
+        self.assertEqual(context.metadata['whip_outcome'], self.outcome)
+        self.assertEqual(context.cost_usd, 0)
+        env.download_file.assert_not_awaited()
         env.download_dir.assert_not_awaited()
+        self.assertFalse((self.adapter.logs_dir / 'metrics.json').exists())
 
-    async def test_invalid_manifests_never_download_and_clear_accounting(self):
-        invalid = [None, [], {}, {'bodies': None}, {'bodies': {}}, {'bodies': 'bad'},
-                   {'bodies': [None]}, {'bodies': [{}]}, {'bodies': [self.manifest['bodies'][0]] * 2}]
-        invalid += [{'bodies': [{'digest': digest, 'bytes': size}]} for digest, size in
-                    [('../escape', 1), ('A' * 64, 1), (23, 1), (self.digest, True),
-                     (self.digest, -1), (self.digest, 1.0), (self.digest, None)]]
-        for index, manifest in enumerate(invalid):
-            with self.subTest(manifest=index):
-                self.adapter.logs_dir = self.root / str(index)
-                env = self.environment(manifest)
-                context = await self.run_adapter(env)
-                self.assertFalse(context.metadata['whip_accounting_complete'])
-                self.assertIsNone(context.cost_usd)
-                self.assertIn('content transfer: ValueError', context.metadata['whip_evidence_errors'])
-                env.download_dir.assert_not_awaited()
-
-    async def test_failed_transfers_never_publish_or_certify_accounting(self):
+    async def test_missing_evidence_or_failed_observer_clears_accounting(self):
         from harbor.models.agent.context import AgentContext
-        modes = ('missing', 'extra', 'hash', 'size', 'symlink_inside', 'symlink_outside',
-                 'subdirectory', 'preexisting', 'partial', 'timeout', 'cancel', 'validation_cancel')
-        for mode in modes:
-            with self.subTest(mode=mode):
-                self.adapter.logs_dir = self.root / mode
-                destination = self.adapter.logs_dir / 'content/sha256'
-                if mode == 'preexisting':
-                    destination.mkdir(parents=True)
-                async def copy(source, staging):
-                    target = staging / self.digest
-                    if mode == 'missing':
-                        return
-                    target.write_bytes(self.body)
-                    if mode == 'extra':
-                        (staging / 'unexpected').write_bytes(b'extra')
-                    elif mode in ('hash', 'size'):
-                        target.write_bytes(b'x' * len(self.body) if mode == 'hash' else b'x')
-                    elif mode.startswith('symlink'):
-                        target.unlink()
-                        other = (staging / 'other') if mode == 'symlink_inside' else self.root / 'outside'
-                        other.write_bytes(self.body)
-                        target.symlink_to(other)
-                    elif mode == 'subdirectory':
-                        target.unlink()
-                        target.mkdir()
-                    elif mode == 'partial':
-                        raise OSError('synthetic partial transfer')
-                    elif mode == 'timeout':
-                        await asyncio.sleep(10)
-                    elif mode == 'cancel':
-                        raise asyncio.CancelledError()
-                env = self.environment(self.manifest, copy)
-                context = AgentContext()
-                async def cancelled_yield(delay):
-                    raise asyncio.CancelledError()
-                with patch('whip_evals.adapter.CLEANUP_TIMEOUT_SECONDS', .02):
-                    if mode == 'validation_cancel':
-                        with patch('whip_evals.adapter.asyncio.sleep', side_effect=cancelled_yield):
-                            with self.assertRaises(asyncio.CancelledError):
-                                await self.adapter.run('fixture', env, context)
-                    elif mode == 'cancel':
-                        with self.assertRaises(asyncio.CancelledError):
-                            await self.adapter.run('fixture', env, context)
-                    else:
-                        await self.adapter.run('fixture', env, context)
-                self.assertFalse(context.metadata['whip_accounting_complete'])
-                self.assertIsNone(context.cost_usd)
-                self.assertTrue(context.metadata['whip_evidence_errors'])
-                self.assertEqual(context.metadata['whip_cleanup']['truncated'], mode in ('timeout', 'cancel', 'validation_cancel'))
-                self.assertEqual(destination.exists(), mode == 'preexisting')
-                self.assertEqual(list(destination.parent.glob('.transfer-*')), [])
-                self.assertEqual(env.download_dir.await_count, int(mode != 'preexisting'))
-
-    async def test_content_failure_preserves_original_observer_error(self):
-        from harbor.models.agent.context import AgentContext
+        env = self.environment(evidence=False)
         context = AgentContext()
-        env = self.environment({}, exit_code=7)
+        await self.adapter.run('fixture', env, context)
+        self.assertFalse(context.metadata['whip_accounting_complete'])
+        self.assertIsNone(context.cost_usd)
+        self.assertIn('metrics.json: missing', context.metadata['whip_evidence_errors'])
+        self.assertEqual(context.metadata['whip_error'], 'no final usage evidence; not zero usage')
+        env = self.environment(exit_code=7)
+        context = AgentContext()
         with self.assertRaisesRegex(RuntimeError, 'observer exited with code 7'):
             await self.adapter.run('fixture', env, context)
         self.assertFalse(context.metadata['whip_accounting_complete'])
-        self.assertIn('content transfer: ValueError', context.metadata['whip_evidence_errors'])
+        self.assertIsNone(context.cost_usd)
+        self.assertEqual(context.metadata['whip_observer_exit_code'], 7)
+
+    async def test_dependency_bootstrap_retries_then_fails_with_receipts(self):
+        from whip_evals.adapter import DEPENDENCY_SETUP_TRIES
+        self.adapter.logs_dir.mkdir(parents=True)
+        outcomes = iter([SimpleNamespace(return_code=100, stderr='apt failed', stdout=''),
+                         asyncio.TimeoutError(),
+                         SimpleNamespace(return_code=0, stderr='', stdout='')])
+        async def exec_(*args, **kwargs):
+            value = next(outcomes)
+            if isinstance(value, Exception):
+                raise value
+            return value
+        env = SimpleNamespace(exec=AsyncMock(side_effect=exec_))
+        await self.adapter.install_dependencies(env)
+        self.assertEqual(env.exec.await_count, 3)
+        receipt = read_json(self.adapter.logs_dir / 'setup-dependencies.json')
+        self.assertEqual(receipt['tries'], 3)
+        self.assertEqual(len(receipt['failures']), 2)
+        self.assertTrue((self.adapter.logs_dir / 'setup-dependencies-2.json').exists())
+        env = SimpleNamespace(exec=AsyncMock(return_value=SimpleNamespace(return_code=1, stderr='no network', stdout='')))
+        with self.assertRaisesRegex(RuntimeError, 'failed after %d tries' % DEPENDENCY_SETUP_TRIES):
+            await self.adapter.install_dependencies(env)
+        self.assertEqual(env.exec.await_count, DEPENDENCY_SETUP_TRIES)
 
 
 class ContractTests(unittest.TestCase):
@@ -488,7 +403,7 @@ class PreparationTests(unittest.TestCase):
                  patch('whip_evals.run.execute_job', side_effect=AssertionError('no evaluation allowed')), \
                  patch('whip_evals.run.run_pool', side_effect=pool), patch('builtins.print'):
                 value = run(args, evals=evals)
-            self.assertEqual(value['status'], 'partial')
+            self.assertEqual(value['status'], 'incomplete')
             build.assert_called_once()
             manifest = read_json(evals / 'reports/offline-build-test/manifest.json')
             a, b = manifest['candidates']

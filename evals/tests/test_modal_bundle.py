@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from whip_evals.common import EVALS, file_hash, read_json, value_hash, write_json
 from whip_evals.modal_bundle import (create_bundle, extract_bundle, plan_campaign,
-                                    prepare_campaign, prepare_fixture_campaign, verify_bundle)
+                                    prepare_campaign, verify_bundle)
 from whip_evals.tasks import file_inventory, load_spec
 
 
@@ -125,110 +125,6 @@ class CampaignTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 plan_campaign(self.args(**overrides))
 
-    def test_fixture_repetitions_are_explicit_and_capped_at_90_trials(self):
-        default = plan_campaign(self.args(fixture=True, engines="quickjs"))
-        self.assertEqual((default["repetitions"], default["trial_count"]), (1, 2))
-        planned = plan_campaign(self.args(fixture=True, engines="quickjs", fixture_repetitions=45))
-        self.assertEqual((planned["repetitions"], planned["trial_count"]), (45, 90))
-        self.assertEqual(planned["task_ids"], default["task_ids"])
-        self.assertTrue(planned["excluded_from_scores"])
-        paired = plan_campaign(self.args(fixture=True, engines="starlark,quickjs", fixture_repetitions=22))
-        self.assertEqual(paired["trial_count"], 88)
-        for repetitions, engines in ((0, "quickjs"), (46, "quickjs"), (True, "quickjs"),
-                                     (1.5, "quickjs"), ("2", "quickjs"), (None, "quickjs"),
-                                     (23, "starlark,quickjs")):
-            with self.subTest(repetitions=repetitions, engines=engines), self.assertRaises(ValueError):
-                plan_campaign(self.args(fixture=True, engines=engines, fixture_repetitions=repetitions))
-        scored = plan_campaign(self.args(fixture_repetitions=45))
-        self.assertEqual((scored["repetitions"], scored["trial_count"]), (3, 90))
-
-    def test_authored_fixture_uses_both_runners_without_catalog_or_real_key(self):
-        self.check_fixture_preparation()
-
-    def test_prepares_90_fake_only_native_fixture_trials(self):
-        self.check_fixture_preparation(engines="quickjs", repetitions=45)
-
-    def test_fixture_task_subset_is_validated_before_preparation(self):
-        for selected in ([], ["fixture/unknown"], ["fixture/harbor-shared"] * 2,
-                         "fixture/harbor-shared", [None], [["fixture/harbor-shared"]]):
-            with self.subTest(selected=selected), self.assertRaises(ValueError):
-                plan_campaign(self.args(fixture=True, fixture_task_ids=selected))
-        for selected in (["fixture/harbor-shared"], ["fixture/pier-separate"]):
-            planned = plan_campaign(self.args(fixture=True, engines="quickjs", fixture_task_ids=selected))
-            self.assertEqual(planned["task_ids"], selected)
-            self.assertEqual(planned["trial_count"], 1)
-            self.assertTrue(planned["excluded_from_scores"])
-
-    def test_single_authored_harbor_fixture_is_frozen_before_hashing(self):
-        self.check_fixture_preparation(engines="quickjs", task_ids=["fixture/harbor-shared"])
-
-    def check_fixture_preparation(self, *, engines=None, repetitions=1, task_ids=None):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            evals = root / "evals"
-            shutil.copytree(EVALS / "frontier", evals / "frontier")
-            for name in ("pyproject.toml", "uv.lock"):
-                shutil.copyfile(EVALS / name, evals / name)
-            binary = evals / "cache/builds" / ("f" * 64) / "whip-linux-amd64"
-            binary.parent.mkdir(parents=True)
-            binary.write_bytes(b"offline binary")
-            rg = binary.with_name("rg-linux-amd64")
-            rg.write_bytes(b"offline ripgrep")
-            write_json(binary.with_name("build.json"), {})
-            metadata = dict(id="candidate", engine="starlark", commit="a" * 40, dirty=False,
-                source_sha256="b" * 64, binary_sha256=file_hash(binary),
-                binary_path=binary.relative_to(evals).as_posix(), build={"ripgrep_sha256": file_hash(rg)})
-            with patch("whip_evals.prepare.build_candidate", return_value=metadata), \
-                 patch("whip_evals.prepare.catalog", side_effect=AssertionError("catalog")), \
-                 patch("whip_evals.prepare.contract", side_effect=AssertionError("contract")), \
-                 patch("whip_evals.tasks.prepare_tasks", side_effect=AssertionError("real tasks")), \
-                 patch("subprocess.run", side_effect=AssertionError("execution")), \
-                 patch("urllib.request.urlopen", side_effect=AssertionError("network")), \
-                 patch.dict(os.environ, {}, clear=True):
-                args = SimpleNamespace(run_id="fixture-offline", engines=engines,
-                                       fixture_repetitions=repetitions, fixture_task_ids=task_ids)
-                campaign = prepare_fixture_campaign(args, evals=evals, repo=root)
-            manifest = read_json(campaign / "manifest.json")
-            self.assertEqual(manifest["profile"], "fixture")
-            self.assertTrue(manifest["fixture"])
-            self.assertTrue(manifest["excluded_from_scores"])
-            self.assertFalse(manifest["promote"])
-            self.assertEqual(manifest["external_provider_calls"], 0)
-            expected_engines = {"starlark", "quickjs"} if engines is None else {engines}
-            selected = task_ids or ["fixture/harbor-shared", "fixture/pier-separate"]
-            self.assertEqual(manifest["task_ids"], selected)
-            self.assertEqual(set(manifest["prepared_tasks"]), set(selected))
-            self.assertEqual(set(manifest["resolved_tasks"]), set(selected))
-            self.assertEqual(len(manifest["schedule"]), len(selected) * len(expected_engines) * repetitions)
-            self.assertEqual(manifest["repetitions"], repetitions)
-            self.assertEqual({t["repetition"] for t in manifest["schedule"]}, set(range(1, repetitions + 1)))
-            self.assertEqual({t["engine"] for t in manifest["schedule"]}, expected_engines)
-            self.assertEqual({t["runner"] for t in manifest["schedule"]},
-                             {task_id.split("/")[1].split("-")[0] for task_id in selected})
-            inputs = read_json(campaign / "inputs.json")
-            frozen = campaign / "payload/evals/artifacts/fixture-offline/schedule.json"
-            self.assertEqual(read_json(frozen), inputs)
-            self.assertEqual(set(inputs), {trial["id"] for trial in manifest["schedule"]})
-            for trial in manifest["schedule"]:
-                config = inputs[trial["id"]]["config"]
-                self.assertTrue(config["agents"][0]["kwargs"]["fixture"])
-                self.assertNotIn("contract", config["agents"][0]["kwargs"])
-                native = manifest["resolved_tasks"][trial["task_id"]]
-                self.assertEqual(native["agent"]["timeout_sec"], 120)
-                self.assertEqual(native["verifier"]["timeout_sec"], 60)
-                separate = trial["runner"] == "pier"
-                self.assertEqual(native["verifier"]["environment_mode"], "separate" if separate else None)
-                self.assertEqual(trial["resources"]["cpus"], 4 if separate else 2)
-                if separate:
-                    self.assertEqual(native["environment"]["network_mode"], "no-network")
-            inventory = read_json(campaign / "bundle.json")
-            self.assertIn("evals/whip_evals/fixture_provider.py", inventory["files"])
-            self.assertFalse(any("/contracts/" in name for name in inventory["files"]))
-            if task_ids == ["fixture/harbor-shared"]:
-                self.assertEqual(len(inputs), 1)
-                self.assertFalse(any("/pier-separate/" in name for name in inventory["files"]))
-            verify_bundle(campaign / "bundle.tar", inventory["sha256"])
-
     def test_prepares_portable_native_jobs_without_docker_or_model_execution(self):
         from whip_evals.prepare import configuration
         with tempfile.TemporaryDirectory() as temporary:
@@ -276,8 +172,7 @@ class CampaignTests(unittest.TestCase):
                  patch("subprocess.run", side_effect=AssertionError("execution")), \
                  patch("urllib.request.urlopen", side_effect=AssertionError("network")):
                 settings = {"environment": "whipcode", "app": "whip-eval", "worker_image_id": "im-offline",
-                    "jobs": 90, "qualification_status": "passed", "qualification_receipt": "a" * 64,
-                    "fixture": False, "shapes": {runner: {"physical_cpus": 8, "memory_mb": 32768,
+                    "max_jobs": 90, "jobs": 90, "shapes": {runner: {"physical_cpus": 8, "memory_mb": 32768,
                     "min_free_disk_mb": 102400} for runner in ("harbor", "pier")}}
                 campaign = prepare_campaign(self.args(execution_settings=settings), evals=evals, repo=root)
             manifest = read_json(campaign / "manifest.json")
@@ -307,6 +202,7 @@ class CampaignTests(unittest.TestCase):
             verify_bundle(campaign / "bundle.tar", inventory["sha256"])
             self.assertFalse(any("source.tar" in name or "credentials" in name for name in inventory["files"]))
             self.assertIn("evals/artifacts/offline-modal/schedule.json", inventory["files"])
+            self.assertFalse(any("fixture_provider" in name or "integrity" in name for name in inventory["files"]))
             with self.assertRaises(FileExistsError):
                 prepare_campaign(self.args(), evals=evals, repo=root)
 

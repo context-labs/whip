@@ -556,6 +556,15 @@ type nonRetryable struct{ err error }
 func (n nonRetryable) Error() string { return n.err.Error() }
 func (n nonRetryable) Unwrap() error { return n.err }
 
+// preTokenError wraps a provider-reported stream failure (an SSE error chunk
+// such as a gateway idle timeout, or a stream that closed without a completion
+// marker) that arrived before any delta. Nothing was generated, so the request
+// is repeated exactly once; the same failure after a delta stays nonRetryable.
+type preTokenError struct{ err error }
+
+func (p preTokenError) Error() string { return p.err.Error() }
+func (p preTokenError) Unwrap() error { return p.err }
+
 // retryable reports whether err is a transient request failure: a transport
 // error (connection reset, DNS, timeout — but not caller cancellation) or a
 // retryable HTTP status. Context-limit 4xxs are deliberately excluded so the
@@ -763,6 +772,9 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 		if err == nil || emitted || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
 			return msg, total, err
 		}
+		if _, ok := errors.AsType[preTokenError](err); ok && attempt >= 2 {
+			return msg, total, err // one repeat for a provider that failed before generating
+		}
 		delay := backoff(attempt)
 		if rejection, ok := errors.AsType[*HTTPError](err); ok {
 			delay = max(delay, rejection.RetryAfter)
@@ -806,6 +818,7 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	callPositions := make(map[int]int)
 	finish := ""
 	done := false
+	emitted := false // any reasoning, content, or tool-call delta received
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	for sc.Scan() {
@@ -837,17 +850,20 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 			}
 		}
 		if d.ReasoningContent != "" {
+			emitted = true
 			if onThink != nil {
 				onThink(d.ReasoningContent)
 			}
 		}
 		if d.Content != "" {
+			emitted = true
 			msg.Content += d.Content
 			if onText != nil {
 				onText(d.Content)
 			}
 		}
 		for _, tc := range d.ToolCalls {
+			emitted = true
 			pos, ok := callPositions[tc.Index]
 			if !ok {
 				pos = len(calls)
@@ -876,15 +892,22 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 			return msg, usage, nonRetryable{err}
 		}
 		if ch.Error != nil {
-			return msg, usage, nonRetryable{fmt.Errorf("api error: %s", ch.Error.Message)}
+			err := fmt.Errorf("api error: %s", ch.Error.Message)
+			if emitted {
+				return msg, usage, nonRetryable{err}
+			}
+			return msg, usage, preTokenError{err}
 		}
-
 	}
 	if err := sc.Err(); err != nil {
 		return msg, usage, err
 	}
 	if finish == "" && !done {
-		return msg, usage, nonRetryable{errors.New("model stream ended without a completion marker")}
+		err := errors.New("model stream ended without a completion marker")
+		if emitted {
+			return msg, usage, nonRetryable{err}
+		}
+		return msg, usage, preTokenError{err}
 	}
 	// Never execute tool calls from a max_tokens-truncated response: the
 	// streamed JSON arguments may be silently incomplete.

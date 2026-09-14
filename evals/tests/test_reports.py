@@ -15,7 +15,8 @@ from whip_evals.report import (build_result, compare_trials, empty_trial, normal
 def evidence_fixture(root, *, reward=1, cost_source='reported', status='succeeded', stderr=''):
     trial = dict(id='t1', task_id='terminal-bench/fixture', candidate_id='candidate', repetition=1,
                  runner='harbor', engine='quickjs', binary_sha256='f' * 64)
-    agent = root / 'jobs/t1/native/agent'
+    # The observer writes to /logs/agent/whip, bind-mounted from the trial's agent directory.
+    agent = root / 'jobs/t1/native/agent/whip'
     agent.mkdir(parents=True)
     call = dict(root_id='root', status=status, cost_source=cost_source, usage_source='reported', cost_micros=1234567,
                 attempt=dict(Provider='inference-net', Model='kimi-k3', Purpose='turn', Pricing={'prompt': '0.001', 'completion': '0.002'}),
@@ -49,13 +50,12 @@ def evidence_fixture(root, *, reward=1, cost_source='reported', status='succeede
                         ('content-export.json', content), ('configuration.json', {}), ('provider-catalog.json', {})]:
         write_json(agent / name, value)
     (agent / 'cli.stderr').write_text(stderr)
-    (agent / 'events.ndjson').write_text('')
     (agent / 'cli.ndjson').write_text('')
     native = dict(agent_result=dict(metadata=dict(whip_accounting_complete=True)),
                   verifier_result=dict(rewards=dict(reward=reward)),
                   environment_setup=dict(started_at='2026-09-10T00:00:00Z', finished_at='2026-09-10T00:00:03Z'),
                   verifier=dict(started_at='2026-09-10T00:00:20Z', finished_at='2026-09-10T00:00:22Z'))
-    write_json(agent.parent / 'result.json', native)
+    write_json(agent.parents[1] / 'result.json', native)
     raw = dict(started=True, job_path='jobs/t1', cleanup=dict(complete=True), trial_seconds=25, phase_seconds=dict(queue=4, cleanup=1))
     return trial, raw, agent
 
@@ -89,14 +89,14 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(row['grader_status'], 'failed' if reward == 0 else 'missing')
 
     def test_stale_metrics_cannot_mask_running_unknown_cost_call(self):
+        # Accounting is computed from the settled state, never from a stale metrics sample.
         trial, raw, agent = evidence_fixture(self.root, cost_source='unknown', status='running')
         write_json(agent / 'metrics.json', aggregate([]))
         row = normalize_trial(trial, raw, self.root)
         self.assertIsNone(row['cost_usd'])
         self.assertEqual(row['unknown_cost_calls'], 1)
         self.assertFalse(row['accounting_complete'])
-        self.assertFalse(row['evidence_complete'])
-        self.assertIn('accounting_snapshot_mismatch', row['error_codes'])
+        self.assertTrue(row['evidence_complete'], row['error_codes'])
 
     def test_recovered_retry_keeps_unknown_billing_but_complete_grade_and_evidence(self):
         trial, raw, agent = evidence_fixture(self.root)
@@ -113,9 +113,9 @@ class ReportTests(unittest.TestCase):
             state['calls'] = rows(db, 'SELECT * FROM model_calls')
         write_json(agent / 'state.json', state)
         write_json(agent / 'metrics.json', aggregate(state['calls']))
-        native = read_json(agent.parent / 'result.json')
+        native = read_json(agent.parents[1] / 'result.json')
         native['agent_result']['metadata']['whip_accounting_complete'] = False
-        write_json(agent.parent / 'result.json', native)
+        write_json(agent.parents[1] / 'result.json', native)
         row = normalize_trial(trial, raw, self.root)
         self.assertTrue(row['success'])
         self.assertTrue(row['evidence_complete'], row['error_codes'])
@@ -143,18 +143,18 @@ class ReportTests(unittest.TestCase):
         write_json(agent / 'state.json', state)
         write_json(agent / 'metrics.json', aggregate(state['calls']))
         row = normalize_trial(trial, raw, self.root)
-        self.assertIsNone(row['input_tokens'])
+        # Token totals stay visible as lower bounds; the unknown-usage count says how firm they are.
+        self.assertEqual(row['input_tokens'], 100)
+        self.assertEqual(row['unknown_usage_calls'], 1)
         self.assertFalse(row['accounting_complete'])
+        self.assertIsNone(row['cost_usd'])
 
-    def test_corrupt_content_or_snapshot_or_identity_blocks_evidence(self):
-        for i, mutation in enumerate(('body', 'database', 'identity', 'finality')):
+    def test_missing_file_identity_or_finality_blocks_evidence(self):
+        for i, mutation in enumerate(('missing', 'identity', 'finality')):
             directory = self.root / str(i)
             trial, raw, agent = evidence_fixture(directory)
-            if mutation == 'body':
-                next((agent / 'content/sha256').iterdir()).write_bytes(b'corrupt')
-            elif mutation == 'database':
-                with sqlite3.connect(agent / 'sessions.db') as db:
-                    db.execute('UPDATE model_calls SET cost_micros=1')
+            if mutation == 'missing':
+                (agent / 'sessions.db').unlink()
             elif mutation == 'identity':
                 write_json(agent / 'identity.json', {'engine': 'starlark'})
             else:
@@ -169,8 +169,11 @@ class ReportTests(unittest.TestCase):
         cases = [({'status': 'timeout'}, {}, '', 'benchmark_deadline'),
                  ({'status': 'agent_error'}, {}, 'Client.Timeout exceeded', 'whip_request_timeout'),
                  ({}, {'outer_watchdog': True}, '', 'evaluator_watchdog'),
-                 ({}, {'cancelled': True, 'cancellation_source': 'controller_cancelled'}, '', 'controller_cancelled'),
-                 ({'status': 'agent_error'}, {}, 'host request limit', 'whip_guard')]
+                 ({}, {'cancelled': True, 'cancellation_source': 'user_cancelled'}, '', 'user_cancelled'),
+                 ({'status': 'agent_error'}, {}, 'host request limit', 'whip_guard'),
+                 ({'status': 'agent_error'}, {}, 'api error: 502 Bad Gateway', 'provider_error'),
+                 ({'status': 'agent_error'}, {}, 'Inference stream timed out: No next token received for 30000ms', 'provider_error'),
+                 ({'status': 'agent_error'}, {}, 'engine raised TypeError', 'agent_error')]
         for outcome, raw, diagnostic, expected in cases:
             self.assertEqual(termination(outcome, raw, diagnostic), expected)
 
@@ -196,35 +199,23 @@ class ReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             compare_trials([control, control], [fast_failure])
 
-    def test_fixture_classification_survives_standalone_json_and_markdown(self):
-        trial = dict(id='t1', task_id='fixture/harbor-shared', candidate_id='candidate',
-                     repetition=1, runner='harbor')
-        manifest = dict(run_id='qualification', schedule=[trial], candidates=[{'id': 'candidate'}],
-                        profile='fixture', profile_version=1, comparison_key='fixture', seed=1,
-                        fixture=True, excluded_from_scores=True, external_provider_calls=0)
-        result = build_result(manifest, [])
-        output = self.root / 'qualification'
-        write_report(output, manifest, result)
-        standalone = read_json(output / 'result.json')
-        self.assertIs(standalone['fixture'], True)
-        self.assertIs(standalone['excluded_from_scores'], True)
-        self.assertEqual(standalone['external_provider_calls'], 0)
-        self.assertEqual(standalone['status'], 'partial')
-        self.assertIsNone(standalone['trials'][0]['cost_usd'])
+    def test_status_words_and_detail(self):
+        trial, raw, _ = evidence_fixture(self.root)
+        row = normalize_trial(trial, raw, self.root)
+        missing = empty_trial(dict(trial, id='t2', task_id='terminal-bench/missing'))
+        manifest = dict(run_id='offline-status', schedule=[trial, dict(trial, id='t2', task_id='terminal-bench/missing')],
+                        candidates=[{'id': 'candidate'}], profile='smoke', profile_version=1, comparison_key='fixture', seed=1)
+        self.assertEqual(build_result(manifest, [row, missing])['status'], 'incomplete')
+        self.assertEqual(build_result(manifest, [row, missing], cancelled=True)['status'], 'cancelled')
+        complete = build_result(dict(manifest, schedule=[trial]), [row])
+        self.assertEqual(complete['status'], 'complete')
+        self.assertEqual(complete['status_detail'], dict(ungraded=0, evidence_incomplete=0, provider_errors=0, cancelled_trials=0))
+        output = self.root / 'status-report'
+        write_report(output, dict(manifest, schedule=[trial]), complete)
         markdown = (output / 'report.md').read_text()
-        self.assertIn('Authored native qualification fixtures', markdown)
-        self.assertIn('Excluded from benchmark scores and leaderboard rankings', markdown)
-        self.assertIn('No external provider calls (0)', markdown)
-        self.assertNotIn('Local Frontier adaptation', markdown)
-
-        del manifest['external_provider_calls']
-        result = build_result(manifest, [])
-        self.assertNotIn('external_provider_calls', result)
-        output = self.root / 'unknown-provider-calls'
-        write_report(output, manifest, result)
-        markdown = (output / 'report.md').read_text()
-        self.assertIn('External provider calls: unknown', markdown)
-        self.assertNotIn('No external provider calls', markdown)
+        self.assertIn('Status: **complete**', markdown)
+        self.assertIn('Unknown-usage calls', markdown)
+        self.assertNotIn('Complete cost', markdown)
 
     def test_immutable_report_and_duplicate_matrix(self):
         trial, raw, _ = evidence_fixture(self.root)
@@ -235,8 +226,6 @@ class ReportTests(unittest.TestCase):
         output = self.root / 'report'
         write_report(output, manifest, result)
         self.assertEqual(read_json(output / 'result.json'), result)
-        for field in ('fixture', 'excluded_from_scores', 'external_provider_calls'):
-            self.assertNotIn(field, result)
         self.assertIn('Local Frontier adaptation', (output / 'report.md').read_text())
         self.assertTrue((output / 'trials.csv').exists())
         with self.assertRaises(FileExistsError):

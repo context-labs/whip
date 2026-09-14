@@ -317,3 +317,50 @@ func TestRetryRespectsCancellation(t *testing.T) {
 		t.Fatalf("cancellation took %v; backoff should have been interrupted", elapsed)
 	}
 }
+
+// A provider that rejects or stalls the stream before any delta (Inference.net
+// reports a 30 s no-token gateway stall as an SSE error chunk) gets exactly one
+// repeat; the same failure after a delta, or twice in a row, surfaces unchanged.
+func TestStreamRepeatsPreTokenProviderErrorOnce(t *testing.T) {
+	noSleep(t)
+	stall := "data: {\"error\":{\"message\":\"Inference stream timed out: No next token received for 30000ms\"}}\n\n"
+	ok := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+	partial := "data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n" + stall
+	cases := []struct {
+		name      string
+		responses []string
+		wantCalls int
+		wantErr   string
+		wantText  string
+	}{
+		{"stall then success", []string{stall, ok}, 2, "", "ok"},
+		{"closed before any delta then success", []string{"", ok}, 2, "", "ok"},
+		{"two stalls", []string{stall, stall, ok}, 2, "No next token", ""},
+		{"stall after a delta", []string{partial, ok}, 1, "No next token", "par"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				body := tc.responses[min(calls, len(tc.responses)-1)]
+				calls++
+				w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			msg, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+			if msg.Content != tc.wantText {
+				t.Fatalf("content %q, want %q", msg.Content, tc.wantText)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("provider called %d times, want %d", calls, tc.wantCalls)
+			}
+		})
+	}
+}

@@ -5,108 +5,68 @@ native Harbor/Pier graders, freezes the inputs, and writes a comparable report.
 Kimi K3 on Inference.net, with high reasoning effort, was the initial model route; since 2026-09-13 the pinned route is `kimi-k3-fast` (`frontier/protocol.json`, `whip_evals.common.MODEL`), after the provider renamed `kimi-k3` and its stream stalled on long calls. Reports from the two routes are separate environments.
 
 **Execution environments:** the native Docker workflow and its retained reports
-remain authoritative. The detached Modal workflow below is a separately qualified
-cloud environment, not an accepted or automatically promoted native baseline.
-Cloud resource admission, native fixtures, and live-model qualification are
-separate gates; a successful deployment alone does not pass them.
+remain authoritative. The Modal workflow below runs the same native trials on
+disposable cloud VMs; it is a separate environment, never an automatic baseline.
 
-## Detached Modal campaigns
+## Modal campaigns
 
-The narrow cloud path keeps one complete native Docker trial in each disposable
-Modal VM and one detached coordinator per immutable campaign. It does **not**
-replace Harbor/Pier, change the task/agent/verifier limits or networking, retry a
-model attempt, or introduce a resumable agent session. The default Full cloud
-selection is the existing **30 mixed tasks × 3 repeats**, QuickJS, Kimi K3/high.
+One detached coordinator per campaign; one disposable Modal VM per trial, running
+the unchanged native Docker trial (Harbor/Pier runner, adapter, observer, grader).
+The VM writes its evidence to the `whip-eval-evidence` volume, writes a final
+`complete.json` marker listing every file's SHA-256, and exits. The coordinator
+waits for the VM to exit, then reads the marker. Nothing retries a model attempt.
 
 ```sh
 # Offline expansion only: 90 planned trials, no build/network/Modal/model calls.
 uv run --project evals --locked whip-eval modal submit full --dry-run
 
-# Submit only after the exact image/resource/network/native-fixture gates pass.
-# settings.json is a non-secret qualification receipt, not provider configuration.
-uv run --project evals --locked whip-eval modal submit full \
-  --settings /path/to/settings.json --jobs 10 --run-id <unique-run-id> \
-  --allow-model-calls
+# Live campaign: 30 tasks x 3 repetitions, up to frontier/modal.json max_jobs VMs at once.
+uv run --project evals --locked whip-eval modal submit full --run-id <unique-run-id> --allow-model-calls
 uv run --project evals --locked whip-eval modal status <run-id>
 uv run --project evals --locked whip-eval modal logs <run-id> --trial t0001
-uv run --project evals --locked whip-eval modal fetch <run-id>
-uv run --project evals --locked whip-eval modal cancel <run-id>
-uv run --project evals --locked whip-eval modal reconcile <run-id>
+uv run --project evals --locked whip-eval modal cancel <run-id>     # the only thing that cancels a campaign
+uv run --project evals --locked whip-eval modal fetch <run-id>      # report, then prune Modal-side data
+uv run --project evals --locked whip-eval modal fetch <run-id> --keep
+uv run --project evals --locked whip-eval modal prune <run-id>      # after a --keep fetch or an abandoned run
 ```
 
-`submit` freezes an explicit allowlist: selected prepared tasks, candidate binaries,
-ripgrep, contracts, pinned evaluator source and dependency locks. It never uploads
-a repository/home/cache tree or provider credentials. Bundle identity and every
-file are verified before the native worker runs. Submission records its immutable
-intent before dispatch; duplicate or ambiguous creation never launches a second
-attempt. The CLI may exit after submission: the coordinator and workers continue.
+`frontier/modal.json` holds the non-secret placement: environment `whipcode`,
+app `whip-eval`, the immutable worker image id, the VM shape per runner, and
+`max_jobs`. `submit` freezes an allowlisted bundle (prepared tasks, candidate
+binary, ripgrep, contracts, evaluator source, dependency locks), uploads it, and
+spawns the coordinator with the bundle digest and the controller source digest.
+A stale deployment fails before dispatch. A run id is never reused. The CLI may
+exit after submission.
 
-`status` and bounded `logs` show lifecycle evidence; `fetch` retains complete raw
-native logs and available partial evidence in a new immutable snapshot under
-`artifacts/<run>/fetches/` and a JSON/Markdown/CSV report under
-`reports/<run>/fetches/`. All planned trials remain in the denominator. A worker
-crash retains observed cumulative known cost, but the total remains unknown and
-accounting/evidence incomplete. Infra billing is separate and unknown until
-reconciled with provider billing; worker uptime is not an authoritative bill.
-In cloud-fetched trial rows, `cleanup_complete` means the worker VM has a proven
-exit, not merely native cleanup or a termination RPC acknowledgement. It is false
-when VM exit is unproven. `native_cleanup_complete` separately preserves the
-native runner's cleanup status (including null when unknown); VM exit can be
-proven even when native cleanup was incomplete. Fetch accepts an independent
-reconciliation's exit proof only when its run, trial, bundle, owner nonce, and
-known VM identity match the immutable attempt. These cleanup fields do not
-upgrade evidence finality or accounting completeness.
+**What can stop a run.** Only `cancel`. A worker that exits without a marker, a
+VM the platform lost, an unproven exit, or a controller error is recorded on
+that attempt and the rest of the campaign continues. Cancelled and failed
+attempts stay in the denominator.
 
-Host `fetch` downloads at most eight logical SDK file operations concurrently,
-with at most eight submitted operations (not eight workers per trial). It streams
-to exclusive same-directory temporary files, fsyncs, and publishes atomically
-without overwriting prior snapshots; failed downloads do not publish partial
-files or a successful report. Final file hashes and integrity/finality checks
-remain mandatory. Collection deliberately uses the pinned Modal 1.5.5 private
-`Volume._read_file_into_fileobj(..., concurrency=1)` hook also used by its CLI;
-an incompatible SDK or missing hook fails closed. The public `read_file` iterator
-prefetches CPU-count blocks; the selected hook instead streams one file block at
-a time. Eight logical file streams is the public limit, not a global or
-cross-process HTTP/memory cap: SDK metadata, coroutines, and transport buffering
-remain SDK-managed. Local disk retains the full snapshot plus up to eight
-in-progress files, with no automatic pruning or new byte quota. Control
-acknowledgements, cancellation, and reconciliation remain in their existing
-serial ownership-checked paths.
+**Setup.** Dependency bootstrap inside the task container gets 600 s and three
+tries before any model call; the runner setup budget covers all three. Every
+try leaves a `setup-*.json` receipt in the trial's agent directory.
 
-`cancel` records cancellation and independently signals proven-owned workers,
-even if the coordinator died. `reconcile` attaches without redispatch, reports
-worker liveness and durable completion, and delivers pending cancellation to late
-creates. Ownership requires the exact durable intent plus full tags or an
-unpredictable VM-local launch receipt—not a name prefix or shared Volume file.
-If ownership cannot be proved, the worker is not destructively touched; inspect
-again for a late receipt. Native cancellation/cleanup and the bounded VM lifetime
-remain the safety backstop. Reconciliation never resumes a model session.
+**Fetch.** Downloads the run's evidence prefix with the public volume API (eight
+files at a time, three tries each), verifies every hash the marker listed, reads
+each trial's native result and the observer's `agent/whip/` files, and writes
+`reports/<run>/fetches/<id>/`. Trials whose marker or hashes are missing are
+`cloud_snapshot_incomplete`; their observed cost is kept as a lower bound.
+When the coordinator has finished, fetch records `<run>/fetched` in the state
+dict and deletes the run's inputs, evidence, and other state keys unless
+`--keep` is passed. Report status is `complete`, `cancelled` (a human
+cancelled), or `incomplete` (what is missing is counted in `status_detail`).
+Cost columns show known cost and the number of calls with unknown usage.
 
-### Cloud administration and qualification
+**Failure attribution.** Provider stream failures (`api error: ...`, gateway
+no-token stalls, 429/5xx) are `provider_error`; agent faults are `agent_error`.
+Whip repeats a stream that failed before its first token once.
 
-**Qualification checkpoint (2026-09-11):**
-`modal-native-fixture-20260911-90b` passed an independent audit of 90 complete
-native fixtures (45 Harbor + 45 Pier), using the canonical `e9c97bea…` candidate
-binary (`75b26ce4…`), the pinned image, and 6 CPU / 24 GiB VMs. All 90 native
-grades, evidence exports, and fixture accounting passed: 5,130 file hashes across
-5,220 retained files, 450 fake model calls, and zero external provider calls.
-Paired fresh platform polls proved overlap of the same 90 distinct admitted,
-VM-local ownership-verified VMs—not 90 simultaneous native CPU or model calls.
-All 90 VM exits were observed, and a full post-terminal planned-attempt scan
-left no unknown workers. Infrastructure billing remains unreconciled.
+### Cloud administration
 
-The immutable local closure is
-`artifacts/modal-qualification-20260911/90b-qualification-closure.json`
-(SHA-256 `bc62599846bf7f08aeae2314187e25d3d6c55cf580943a7b0ca924b2751a894b`).
-Its inventory/security audit found no persisted proxy configuration, but did not
-perform an exact secret-value scan; this is not a universal secret-absence claim.
-This closes the credential-free capacity/native-lifecycle gate only. Real-model
-smoke, the scored 30 × 3 campaign (63 Harbor + 27 Pier attempts), and baseline
-promotion remain separate, explicitly authorized gates.
-
-All resources are explicitly in workspace `inference-net`, environment `whipcode`,
-app `whip-eval`. Authenticate Modal outside the repository; do not include Modal
-tokens in VM secrets. Using the locked SDK, deploy and create the named resources:
+All resources live in workspace `inference-net`, environment `whipcode`, app
+`whip-eval`. Authenticate Modal outside the repository; never put Modal tokens in
+VM secrets, images, bundles, tracked JSON, logs, or reports.
 
 ```sh
 cd evals
@@ -116,93 +76,22 @@ uv run --locked modal volume create whip-eval-evidence --env whipcode
 uv run --locked modal dict create whip-eval-state --env whipcode
 ```
 
-Provision the named Modal secret `whip-eval-inference` with **only**
-`INFERENCE_API_KEY` through approved secret management, never a shell argument,
-image, bundle, tracked JSON, or agent-accessible Modal account token. Fake-provider
-fixture workers receive no provider secret. The coordinator alone has Modal
-control-plane authority; native agent/verifier containers receive neither its
-Docker socket nor Modal credentials.
+Provision the secret `whip-eval-inference` with **only** `INFERENCE_API_KEY`.
+Workers receive that secret and the two volume mounts; they never receive a
+Modal account token. Task containers receive neither the Docker socket nor Modal
+credentials. On a cloud worker the Pier inference proxy's generated compose file
+(which carries the proxy token) is written to a private VM-local directory, not
+to the evidence volume (`WHIP_EVAL_CLOUD=1` in the launch command).
 
-`python -m whip_evals.modal_image --output <new-ignored-receipt.json>` explicitly
-builds the dependency-only Debian/Python 3.12 base with frozen `uv.lock`, uv
-0.12.13, checksum-pinned Docker 28.3.3, Compose 2.39.2, and Buildx 0.27.0. Clear
-entrypoint and UNIX-only dockerd are required: the official DinD entrypoint opens
-a Docker TCP listener reachable from inner containers. Any newly built image
-must be qualified again; submit uses its immutable Modal image ID. Candidate code
-is SHA-verified and extracted from the bundle, not baked from a moving checkout.
+`python -m whip_evals.modal_image --output <ignored-receipt.json>` builds the
+Docker-in-VM base image (Debian/Python 3.12, frozen `uv.lock`, checksum-pinned
+Docker, Compose, Buildx; UNIX-socket dockerd only). Put the new image id in
+`frontier/modal.json`. Candidate code is extracted from the SHA-verified bundle,
+never baked into the image.
 
-A non-secret settings file has this shape (replace the image/qualification IDs):
-
-```json
-{
-  "environment": "whipcode",
-  "app": "whip-eval",
-  "worker_image_id": "im-QUALIFIED",
-  "qualification_status": "passed",
-  "qualification_receipt": "qualification-id",
-  "fixture": false,
-  "jobs": 10,
-  "shapes": {
-    "harbor": {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000},
-    "pier": {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000}
-  }
-}
-```
-
-Outer VM resources are **not** inner task caps. The conservative initial 6 CPU /
-24 GiB shape must fit each unchanged native whole-trial reservation and headroom.
-Measure guest CPU/cgroups and usable RAM; do not assume a theoretical physical to
-logical CPU multiplier. `--jobs` is the campaign admission ceiling, not a promise
-of account capacity. Qualify the desired simultaneous peak separately.
-
-For credential-free authored fixtures, use `fixture: true` in settings and:
-
-```sh
-uv run --project evals --locked whip-eval modal submit smoke --fixture \
-  --engines quickjs --jobs 2 --settings /path/to/fixture-settings.json
-```
-
-This runs authored Harbor shared-container and Pier clean separate-verifier
-fixtures using a fake provider; they are explicitly excluded from scored results.
-After representative qualification passes, `--fixture-repetitions 45 --jobs 90`
-with one engine prepares 90 fake-only lifecycle trials (settings must match jobs).
-This is capacity/admission qualification, not the scored 30-task × 3 workload;
-the two-engine fixture maximum is 22 repeats/88 trials.
-Qualify task cgroups, provider-only CONNECT/DNS policy, verifier isolation, native
-setup, actual observer metrics/state/events, abrupt loss, direct cancellation,
-final export, and proven cleanup before real-model smoke or a 90-trial campaign.
-
-Modal VM Volumes have boot-snapshot reads and asynchronous outbound commits;
-`reload_volumes()` and later inbound Volume ACK/cancel updates are unsupported.
-Inputs must commit before VM creation. Admission and final ACK/cancel use direct
-VM-local filesystem control, and the coordinator reads evidence independently
-through the Volume API. Finality requires every committed file hash plus a passing
-integrity audit. Unconfirmed tails can be lost on abrupt VM death; do not infer
-zero cost or lossless durability. Secret/integrity failures stop further admission.
-
-Volume does not support native hard-link exclusive publication. Keep only the
-native runner's immutable wrapper receipt directory on VM-local ext4; copy its
-closed files once to evidence. Native job/observer logs remain on the durable
-Volume, and cloud single-writer receipts use atomic rename in their uniquely
-claimed attempt directory. Existing `common.atomic_write` is not weakened.
-The worker resolves only the trusted Volume mount alias before constructing native
-paths; descendant symlink rejection and content size/digest checks remain intact.
-Cloud-only Pier proxy configuration/build context is generated in a private,
-0700 VM-local `/tmp` directory from creation, using the unchanged pinned native
-generator. Native trial paths are restored synchronously and that private directory
-survives through native stop, then is removed. Local Docker behavior is unchanged.
-Generated proxy credentials must never be published as native evidence.
-
-The immutable bundle binds its staged controller/common/execution source digest
-and worker measurement digest. Submit passes the expected controller digest as a
-required coordinator argument; older signatures or mismatched deployments fail
-before worker creation. A local deploy command starting is not deployment proof:
-require its successful exit, app identity, and remote revision verification before
-submitting a newly frozen bundle. Do not repair mismatches by editing a frozen run.
-
-Raw evidence retention is an operational intent, not automatic expiry. No timer
-prunes runs or qualification caches; retain incomplete evidence and reconcile
-owned resources deliberately. This workflow does not change baseline promotion.
+Redeploy the coordinator whenever `modal_cloud.py`, `common.py`, or
+`execution.py` changes; `submit` passes their digest and a mismatch fails the
+run before any VM is created.
 
 ## Setup on the evaluation machine
 
@@ -344,12 +233,12 @@ ID is refused. Final reports live in `evals/reports/<run-id>/`:
 
 `request.json` records the planned workload; `progress.json` is temporary. A failure during preparation records
 `preparation-error.json`; no task score is asserted without launching a campaign.
-An interrupted execution finalizes a partial report where possible. A hard host
+An interrupted execution finalizes a `cancelled` report where possible. A hard host
 crash may leave only the manifest and private evidence.
 
 Bulk evidence lives in ignored `evals/artifacts/<run-id>/`: native runner output,
 verifier logs and patches, transcripts/events, SQLite snapshots, call accounting,
-content bodies, contracts, and an integrity inventory. Ignored `evals/cache/`
+content bodies, and contracts. Ignored `evals/cache/`
 retains exact source archives, binaries, ripgrep and prepared task bundles.
 Small reports and baseline pointers are eligible for Git; nothing is auto-committed.
 Retain accepted evidence **and its build cache** indefinitely. There is no automatic
@@ -373,8 +262,8 @@ Ctrl+C stops dispatch, cancels owned runner work, and keeps available evidence.
 After a crashed runner has exited, `whip-eval cleanup RUN_ID` removes only containers
 whose native identity and exact log mount prove ownership. Cleanup cannot resume
 execution. Use a new run ID for a new experiment. Exit status 2 means a command
-failed or the resulting run is partial; a complete run with valid task failures
-still exits 0.
+failed or the run was cancelled; a complete or incomplete run with valid task
+failures still exits 0.
 
 ## Metric contract (schema version 1)
 

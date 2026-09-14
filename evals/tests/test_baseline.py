@@ -7,7 +7,6 @@ from unittest.mock import patch
 from whip_evals import baseline
 from whip_evals.common import file_hash, read_json, value_hash, write_json
 from whip_evals.execution import schedule
-from whip_evals.integrity import inventory
 from whip_evals.report import build_result, empty_trial, write_report
 from whip_evals.tasks import load_spec
 
@@ -49,15 +48,15 @@ def campaign(run_id='offline-initial', previous=None, *, evals=None):
             c['binary_sha256'] = file_hash(binary)
         for trial in trials:
             trial['binary_sha256'] = file_hash(binary)
-    result = build_result(manifest, rows)
-    result['integrity'] = {'complete': True}
     if evals:
         root = evals / manifest['artifact_root']
         root.mkdir(parents=True)
         (root / 'fixture.txt').write_text('synthetic evidence')
-        audit_path = root / 'integrity.json'
-        write_json(audit_path, inventory(root, audit_path))
-        result['integrity'].update(path=audit_path.relative_to(evals).as_posix(), sha256=file_hash(audit_path))
+        for row in rows:
+            row['artifacts'] = dict(native_result='fixture.txt', native_result_sha256=file_hash(root / 'fixture.txt'),
+                                    evidence_files={})
+    result = build_result(manifest, rows)
+    if evals:
         report = evals / 'reports' / run_id
         write_json(report / 'manifest.json', manifest)
         write_report(report, manifest, result)
@@ -74,7 +73,7 @@ class BaselineTests(unittest.TestCase):
     def test_incomplete_dirty_subset_and_unknown_cost_are_held(self):
         for mutation, gate in [('dirty', 'clean_reproducible_builds'), ('subset', 'full_profile'),
                                ('evidence', 'complete_evidence'), ('accounting', 'complete_evidence'),
-                               ('integrity', 'integrity_verified'), ('opt_in', 'explicit_promotion_campaign')]:
+                               ('opt_in', 'explicit_promotion_campaign')]:
             manifest, result = campaign()
             if mutation == 'dirty':
                 manifest['candidates'][0]['dirty'] = True
@@ -85,8 +84,6 @@ class BaselineTests(unittest.TestCase):
             elif mutation == 'accounting':
                 result['trials'][0]['accounting_complete'] = False
                 result['trials'][0]['cost_usd'] = None
-            elif mutation == 'integrity':
-                result['integrity']['complete'] = False
             else:
                 manifest['promote'] = False
             self.assertIn(gate, baseline.evaluate(manifest, result)['failed_gates'])
@@ -96,7 +93,6 @@ class BaselineTests(unittest.TestCase):
         rows = original['trials']
         rows[0].update(accounting_complete=False, cost_usd=None, unknown_cost_calls=1)
         result = build_result(manifest, rows)
-        result['integrity'] = original['integrity']
         self.assertEqual(result['status'], 'complete')
         self.assertTrue(all(row['evidence_complete'] for row in result['trials']))
         self.assertIsNone(result['arms']['candidate']['cost_usd'])
@@ -126,7 +122,6 @@ class BaselineTests(unittest.TestCase):
                     else:
                         row['agent_seconds'] = 12
             result = build_result(manifest, result['trials'])
-            result['integrity'] = {'complete': True}
             self.assertIn(gate, baseline.evaluate(manifest, result, previous=previous)['failed_gates'])
 
     def test_publication_history_and_stale_pointer(self):

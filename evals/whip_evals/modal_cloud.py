@@ -1,20 +1,16 @@
-"""Narrow Modal control plane for immutable, one-attempt Docker campaigns.
+"""Modal control plane: one detached coordinator, one disposable VM per trial.
 
 SDK objects are lazy; importing this module never contacts Modal. Deployment is
 explicit (`modal deploy -m whip_evals.modal_cloud --env whipcode`).
 """
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shlex
-import tempfile
 import threading
 import time
-from uuid import uuid4
 
-from .common import EVALS, atomic_write, file_hash, identifier, inside, read_json, utc_now, value_hash, write_json
+from .common import EVALS, file_hash, identifier, read_json, utc_now, value_hash
 
 ENVIRONMENT = "whipcode"
 APP_NAME = "whip-eval"
@@ -22,8 +18,12 @@ INPUT_VOLUME = "whip-eval-inputs"
 EVIDENCE_VOLUME = "whip-eval-evidence"
 STATE_NAME = "whip-eval-state"
 PROVIDER_SECRET = "whip-eval-inference"
+CONFIG_PATH = EVALS / "frontier" / "modal.json"
 POLL_SECONDS = 5
-EXPORT_SECONDS = 600
+# Volume commits are asynchronous: a marker written just before VM exit can
+# become readable a little after the exit is observed.
+MARKER_GRACE_SECONDS = 120
+MAX_JOBS = 90
 
 
 def sdk():
@@ -51,21 +51,11 @@ def read_remote(volume, path, *, limit=8 * 1024 * 1024):
     return json.loads(b"".join(chunks))
 
 
-def durable_completion(volume, run_id, trial_id, digest):
-    """A marker without independently committed matching files is not complete."""
-    prefix = f"/{identifier(run_id)}/attempts/{identifier(trial_id)}"
-    marker = read_remote(volume, prefix + "/complete.json")
+def completion_marker(volume, run_id, trial_id, digest):
+    """The worker's final marker; fetch verifies the listed file hashes locally."""
+    marker = read_remote(volume, f"/{identifier(run_id)}/attempts/{identifier(trial_id)}/complete.json")
     if (marker.get("run_id"), marker.get("trial_id"), marker.get("bundle_sha256")) != (run_id, trial_id, digest):
         raise ValueError("worker completion identity mismatch")
-    if not isinstance(marker.get("files"), dict) or not marker["files"]:
-        raise ValueError("worker completion has no evidence inventory")
-    for relative, expected in marker["files"].items():
-        inside(Path("/verified"), relative)
-        checksum = hashlib.sha256()
-        for chunk in volume.read_file(prefix + "/" + relative):
-            checksum.update(chunk)
-        if checksum.hexdigest() != expected:
-            raise ValueError("worker evidence is not fully committed")
     return marker
 
 
@@ -74,40 +64,43 @@ def sandbox_name(run_id, trial_id):
     return "whip-eval-" + value_hash({"run": identifier(run_id), "trial": identifier(trial_id)})[:32]
 
 
+def load_config(path=CONFIG_PATH):
+    return validate_settings(read_json(path))
+
+
 def validate_settings(settings):
-    allowed = {"environment", "app", "worker_image_id", "jobs", "shapes", "qualification_status",
-               "qualification_receipt", "fixture", "model_capacity"}
+    """Non-secret worker placement: image, VM shape per runner, concurrency cap."""
+    allowed = {"environment", "app", "worker_image_id", "shapes", "max_jobs", "jobs"}
     if not isinstance(settings, dict) or set(settings) - allowed:
         raise ValueError("unexpected cloud settings; credentials are forbidden")
     if settings.get("environment") != ENVIRONMENT or settings.get("app") != APP_NAME:
         raise ValueError("cloud execution is restricted to whipcode/whip-eval")
     if not re.fullmatch(r"im-[A-Za-z0-9]+", settings.get("worker_image_id", "")):
-        raise ValueError("a qualified immutable Modal worker image ID is required")
-    if not isinstance(settings.get("jobs"), int) or not 1 <= settings["jobs"] <= 90:
-        raise ValueError("cloud jobs must be between 1 and 90")
+        raise ValueError("an immutable Modal worker image ID is required")
+    max_jobs = settings.get("max_jobs", MAX_JOBS)
+    if type(max_jobs) is not int or not 1 <= max_jobs <= MAX_JOBS:
+        raise ValueError("cloud max_jobs must be between 1 and 90")
+    jobs = settings.get("jobs", max_jobs)
+    if type(jobs) is not int or not 1 <= jobs <= max_jobs:
+        raise ValueError("cloud jobs must be between 1 and max_jobs")
     for runner in ("harbor", "pier"):
         shape = settings.get("shapes", {}).get(runner, {})
-        for key in ("physical_cpus", "memory_mb", "min_free_disk_mb"):
-            value = shape.get(key)
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-                raise ValueError("qualified CPU, RAM and free-disk shapes are required")
-    if settings.get("qualification_status") != "passed":
-        raise ValueError("worker settings require explicit qualification")
-    return settings
+        if set(shape) != {"physical_cpus", "memory_mb", "min_free_disk_mb"}:
+            raise ValueError("cloud shapes need physical_cpus, memory_mb and min_free_disk_mb per runner")
+        for value in shape.values():
+            if type(value) not in (int, float) or value <= 0:
+                raise ValueError("cloud shape values must be positive numbers")
+    return {**settings, "max_jobs": max_jobs, "jobs": jobs}
 
 
-def launch_command(run_id, trial_id, digest, owner_id):
+def launch_command(run_id, trial_id, digest):
     # All interpolated values are strictly validated; no provider secret appears
     # in arguments, shell tracing, images or bundle contents.
     identifier(run_id)
     identifier(trial_id)
-    if not re.fullmatch(r"[a-f0-9]{32}", owner_id):
-        raise ValueError("invalid attempt owner identity")
     if not re.fullmatch(r"[a-f0-9]{64}", digest):
         raise ValueError("invalid bundle digest")
-    claim = json.dumps({"run_id": run_id, "trial_id": trial_id, "bundle_sha256": digest, "owner_id": owner_id})
-    return (f"printf '%s\\n' {shlex.quote(claim)} > /tmp/whip-eval-owner.json; "
-            f"export WHIP_EVAL_OWNER_ID={owner_id}; dockerd --host=unix:///var/run/docker.sock >/tmp/dockerd.log 2>&1 & "
+    return ("export WHIP_EVAL_CLOUD=1; dockerd --host=unix:///var/run/docker.sock >/tmp/dockerd.log 2>&1 & "
             "for n in $(seq 1 120); do docker info >/dev/null 2>&1 && break; sleep 1; done; "
             "docker info >/dev/null 2>&1 || exit 70; "
             f"python -c \"import hashlib, pathlib, sys, tarfile; "
@@ -118,29 +111,9 @@ def launch_command(run_id, trial_id, digest, owner_id):
             f"PYTHONPATH=/work/evals exec /.uv/.venv/bin/python -m whip_evals.modal_worker {run_id} {trial_id} {digest}")
 
 
-def owned_worker(record, digest):
-    """Resolve late creates without treating a deterministic name as ownership."""
-    if record.get("bundle_sha256") != digest or not re.fullmatch(r"[a-f0-9]{32}", record.get("owner_id", "")):
-        raise ValueError("attempt ownership identity missing")
-    modal = sdk()
-    sandbox = (modal.Sandbox.from_id(record["sandbox_id"]) if record.get("sandbox_id") else
-               modal.Sandbox.from_name(APP_NAME, record["sandbox_name"], environment_name=ENVIRONMENT))
-    if record.get("sandbox_id") and sandbox.object_id != record["sandbox_id"]:
-        raise ValueError("resolved worker identity mismatch")
-    expected = {"whip-eval.owner": APP_NAME, "whip-eval.run": record["run_id"],
-                "whip-eval.trial": record["trial_id"], "whip-eval.bundle": digest,
-                "whip-eval.claim": record["owner_id"]}
-    tags = sandbox.get_tags()
-    if all(tags.get(k) == v for k, v in expected.items()):
-        return sandbox
-    # Creation may succeed before the client receives its ID or applies tags.
-    # The launch script writes the unpredictable claim to VM-local /tmp BEFORE
-    # Docker boot. Shared Volume receipts cannot establish which VM owns it.
-    claim = json.loads(sandbox.filesystem.read_text("/tmp/whip-eval-owner.json"))
-    fields = ("run_id", "trial_id", "bundle_sha256", "owner_id")
-    if not all(claim.get(k) == record.get(k) for k in fields):
-        raise ValueError("worker ownership not proven")
-    return sandbox
+def worker_tags(run_id, trial_id, digest):
+    return {"whip-eval.owner": APP_NAME, "whip-eval.run": run_id,
+            "whip-eval.trial": trial_id, "whip-eval.bundle": digest}
 
 
 class ModalCampaign:
@@ -154,130 +127,77 @@ class ModalCampaign:
     def attempt_key(self, trial_id):
         return self.run_id + "/attempt/" + identifier(trial_id)
 
+    def wait_for_marker(self, trial_id):
+        modal = sdk()
+        deadline = time.monotonic() + MARKER_GRACE_SECONDS
+        while True:
+            try:
+                return completion_marker(self.evidence, self.run_id, trial_id, self.digest)
+            except (FileNotFoundError, ValueError, modal.exception.NotFoundError):
+                if time.monotonic() >= deadline:
+                    return None
+                time.sleep(POLL_SECONDS)
+
     def execute(self, trial, cancelled):
+        """Run one trial VM to exit. Never cancels the campaign; a human does."""
         modal = sdk()
         key = self.attempt_key(trial["id"])
         name = sandbox_name(self.run_id, trial["id"])
         record = {"trial_id": trial["id"], "run_id": self.run_id, "sandbox_name": name,
                   "state": "creating", "created_at": utc_now(), "bundle_sha256": self.digest,
-                  "sandbox_id": None, "owner_id": uuid4().hex, "cleanup_complete": False}
-        # Durable intent precedes creation. A lost create response is uncertainty,
-        # never permission to call Sandbox.create again.
+                  "sandbox_id": None, "cleanup_complete": False}
+        # Durable intent precedes creation: a paid attempt is never launched twice.
         if not self.state.put(key, record, skip_if_exists=True):
-            cancelled.set()
             return {"started": False, "cleanup": {"complete": False}, "error_code": "attempt_already_claimed"}
         sandbox = None
+        exit_code = None
         try:
             app = modal.App.lookup(APP_NAME, environment_name=ENVIRONMENT)
             shape = self.settings["shapes"][trial["runner"]]
-            sandbox = modal.Sandbox.create("bash", "-c", launch_command(self.run_id, trial["id"], self.digest, record["owner_id"]),
+            sandbox = modal.Sandbox.create("bash", "-c", launch_command(self.run_id, trial["id"], self.digest),
                 app=app, name=name, image=modal.Image.from_id(self.settings["worker_image_id"]),
                 cpu=(shape["physical_cpus"], shape["physical_cpus"]), memory=(shape["memory_mb"], shape["memory_mb"]),
                 timeout=int(trial["outer_watchdog_seconds"]) + 1800,
                 experimental_options={"vm_runtime": True},
                 volumes={"/input": self.inputs.with_mount_options(read_only=True), "/evidence": self.evidence},
-                secrets=[] if self.settings.get("fixture") else [modal.Secret.from_name(PROVIDER_SECRET, environment_name=ENVIRONMENT)])
+                secrets=[modal.Secret.from_name(PROVIDER_SECRET, environment_name=ENVIRONMENT)])
             record.update(sandbox_id=sandbox.object_id, state="running")
             self.state.put(key, record)
-            sandbox.set_tags({"whip-eval.owner": APP_NAME, "whip-eval.run": self.run_id,
-                              "whip-eval.trial": trial["id"], "whip-eval.bundle": self.digest,
-                              "whip-eval.claim": record["owner_id"]})
-            cancel_at = None
-            completed = None
-            admitted = False
+            sandbox.set_tags(worker_tags(self.run_id, trial["id"], self.digest))
+            cancel_sent = False
             deadline = time.monotonic() + trial["outer_watchdog_seconds"] + 1500
             while time.monotonic() < deadline:
-                if cancelled.is_set() and cancel_at is None:
-                    cancel_at = time.monotonic()
-                    # Worker owns process-group/native cleanup and final evidence.
+                if cancelled.is_set() and not cancel_sent:
+                    # The worker owns native cleanup and its final evidence export.
                     sandbox.filesystem.write_text("cancel\n", "/tmp/whip-eval-cancel")
-                    record["state"] = "cancelling"
+                    record.update(state="cancelling", cancel_sent_at=utc_now())
                     self.state.put(key, record)
-                if not admitted and not cancelled.is_set():
-                    try:
-                        ready = read_remote(self.evidence, f"/{self.run_id}/attempts/{trial['id']}/ready.json")
-                        if (ready.get("run_id"), ready.get("trial_id"), ready.get("bundle_sha256")) != (self.run_id, trial["id"], self.digest):
-                            raise ValueError("worker admission identity mismatch")
-                        sandbox.filesystem.write_text("admit\n", "/tmp/whip-eval-admitted")
-                        record["admitted_at"] = utc_now()
-                        self.state.put(key, record)
-                        admitted = True
-                    except (FileNotFoundError, modal.exception.NotFoundError):
-                        pass
-                try:
-                    completed = durable_completion(self.evidence, self.run_id, trial["id"], self.digest)
-                    break
-                except (FileNotFoundError, ValueError, modal.exception.NotFoundError):
-                    pass
-                if sandbox.poll() is not None:
-                    # Background commits can become visible just after process exit.
-                    if record.get("exited_at") is None:
-                        record["exited_at"] = time.monotonic()
-                    if time.monotonic() - record["exited_at"] > EXPORT_SECONDS:
-                        break
-                if cancel_at and time.monotonic() - cancel_at > EXPORT_SECONDS:
+                    cancel_sent = True
+                exit_code = sandbox.poll()
+                if exit_code is not None:
                     break
                 time.sleep(POLL_SECONDS)
-            if completed is not None:
-                if completed.get("security_failure") or not completed.get("integrity_complete"):
-                    cancelled.set()
-                    self.state.put(self.run_id + "/cancel", {"reason": "evidence_integrity_failure", "at": utc_now()}, skip_if_exists=True)
-                record.update(state="security_failure" if completed.get("security_failure") else "completed", completion=completed,
-                              evidence_complete=completed.get("integrity_complete", False))
-                sandbox = owned_worker(record, self.digest)
-                exit_code = sandbox.poll()
-                if exit_code is None:
-                    try:
-                        process = sandbox.exec("touch", "/tmp/whip-eval-exported")
-                        process.wait()
-                        record["export_ack_status"] = "acknowledged"
-                    except modal.exception.NotFoundError:
-                        # NotFound is not exit proof: re-prove this exact worker.
-                        sandbox = owned_worker(record, self.digest)
-                        exit_code = sandbox.poll()
-                        if type(exit_code) is not int:
-                            raise
-                        record["export_ack_status"] = "obsolete_after_not_found"
-                elif type(exit_code) is int:
-                    record["export_ack_status"] = "obsolete_actual_exit"
-                else:
-                    raise ValueError("worker poll did not return an actual exit code or None")
-                if type(exit_code) is int:
-                    record["actual_exit_code"] = exit_code
+            if exit_code is None:
+                record["state"] = "deadline_exceeded"
             else:
-                record.update(state="interrupted" if cancelled.is_set() else "indeterminate", evidence_complete=False)
+                marker = self.wait_for_marker(trial["id"])
+                record.update(state="completed" if marker else "exited_without_marker",
+                              worker_status=(marker or {}).get("status"), worker_exit_code=exit_code)
         except Exception as error:
-            record.update(state="indeterminate", error_code=type(error).__name__)
-            cancelled.set()
-            if sandbox is None:
-                # Reconcile the *same* owned name once; never recreate it.
-                try:
-                    sandbox = owned_worker(record, self.digest)
-                    record["sandbox_id"] = sandbox.object_id
-                except Exception:
-                    pass
+            record.update(state="controller_error", error_code=type(error).__name__)
         finally:
             if sandbox is not None:
                 try:
-                    sandbox = owned_worker(record, self.digest)
-                    try:
-                        exit_code = sandbox.poll()
-                    except Exception as error:
-                        record["cleanup_poll_error"] = type(error).__name__
-                        exit_code = None  # Unknown still needs termination and a final actual poll.
-                    if type(exit_code) is not int:
+                    if exit_code is None:
                         sandbox.terminate()
                         sandbox.wait(raise_on_termination=False)
                         exit_code = sandbox.poll()
                     record["cleanup_complete"] = type(exit_code) is int
-                    if record["cleanup_complete"]:
-                        record["actual_exit_code"] = exit_code
+                    record["worker_exit_code"] = exit_code
                 except Exception as error:
                     record["cleanup_error"] = type(error).__name__
             record["finished_at"] = utc_now()
             self.state.put(key, record)
-        if not record["cleanup_complete"]:
-            cancelled.set()
         return {"started": bool(record["sandbox_id"]), "cleanup": {"complete": record["cleanup_complete"]},
                 "cloud": record}
 
@@ -298,13 +218,12 @@ def coordinate(run_id, digest, settings, expected_controller_sha256):
             or expected_controller_sha256 != revision):
         result = {"run_id": run_id, "status": "failed", "error_code": "deployment_identity_mismatch",
                   "controller_source_sha256": revision, "expected_controller_sha256": expected_controller_sha256,
-                  "bundle_sha256": digest, "worker_image_id": settings["worker_image_id"], "started_trials": 0,
-                  "automatic_retry": False, "finished_at": utc_now()}
+                  "bundle_sha256": digest, "finished_at": utc_now()}
         state.put(run_id + "/status", result)
         return result
     call_id = modal.current_function_call_id()
-    if not state.put(run_id + "/controller", {"call_id": call_id, "started_at": utc_now(), "controller_source_sha256": revision,
-            "expected_controller_sha256": expected_controller_sha256, "bundle_sha256": digest,
+    if not state.put(run_id + "/controller", {"call_id": call_id, "started_at": utc_now(),
+            "controller_source_sha256": revision, "bundle_sha256": digest,
             "worker_image_id": settings["worker_image_id"]}, skip_if_exists=True):
         return {"run_id": run_id, "status": "already_claimed"}
     controller = ModalCampaign(run_id, digest, settings, state, inputs, evidence)
@@ -316,7 +235,7 @@ def coordinate(run_id, digest, settings, expected_controller_sha256):
                 if state.get(run_id + "/cancel"):
                     controller.cancelled.set()
             except Exception:
-                controller.cancelled.set()
+                pass  # A transient state read error is not a cancellation.
     watcher = threading.Thread(target=watch_cancel, daemon=True)
     watcher.start()
     stats = {}
@@ -333,12 +252,11 @@ def coordinate(run_id, digest, settings, expected_controller_sha256):
                        "cleanup_complete": result.get("cleanup", {}).get("complete", False)})
         outcomes = run_pool(trials, capacity, settings["jobs"], controller.execute,
                             cancelled=controller.cancelled, on_result=collect, stats=stats)
-        status = "partial" if controller.cancelled.is_set() else "completed"
-        result = {"run_id": run_id, "status": status, "finished_at": utc_now(),
-                  "planned": len(trials), "recorded": len(outcomes), "concurrency": stats,
-                  "infra_cost_usd": None, "infra_cost_status": "not_reconciled"}
+        result = {"run_id": run_id, "status": "cancelled" if controller.cancelled.is_set() else "completed",
+                  "finished_at": utc_now(), "planned": len(trials), "recorded": len(outcomes),
+                  "unproven_vm_exits": sum(not o.get("cleanup", {}).get("complete") for o in outcomes.values()),
+                  "concurrency": stats}
     except Exception as error:
-        controller.cancelled.set()
         result = {"run_id": run_id, "status": "failed", "error_code": type(error).__name__, "finished_at": utc_now()}
     finally:
         stop_watcher.set()

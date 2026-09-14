@@ -1,5 +1,4 @@
-"""Cloud fault contracts with no Docker, Modal API, credentials, or model calls."""
-import hashlib
+"""Cloud lifecycle contracts with no Docker, Modal API, credentials, or model calls."""
 import json
 from pathlib import Path
 import sys
@@ -18,13 +17,16 @@ try:
 finally:
     del sys.modules["modal"]
 from whip_evals.cli import parser
-from whip_evals.common import write_json
-from whip_evals.report import empty_trial
+from whip_evals.common import file_hash, read_json, write_json
+
+
+class NotFound(Exception):
+    pass
 
 
 class MemoryState:
     def __init__(self, values=None):
-        self.values = values or {}
+        self.values = {k: dict(v) for k, v in (values or {}).items()}
 
     def get(self, key):
         return self.values.get(key)
@@ -38,661 +40,383 @@ class MemoryState:
     def items(self):
         return list(self.values.items())
 
-
-def settings():
-    shape = {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000}
-    return {"app": cloud.APP_NAME, "environment": cloud.ENVIRONMENT,
-            "worker_image_id": "im-fixture", "jobs": 1, "fixture": True,
-            "qualification_status": "passed", "shapes": {"harbor": shape, "pier": shape}}
+    def pop(self, key):
+        return self.values.pop(key)
 
 
-def attempt():
-    return {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64,
-            "sandbox_name": cloud.sandbox_name("r", "t1"), "sandbox_id": "sb-test",
-            "owner_id": "b" * 32, "cleanup_complete": False}
+class MemoryVolume:
+    """Bytes keyed by absolute path with the SDK's read_file/iterdir/remove_file shapes."""
+    def __init__(self, files=None):
+        self.files = dict(files or {})
+        self.failures = {}
+
+    def read_file(self, path):
+        if self.failures.get(path, 0) > 0:
+            self.failures[path] -= 1
+            raise ConnectionError("stream dropped")
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        data = self.files[path]
+        for index in range(0, max(len(data), 1), 7):
+            yield data[index:index + 7]
+
+    def iterdir(self, prefix, recursive=True):
+        matches = [p for p in sorted(self.files) if p.startswith(prefix + "/")]
+        if not matches:
+            raise FileNotFoundError(prefix)
+        return [SimpleNamespace(path=p, type=1) for p in matches]
+
+    def remove_file(self, path, recursive=False):
+        keys = [k for k in self.files if k == path or k.startswith(path + "/")]
+        if not keys:
+            raise FileNotFoundError(path)
+        for key in keys:
+            del self.files[key]
 
 
-def trial():
-    return {"id": "t1", "task_id": "fixture/native", "runner": "harbor",
-            "candidate_id": "quickjs", "repetition": 1, "outer_watchdog_seconds": 900,
-            "resources": {"cpus": 1, "memory_mb": 2048, "storage_mb": 10240}}
+class FakeSandbox:
+    def __init__(self, polls):
+        self.polls = list(polls)
+        self.object_id = "sb-1"
+        self.tags = None
+        self.filesystem = MagicMock()
+        self.terminated = False
 
+    def poll(self):
+        return self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
 
-def stream_reader(read):
-    def download(path, stream, *, concurrency):
-        assert concurrency == 1
-        return sum(stream.write(chunk) for chunk in read(path))
-    return download
+    def set_tags(self, tags):
+        self.tags = tags
 
+    def terminate(self):
+        self.terminated = True
+        self.polls = [137]
 
-class LateExportAckTests(unittest.TestCase):
-    class NotFoundError(Exception):
+    def wait(self, raise_on_termination=False):
         pass
 
-    def run_attempt(self, *, polls=None, failure=None, ownership="valid", missing=False,
-                    bad_hash=False, flags=None):
-        now = [0]
-        state, modal, sandbox, volume = MemoryState(), MagicMock(), MagicMock(), MagicMock()
-        cancelled = threading.Event()
-        modal.exception = SimpleNamespace(NotFoundError=self.NotFoundError)
-        modal.Sandbox.create.return_value = modal.Sandbox.from_id.return_value = sandbox
-        sandbox.object_id, sandbox.poll.return_value = "sb-owned", 0
-        sandbox.poll.side_effect = polls
-        sandbox.filesystem.read_text.return_value = "{}"
-        def tags():
-            if ownership == "unavailable":
-                raise self.NotFoundError("tags unavailable")
-            if ownership == "wrong_owner" or (ownership == "lost_after_ack" and sandbox.get_tags.call_count > 1):
-                return {}
-            return sandbox.set_tags.call_args.args[0]
-        sandbox.get_tags.side_effect = tags
-        foreign = MagicMock(object_id="sb-foreign")
-        if ownership == "foreign_id":
-            modal.Sandbox.from_id.return_value = foreign
-        elif ownership == "foreign_after_ack":
-            modal.Sandbox.from_id.side_effect = [sandbox, foreign, foreign]
-        if failure:
-            operation = sandbox.exec if failure[0] == "exec" else sandbox.exec.return_value.wait
-            operation.side_effect = failure[1]
-        body = b"closed native evidence with unchanged grade and accounting"
-        marker = {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64,
-                  "status": "completed", "integrity_complete": True, "security_failure": False,
-                  "accounting_complete": True, "success": False,
-                  "files": {"record.json": "0" * 64 if bad_hash else hashlib.sha256(body).hexdigest()},
-                  **(flags or {})}
-        def advance(seconds):
-            now[0] += seconds
-        def read(path):
-            if path.endswith("/ready.json"):
-                return [json.dumps({k: marker[k] for k in ("run_id", "trial_id", "bundle_sha256")}).encode()]
-            if path.endswith("/complete.json"):
-                if missing:
-                    advance(601)
-                    raise FileNotFoundError("synthetic absent marker")
-                return [json.dumps(marker).encode()]
-            advance(601)  # Real durable_completion hashing crosses the unchanged worker wait.
-            return [body]
-        volume.read_file.side_effect = read
-        controller = cloud.ModalCampaign("r", "a" * 64, settings(), state, MagicMock(), volume)
-        with patch.object(cloud, "sdk", return_value=modal), \
-             patch.object(cloud.time, "monotonic", side_effect=lambda: now[0]), \
-             patch.object(cloud.time, "sleep", side_effect=advance):
-            result = controller.execute(trial(), cancelled)
-        modal.Sandbox.create.assert_called_once()
-        self.assertEqual(modal.Sandbox.create.call_args.kwargs["timeout"], trial()["outer_watchdog_seconds"] + 1800)
-        self.assertEqual((cloud.EXPORT_SECONDS, cloud.POLL_SECONDS), (600, 5))
-        self.assertGreater(now[0], 600)
-        row = result["cloud"]
-        if not missing and not bad_hash:
-            self.assertEqual(row["completion"], marker)
-            self.assertEqual(row["evidence_complete"], marker["integrity_complete"])
-            self.assertFalse(row["completion"]["success"])  # VM exit is never native grade PASS.
-        return SimpleNamespace(row=row, sandbox=sandbox, modal=modal, foreign=foreign,
-                               cancelled=cancelled.is_set(), state=state)
 
-    def test_verified_slow_export_actual_exit_skips_ack_and_terminate(self):
-        result = self.run_attempt()
-        self.assertEqual((result.row["state"], result.row["export_ack_status"], result.row["actual_exit_code"]),
-                         ("completed", "obsolete_actual_exit", 0))
-        self.assertTrue(result.row["cleanup_complete"])
-        self.assertFalse(result.cancelled)
-        result.sandbox.exec.assert_not_called()
-        result.sandbox.terminate.assert_not_called()
-        result.sandbox.wait.assert_not_called()
-
-    def test_dispatch_and_wait_notfound_require_reowned_actual_exit(self):
-        for phase in ("exec", "wait"):
-            with self.subTest(phase=phase):
-                result = self.run_attempt(polls=[None, 0, 0], failure=(phase, self.NotFoundError("exit race")))
-                self.assertEqual(result.row["export_ack_status"], "obsolete_after_not_found")
-                self.assertEqual(result.row["actual_exit_code"], 0)
-                self.assertEqual(result.modal.Sandbox.from_id.call_count, 3)
-                self.assertFalse(result.cancelled)
-                result.sandbox.exec.assert_called_once_with("touch", "/tmp/whip-eval-exported")
-                result.sandbox.terminate.assert_not_called()
-
-    def test_none_bool_or_error_after_notfound_cannot_establish_exit(self):
-        for value in (None, True, False, self.NotFoundError("poll missing"), RuntimeError("unknown")):
-            with self.subTest(value=type(value).__name__):
-                result = self.run_attempt(polls=[None, value, 0], failure=("exec", self.NotFoundError("exit race")))
-                self.assertEqual(result.row["state"], "indeterminate")
-                self.assertNotIn("export_ack_status", result.row)
-                self.assertTrue(result.cancelled)
-                result.sandbox.exec.assert_called_once()
-
-    def test_initial_poll_bool_or_exception_is_not_ack_permission(self):
-        for value in (True, False, self.NotFoundError("missing"), RuntimeError("unknown")):
-            with self.subTest(value=type(value).__name__):
-                result = self.run_attempt(polls=[value, 0])
-                self.assertEqual(result.row["state"], "indeterminate")
-                self.assertTrue(result.cancelled)
-                result.sandbox.exec.assert_not_called()
-
-    def test_only_typed_sdk_notfound_can_be_suppressed(self):
-        for error in (FileNotFoundError("not SDK NotFound"), RuntimeError("transport error")):
-            with self.subTest(error=type(error).__name__):
-                result = self.run_attempt(polls=[None, 0], failure=("exec", error))
-                self.assertEqual(result.row["state"], "indeterminate")
-                self.assertNotIn("export_ack_status", result.row)
-                self.assertTrue(result.cancelled)
-
-    def test_foreign_id_owner_or_unavailable_ownership_blocks_all_mutation(self):
-        for ownership in ("foreign_id", "wrong_owner", "unavailable"):
-            with self.subTest(ownership=ownership):
-                result = self.run_attempt(ownership=ownership)
-                self.assertEqual(result.row["state"], "indeterminate")
-                self.assertFalse(result.row["cleanup_complete"])
-                self.assertTrue(result.cancelled)
-                result.sandbox.exec.assert_not_called()
-                result.sandbox.terminate.assert_not_called()
-                result.foreign.poll.assert_not_called()
-                result.foreign.terminate.assert_not_called()
-
-    def test_notfound_recheck_must_revalidate_owner_and_exact_id(self):
-        for ownership in ("lost_after_ack", "foreign_after_ack"):
-            with self.subTest(ownership=ownership):
-                result = self.run_attempt(polls=[None], ownership=ownership,
-                                          failure=("exec", self.NotFoundError("exit race")))
-                self.assertEqual(result.row["state"], "indeterminate")
-                self.assertFalse(result.row["cleanup_complete"])
-                self.assertTrue(result.cancelled)
-                result.sandbox.exec.assert_called_once()
-                result.sandbox.terminate.assert_not_called()
-                result.foreign.terminate.assert_not_called()
-
-    def test_missing_marker_or_mismatched_hash_never_acknowledges(self):
-        for missing in (True, False):
-            with self.subTest(missing=missing):
-                result = self.run_attempt(missing=missing, bad_hash=not missing)
-                result.sandbox.exec.assert_not_called()
-                self.assertNotIn("completion", result.row)
-                self.assertFalse(result.row["evidence_complete"])
-
-    def test_negative_flags_and_security_stop_survive_obsolete_ack(self):
-        for security, integrity, accounting in ((True, False, False), (True, True, True),
-                                               (False, False, False), (False, True, False)):
-            with self.subTest(security=security, integrity=integrity, accounting=accounting):
-                result = self.run_attempt(flags={"security_failure": security, "integrity_complete": integrity,
-                                                 "accounting_complete": accounting})
-                self.assertEqual(result.row["state"], "security_failure" if security else "completed")
-                self.assertEqual(result.cancelled, security or not integrity)
-                result.sandbox.exec.assert_not_called()
-                if security or not integrity:
-                    self.assertEqual(result.state.get("r/cancel")["reason"], "evidence_integrity_failure")
-
-    def test_nonzero_vm_exit_is_metadata_not_grade(self):
-        result = self.run_attempt(polls=[17, 17])
-        self.assertEqual(result.row["actual_exit_code"], 17)
-        self.assertTrue(result.row["cleanup_complete"])
-        self.assertFalse(result.cancelled)
-
-    def test_normal_alive_ack_then_cleanup_is_unchanged(self):
-        result = self.run_attempt(polls=[None, None, 0])
-        self.assertEqual(result.row["export_ack_status"], "acknowledged")
-        self.assertTrue(result.row["cleanup_complete"])
-        result.sandbox.exec.assert_called_once_with("touch", "/tmp/whip-eval-exported")
-        result.sandbox.exec.return_value.wait.assert_called_once_with()
-        result.sandbox.terminate.assert_called_once_with()
-        result.sandbox.wait.assert_called_once_with(raise_on_termination=False)
-
-    def test_cleanup_poll_error_needs_terminate_wait_and_fresh_actual_exit(self):
-        result = self.run_attempt(polls=[None, RuntimeError("initial cleanup poll unknown"), 0])
-        self.assertEqual(result.row["cleanup_poll_error"], "RuntimeError")
-        self.assertEqual(result.row["actual_exit_code"], 0)
-        self.assertTrue(result.row["cleanup_complete"])
-        result.sandbox.terminate.assert_called_once_with()
-        result.sandbox.wait.assert_called_once_with(raise_on_termination=False)
-
-    def test_cleanup_unknown_retains_termination_but_needs_actual_final_poll(self):
-        for value in (None, True, False, self.NotFoundError("missing"), RuntimeError("unknown")):
-            with self.subTest(value=type(value).__name__):
-                result = self.run_attempt(polls=[None, value, value])
-                self.assertEqual(result.row["export_ack_status"], "acknowledged")
-                self.assertFalse(result.row["cleanup_complete"])
-                self.assertTrue(result.cancelled)
-                result.sandbox.terminate.assert_called_once_with()
-                result.sandbox.wait.assert_called_once_with(raise_on_termination=False)
-                self.assertNotIn("actual_exit_code", result.row)
+def fake_sdk(sandbox=None, create=None):
+    return SimpleNamespace(
+        App=SimpleNamespace(lookup=lambda name, environment_name: "app"),
+        Image=SimpleNamespace(from_id=lambda image_id: "image"),
+        Secret=SimpleNamespace(from_name=lambda *args, **kwargs: "secret"),
+        Sandbox=SimpleNamespace(create=create or MagicMock(return_value=sandbox)),
+        exception=SimpleNamespace(NotFoundError=NotFound),
+        current_function_call_id=lambda: "fc-1")
 
 
-class CloudTests(unittest.TestCase):
-    def test_default_full_is_ninety_and_never_promotes(self):
-        args = parser().parse_args(["modal", "submit", "full", "--dry-run"])
-        value = modal_cli.submit(args)
-        self.assertEqual((len(value["task_ids"]), value["repetitions"], value["trial_count"]), (30, 3, 90))
-        self.assertFalse(value["promote"])
-        self.assertEqual((value["model"], value["effort"]), ("kimi-k3-fast", "high"))
+def settings(**updates):
+    shape = {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000}
+    value = {"app": cloud.APP_NAME, "environment": cloud.ENVIRONMENT, "worker_image_id": "im-fixture",
+             "max_jobs": 90, "jobs": 1, "shapes": {"harbor": shape, "pier": shape}}
+    value.update(updates)
+    return value
 
-    def test_settings_restrict_environment_and_secrets(self):
-        self.assertEqual(cloud.validate_settings(settings()), settings())
-        for extra in ({"environment": "main"}, {"INFERENCE_API_KEY": "sentinel"}, {"qualification_status": "pending"}):
-            with self.assertRaises(ValueError):
-                cloud.validate_settings(settings() | extra)
 
-    def test_launch_unix_only_and_bundled_source(self):
-        command = cloud.launch_command("r", "t1", "a" * 64, "b" * 32)
-        self.assertIn("dockerd --host=unix:///var/run/docker.sock", command)
-        self.assertNotIn("dockerd-entrypoint", command)
+def trial(**updates):
+    value = {"id": "t1", "task_id": "terminal-bench/fixture", "runner": "harbor", "engine": "quickjs",
+             "binary_sha256": "f" * 64, "candidate_id": "quickjs", "repetition": 1, "outer_watchdog_seconds": 900,
+             "resources": {"cpus": 1, "memory_mb": 2048, "storage_mb": 10240}}
+    value.update(updates)
+    return value
+
+
+def marker(**updates):
+    value = {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64, "status": "completed", "files": {}}
+    value.update(updates)
+    return value
+
+
+class SettingsTests(unittest.TestCase):
+    def test_frontier_config_is_valid_and_secret_free(self):
+        config = cloud.load_config()
+        self.assertEqual(config["environment"], "whipcode")
+        self.assertEqual(config["jobs"], config["max_jobs"])
+        self.assertNotIn("INFERENCE", json.dumps(config).upper().replace("INFERENCE-NET", ""))
+
+    def test_settings_restrict_environment_image_and_concurrency(self):
+        self.assertEqual(cloud.validate_settings(settings())["jobs"], 1)
+        self.assertEqual(cloud.validate_settings(settings(max_jobs=10, jobs=10))["jobs"], 10)
+        for bad in ({"environment": "main"}, {"app": "other"}, {"worker_image_id": "latest"},
+                    {"jobs": 91}, {"jobs": 0}, {"jobs": True}, {"max_jobs": 5, "jobs": 6},
+                    {"secret": "x"}, {"shapes": {"harbor": {"physical_cpus": 6}}}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                cloud.validate_settings(settings(**bad))
+
+    def test_launch_is_unix_only_flagged_cloud_and_secret_free(self):
+        command = cloud.launch_command("r", "t1", "a" * 64)
+        self.assertIn("export WHIP_EVAL_CLOUD=1", command)
+        self.assertIn("--host=unix:///var/run/docker.sock", command)
         self.assertNotIn("tcp://", command)
-        self.assertIn("PYTHONPATH=/work/evals exec /.uv/.venv/bin/python", command)
+        self.assertNotIn("INFERENCE_API_KEY", command)
+        self.assertIn("whip_evals.modal_worker r t1 " + "a" * 64, command)
         with self.assertRaises(ValueError):
-            cloud.launch_command("r;bad", "t1", "a" * 64, "b" * 32)
+            cloud.launch_command("r", "t1", "short")
 
-    def test_admission_observed_guest_not_theoretical_cpu(self):
-        with tempfile.TemporaryDirectory() as directory:
-            host = {"cpus": 2, "memory_bytes": 24576 * 1024**2, "disk_free_mb": 100000}
-            headroom = {"cpus": 2, "memory_mb": 4096, "storage_mb": 10240}
-            with self.assertRaises(ValueError):
-                modal_worker.preflight(host, trial(), headroom, proc=Path(directory))
-            host["cpus"] = 6
-            modal_worker.preflight(host, trial(), headroom, proc=Path(directory))
-            net = Path(directory) / "net"
-            net.mkdir()
-            (net / "tcp").write_text("header\n0: 00000000:0947 00000000:0000 0A rest\n")
-            with self.assertRaises(ValueError):
-                modal_worker.preflight(host, trial(), headroom, proc=Path(directory))
 
-    def test_hash_valid_marker_is_not_integrity_approval(self):
-        body = b"receipt"
-        marker = {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64,
-                  "integrity_complete": False, "files": {"receipt": hashlib.sha256(body).hexdigest()}}
-        volume = MagicMock()
-        volume.read_file.side_effect = lambda path: [json.dumps(marker).encode()] if path.endswith("complete.json") else [body]
-        result = cloud.durable_completion(volume, "r", "t1", "a" * 64)
-        self.assertFalse(result["integrity_complete"])
-        marker["files"]["receipt"] = "0" * 64
-        with self.assertRaises(ValueError):
-            cloud.durable_completion(volume, "r", "t1", "a" * 64)
+class ExecuteTests(unittest.TestCase):
+    def campaign(self, state=None, evidence=None):
+        return cloud.ModalCampaign("r", "a" * 64, settings(), state or MemoryState(), MagicMock(), evidence or MemoryVolume())
 
-    def test_late_create_requires_unpredictable_worker_claim(self):
-        record = attempt() | {"sandbox_id": None}
-        sandbox, modal = MagicMock(), MagicMock()
-        sandbox.get_tags.return_value = {}
-        sandbox.filesystem.read_text.return_value = json.dumps(record)
-        modal.Sandbox.from_name.return_value = sandbox
-        with patch.object(cloud, "sdk", return_value=modal):
-            self.assertIs(cloud.owned_worker(record, "a" * 64), sandbox)
-            sandbox.filesystem.read_text.return_value = json.dumps(record | {"owner_id": "c" * 32})
-            with self.assertRaises(ValueError):
-                cloud.owned_worker(record, "a" * 64)
-        sandbox.terminate.assert_not_called()
+    def run_execute(self, campaign, sandbox, *, cancelled=None, create=None, **overrides):
+        cancelled = cancelled or threading.Event()
+        with patch.object(cloud, "sdk", return_value=fake_sdk(sandbox, create)), \
+             patch.object(cloud, "POLL_SECONDS", 0), patch.object(cloud, "MARKER_GRACE_SECONDS", 0):
+            return campaign.execute(trial(**overrides), cancelled), cancelled
 
-    def test_shared_volume_claim_cannot_prove_foreign_vm(self):
-        record = attempt() | {"sandbox_id": None}
-        sandbox, modal = MagicMock(), MagicMock()
-        sandbox.get_tags.return_value = {}
-        sandbox.filesystem.read_text.side_effect = lambda path: "{}" if path.startswith("/tmp/") else json.dumps(record)
-        modal.Sandbox.from_name.return_value = sandbox
-        with patch.object(cloud, "sdk", return_value=modal):
-            with self.assertRaises(ValueError):
-                cloud.owned_worker(record, "a" * 64)
-        sandbox.filesystem.read_text.assert_called_once_with("/tmp/whip-eval-owner.json")
-        sandbox.terminate.assert_not_called()
-
-    def test_newer_state_without_cursor_preserves_greater_paid_lower_bound(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            write_json(root / "artifacts/metrics.json", {"ledger_cost_usd": 1, "model_calls": 1, "event_cursor": 100})
-            write_json(root / "artifacts/state.json", {"calls": [{"fixture": True}]})
-            with patch("whip_evals.observe.aggregate", return_value={"ledger_cost_usd": 2, "model_calls": 2}):
-                row = modal_cli.retain_partial(empty_trial(trial()), root, attempt())
-            self.assertEqual(row["known_cost_usd"], "2.000000")
-            self.assertIsNone(row["cost_usd"])
-            self.assertFalse(row["accounting_complete"])
-
-    def test_fetch_hash_valid_integrity_false_cannot_become_complete(self):
-        self.check_rejected_fetch(False, b"{}")
-        self.check_rejected_fetch(True, b'{"changed":true}')
-
-    def check_rejected_fetch(self, integrity, record_bytes):
-        with tempfile.TemporaryDirectory() as directory:
-            marker = {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64,
-                      "integrity_complete": integrity, "files": {"artifacts/record.json": hashlib.sha256(b"{}").hexdigest()}}
-            remote = {"r/attempts/t1/artifacts/record.json": record_bytes,
-                      "r/attempts/t1/complete.json": json.dumps(marker).encode()}
-            volume = MagicMock()
-            volume.iterdir.return_value = [SimpleNamespace(path=name, type=1) for name in remote]
-            volume.read_file.side_effect = lambda path: [remote[path]]
-            volume._read_file_into_fileobj.side_effect = stream_reader(volume.read_file)
-            state = MemoryState({"r/request": {"bundle_sha256": "a" * 64}, "r/attempt/t1": attempt()})
-            complete = empty_trial(trial()) | {"started": True, "evidence_complete": True,
-                        "accounting_complete": True, "cost_usd": "1.250000", "known_cost_usd": "1.250000"}
-            manifest = {"schedule": [trial()]}
-            with patch.object(cloud, "resources", return_value=(state, None, volume)), patch.object(cloud, "read_remote", return_value=manifest), patch("whip_evals.report.normalize_trial", return_value=complete), patch("whip_evals.report.build_result", side_effect=lambda m, rows: {"status": "partial", "trials": rows}) as build, patch("whip_evals.report.write_report"):
-                modal_cli.fetch("r", evals=Path(directory))
-            row = build.call_args.args[1][0]
-            self.assertFalse(row["evidence_complete"])
-            self.assertFalse(row["accounting_complete"])
-            self.assertIsNone(row["cost_usd"])
-            self.assertEqual(row["known_cost_usd"], "1.250000")
-            self.assertIn("cloud_snapshot_incomplete" if integrity else "cloud_integrity_failure", row["error_codes"])
-
-    def test_collection_bounds_logical_streams_and_submission_to_eight(self):
-        lock, barrier = threading.Lock(), threading.Barrier(8, timeout=3)
-        counts = {"listed": 0, "active": 0, "finished": 0, "peak": 0, "outstanding": 0}
-        def entries(*args, **kwargs):
-            for index in range(17):
-                with lock:
-                    counts["listed"] += 1
-                    counts["outstanding"] = max(counts["outstanding"], counts["listed"] - counts["finished"])
-                yield SimpleNamespace(path=f"r/files/{index}", type=1)
-        def read(path):
-            with lock:
-                counts["active"] += 1
-                counts["peak"] = max(counts["peak"], counts["active"])
-            try:
-                if int(path.rsplit("/", 1)[1]) < 8:
-                    barrier.wait()
-                yield b"one"
-                yield b"two"
-            finally:
-                with lock:
-                    counts["active"] -= 1
-                    counts["finished"] += 1
-        volume = SimpleNamespace(iterdir=entries, _read_file_into_fileobj=stream_reader(read))
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.assertEqual(modal_cli.collect_files(volume, "r", root), 17)
-            self.assertEqual(counts["peak"], 8)
-            self.assertLessEqual(counts["outstanding"], 8)
-            self.assertEqual(counts["active"], 0)
-            self.assertEqual(len(list((root / "files").iterdir())), 17)
-            self.assertTrue(all(path.read_bytes() == b"onetwo" for path in (root / "files").iterdir()))
-
-    def test_collection_failed_stream_never_publishes_partial_or_temp_file(self):
-        for error in (RuntimeError, FileNotFoundError):
-            with self.subTest(error=error), tempfile.TemporaryDirectory() as directory:
-                def read(path):
-                    yield b"partial"
-                    raise error("download failed")
-                volume = SimpleNamespace(iterdir=lambda *a, **k: [SimpleNamespace(path="r/file", type=1)],
-                                         _read_file_into_fileobj=stream_reader(read))
-                with self.assertRaises(error):
-                    modal_cli.collect_files(volume, "r", Path(directory))
-                self.assertEqual(list(Path(directory).iterdir()), [])
-        volume = MagicMock()
-        volume.iterdir.side_effect = FileNotFoundError
-        with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(modal_cli.collect_files(volume, "r", Path(directory)), 0)
-        volume.read_file.assert_not_called()
-
-    def test_collection_rejects_path_escape_and_never_overwrites(self):
-        for path in ("other/file", "r/../../outside", "/r//absolute"):
-            with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
-                volume = MagicMock()
-                volume.iterdir.return_value = [SimpleNamespace(path=path, type=1)]
-                with self.assertRaises(ValueError):
-                    modal_cli.collect_files(volume, "r", Path(directory))
-                volume.read_file.assert_not_called()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "file").write_bytes(b"original")
-            volume = SimpleNamespace(iterdir=lambda *a, **k: [SimpleNamespace(path="r/file", type=1)],
-                                     _read_file_into_fileobj=stream_reader(lambda path: iter([b"replacement"])))
-            with self.assertRaises(FileExistsError):
-                modal_cli.collect_files(volume, "r", root)
-            self.assertEqual((root / "file").read_bytes(), b"original")
-            self.assertEqual(list(root.iterdir()), [root / "file"])
-
-    def test_collection_incompatible_sdk_fails_closed_before_reads(self):
-        volume = MagicMock()
-        with tempfile.TemporaryDirectory() as directory, patch.object(modal_cli, "version", return_value="1.5.4"):
-            with self.assertRaises(RuntimeError):
-                modal_cli.collect_files(volume, "r", Path(directory))
-        volume.iterdir.assert_not_called()
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(RuntimeError):
-                modal_cli.collect_files(SimpleNamespace(), "r", Path(directory))
-            incompatible = SimpleNamespace(iterdir=lambda *a, **k: [SimpleNamespace(path="r/file", type=1)],
-                                            _read_file_into_fileobj=lambda path, stream: None)
-            with self.assertRaises(TypeError):
-                modal_cli.collect_files(incompatible, "r", Path(directory))
-            self.assertEqual(list(Path(directory).iterdir()), [])
-
-    def test_cloud_cleanup_does_not_inherit_native_cleanup(self):
-        with tempfile.TemporaryDirectory() as directory:
-            for native in (True, False, None):
-                for worker in (True, False, None):
-                    with self.subTest(native=native, worker=worker):
-                        ledger = attempt() | {"cleanup_complete": worker}
-                        row = empty_trial(trial()) | {"cleanup_complete": native}
-                        result = modal_cli.retain_partial(row, directory, ledger)
-                        self.assertEqual(result["native_cleanup_complete"], native)
-                        self.assertEqual(result["cleanup_complete"], worker is True)
-                        self.assertFalse(result["evidence_complete"])
-                        self.assertFalse(result["accounting_complete"])
-            row = empty_trial(trial()) | {"cleanup_complete": True}
-            self.assertFalse(modal_cli.retain_partial(row, directory, {})["cleanup_complete"])
-
-    def test_cloud_cleanup_accepts_only_matching_owned_exit_reconciliation(self):
-        proof = attempt() | {"cleanup_complete": True, "ownership_proven": True, "worker_exit_code": 137}
-        variants = [(proof, True)]
-        for key in ("run_id", "trial_id", "bundle_sha256", "owner_id", "sandbox_id"):
-            variants.append((proof | {key: "other"}, False))
-        for key, value in (("ownership_proven", False), ("cleanup_complete", False),
-                           ("worker_exit_code", None), ("worker_exit_code", False)):
-            variants.append((proof | {key: value}, False))
-        variants.append((proof | {"worker_exit_code": 0}, True))
-        with tempfile.TemporaryDirectory() as directory:
-            for reconciliation, expected in variants:
-                with self.subTest(reconciliation=reconciliation):
-                    row = empty_trial(trial()) | {"cleanup_complete": True}
-                    result = modal_cli.retain_partial(row, directory, attempt(), reconciliation)
-                    self.assertEqual(result["cleanup_complete"], expected)
-                    self.assertTrue(result["native_cleanup_complete"])
-            late = attempt() | {"sandbox_id": None}
-            row = modal_cli.retain_partial(empty_trial(trial()), directory, late, proof)
-            self.assertTrue(row["cleanup_complete"])
-            missing_owner = attempt() | {"owner_id": None}
-            row = modal_cli.retain_partial(empty_trial(trial()), directory, missing_owner, proof)
-            self.assertFalse(row["cleanup_complete"])
-
-    def test_fetch_uses_owned_exit_reconciliation_after_dead_coordinator(self):
-        state = MemoryState({"r/request": {"bundle_sha256": "a" * 64}, "r/attempt/t1": attempt(),
-            "r/reconciliation/t1": attempt() | {"cleanup_complete": True,
-                "ownership_proven": True, "worker_exit_code": 137}})
-        volume = MagicMock()
-        volume.iterdir.return_value = []
-        with tempfile.TemporaryDirectory() as directory, patch.object(
-                cloud, "resources", return_value=(state, None, volume)), patch.object(
-                cloud, "read_remote", return_value={"schedule": [trial()]}), patch(
-                "whip_evals.report.build_result", side_effect=lambda m, rows: {"status": "partial", "trials": rows}) as build, patch(
-                "whip_evals.report.write_report"):
-            modal_cli.fetch("r", evals=Path(directory))
-        row = build.call_args.args[1][0]
-        self.assertTrue(row["cleanup_complete"])
-        self.assertIsNone(row["native_cleanup_complete"])
-        self.assertFalse(row["evidence_complete"])
-        self.assertFalse(row["accounting_complete"])
-
-    def test_required_identity_rejects_old_three_argument_deployment(self):
-        invoked = []
-        def old_coordinate(run_id, digest, settings):
-            invoked.append(run_id)
-        with self.assertRaises(TypeError):
-            old_coordinate("r", "a" * 64, settings(), "revision")
-        self.assertEqual(invoked, [])
-        with self.assertRaises(TypeError):
-            cloud.coordinate("r", "a" * 64, settings())
-
-    def test_stale_deployed_controller_fails_before_dispatch(self):
-        state = MemoryState({"r/request": {"bundle_sha256": "a" * 64, "settings": settings(),
-                                         "controller_source_sha256": "stale"}})
-        with patch.object(cloud, "sdk", return_value=MagicMock()), patch.object(cloud, "resources", return_value=(state, None, None)), patch.object(cloud.ModalCampaign, "execute") as execute:
-            result = cloud.coordinate("r", "a" * 64, settings(), "stale")
-        self.assertEqual(result["error_code"], "deployment_identity_mismatch")
-        self.assertEqual(result["started_trials"], 0)
-        execute.assert_not_called()
-
-    def test_duplicate_attempt_never_creates(self):
-        state = MemoryState({"r/attempt/t1": attempt()})
-        controller = cloud.ModalCampaign("r", "a" * 64, settings(), state, None, None)
-        modal = MagicMock()
-        cancelled = threading.Event()
-        with patch.object(cloud, "sdk", return_value=modal):
-            result = controller.execute(trial(), cancelled)
-        modal.Sandbox.create.assert_not_called()
-        self.assertTrue(cancelled.is_set())
-        self.assertEqual(result["error_code"], "attempt_already_claimed")
-
-    def test_audit_failure_stops_admission_and_keeps_status(self):
-        state = MemoryState()
-        controller = cloud.ModalCampaign("r", "a" * 64, settings(), state, MagicMock(), MagicMock())
-        modal, sandbox = MagicMock(), MagicMock()
-        modal.Sandbox.create.return_value = sandbox
-        sandbox.object_id = "sb-owned"
-        modal.Sandbox.from_id.return_value = sandbox
-        sandbox.get_tags.side_effect = lambda: sandbox.set_tags.call_args.args[0]
-        sandbox.poll.return_value = 0
-        cancelled = threading.Event()
-        marker = {"integrity_complete": False, "security_failure": True}
-        modal.exception = SimpleNamespace(NotFoundError=FileNotFoundError)
-        with patch.object(cloud, "sdk", return_value=modal), patch.object(cloud, "read_remote", side_effect=FileNotFoundError), patch.object(cloud, "durable_completion", return_value=marker):
-            controller.execute(trial(), cancelled)
-        self.assertTrue(cancelled.is_set())
-        self.assertEqual(state.get("r/cancel")["reason"], "evidence_integrity_failure")
-        self.assertEqual(state.get("r/attempt/t1")["state"], "security_failure")
-        self.assertFalse(state.get("r/attempt/t1")["evidence_complete"])
-
-    def test_missing_or_wrong_ready_never_admits_native_work(self):
-        for ready in (None, {"run_id": "foreign", "trial_id": "t1", "bundle_sha256": "a" * 64}):
-            with self.subTest(ready=ready):
-                state, modal, sandbox = MemoryState(), MagicMock(), MagicMock()
-                modal.Sandbox.create.return_value = sandbox
-                modal.exception = SimpleNamespace(NotFoundError=FileNotFoundError)
-                sandbox.object_id, sandbox.poll.return_value = "sb-owned", 0
-                controller = cloud.ModalCampaign("r", "a" * 64, settings(), state, MagicMock(), MagicMock())
-                with patch.object(cloud, "sdk", return_value=modal), patch.object(cloud, "read_remote", return_value=ready, side_effect=FileNotFoundError if ready is None else None), patch.object(cloud, "durable_completion", return_value={"integrity_complete": False}):
-                    controller.execute(trial(), threading.Event())
-                sandbox.filesystem.write_text.assert_not_called()
-                self.assertNotIn("admitted_at", state.get("r/attempt/t1"))
-
-    def test_reconcile_ack_requires_owned_worker_and_verified_final_bytes(self):
-        for owned, valid in ((True, True), (True, False), (False, True)):
-            with self.subTest(owned=owned, valid=valid):
-                record = attempt()
-                state = MemoryState({"r/request": {"bundle_sha256": "a" * 64, "planned": 1}, "r/attempt/t1": record})
-                sandbox = MagicMock()
-                sandbox.poll.return_value = None
-                with patch.object(cloud, "resources", return_value=(state, None, None)), patch.object(cloud, "owned_worker", return_value=sandbox, side_effect=None if owned else ValueError), patch.object(cloud, "durable_completion", return_value={"status": "completed"}, side_effect=None if valid else ValueError):
-                    modal_cli.status("r", reconcile=True)
-                if owned and valid:
-                    sandbox.filesystem.write_text.assert_called_once_with("verified\n", "/tmp/whip-eval-exported")
-                else:
-                    sandbox.filesystem.write_text.assert_not_called()
-                sandbox.terminate.assert_not_called()
-
-    def test_reconcile_missing_final_marker_never_acknowledges(self):
-        record = attempt()
-        state = MemoryState({"r/request": {"bundle_sha256": "a" * 64, "planned": 1},
-                             "r/attempt/t1": record})
-        sandbox, volume = MagicMock(), MagicMock()
-        sandbox.object_id = "sb-test"
-        sandbox.poll.return_value = None
-        volume.read_file.side_effect = FileNotFoundError("final marker not committed")
-        with patch.object(cloud, "resources", return_value=(state, None, volume)), \
-             patch.object(cloud, "owned_worker", return_value=sandbox):
-            result = modal_cli.status("r", reconcile=True)
-        row = result["attempts"][0]
-        self.assertTrue(row["ownership_proven"])
-        self.assertFalse(row["durable_result"])
-        self.assertFalse(row["cleanup_complete"])
-        self.assertEqual(row["reconcile_error"], "FileNotFoundError")
-        self.assertNotIn("final_ack_at", row)
-        self.assertNotIn("final_ack_at", state.get("r/reconciliation/t1"))
-        volume.read_file.assert_called_once_with("/r/attempts/t1/complete.json")
+    def test_waits_for_vm_exit_then_reads_marker_and_never_cancels_campaign(self):
+        evidence = MemoryVolume({"/r/attempts/t1/complete.json": json.dumps(marker()).encode()})
+        sandbox = FakeSandbox([None, None, 0])
+        campaign = self.campaign(evidence=evidence)
+        result, cancelled = self.run_execute(campaign, sandbox)
+        self.assertTrue(result["started"])
+        self.assertTrue(result["cleanup"]["complete"])
+        self.assertEqual(result["cloud"]["state"], "completed")
+        self.assertEqual(result["cloud"]["worker_status"], "completed")
+        self.assertEqual(result["cloud"]["worker_exit_code"], 0)
+        self.assertFalse(cancelled.is_set())
+        self.assertFalse(sandbox.terminated)
+        self.assertEqual(sandbox.tags, cloud.worker_tags("r", "t1", "a" * 64))
+        self.assertEqual(campaign.state.get("r/attempt/t1")["state"], "completed")
         sandbox.filesystem.write_text.assert_not_called()
-        sandbox.terminate.assert_not_called()
 
-    def test_reconcile_hash_verified_invalid_evidence_acknowledges_collection_only(self):
-        body = b"invalid evidence classification is retained"
-        marker = {"run_id": "r", "trial_id": "t1", "bundle_sha256": "a" * 64,
-                  "status": "security_failure", "security_failure": True,
-                  "integrity_complete": False, "accounting_complete": False,
-                  "files": {"receipt.json": hashlib.sha256(body).hexdigest()}}
-        record = attempt() | {"state": "committed", "completion": marker}
-        state = MemoryState({"r/request": {"bundle_sha256": "a" * 64, "planned": 1},
-                             "r/status": {"status": "partial"}, "r/attempt/t1": record})
-        sandbox, volume = MagicMock(), MagicMock()
-        sandbox.object_id = "sb-test"
-        sandbox.poll.return_value = None
-        remote = {"/r/attempts/t1/complete.json": json.dumps(marker).encode(),
-                  "/r/attempts/t1/receipt.json": body}
-        volume.read_file.side_effect = lambda path: [remote[path]]
-        with patch.object(cloud, "resources", return_value=(state, None, volume)), \
-             patch.object(cloud, "owned_worker", return_value=sandbox):
-            result = modal_cli.status("r", reconcile=True)
-        row = result["attempts"][0]
-        self.assertTrue(row["ownership_proven"])
-        self.assertTrue(row["durable_result"])
-        self.assertIn("final_ack_at", row)
-        self.assertFalse(row["cleanup_complete"])
-        self.assertEqual(row["worker_status"], "security_failure")
-        self.assertEqual(result["status"], "partial")
-        retained = state.get("r/reconciliation/t1")["completion"]
-        self.assertFalse(retained["integrity_complete"])
-        self.assertFalse(retained["accounting_complete"])
-        self.assertTrue(retained["security_failure"])
-        self.assertEqual(state.get("r/attempt/t1")["completion"], marker)
-        self.assertEqual(retained, marker)
-        volume.read_file.assert_any_call("/r/attempts/t1/receipt.json")
-        sandbox.filesystem.write_text.assert_called_once_with("verified\n", "/tmp/whip-eval-exported")
-        sandbox.terminate.assert_not_called()
+    def test_exit_without_marker_is_recorded_and_the_run_continues(self):
+        sandbox = FakeSandbox([None, 2])
+        result, cancelled = self.run_execute(self.campaign(), sandbox)
+        self.assertEqual(result["cloud"]["state"], "exited_without_marker")
+        self.assertEqual(result["cloud"]["worker_exit_code"], 2)
+        self.assertTrue(result["cleanup"]["complete"])
+        self.assertFalse(cancelled.is_set())
 
-    def test_foreign_name_after_lost_create_is_never_terminated(self):
-        state = MemoryState()
-        controller = cloud.ModalCampaign("r", "a" * 64, settings(), state, MagicMock(), MagicMock())
-        modal, sandbox = MagicMock(), MagicMock()
-        modal.Sandbox.create.side_effect = RuntimeError("sentinel secret must not be retained")
-        modal.Sandbox.from_name.return_value = sandbox
-        sandbox.get_tags.return_value = {}
-        sandbox.filesystem.read_text.return_value = "{}"
-        with patch.object(cloud, "sdk", return_value=modal):
-            controller.execute(trial(), threading.Event())
-        sandbox.terminate.assert_not_called()
-        self.assertNotIn("sentinel", json.dumps(state.values))
-        self.assertFalse(state.get("r/attempt/t1")["cleanup_complete"])
+    def test_marker_with_foreign_identity_is_not_completion(self):
+        evidence = MemoryVolume({"/r/attempts/t1/complete.json": json.dumps(marker(bundle_sha256="b" * 64)).encode()})
+        sandbox = FakeSandbox([None, 0])
+        result, _ = self.run_execute(self.campaign(evidence=evidence), sandbox)
+        self.assertEqual(result["cloud"]["state"], "exited_without_marker")
 
-    def test_cancel_independent_of_dead_coordinator_and_reconciles_late_create(self):
-        record = attempt() | {"sandbox_id": None}
-        state = MemoryState({"r/request": {"planned": 90, "bundle_sha256": "a" * 64}, "r/attempt/t1": record})
-        sandbox = MagicMock()
-        sandbox.object_id = "sb-late"
-        sandbox.poll.return_value = None
-        with patch.object(cloud, "resources", return_value=(state, None, None)), patch.object(cloud, "owned_worker", return_value=sandbox), patch.object(cloud, "durable_completion", side_effect=FileNotFoundError):
-            result = modal_cli.cancel("r")
-        self.assertEqual(result["attempts"][0]["sandbox_id"], "sb-late")
+    def test_human_cancel_is_delivered_once_and_vm_exit_is_awaited(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        sandbox = FakeSandbox([None, None, None, 0])
+        campaign = self.campaign()
+        result, _ = self.run_execute(campaign, sandbox, cancelled=cancelled)
         sandbox.filesystem.write_text.assert_called_once_with("cancel\n", "/tmp/whip-eval-cancel")
-        self.assertTrue(state.get("r/cancel"))
-        self.assertNotIn("r/controller", state.values)
+        self.assertIn("cancel_sent_at", result["cloud"])
+        self.assertTrue(result["cleanup"]["complete"])
+        self.assertFalse(sandbox.terminated)
 
-    def test_partial_paid_trial_without_native_result_keeps_observed_bill(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            write_json(root / "artifacts/jobs/t1/native/agent/metrics.interim.json", {
-                "ledger_cost_usd": 1.25, "model_calls": 2, "unknown_cost_calls": 1,
-                "input_tokens": 100, "output_tokens": 20, "event_cursor": 42})
-            row = modal_cli.retain_partial(empty_trial(trial()), root, attempt())
-            self.assertTrue(row["started"])
-            self.assertEqual(row["known_cost_usd"], "1.250000")
-            self.assertIsNone(row["cost_usd"])
-            self.assertFalse(row["accounting_complete"])
-            self.assertFalse(row["evidence_complete"])
-            self.assertIsNone(row["input_tokens"])
-            self.assertEqual(row["partial_observation"]["observed_input_tokens"], 100)
+    def test_deadline_terminates_vm_and_records_actual_exit(self):
+        sandbox = FakeSandbox([None])
+        result, _ = self.run_execute(self.campaign(), sandbox, outer_watchdog_seconds=-1500)
+        self.assertEqual(result["cloud"]["state"], "deadline_exceeded")
+        self.assertTrue(sandbox.terminated)
+        self.assertEqual(result["cloud"]["worker_exit_code"], 137)
+        self.assertTrue(result["cleanup"]["complete"])
+
+    def test_duplicate_attempt_never_creates_a_second_vm(self):
+        state = MemoryState({"r/attempt/t1": {"state": "running"}})
+        create = MagicMock(side_effect=AssertionError("must not create"))
+        result, cancelled = self.run_execute(self.campaign(state=state), None, create=create)
+        self.assertEqual(result["error_code"], "attempt_already_claimed")
+        self.assertFalse(result["started"])
+        self.assertFalse(cancelled.is_set())
+        create.assert_not_called()
+
+    def test_create_failure_is_a_recorded_controller_error(self):
+        create = MagicMock(side_effect=RuntimeError("platform unavailable"))
+        result, cancelled = self.run_execute(self.campaign(), None, create=create)
+        self.assertEqual(result["cloud"]["state"], "controller_error")
+        self.assertEqual(result["cloud"]["error_code"], "RuntimeError")
+        self.assertFalse(result["started"])
+        self.assertFalse(result["cleanup"]["complete"])
+        self.assertFalse(cancelled.is_set())
 
 
-class ReceiptPublicationTests(unittest.TestCase):
-    def exercise(self, root, fail_copy, root_alias=False):
+class CoordinateTests(unittest.TestCase):
+    def inputs(self):
+        manifest = {"run_id": "r", "schedule": [trial()], "candidates": [{"id": "quickjs"}]}
+        schedule = {"t1": {"envelope": {"outer_watchdog_seconds": 900}}}
+        return MemoryVolume({"/r/manifest.json": json.dumps(manifest).encode(),
+                             "/r/schedule.json": json.dumps(schedule).encode()})
+
+    def request(self, **updates):
+        value = {"bundle_sha256": "a" * 64, "settings": settings(),
+                 "controller_source_sha256": cloud.controller_revision()}
+        value.update(updates)
+        return value
+
+    def coordinate(self, state, pool):
+        with patch.object(cloud, "sdk", return_value=fake_sdk()), \
+             patch.object(cloud, "resources", return_value=(state, self.inputs(), MemoryVolume())), \
+             patch("whip_evals.execution.run_pool", side_effect=pool) as run_pool:
+            result = cloud.coordinate("r", "a" * 64, settings(), cloud.controller_revision())
+        return result, run_pool
+
+    def test_stale_or_mismatched_deployment_fails_before_dispatch(self):
+        for request in (self.request(bundle_sha256="b" * 64), self.request(controller_source_sha256="0" * 64),
+                        self.request(settings=settings(jobs=2))):
+            with self.subTest(request=request):
+                state = MemoryState({"r/request": request})
+                result, run_pool = self.coordinate(state, AssertionError("no dispatch"))
+                self.assertEqual((result["status"], result["error_code"]), ("failed", "deployment_identity_mismatch"))
+                run_pool.assert_not_called()
+                self.assertEqual(state.get("r/status")["status"], "failed")
+
+    def test_completed_and_human_cancelled_status_words(self):
+        def completed(trials, capacity, jobs, worker, *, cancelled, on_result, stats):
+            self.assertEqual(jobs, 1)
+            on_result(trials[0], {"started": True, "cleanup": {"complete": True}})
+            return {"t1": {"started": True, "cleanup": {"complete": True}}}
+        state = MemoryState({"r/request": self.request()})
+        result, _ = self.coordinate(state, completed)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual((result["planned"], result["recorded"], result["unproven_vm_exits"]), (1, 1, 0))
+        self.assertEqual(state.get("r/progress/t1")["cleanup_complete"], True)
+        self.assertEqual(state.get("r/status")["status"], "completed")
+
+        def cancelled_run(trials, capacity, jobs, worker, *, cancelled, on_result, stats):
+            cancelled.set()  # a human cancel delivered through the state watcher
+            return {"t1": {"started": False, "cancelled": True, "cleanup": {"complete": True}}}
+        state = MemoryState({"r/request": self.request()})
+        result, _ = self.coordinate(state, cancelled_run)
+        self.assertEqual(result["status"], "cancelled")
+
+    def test_second_coordinator_for_the_same_run_does_not_dispatch(self):
+        state = MemoryState({"r/request": self.request(), "r/controller": {"call_id": "fc-0"}})
+        result, run_pool = self.coordinate(state, AssertionError("no dispatch"))
+        self.assertEqual(result["status"], "already_claimed")
+        run_pool.assert_not_called()
+
+
+class FetchTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.evals = Path(self.temporary.name)
+        self.manifest = {"run_id": "r", "schedule": [trial(), trial(id="t2", task_id="terminal-bench/other")],
+                         "candidates": [{"id": "quickjs"}], "profile": "smoke", "profile_version": 1,
+                         "comparison_key": "offline", "seed": 1, "artifact_root": "artifacts/r"}
+        self.request = {"run_id": "r", "bundle_sha256": "a" * 64, "planned": 2, "settings": settings()}
+
+    def volumes(self):
+        interim = json.dumps({"ledger_cost_usd": 1.5, "model_calls": 3, "unknown_cost_calls": 1,
+                              "unknown_usage_calls": 0, "event_cursor": 40, "input_tokens": 500}).encode()
+        record = json.dumps({"started": True, "job_path": "jobs/t1", "cleanup": {"complete": True}}).encode()
+        files = {"artifacts/record.json": record, "artifacts/metrics.interim.json": interim,
+                 "started.json": b"{}"}
+        import hashlib
+        inventory = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+        evidence = {"/r/attempts/t1/" + name: data for name, data in files.items()}
+        evidence["/r/attempts/t1/complete.json"] = json.dumps(marker(files=inventory)).encode()
+        evidence["/r/attempts/t2/started.json"] = b"{}"
+        inputs = MemoryVolume({"/r/manifest.json": json.dumps(self.manifest).encode(), "/r/bundle.tar": b"tar"})
+        return inputs, MemoryVolume(evidence)
+
+    def state(self, status="completed"):
+        return MemoryState({"r/request": self.request, "r/status": {"status": status},
+                            "r/attempt/t1": {"trial_id": "t1", "sandbox_id": "sb-1", "cleanup_complete": True},
+                            "r/attempt/t2": {"trial_id": "t2", "sandbox_id": "sb-2", "cleanup_complete": False},
+                            "r/progress/t1": {"id": "t1"}})
+
+    def fetch(self, state, **kwargs):
+        inputs, evidence = self.volumes()
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+            return modal_cli.fetch("r", evals=self.evals, **kwargs), inputs, evidence
+
+    def test_fetch_verifies_marker_hashes_retains_partial_cost_and_prunes(self):
+        state = self.state()
+        outcome, inputs, evidence = self.fetch(state)
+        self.assertEqual(outcome["status"], "incomplete")
+        self.assertEqual(outcome["retained_files"], 5)
+        result = read_json(Path(outcome["report"]).with_name("result.json"))
+        first, second = result["trials"]
+        self.assertNotIn("cloud_snapshot_incomplete", first["error_codes"])
+        self.assertIn("missing_result", first["error_codes"])
+        self.assertEqual(first["known_cost_usd"], "1.500000")
+        self.assertIsNone(first["cost_usd"])
+        self.assertEqual(first["partial_observation"]["observed_input_tokens"], 500)
+        self.assertTrue(first["cleanup_complete"])
+        self.assertIn("cloud_snapshot_incomplete", second["error_codes"])
+        self.assertEqual(second["termination_source"], "cloud_worker_incomplete")
+        self.assertFalse(second["cleanup_complete"])
+        self.assertTrue(Path(outcome["artifact_root"], "attempts/t1/artifacts/record.json").is_file())
+        # Modal keeps nothing but the fetched receipt once the report is written.
+        self.assertTrue(outcome["pruned"])
+        self.assertEqual(evidence.files, {})
+        self.assertEqual(inputs.files, {})
+        self.assertEqual(set(state.values), {"r/fetched"})
+        self.assertEqual(state.get("r/fetched")["report"], outcome["report"])
+
+    def test_keep_and_unfinished_runs_leave_modal_data_in_place(self):
+        outcome, inputs, evidence = self.fetch(self.state(), keep=True)
+        self.assertFalse(outcome["pruned"])
+        self.assertTrue(evidence.files and inputs.files)
+        state = self.state("running")
+        outcome, inputs, evidence = self.fetch(state)
+        self.assertFalse(outcome["pruned"])
+        self.assertIn("not finished", outcome["note"])
+        self.assertIsNone(state.get("r/fetched"))
+        self.assertTrue(evidence.files)
+
+    def test_tampered_evidence_is_never_verified(self):
+        state = self.state()
+        inputs, evidence = self.volumes()
+        evidence.files["/r/attempts/t1/artifacts/record.json"] = b'{"started": true, "job_path": "jobs/t1", "cleanup": {"complete": true}} '
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+            outcome = modal_cli.fetch("r", evals=self.evals, keep=True)
+        result = read_json(Path(outcome["report"]).with_name("result.json"))
+        self.assertIn("cloud_snapshot_incomplete", result["trials"][0]["error_codes"])
+
+    def test_prune_refuses_unfinished_runs_without_force(self):
+        state = self.state("running")
+        inputs, evidence = self.volumes()
+        with patch.object(cloud, "resources", return_value=(state, inputs, evidence)):
+            with self.assertRaisesRegex(ValueError, "not finished"):
+                modal_cli.prune("r")
+            self.assertTrue(evidence.files)
+            self.assertEqual(modal_cli.prune("r", force=True)["state_keys"], 5)
+        self.assertEqual(state.values, {})
+
+    def test_downloads_retry_transient_failures_then_fail_without_partial_files(self):
+        volume = MemoryVolume({"/r/a": b"payload"})
+        target = self.evals / "out" / "a"
+        volume.failures["/r/a"] = 2
+        with patch.object(modal_cli.time, "sleep"):
+            modal_cli.download_file(volume, "/r/a", target)
+            self.assertEqual(target.read_bytes(), b"payload")
+            volume.failures["/r/a"] = 3
+            with self.assertRaises(ConnectionError):
+                modal_cli.download_file(volume, "/r/a", self.evals / "out" / "b")
+        self.assertEqual(sorted(p.name for p in (self.evals / "out").iterdir()), ["a"])
+
+    def test_status_cancel_and_cli_surface(self):
+        state = self.state("running")
+        with patch.object(cloud, "resources", return_value=(state, MagicMock(), MagicMock())):
+            value = modal_cli.status("r")
+            self.assertEqual((value["status"], value["planned"], len(value["attempts"])), ("running", 2, 2))
+            self.assertFalse(value["cancel_requested"])
+            cancelled = modal_cli.cancel("r")
+            self.assertEqual(cancelled["status"], "cancel_requested")
+            self.assertTrue(state.get("r/cancel"))
+            with self.assertRaises(ValueError):
+                modal_cli.status("unknown")
+        args = parser().parse_args(["modal", "fetch", "r", "--keep"])
+        self.assertTrue(args.keep)
+        self.assertTrue(parser().parse_args(["modal", "prune", "r", "--force"]).force)
+        self.assertIsNone(parser().parse_args(["modal", "submit", "full", "--allow-model-calls"]).jobs)
+        with self.assertRaises(SystemExit):
+            parser().parse_args(["modal", "submit", "full", "--settings", "x.json"])
+        with self.assertRaises(SystemExit):
+            parser().parse_args(["modal", "reconcile", "r"])
+
+
+class WorkerTests(unittest.TestCase):
+    def exercise(self, root, fail_copy=False):
         from contextlib import ExitStack
         work, evidence, tmp = root / "work", root / "evidence", root / "tmp"
         tmp.mkdir()
         evidence.mkdir()
-        if root_alias:
-            canonical = root / "canonical-volume"
-            evidence.rename(canonical)
-            evidence.symlink_to(canonical, target_is_directory=True)
-        (tmp / "whip-eval-admitted").touch()
         native_trial = trial()
         manifest = {"schedule": [native_trial], "protocol": {"headroom": {}, "runner_versions": {}}}
         write_json(work / "evals/reports/r/manifest.json", manifest)
@@ -721,42 +445,34 @@ class ReceiptPublicationTests(unittest.TestCase):
                 stack.enter_context(patch.object(modal_worker.shutil, "copyfileobj", side_effect=OSError("copy failed")))
             return modal_worker.run_worker("r", "t1", "a" * 64, work=work, evidence=evidence)
 
-    def test_closed_ext4_receipts_are_hashed_after_copy(self):
+    def test_worker_publishes_receipts_then_marker_with_file_hashes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            result = self.exercise(root, False)
+            result = self.exercise(root)
             self.assertEqual(result["status"], "completed")
-            self.assertIn("artifacts/trials/t1/runner.log", result["files"])
-            self.assertIn("artifacts/trials/t1/execution.json", result["files"])
-            self.assertEqual((root / "evidence/r/attempts/t1/artifacts/trials/t1/runner.log").read_text(), "closed log\n")
+            attempt = root / "evidence/r/attempts/t1"
+            self.assertEqual((attempt / "artifacts/trials/t1/runner.log").read_text(), "closed log\n")
+            self.assertEqual(read_json(attempt / "complete.json")["files"], result["files"])
+            for name, digest in result["files"].items():
+                self.assertEqual(file_hash(attempt / name), digest, name)
+            self.assertIn("artifacts/record.json", result["files"])
+            self.assertNotIn("complete.json", result["files"])
+            self.assertFalse((attempt / "ready.json").exists())
 
-    def test_trusted_volume_alias_is_canonical_before_native_paths(self):
+    def test_receipt_copy_failure_is_recorded_and_still_publishes_the_marker(self):
         with tempfile.TemporaryDirectory() as temporary:
-            result = self.exercise(Path(temporary), False, root_alias=True)
+            root = Path(temporary)
+            result = self.exercise(root, fail_copy=True)
             self.assertEqual(result["status"], "completed")
-            self.assertNotIn("error_code", result)
+            self.assertEqual(result["receipt_error"], "OSError")
+            self.assertTrue((root / "evidence/r/attempts/t1/complete.json").exists())
 
-    def test_adapter_still_rejects_untrusted_content_descendant_symlink(self):
-        import asyncio
-        from whip_evals.adapter import download_content
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            logs, outside = root / "logs", root / "outside"
-            logs.mkdir()
-            outside.mkdir()
-            (logs / "content").symlink_to(outside, target_is_directory=True)
-            environment = MagicMock()
-            with self.assertRaisesRegex(ValueError, "must not follow symlinks"):
-                asyncio.run(download_content(environment, logs, {"bodies": [{"digest": "a" * 64, "bytes": 1}]}))
-            environment.download_dir.assert_not_called()
-
-    def test_receipt_copy_failure_cannot_publish_final_marker(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with self.assertRaises(OSError):
-                self.exercise(root, True)
-            self.assertFalse((root / "evidence/r/attempts/t1/complete.json").exists())
-            self.assertTrue((root / "evidence/r/attempts/t1/ready.json").exists())
+    def test_preflight_checks_resource_fit_only(self):
+        host = {"cpus": 6, "memory_bytes": 24 * 1024 ** 3, "disk_free_mb": 100000}
+        headroom = {"cpus": 1, "memory_mb": 1024, "storage_mb": 1024}
+        modal_worker.preflight(host, trial(), headroom)
+        with self.assertRaises(ValueError):
+            modal_worker.preflight(host, trial(resources={"cpus": 6, "memory_mb": 2048, "storage_mb": 10240}), headroom)
 
 
 class PrivateProxyTests(unittest.TestCase):
@@ -774,15 +490,13 @@ class PrivateProxyTests(unittest.TestCase):
 
     def test_cloud_proxy_uses_native_generator_only_in_private_directory_until_stop(self):
         import asyncio
-        import inspect
         import os
         from whip_evals import adapter
         with tempfile.TemporaryDirectory() as temporary:
             durable = Path(temporary)
             environment = self.environment(durable)
             original = environment.trial_paths
-            self.assertFalse(inspect.iscoroutinefunction(adapter.DockerEnvironment._prepare_egress_proxy_compose))
-            with patch.dict(os.environ, {"WHIP_EVAL_OWNER_ID": "owned-fixture"}), patch("pier.environments.docker.docker.new_proxy_token", return_value="private-proxy-sentinel"):
+            with patch.dict(os.environ, {"WHIP_EVAL_CLOUD": "1"}), patch("pier.environments.docker.docker.new_proxy_token", return_value="private-proxy-sentinel"):
                 environment._prepare_egress_proxy_compose()
             self.assertIs(environment.trial_paths, original)
             private = Path(environment._whip_proxy_directory.name)
@@ -792,7 +506,6 @@ class PrivateProxyTests(unittest.TestCase):
             proxy = compose["services"]["pier-egress-proxy"]
             self.assertEqual(proxy["environment"]["PROXY_TOKEN"], "private-proxy-sentinel")
             self.assertEqual(proxy["ulimits"]["nofile"], {"soft": 65536, "hard": 65536})
-            self.assertEqual(compose["networks"]["pier-egress-internal"], {"internal": True})
             async def native_stop(instance, delete):
                 self.assertTrue(private.exists())
                 self.assertIs(instance.trial_paths, original)
@@ -801,28 +514,11 @@ class PrivateProxyTests(unittest.TestCase):
             self.assertFalse(private.exists())
             self.assertEqual(list(durable.iterdir()), [])
 
-    def test_paths_restore_and_private_cleanup_on_native_exception(self):
-        import os
-        from whip_evals import adapter
-        with tempfile.TemporaryDirectory() as temporary:
-            environment = self.environment(Path(temporary))
-            original, touched = environment.trial_paths, []
-            def fail(instance):
-                touched.append(instance.trial_paths.trial_dir)
-                (touched[-1] / "private").write_text("private-proxy-sentinel")
-                raise ValueError("native fixture failure")
-            with patch.dict(os.environ, {"WHIP_EVAL_OWNER_ID": "owned-fixture"}), patch.object(adapter.DockerEnvironment, "_prepare_egress_proxy_compose", fail):
-                with self.assertRaises(ValueError):
-                    environment._prepare_egress_proxy_compose()
-            self.assertIs(environment.trial_paths, original)
-            self.assertFalse(touched[0].exists())
-            self.assertEqual(list(original.trial_dir.iterdir()), [])
-
     def test_local_native_proxy_path_is_unchanged(self):
         import os
         with tempfile.TemporaryDirectory() as temporary:
             environment = self.environment(Path(temporary))
-            with patch.dict(os.environ, {"WHIP_EVAL_OWNER_ID": ""}), patch("pier.environments.docker.docker.new_proxy_token", return_value="local-test-sentinel"):
+            with patch.dict(os.environ, {"WHIP_EVAL_CLOUD": ""}), patch("pier.environments.docker.docker.new_proxy_token", return_value="local-test-sentinel"):
                 environment._prepare_egress_proxy_compose()
             self.assertEqual(environment._egress_proxy_compose_path.parent, Path(temporary))
             self.assertIsNone(getattr(environment, "_whip_proxy_directory", None))

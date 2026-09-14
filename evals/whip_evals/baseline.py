@@ -44,7 +44,6 @@ def evaluate(manifest, result, *, previous=None):
         and all(r["started"] and r["success"] is not None and r["evidence_complete"]
                 and r["accounting_complete"] and r["cleanup_complete"] is True
                 and not r["error_codes"] for r in result["trials"]))
-    gates["integrity_verified"] = result.get("integrity", {}).get("complete") is True
     candidate = manifest["candidates"][-1]["id"]
     gates["expected_matrix"] = all(
         {(r["task_id"], r["repetition"]) for r in result["trials"] if r["candidate_id"] == c["id"]}
@@ -80,18 +79,19 @@ def evaluate(manifest, result, *, previous=None):
 
 
 def verify_evidence(evals, manifest, result):
-    integrity = result.get("integrity") or {}
-    path = inside(evals, integrity["path"])
-    if file_hash(path) != integrity["sha256"]:
-        raise ValueError("evidence inventory changed")
-    inventory = read_json(path)
-    if inventory["errors"] or inventory["skipped_nonregular"]:
-        raise ValueError("evidence inventory is incomplete")
+    """Every trial's recorded evidence hashes must still match the retained files."""
     root = inside(evals, manifest["artifact_root"])
-    for item in inventory["files"]:
-        file = inside(root, item["path"])
-        if not file.is_file() or file.stat().st_size != item["bytes"] or file_hash(file) != item["sha256"]:
-            raise ValueError("retained evidence changed")
+    for row in result["trials"]:
+        artifacts = row.get("artifacts") or {}
+        expected = dict(artifacts.get("evidence_files") or {})
+        if artifacts.get("native_result"):
+            expected[artifacts["native_result"]] = artifacts["native_result_sha256"]
+        if not expected:
+            raise ValueError("trial has no retained evidence: " + row["id"])
+        for path, digest in expected.items():
+            file = inside(root, path)
+            if not file.is_file() or file_hash(file) != digest:
+                raise ValueError("retained evidence changed")
     for candidate in manifest["candidates"]:
         if file_hash(inside(evals, candidate["binary_path"])) != candidate["binary_sha256"]:
             raise ValueError("retained baseline build changed")

@@ -1,7 +1,6 @@
 """Command entry point. Only `run` and explicit doctor integration execute trials."""
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
 
@@ -31,22 +30,22 @@ def parser():
     submit.add_argument("--ref")
     submit.add_argument("--against")
     submit.add_argument("--repetitions", type=int, default=3)
-    submit.add_argument("--jobs", type=int, default=10)
+    submit.add_argument("--jobs", type=int, help="maximum VMs at once; default frontier/modal.json max_jobs")
     submit.add_argument("--seed", type=int, default=20260910)
     submit.add_argument("--label", default="")
     submit.add_argument("--run-id")
-    submit.add_argument("--settings", type=Path, help="qualified image/resource receipt JSON (no secrets)")
     submit.add_argument("--allow-model-calls", action="store_true")
-    submit.add_argument("--fixture", action="store_true", help="authored fake-provider qualification; never scored")
-    submit.add_argument("--fixture-repetitions", type=int, default=1,
-                        help="repeat authored fixtures 1..45 times; at most 90 total fixture trials")
     submit.add_argument("--dry-run", action="store_true")
-    for name in ("status", "logs", "fetch", "cancel", "reconcile"):
+    for name in ("status", "logs", "fetch", "cancel", "prune"):
         action = actions.add_parser(name)
         action.add_argument("run_id")
         if name == "logs":
             action.add_argument("--trial")
             action.add_argument("--tail-bytes", type=int, default=8192)
+        if name == "fetch":
+            action.add_argument("--keep", action="store_true", help="leave Modal-side run data in place after fetching")
+        if name == "prune":
+            action.add_argument("--force", action="store_true", help="prune even if the coordinator has not finished")
     doctor = sub.add_parser("doctor", help="check local prerequisites; no model calls")
     doctor.add_argument("--integration", action="store_true", help="explicitly execute authored fixture trials with a fake provider")
     doctor.add_argument("--ref", help="build this Git ref for integration; default captures current working files")
@@ -73,15 +72,15 @@ def main(argv=None):
         elif args.command == "modal":
             from . import modal_cli
             if args.modal_action == "submit":
-                if not args.dry_run and args.settings is None:
-                    raise ValueError("--settings is required for cloud submission")
                 value = modal_cli.submit(args)
-            elif args.modal_action in ("status", "reconcile"):
-                value = modal_cli.status(args.run_id, reconcile=args.modal_action == "reconcile")
+            elif args.modal_action == "status":
+                value = modal_cli.status(args.run_id)
             elif args.modal_action == "logs":
                 value = modal_cli.logs(args.run_id, args.trial, tail_bytes=args.tail_bytes)
             elif args.modal_action == "fetch":
-                value = modal_cli.fetch(args.run_id)
+                value = modal_cli.fetch(args.run_id, keep=args.keep)
+            elif args.modal_action == "prune":
+                value = modal_cli.prune(args.run_id, force=args.force)
             else:
                 value = modal_cli.cancel(args.run_id)
         elif args.command == "doctor":
@@ -103,7 +102,7 @@ def main(argv=None):
             from .doctor import cleanup
             value = cleanup(args.run_id)
         print(json.dumps(value, indent=2, allow_nan=False))
-        return 2 if value.get("status") in ("partial", "failed") else 0
+        return 2 if value.get("status") in ("cancelled", "failed") else 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         # subprocess output / provider errors can contain secrets; don't echo it.
         detail = str(error) if isinstance(error, ValueError) else type(error).__name__
