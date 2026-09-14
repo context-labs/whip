@@ -469,43 +469,50 @@ describe('read-only mailbox and ephemeral integration workflows', () => {
     await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
     expect(list.mock.calls[2]?.[0]?.cursor).toBeUndefined();
   });
-  it('sends private MCP configuration once, clears the editor, and keeps it out of query caches', async () => {
+  it('offers each MCP row only the controls its state supports, named by subject, and has no attach box', async () => {
     const f = fixture();
+    f.client.query.mockImplementation(async (operation: string) => ({
+      result:
+        operation === 'mcp.status'
+          ? [
+              { name: 'docs', status: 'ready', tools: 4, source: 'whip' },
+              { name: 'slow', status: 'connecting', tools: 0, source: 'codex' },
+              { name: 'off', status: 'disabled', tools: 0, source: 'whip' },
+              { name: 'ghost', status: 'blocked', note: 'blocked by mcpImport config (project)', source: '/repo/.mcp.json' },
+              { name: 'codex config', status: 'unreadable', error: 'not imported: line 3: expected key = value', source: '/home/u/.codex/config.toml' },
+            ]
+          : operation === 'mcp.import.status'
+            ? { claude: true, codex: false, project: false }
+            : operation === 'permission.rules'
+              ? { rules: [], global: [] }
+              : [],
+    }));
     f.render(<MCP {...f.props} />);
-    const configuration = {
-      private: {
-        url: 'https://host.example/mcp',
-        headers: { Authorization: 'Bearer super-secret' },
-      },
-    };
-    fireEvent.change(screen.getByLabelText('Private MCP server JSON'), {
-      target: { value: JSON.stringify(configuration) },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Attach to this session' }));
-    await waitFor(() =>
-      expect(f.client.invoke).toHaveBeenCalledWith(
-        'mcp.attach',
-        { servers: configuration },
-        expect.objectContaining({ rootId: 'root', signal: expect.any(AbortSignal) }),
-      ),
-    );
-    expect((screen.getByLabelText('Private MCP server JSON') as HTMLTextAreaElement).value).toBe(
-      '',
-    );
+    await screen.findByText('docs');
+    expect(screen.getByRole('button', { name: 'Reconnect docs' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Disable docs for this session' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Enable docs for this session' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Disable slow for this session' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reconnect slow' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Enable off for this session' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reconnect off' })).toBeNull();
+    for (const name of ['Reconnect ghost', 'Enable ghost for this session', 'Disable ghost for this session', 'Reconnect codex config']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    expect(screen.getByText('blocked by mcpImport config (project)')).toBeTruthy();
+    expect(screen.queryByLabelText('Private MCP server JSON')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach to this session' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Enable project imports' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect docs' }));
+    await waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
+    expect(f.run.mock.calls[0]?.[1]).toBe('Reconnect requested');
     expect(
-      JSON.stringify(
-        f.queries
-          .getQueryCache()
-          .getAll()
-          .map((query) => ({ key: query.queryKey, data: query.state.data })),
+      f.client.submit.mock.calls.some(
+        ([operation, payload]) => operation === 'mcp.reconnect' && (payload as { name?: string })?.name === 'docs',
       ),
-    ).not.toContain('super-secret');
-    expect(f.client.submit).not.toHaveBeenCalled();
+    ).toBe(true);
   });
-});
 
-
-describe('read-only budget usage', () => {
   it('shows unlimited and uncertain usage without offering budget controls', () => {
     const f = fixture();
     f.root.budgets = [{ agent_id: '', state: { kind: 'cost', limit: null, remaining: null, used: '1142228', reserved: '0', uncertain: '23883863', incomplete: true } }];
