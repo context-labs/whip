@@ -132,6 +132,14 @@ func TestMCPImportAppliesAndIsIdempotent(t *testing.T) {
 	if _, ok := reloaded.MCPServers["node_repl"]; ok {
 		t.Error("blocked servers are never imported")
 	}
+	// Materialized entries are native: no import provenance, so the daemon
+	// trusts them like hand-written ones. Import is the trust path.
+	if entry := reloaded.MCPServers["paper"]; entry.Origin != "" || entry.Source != "" {
+		t.Errorf("imported entry kept import provenance: %+v", entry)
+	}
+	if !mcp.FromConfigMap(reloaded.MCPServers)["paper"].Trusted {
+		t.Error("an imported entry must be trusted once it lives in whip's own config")
+	}
 	// Second run: nothing left to import, config unchanged.
 	var runErr error
 	printed := captureStdout(t, func() { runErr = mcpImportCLI(nil) })
