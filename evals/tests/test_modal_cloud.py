@@ -347,6 +347,8 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(inputs.files, {})
         self.assertEqual(set(state.values), {"r/fetched"})
         self.assertEqual(state.get("r/fetched")["report"], outcome["report"])
+        with patch.object(cloud, "resources", return_value=(state, MagicMock(), MagicMock())):
+            self.assertEqual(modal_cli.status("r")["status"], "fetched")
 
     def test_keep_and_unfinished_runs_leave_modal_data_in_place(self):
         outcome, inputs, evidence = self.fetch(self.state(), keep=True)

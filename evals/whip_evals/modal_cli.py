@@ -58,7 +58,11 @@ def status(run_id):
     state, _, _ = cloud.resources()
     request = state.get(run_id + "/request")
     if request is None:
-        raise ValueError("unknown cloud run ID")
+        fetched = state.get(run_id + "/fetched")
+        if fetched is None:
+            raise ValueError("unknown cloud run ID")
+        # A fetched run keeps only this receipt on Modal; the report is local.
+        return {"run_id": run_id, "status": "fetched", "fetched": fetched, "attempts": []}
     value = state.get(run_id + "/status") or {"status": "submitted_or_indeterminate"}
     attempts = [dict(record) for key, record in state.items()
                 if isinstance(key, str) and key.startswith(run_id + "/attempt/")]
