@@ -1,0 +1,2047 @@
+{
+  "artifact_root": "artifacts/quickjs-k3-full-qualified-20260911-j4",
+  "baseline_at_launch": null,
+  "candidates": [
+    {
+      "binary_path": "cache/builds/71607a26f394c06a4b8a172482475dfc0a9005b45f39993c071f13748a79ade7/whip-linux-amd64",
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "build": {
+        "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+        "recipe": {
+          "CGO_ENABLED": "0",
+          "GOARCH": "amd64",
+          "GOOS": "linux",
+          "commit": "e9c97beabf82f1d6923039b8f6a4ca6959ebcb00",
+          "flags": [
+            "-trimpath",
+            "-buildvcs=false",
+            "-ldflags",
+            "-X main.version=e9c97beabf82f1d6923039b8f6a4ca6959ebcb00"
+          ],
+          "go_version": "go version go1.27.0 linux/amd64",
+          "source_sha256": "1ae13effab56bb679c169dba9a5dfa7dd31b48f33eced9e402b998c73308218f"
+        },
+        "ripgrep_sha256": "f401154e2393f9002ac77e419f9ee5521c18f4f8cd3e32293972f493ba06fce7"
+      },
+      "commit": "e9c97beabf82f1d6923039b8f6a4ca6959ebcb00",
+      "configuration": {
+        "browser": {
+          "enabled": false
+        },
+        "compactModel": "kimi-k3",
+        "compactProvider": "inference-net",
+        "computer": {
+          "enabled": false
+        },
+        "defaultEffort": "high",
+        "defaultModel": "kimi-k3",
+        "defaultProvider": "inference-net",
+        "mcpImport": {
+          "claude": {
+            "enabled": false
+          },
+          "codex": {
+            "enabled": false
+          }
+        },
+        "models": {
+          "kimi-k3": {
+            "context": 1048576,
+            "maxOut": 0,
+            "providers": [
+              "inference-net"
+            ],
+            "vision": true
+          }
+        },
+        "providers": {
+          "inference-net": {
+            "api": "openai-completions",
+            "apiKeyEnv": "INFERENCE_API_KEY",
+            "baseUrl": "https://api.inference.net/v1",
+            "name": "Inference.net"
+          }
+        },
+        "rlm": {
+          "defaultEngine": "quickjs"
+        }
+      },
+      "dirty": false,
+      "engine": "quickjs",
+      "id": "candidate",
+      "source_sha256": "1ae13effab56bb679c169dba9a5dfa7dd31b48f33eced9e402b998c73308218f"
+    }
+  ],
+  "capacity": {
+    "cpus": 126,
+    "memory_mb": 249093,
+    "storage_mb": 408924
+  },
+  "catalog": {
+    "context_length": 1048576,
+    "id": "kimi-k3",
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "max_completion_tokens": 1048576,
+    "pricing": {
+      "completion": "0.000019800000",
+      "input_cache_read": "0.000000400000",
+      "prompt": "0.000003950000"
+    },
+    "reasoning_efforts": [
+      "none",
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  "comparison": {
+    "environment": {
+      "architecture": "x86_64",
+      "cpu_model": "AMD EPYC 7B13 64-Core Processor",
+      "docker_version": "28.4.0",
+      "emulated": false,
+      "os": "linux",
+      "runner_versions": {
+        "datacurve-pier": "0.3.1",
+        "harbor": "0.22.0"
+      }
+    },
+    "measurement_code": {
+      "adapter.py": "946d2cd89185c34ff72bcb2482ac1d491616633bb0f81087805b329839c0b6e0",
+      "execution.py": "a4964ffd583119edc7f93586b382e61f25331f0a3eccb66ef53e8ad3aede3098",
+      "observe.py": "18b97431b4324fbcfef31ebd760c3a7edc0517d37c4b1972793e9d1a074fc49c",
+      "report.py": "0374b9c77560f0dfc3f449919518d2e96d614f848e23b9d50a340070b52eb9fa",
+      "tasks.py": "b54320c96bba08aaa1cab4f7f5e37578a0df4a8331f60d7ef97c63387e51242a"
+    },
+    "protocol_sha256": "9c9459c07159bc892c352e8439721971ff104a1a21e832b8258a0cc98c1602be",
+    "provider_catalog_sha256": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+    "requested_jobs": 4,
+    "resource_policy": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf"
+  },
+  "comparison_key": "0fb0ef083e76adebf4031bb965244053804268e675691dce44a49fb7930ae400",
+  "cost_estimate": {
+    "basis_run_id": null,
+    "cost_usd": null,
+    "is_limit": false,
+    "method": "accepted per-task mean cost, projected to all planned arms/repetitions"
+  },
+  "created_at": "2026-09-11T03:53:25.869911Z",
+  "external_references": {
+    "applied_network_allowlist": null,
+    "attempts_per_task": 1,
+    "benchmark_revision": "e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63",
+    "environment": "Runta",
+    "kind": "published_context_only",
+    "methodology_comparable": false,
+    "model": "Kimi K3",
+    "notes": "Selected published reference points, not a complete leaderboard or a matched Whip comparison. No cost normalization or ranking is inferred.",
+    "profile": "full",
+    "provider": "Fireworks",
+    "schema_version": 1,
+    "scores": [
+      {
+        "harness": "Codex",
+        "published_pass_rate_percent": 66.7,
+        "version": "0.148.0"
+      },
+      {
+        "harness": "Claude Code",
+        "published_pass_rate_percent": 63.3,
+        "version": "2.1.237"
+      },
+      {
+        "harness": "Pi",
+        "published_pass_rate_percent": 60.0,
+        "version": "0.84.2"
+      }
+    ],
+    "source_url": "https://github.com/frontier-harness-eval/eval/blob/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/README.md",
+    "task_count": 30
+  },
+  "host": {
+    "architecture": "x86_64",
+    "cpu_model": "AMD EPYC 7B13 64-Core Processor",
+    "cpus": 128,
+    "disk_free_mb": 419164,
+    "docker_version": "28.4.0",
+    "emulated": false,
+    "host_architecture": "x86_64",
+    "host_os": "Linux",
+    "memory_bytes": 265488334848,
+    "os": "linux",
+    "python_version": "3.14.4",
+    "runner_versions": {
+      "datacurve-pier": "0.3.1",
+      "harbor": "0.22.0"
+    }
+  },
+  "jobs": 4,
+  "label": "quickjs-k3-qualified-host-requalification-j4",
+  "prepared_tasks": {
+    "datacurve/anko-typed-variable-bindings": "6af0e829153dad2c71a0206842b45d0d76ec1011f037a991e504d42972ae5275",
+    "datacurve/arktype-json-schema-refs-dependencies": "ac6c823fd37f8d7e661bdeec5270a5c5394b13ab7f1098c5b94c828e8e9debf5",
+    "datacurve/expr-try-catch-errors": "b87b6531507c96423270e6d4ce578fd06c0d8b3038ba9ad53bb9efff9f4425bb",
+    "datacurve/fastapi-deprecation-response-headers": "c5561a8ddad21f061fd81cb741440561e0d7687bd56e5f4ce041c93827ec1020",
+    "datacurve/httpx-multipart-response-parsing": "a899b881c0b6ad2644287c212b1f30b2cdf6f141df2b0b5cab056a3225256e01",
+    "datacurve/katex-multicolumn-array-spans": "33e5de173df19f01abe4a2a2843b0eb00c6fac803a5c1e6664b6eec6113f64e8",
+    "datacurve/meriyah-explicit-resource-declarations": "ca691d4680108690eb0f0afb5c6d4ac5084bfcd772ba5d839b857aaf387c5a74",
+    "datacurve/python-statemachine-state-data-scoping": "824addad6eec69ea12235ab3dc3f5309cbd041eec996bee5a8332bad5ab9ce31",
+    "datacurve/scc-bounded-memory-spilling": "b263dda13c5388dd557d5655d48d3c64f5725672fdab499449b1019c05edbd17",
+    "terminal-bench/build-cython-ext": "d0cd45c10ff602d9ce44cad038b58042af6c952e5bdf9ffee6006c3b389ae429",
+    "terminal-bench/chess-best-move": "ba9b470be65de40af477b11bb2574fffb4e1ccb34682b262d201221e0ff2a523",
+    "terminal-bench/code-from-image": "f5a3276c1894ee4a99311ec9624841845b07ad9e084c44b2f21a9a1291fa3896",
+    "terminal-bench/constraints-scheduling": "2e09a0846d33123615c5e351f9aa2ec712d49c7c30fa2b677ce2da70a5997906",
+    "terminal-bench/db-wal-recovery": "c092fe2539a9180081ed2b697003ac51b4d2f89d235b299fa6c5f39813b29bc6",
+    "terminal-bench/dna-insert": "3c035d7bcc102ac828a3b122ea95fb626572f260175a4d3cb38df165f6840991",
+    "terminal-bench/extract-elf": "6048027992c33a904860c93476db336ec0f02b7fd46394b2f4eb662b3fe58016",
+    "terminal-bench/gcode-to-text": "3736d1b6d223668036832f8db7848910ea8c566740a8eaadbf4e588c73755d31",
+    "terminal-bench/git-leak-recovery": "69c9ed62273c6c959445fdb7af22d6a1bc74ff39b2d98768daea20c72953fa8f",
+    "terminal-bench/kv-store-grpc": "00571e02d092d265bae75646dc9e3da8d429023c8976acf9f7d8d933619e97b3",
+    "terminal-bench/largest-eigenval": "6553e214d77159eed51f4343683cd5ba325ed3000424429fccdb6ba7846920cd",
+    "terminal-bench/log-summary-date-ranges": "ece7c08b11e9a1e36869f9f1fff76b5ffaa6c9f7daa9347b9a3beccdcbf57d21",
+    "terminal-bench/merge-diff-arc-agi-task": "6961d4bfd6eda998378addcf995d35e14113881a4165341e9cb77b8630fd7153",
+    "terminal-bench/modernize-scientific-stack": "f1598c5a11c81339930cd0922377ebe2980d886a5c0cb1777998e29ec975dde0",
+    "terminal-bench/multi-source-data-merger": "085d2dacb242a2528652ca11d5383335b7a25348f1f13d502d309c5c031e88b3",
+    "terminal-bench/openssl-selfsigned-cert": "8b3c2227cdd940fd23971ad32da277d4eabf9f1cef4d23cef6583097d27744e3",
+    "terminal-bench/polyglot-c-py": "127b0e9eb55baf1e8d4d112acaadad818ab644ef124a76cbe1ca574e9be56ae8",
+    "terminal-bench/regex-log": "835301a8c522904fb5e71431f3b0bf239abb93cfa1af58715edb44b83fa43371",
+    "terminal-bench/sanitize-git-repo": "cbd10576f3d2b7eb3d3bd2831c41a74e2e4e369e42abab79adf0eaed607039a2",
+    "terminal-bench/sqlite-db-truncate": "603b5c2b78b8defc22e262bfc814d199742a657221db7e979fb465e8a8c36107",
+    "terminal-bench/vulnerable-secret": "55685a57c8a05d1143a6ea524a89acf12beb1ff61ba4a590ef58ad3559f5ebbf"
+  },
+  "profile": "full",
+  "profile_version": 1,
+  "promote": false,
+  "promotion_policy": {
+    "bootstrap_samples": 10000,
+    "max_cost_ratio": 1.1,
+    "max_latency_ratio": 1.1,
+    "min_common_success_tasks": 5,
+    "repetitions": 3,
+    "version": 1
+  },
+  "protocol": {
+    "agent_setup_seconds": 600,
+    "automatic_task_retries": 0,
+    "cleanup_seconds": 240,
+    "commit_instruction": "Commit your final changes in this disposable task repository so the evaluator can collect git diff BASE HEAD.",
+    "effort": "high",
+    "endpoint": "https://api.inference.net/v1",
+    "headroom": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "id": "frontier-v1-local-v1",
+    "limits": {
+      "cost_usd": null,
+      "output_override": null,
+      "rounds": null,
+      "tokens": null
+    },
+    "max_jobs": 32,
+    "methodology": "Frontier v1 task selection, local Docker adaptation; not a published leaderboard ranking",
+    "methodology_comparable": false,
+    "model": "kimi-k3",
+    "network": {
+      "pier_agent_provider_exception": [
+        "api.inference.net"
+      ],
+      "pier_environment_import_path": "whip_evals.adapter:PierDockerEnvironment",
+      "pier_proxy_nofile": {
+        "hard": 65536,
+        "soft": 65536
+      },
+      "task_policy": "resolved native task declarations and pinned runner defaults"
+    },
+    "observer_grace_seconds": 45,
+    "platform": "linux/amd64",
+    "promotion": {
+      "bootstrap_samples": 10000,
+      "max_cost_ratio": 1.1,
+      "max_latency_ratio": 1.1,
+      "min_common_success_tasks": 5,
+      "repetitions": 3,
+      "version": 1
+    },
+    "provider": "inference-net",
+    "runner_guard_seconds": 60,
+    "runner_versions": {
+      "datacurve-pier": "0.3.1",
+      "harbor": "0.22.0"
+    },
+    "sampling": {
+      "temperature": null,
+      "top_p": null
+    },
+    "schema_version": 1,
+    "track": "frontier-v1-local-v1/kimi-k3-inference-high"
+  },
+  "repetitions": 1,
+  "resolved_tasks": {
+    "datacurve/anko-typed-variable-bindings": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:4fb704fd8dff600f6d028c20ae4aca5e1261968bb615bb41c01a111dd371255b",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 3f269a72ff69398b1250c584171f32d12c0d8085 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/arktype-json-schema-refs-dependencies": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:e0b0410d828b816474cfb89a448c448f15cf7d617c3fbddfacd45a1c1b232ef9",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 04355e8b26d1ad5264ef62314a2bc46c4de58ed8 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/expr-try-catch-errors": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:8fc7209012a27d12aeaa96f4bd30579442c2817c64bca45bf10e634950892486",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 851b241a301f7c74646e65e4009c69cf290993a8 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/fastapi-deprecation-response-headers": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:b8c599ce29c14f9e729b3bab32ab7c1d3278b42f98308e74d299bb15e36758c6",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 11614be9021aa4ac078d4d0693a8b5250a1010d8 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/httpx-multipart-response-parsing": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:47d0af14d988caa7d22b14312be2c3ee4e9ac799a5679bd83d19f298d346749d",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary b5addb64f0161ff6bfe94c124ef76f6a1fba5254 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/katex-multicolumn-array-spans": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:459b6d4c5f8d45218b25d0837a88d91052d0fb066c21b8bc2939290c4876b3ae",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 89bede495dc2c85e1c57ba627a18526f71d57396 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/meriyah-explicit-resource-declarations": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:43ce618452b29610b682ea77e384dcb8c57308957a7eb65734a47d76a7ff47dc",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary d141eb14a40b79c04d1b1db5c20c6afa3844c0d9 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/python-statemachine-state-data-scoping": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:06309d9ef75ee48bc5aa98258af57a6d102057983871513b5de91d6a9ead0f9a",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 8d17ba9f6ba8420cf05fddb94013bc221ed9a222 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/scc-bounded-memory-spilling": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:483e18c744ab845e5c776f514d4bc27f7e3ff66494f14f20173c73b065bc6f62",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary bc2796e01998ebc2d40818323f93113aed2542ea HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "terminal-bench/build-cython-ext": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/build-cython-ext@sha256:3612a38fadb89a96f74a1a951fb0b0af734198fd160571eeaba6401593234594",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/chess-best-move": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/chess-best-move@sha256:bb447f94d9e2a8ed879f85c85a514b213b7418f9fe11fd7b2428a0b0e436e647",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/code-from-image": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/code-from-image@sha256:2be9cdb746ed18c1b2b1404032efae0b2235a1b8fc479ef17730c95409d89f76",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      }
+    },
+    "terminal-bench/constraints-scheduling": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/constraints-scheduling@sha256:567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      }
+    },
+    "terminal-bench/db-wal-recovery": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/db-wal-recovery@sha256:0e33ea5ec823975d1bd6c3778395c9f94251dd88f571146057bff6adb7e4594e",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/dna-insert": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1800.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/dna-insert@sha256:4dd8760694e355de85ecf03605cb487ccdb33322f6afad513d2920829baa33b2",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 4096,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "terminal-bench/extract-elf": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/extract-elf@sha256:6932e4cb318464307eacd497ef8dc617eaf551b6a90231f815ec0b911895cfed",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/gcode-to-text": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/gcode-to-text@sha256:0979ef40c6a3e8c4e7ab5b6c2524c74625a84799e15cd45dd98dcf83b11efd4d",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/git-leak-recovery": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/git-leak-recovery@sha256:62160e522a4238b8bcd522411ea97b5b200f811e5899d34947e66809bef7e586",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/kv-store-grpc": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/kv-store-grpc@sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/largest-eigenval": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/largest-eigenval@sha256:cb9e3e3b09d0783f3bbcfeec8d77bc32d3791204fb2be6650b19be4fbc082b2e",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/log-summary-date-ranges": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/log-summary-date-ranges@sha256:cbeb6ba905c2fec294f16cd5e16e3ea7f2e04d38ac2484d51a11de262aa7dc51",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/merge-diff-arc-agi-task": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/merge-diff-arc-agi-task@sha256:bfc2a235f2ceea64ffb1ffc5529c2acebf570bff61f3668f0e5669ef570c17d4",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 4096,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/modernize-scientific-stack": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 600.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/modernize-scientific-stack@sha256:64e69cee13bf6b0b9016e735b51891bce996a60f1e2d1a005bf12c949e221d71",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 600.0,
+        "user": null
+      }
+    },
+    "terminal-bench/multi-source-data-merger": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/multi-source-data-merger@sha256:8b32782078ff7383a1b4e5d3cecca8ce287e30f50bb4c0e5db009a18064e666e",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/openssl-selfsigned-cert": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/openssl-selfsigned-cert@sha256:4c948a4e630af2435ae0a19108fc0814a946ac2fa29a512469e0fc77b38c8c12",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/polyglot-c-py": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/polyglot-c-py@sha256:0f1c3b7816d70cf5551573fd6aeef76893f2ae3000be2419997b6871b5d987ed",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/regex-log": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/regex-log@sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/sanitize-git-repo": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/sanitize-git-repo@sha256:4b5234da5bb0d67f3b0bf8db40a2883c07a5219f62b64c2bf9ff1ac84cd0f672",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/sqlite-db-truncate": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/sqlite-db-truncate@sha256:aabac93c93bd1f310e6a6fb893911d7735026ed18491c72133c9196a09092ca4",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/vulnerable-secret": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/vulnerable-secret@sha256:61ebb40454dd103aa2f7e71ad6dafd91cf2b301e6bb07e69d5b472412d1ee15b",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    }
+  },
+  "run_id": "quickjs-k3-full-qualified-20260911-j4",
+  "schedule": [
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0001",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/log-summary-date-ranges"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0002",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/multi-source-data-merger"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0003",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/build-cython-ext"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0004",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/expr-try-catch-errors"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0005",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/constraints-scheduling"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0006",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/sqlite-db-truncate"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0007",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/arktype-json-schema-refs-dependencies"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0008",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/vulnerable-secret"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0009",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/sanitize-git-repo"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0010",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/httpx-multipart-response-parsing"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0011",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/chess-best-move"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0012",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/polyglot-c-py"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0013",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/regex-log"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0014",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/anko-typed-variable-bindings"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0015",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/modernize-scientific-stack"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0016",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/scc-bounded-memory-spilling"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0017",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 4096,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/dna-insert"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0018",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/katex-multicolumn-array-spans"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0019",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/kv-store-grpc"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0020",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/gcode-to-text"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0021",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/largest-eigenval"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0022",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/openssl-selfsigned-cert"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0023",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/git-leak-recovery"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0024",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 4096,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/merge-diff-arc-agi-task"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0025",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/extract-elf"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0026",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/meriyah-explicit-resource-declarations"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0027",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/db-wal-recovery"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0028",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/code-from-image"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0029",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/python-statemachine-state-data-scoping"
+    },
+    {
+      "binary_sha256": "75b26ce4dca1fdb0701f5ae1325a5b1b724a7ade752f72af3f0a8c56252416b8",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0030",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/fastapi-deprecation-response-headers"
+    }
+  ],
+  "schema_version": 1,
+  "seed": 20260910,
+  "task_ids": [
+    "datacurve/anko-typed-variable-bindings",
+    "datacurve/arktype-json-schema-refs-dependencies",
+    "datacurve/expr-try-catch-errors",
+    "datacurve/fastapi-deprecation-response-headers",
+    "datacurve/httpx-multipart-response-parsing",
+    "datacurve/katex-multicolumn-array-spans",
+    "datacurve/meriyah-explicit-resource-declarations",
+    "datacurve/python-statemachine-state-data-scoping",
+    "datacurve/scc-bounded-memory-spilling",
+    "terminal-bench/build-cython-ext",
+    "terminal-bench/chess-best-move",
+    "terminal-bench/code-from-image",
+    "terminal-bench/constraints-scheduling",
+    "terminal-bench/db-wal-recovery",
+    "terminal-bench/dna-insert",
+    "terminal-bench/extract-elf",
+    "terminal-bench/gcode-to-text",
+    "terminal-bench/git-leak-recovery",
+    "terminal-bench/kv-store-grpc",
+    "terminal-bench/largest-eigenval",
+    "terminal-bench/log-summary-date-ranges",
+    "terminal-bench/merge-diff-arc-agi-task",
+    "terminal-bench/modernize-scientific-stack",
+    "terminal-bench/multi-source-data-merger",
+    "terminal-bench/openssl-selfsigned-cert",
+    "terminal-bench/polyglot-c-py",
+    "terminal-bench/regex-log",
+    "terminal-bench/sanitize-git-repo",
+    "terminal-bench/sqlite-db-truncate",
+    "terminal-bench/vulnerable-secret"
+  ],
+  "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf",
+  "track": "frontier-v1-local-v1/kimi-k3-inference-high",
+  "uv_lock_sha256": "22e9de6676e3923fa6a0ab7cfa1f7b1595e1b4b41d21265bd8d6de026d49f97d"
+}

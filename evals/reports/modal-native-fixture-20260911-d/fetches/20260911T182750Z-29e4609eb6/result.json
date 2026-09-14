@@ -1,0 +1,451 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 2,
+      "agent_median_seconds": 4.246181227499999,
+      "agent_p95_seconds": 4.3754278618499995,
+      "agent_time_count": 2,
+      "cache_read_ratio": 0.0,
+      "cancelled": 0,
+      "cost_usd": "0.000000",
+      "effective_cost_per_pass_usd": "0.000000",
+      "evidence_complete": 2,
+      "failed": 0,
+      "graded": 2,
+      "graded_pass_rate": 1.0,
+      "known_cost_usd": "0.000000",
+      "passed": 2,
+      "planned": 2,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 2,
+          "agent_median_seconds": 4.246181227499999,
+          "agent_p95_seconds": 4.3754278618499995,
+          "agent_time_count": 2,
+          "cache_read_ratio": 0.0,
+          "cancelled": 0,
+          "cost_usd": "0.000000",
+          "effective_cost_per_pass_usd": "0.000000",
+          "evidence_complete": 2,
+          "failed": 0,
+          "graded": 2,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 2,
+          "planned": 2,
+          "started": 2,
+          "success_median_seconds": 4.246181227499999,
+          "success_time_count": 2,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": 0,
+            "input_tokens": 1000,
+            "model_calls": 10,
+            "output_tokens": 300,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "started": 2,
+      "success_median_seconds": 4.246181227499999,
+      "success_time_count": 2,
+      "suites": {
+        "fixture": {
+          "accounting_complete": 2,
+          "agent_median_seconds": 4.246181227499999,
+          "agent_p95_seconds": 4.3754278618499995,
+          "agent_time_count": 2,
+          "cache_read_ratio": 0.0,
+          "cancelled": 0,
+          "cost_usd": "0.000000",
+          "effective_cost_per_pass_usd": "0.000000",
+          "evidence_complete": 2,
+          "failed": 0,
+          "graded": 2,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 2,
+          "planned": 2,
+          "started": 2,
+          "success_median_seconds": 4.246181227499999,
+          "success_time_count": 2,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": 0,
+            "input_tokens": 1000,
+            "model_calls": 10,
+            "output_tokens": 300,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "termination_sources": {
+        "none": 2
+      },
+      "tokens": {
+        "cache_tokens": 0,
+        "input_tokens": 1000,
+        "model_calls": 10,
+        "output_tokens": 300,
+        "unknown_cost_calls": 0
+      },
+      "ungraded": 0,
+      "verified_success_rate": 1.0
+    }
+  },
+  "cloud": {
+    "infra_cost_status": "not_reconciled",
+    "infra_cost_usd": null,
+    "request": {
+      "bundle_sha256": "3885aaef68ca59a62c10c7881f12105458e7284ee93eed23492f93aced3cc1cc",
+      "controller_source_sha256": "796412002c8cf0e0da9aab1bb0a59f063b3e8a7407ed21aba25ebc6607db171a",
+      "created_at": "2026-09-11T18:24:49.204373Z",
+      "planned": 2,
+      "run_id": "modal-native-fixture-20260911-d",
+      "settings": {
+        "app": "whip-eval",
+        "environment": "whipcode",
+        "fixture": true,
+        "jobs": 2,
+        "qualification_receipt": "modal-qualification-20260911",
+        "qualification_status": "passed",
+        "shapes": {
+          "harbor": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          },
+          "pier": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          }
+        },
+        "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3"
+      }
+    },
+    "status": {
+      "concurrency": {
+        "peak_active_trials": 2
+      },
+      "finished_at": "2026-09-11T18:26:48.933935Z",
+      "infra_cost_status": "not_reconciled",
+      "infra_cost_usd": null,
+      "planned": 2,
+      "recorded": 2,
+      "run_id": "modal-native-fixture-20260911-d",
+      "status": "completed"
+    }
+  },
+  "comparison_key": "f6a89c31199983fbb48e00e7c10b4b62b727f501cf2e5778449b3c12d10b2a22",
+  "comparisons": [],
+  "finished_at": "2026-09-11T18:28:50.177201Z",
+  "manifest_sha256": "12a033d0ea97017894afed4184f384f42530018f40bce714e187360ff1a928e7",
+  "methodology_comparable": false,
+  "profile": "fixture",
+  "profile_version": 1,
+  "run_id": "modal-native-fixture-20260911-d",
+  "schema_version": 1,
+  "status": "complete",
+  "trials": [
+    {
+      "accounting_complete": true,
+      "agent_seconds": 4.389788598999999,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/cli.ndjson": "4f795547b7444f284608b21bb88a67ddd9ba035ff94ea87a6d1ca1181c2001d8",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/configuration.json": "ca34742a4fbd5e96435efb506db032cceada6db9c62a76763121469597e28c22",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/content-export.json": "3440be7611d636faf998174a0dc4b4a26c7cf2015107bc7249564be2f724fd93",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/events.ndjson": "c176a3e56d7d488cbc4d588dc66ab5fc93c489674339bcb3e7ca8ed5e3901bd8",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/identity.json": "d1791d9ffdaae4d24b4bcb6e0ead7534d1816a9ca82d2ef6b4c01a738079de35",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/metrics.json": "953a922344e85b2cbe6c9b29f46edb6a92e727cd4ab453fe4b7ed13128b347f0",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/outcome.json": "9309dc6b58b88a25109537d09127936f7c6747b7f30b04ef6d3d445f856fb63e",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/provider-catalog.json": "11a91a09c9e281676f1bbc259dd3a406ce342f440487edae76c2ed8f539a8bd6",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/sessions.db": "e0620943463a71780261547c80058d1163a58a1a7f097417f8b8359dc003cae7",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/agent/state.json": "4ccc2191757ee627905333a58e7ec9bf449268db99717eefa9ff138c1f986a89"
+        },
+        "native_result": "attempts/t0001/artifacts/jobs/t0001/harbor-shared__wh2s7oc/result.json",
+        "native_result_sha256": "e093fd9a26c4c91c9dadf914fd9244350a2ebf0f46d8cf8965526244fcc6aa93"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 5
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 50214
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 650
+        }
+      ],
+      "cost_sources": {
+        "reported": 5
+      },
+      "cost_usd": "0.000000",
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 2,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 100,
+        "reported_cost_calls": 5,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1.77,
+        "sampled_peak_container_rss_bytes": 243458048,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0001",
+      "input_tokens": 500,
+      "known_cost_usd": "0.000000",
+      "model_calls": 5,
+      "output_tokens": 150,
+      "phase_seconds": {
+        "agent_execution": 5.648802,
+        "agent_setup": 0.678242,
+        "cleanup": 0.13063462000000214,
+        "environment_setup": 8.126695,
+        "verifier": 0.296176
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "fixture/harbor-shared",
+      "termination_source": null,
+      "trial_seconds": 30.350525716,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 4.102573855999999,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/cli.ndjson": "8a9c6c71d301931ca9f3576b75e695a63f5978b267c0407971f8abbde926e5ae",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/configuration.json": "b93cfa4cacac4b0b43ef1f5f4b3772937e4020b6c0f205a44308cef942b7421a",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/content-export.json": "4e60cb642dc09ee0c50bd5b63b123d00bae74fb7d5dbdce6e570f7f40e66b488",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/events.ndjson": "7fd9870ec90c9cf52124a161620db52d8ba3173ed623b8a68d516f69de06e84b",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/identity.json": "4e7ddcbea9b170344424221ad0d26bc6c399a60985442d08eff9c6ebb7a901ac",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/metrics.json": "b2e10021da4bb8addde3ebc3f5108fdfb6a6d30c0cd87aafddb5390f0ddec407",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/outcome.json": "abdbf9bbe21f4c463416fde87e5fe80117a3d41d01edc3e5903bd34abe8e5f61",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/provider-catalog.json": "11a91a09c9e281676f1bbc259dd3a406ce342f440487edae76c2ed8f539a8bd6",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/sessions.db": "03f116a29107e7ab2a56503c429e32a53fe52e764d9493e1ebaa90c5532b1b69",
+          "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/agent/state.json": "7edae2fa08366989b8d4cb9b9315f7b4fefa2c09873bc13298928ebc2b2b1150"
+        },
+        "native_result": "attempts/t0002/artifacts/jobs/t0002/pier-separate__xYsXJV2/result.json",
+        "native_result_sha256": "1f7cd4e1bb4e2d34765f8302ef1488b7e5a4a5c319604bc67a3caba76c65baf7"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 5
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 50213
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 650
+        }
+      ],
+      "cost_sources": {
+        "reported": 5
+      },
+      "cost_usd": "0.000000",
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 2,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 100,
+        "reported_cost_calls": 5,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1.33,
+        "sampled_peak_container_rss_bytes": 219213824,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0002",
+      "input_tokens": 500,
+      "known_cost_usd": "0.000000",
+      "model_calls": 5,
+      "output_tokens": 150,
+      "phase_seconds": {
+        "agent_execution": 5.886535,
+        "agent_setup": 0.484531,
+        "cleanup": 1.6240718729999983,
+        "environment_setup": 9.785259,
+        "verifier": 11.625663
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "fixture/pier-separate",
+      "termination_source": null,
+      "trial_seconds": 46.45150559699999,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    }
+  ],
+  "wall_seconds": null
+}

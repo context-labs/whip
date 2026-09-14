@@ -1,0 +1,2 @@
+id,task_id,candidate_id,repetition,runner,started,success,grader_status,execution_status,termination_source,evidence_complete,accounting_complete,known_cost_usd,cost_usd,agent_seconds,trial_seconds,input_tokens,output_tokens,cache_tokens
+t0001,fixture/harbor-shared,candidate,1,harbor,True,True,passed,completed,user_cancelled,True,True,0.000000,0.000000,12.358032829000003,32.025028179,500,150,0

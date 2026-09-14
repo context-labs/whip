@@ -113,20 +113,33 @@ def build_candidate(candidate_id, engine, *, repo=REPO, evals=EVALS, ref=None):
             "configuration": configuration(engine)}
 
 
+# ponytail: Inference.net rejects prompt + max_tokens above the 1,048,576 context,
+# and the pinned whip binary sends max_tokens = catalog max_completion_tokens when
+# maxOut is 0. 262,144 cannot realistically bind and leaves ~786K for prompts.
+MAX_OUTPUT_TOKENS = 262144
+
+
 def configuration(engine):
     # Share the existing observer's production-default configuration constructor.
     with tempfile.TemporaryDirectory() as temporary:
-        return write_config(Path(temporary) / "home", engine, 0, native_defaults=True)
+        return write_config(Path(temporary) / "home", engine, MAX_OUTPUT_TOKENS, native_defaults=True)
 
 
 def catalog(protocol):
     key = os.environ.get("INFERENCE_API_KEY")
     if not key:
         raise ValueError("INFERENCE_API_KEY is required to run; doctor and dry-run need no key")
-    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={"Authorization": "Bearer " + key})
+    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={
+        "Authorization": "Bearer " + key, "User-Agent": "whip-evals/0.1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         models = json.load(response)["data"]
-    selected = [m for m in models if m["id"] == protocol["model"]]
+    pin = protocol["model"]
+    selected = [m for m in models if m["id"] == pin]
+    if not selected:
+        # ponytail: the provider may list the pinned route under an org prefix
+        # (moonshotai/kimi-k3) while the bare id still routes; keep calling the
+        # pinned id and record the listed one as provenance.
+        selected = [m for m in models if m["id"].rpartition("/")[2] == pin]
     if len(selected) != 1 or protocol["effort"] not in selected[0].get("reasoning_efforts", []):
         raise ValueError("pinned model/effort is not available")
     model = selected[0]
@@ -134,6 +147,8 @@ def catalog(protocol):
     selected = {key: model[key] for key in ("id", "context_length", "max_completion_tokens", "reasoning_efforts", "pricing")}
     if "input_modalities" in model:
         selected["input_modalities"] = model["input_modalities"]
+    if model["id"] != pin:
+        selected["id"], selected["listed_id"] = pin, model["id"]
     return selected
 
 

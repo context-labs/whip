@@ -1,11 +1,15 @@
 """Offline contract checks. No native trial or container is launched."""
+import asyncio
+import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import tarfile
+from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from whip_evals.cli import parser
 from whip_evals.common import EVALS, file_hash, read_json
@@ -13,6 +17,173 @@ from whip_evals.execution import job_config, schedule
 from whip_evals.prepare import catalog, configuration, contract
 from whip_evals.run import plan_run, run
 from whip_evals.tasks import file_inventory, load_spec, prepare_tasks, task_archive_files
+
+
+class ContentTransferTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        from whip_evals.adapter import WhipAdapter
+        from whip_evals.observe import aggregate
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.body = b'synthetic content'
+        self.digest = hashlib.sha256(self.body).hexdigest()
+        self.manifest = {'bodies': [{'digest': self.digest, 'bytes': len(self.body)}]}
+        self.metrics = aggregate([])
+        self.outcome = dict(final_snapshot=True, frozen_daemon_pid=123, pending={}, evidence_errors=[])
+        self.adapter = object.__new__(WhipAdapter)
+        self.adapter.logs_dir = self.root / 'agent'
+        self.adapter.engine, self.adapter.binary_digest = 'quickjs', 'fixture'
+        self.adapter.timeout, self.adapter.max_cost, self.adapter.max_tokens = 10, 0, 0
+        self.adapter.max_turns, self.adapter.max_output = 0, 0
+        self.adapter.commit, self.adapter.fixture = False, True
+        self.adapter.logger = MagicMock()
+
+    def environment(self, manifest, transfer=None, exit_code=0):
+        async def download(source, target):
+            value = (self.metrics if target.name == 'metrics.json' else
+                     self.outcome if target.name == 'outcome.json' else
+                     manifest if target.name == 'content-export.json' else {})
+            target.write_text(json.dumps(value))
+        async def copy(source, target):
+            self.assertEqual(source, '/logs/agent/whip/content/sha256')
+            (target / self.digest).write_bytes(self.body)
+        return SimpleNamespace(
+            exec=AsyncMock(return_value=SimpleNamespace(return_code=exit_code, stdout='', stderr='')),
+            upload_file=AsyncMock(), download_file=AsyncMock(side_effect=download),
+            download_dir=AsyncMock(side_effect=transfer or copy))
+
+    async def run_adapter(self, env):
+        from harbor.models.agent.context import AgentContext
+        context = AgentContext()
+        await self.adapter.run('synthetic fixture', env, context)
+        self.assertEqual(env.download_file.await_count, 11)
+        return context
+
+    async def test_native_bulk_2138_bodies_and_atomic_flat_destination(self):
+        from harbor.environments.docker.docker_unix import UnixOps as HarborUnix
+        from pier.environments.docker.docker_unix import UnixOps as PierUnix
+        from whip_evals.adapter import CLEANUP_TIMEOUT_SECONDS
+        self.assertEqual(CLEANUP_TIMEOUT_SECONDS, 240)
+        source = self.root / 'source'
+        source.mkdir()
+        bodies = []
+        for index in range(2138):
+            body = (f'synthetic body {index}:'.encode() * 800)[:12000]
+            digest = hashlib.sha256(body).hexdigest()
+            (source / digest).write_bytes(body)
+            bodies.append(dict(digest=digest, bytes=len(body)))
+        for name, native_type in [('harbor', HarborUnix), ('pier', PierUnix)]:
+            with self.subTest(runner=name):
+                self.adapter.logs_dir = self.root / name
+                destination = self.adapter.logs_dir / 'content/sha256'
+                async def compose(args, check=False):
+                    self.assertTrue(check)
+                    self.assertEqual(args[:2], ['cp', 'main:/logs/agent/whip/content/sha256/.'])
+                    self.assertFalse(destination.exists())
+                    shutil.copytree(source, args[2], dirs_exist_ok=True, symlinks=True)
+                    self.assertFalse(destination.exists())
+                native = SimpleNamespace(_chown_to_host_user=AsyncMock(),
+                                         _run_docker_compose_command=AsyncMock(side_effect=compose))
+                env = self.environment({'bodies': bodies}, native_type(native).download_dir)
+                context = await self.run_adapter(env)
+                self.assertTrue(context.metadata['whip_accounting_complete'])
+                self.assertEqual(env.download_dir.await_count, 1)
+                self.assertEqual(native._run_docker_compose_command.await_count, 1)
+                self.assertEqual(native._chown_to_host_user.await_count, int(name == 'pier'))
+                self.assertEqual(len(list(destination.iterdir())), 2138)
+                self.assertFalse((destination / 'sha256').exists())
+                for body in bodies:
+                    path = destination / body['digest']
+                    self.assertEqual(path.stat().st_size, body['bytes'])
+                    self.assertEqual(file_hash(path), body['digest'])
+                self.assertEqual(list(destination.parent.glob('.transfer-*')), [])
+
+    async def test_empty_manifest_skips_bulk(self):
+        env = self.environment({'bodies': []})
+        context = await self.run_adapter(env)
+        self.assertTrue(context.metadata['whip_accounting_complete'])
+        env.download_dir.assert_not_awaited()
+
+    async def test_invalid_manifests_never_download_and_clear_accounting(self):
+        invalid = [None, [], {}, {'bodies': None}, {'bodies': {}}, {'bodies': 'bad'},
+                   {'bodies': [None]}, {'bodies': [{}]}, {'bodies': [self.manifest['bodies'][0]] * 2}]
+        invalid += [{'bodies': [{'digest': digest, 'bytes': size}]} for digest, size in
+                    [('../escape', 1), ('A' * 64, 1), (23, 1), (self.digest, True),
+                     (self.digest, -1), (self.digest, 1.0), (self.digest, None)]]
+        for index, manifest in enumerate(invalid):
+            with self.subTest(manifest=index):
+                self.adapter.logs_dir = self.root / str(index)
+                env = self.environment(manifest)
+                context = await self.run_adapter(env)
+                self.assertFalse(context.metadata['whip_accounting_complete'])
+                self.assertIsNone(context.cost_usd)
+                self.assertIn('content transfer: ValueError', context.metadata['whip_evidence_errors'])
+                env.download_dir.assert_not_awaited()
+
+    async def test_failed_transfers_never_publish_or_certify_accounting(self):
+        from harbor.models.agent.context import AgentContext
+        modes = ('missing', 'extra', 'hash', 'size', 'symlink_inside', 'symlink_outside',
+                 'subdirectory', 'preexisting', 'partial', 'timeout', 'cancel', 'validation_cancel')
+        for mode in modes:
+            with self.subTest(mode=mode):
+                self.adapter.logs_dir = self.root / mode
+                destination = self.adapter.logs_dir / 'content/sha256'
+                if mode == 'preexisting':
+                    destination.mkdir(parents=True)
+                async def copy(source, staging):
+                    target = staging / self.digest
+                    if mode == 'missing':
+                        return
+                    target.write_bytes(self.body)
+                    if mode == 'extra':
+                        (staging / 'unexpected').write_bytes(b'extra')
+                    elif mode in ('hash', 'size'):
+                        target.write_bytes(b'x' * len(self.body) if mode == 'hash' else b'x')
+                    elif mode.startswith('symlink'):
+                        target.unlink()
+                        other = (staging / 'other') if mode == 'symlink_inside' else self.root / 'outside'
+                        other.write_bytes(self.body)
+                        target.symlink_to(other)
+                    elif mode == 'subdirectory':
+                        target.unlink()
+                        target.mkdir()
+                    elif mode == 'partial':
+                        raise OSError('synthetic partial transfer')
+                    elif mode == 'timeout':
+                        await asyncio.sleep(10)
+                    elif mode == 'cancel':
+                        raise asyncio.CancelledError()
+                env = self.environment(self.manifest, copy)
+                context = AgentContext()
+                async def cancelled_yield(delay):
+                    raise asyncio.CancelledError()
+                with patch('whip_evals.adapter.CLEANUP_TIMEOUT_SECONDS', .02):
+                    if mode == 'validation_cancel':
+                        with patch('whip_evals.adapter.asyncio.sleep', side_effect=cancelled_yield):
+                            with self.assertRaises(asyncio.CancelledError):
+                                await self.adapter.run('fixture', env, context)
+                    elif mode == 'cancel':
+                        with self.assertRaises(asyncio.CancelledError):
+                            await self.adapter.run('fixture', env, context)
+                    else:
+                        await self.adapter.run('fixture', env, context)
+                self.assertFalse(context.metadata['whip_accounting_complete'])
+                self.assertIsNone(context.cost_usd)
+                self.assertTrue(context.metadata['whip_evidence_errors'])
+                self.assertEqual(context.metadata['whip_cleanup']['truncated'], mode in ('timeout', 'cancel', 'validation_cancel'))
+                self.assertEqual(destination.exists(), mode == 'preexisting')
+                self.assertEqual(list(destination.parent.glob('.transfer-*')), [])
+                self.assertEqual(env.download_dir.await_count, int(mode != 'preexisting'))
+
+    async def test_content_failure_preserves_original_observer_error(self):
+        from harbor.models.agent.context import AgentContext
+        context = AgentContext()
+        env = self.environment({}, exit_code=7)
+        with self.assertRaisesRegex(RuntimeError, 'observer exited with code 7'):
+            await self.adapter.run('fixture', env, context)
+        self.assertFalse(context.metadata['whip_accounting_complete'])
+        self.assertIn('content transfer: ValueError', context.metadata['whip_evidence_errors'])
 
 
 class ContractTests(unittest.TestCase):
@@ -65,12 +236,134 @@ class ContractTests(unittest.TestCase):
                 frozen = catalog(protocol)
             cfg = configuration('quickjs')
             self.assertTrue(cfg['models']['kimi-k3']['vision'])
-            self.assertEqual(cfg['models']['kimi-k3']['maxOut'], 0)
+            self.assertEqual(cfg['models']['kimi-k3']['maxOut'], 262144)
             self.assertEqual(cfg['rlm'], {'defaultEngine': 'quickjs'})
             cached = contract({'engine': 'quickjs', 'configuration': cfg}, protocol, frozen)['catalog_cache']['inference-net']['models'][0]
             self.assertEqual('inputModalities' in cached, modalities is not None)
             if modalities is not None:
                 self.assertEqual(cached['inputModalities'], modalities)
+
+    def test_catalog_request_identity_and_validation(self):
+        protocol = load_spec()[2]
+        model = {'id': 'kimi-k3', 'context_length': 1048576, 'max_completion_tokens': 131072,
+                 'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001'},
+                 'input_modalities': ['text', 'image'], 'provider_extension': 'not-public'}
+        for efforts in (['high'], ['low']):
+            with self.subTest(efforts=efforts):
+                selected = {**model, 'reasoning_efforts': efforts}
+                response = io.BytesIO(json.dumps({'data': [selected]}).encode())
+                with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
+                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response) as urlopen:
+                    if 'high' in efforts:
+                        frozen = catalog(protocol)
+                        self.assertEqual(frozen, {k: v for k, v in selected.items() if k != 'provider_extension'})
+                        self.assertNotIn('offline-fixture', json.dumps(frozen))
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'pinned model/effort is not available'):
+                            catalog(protocol)
+                urlopen.assert_called_once()
+                (request,), kwargs = urlopen.call_args
+                self.assertEqual(request.full_url, protocol['endpoint'] + '/models')
+                self.assertEqual(request.get_method(), 'GET')
+                self.assertEqual(request.get_header('Authorization'), 'Bearer offline-fixture')
+                self.assertEqual(request.get_header('User-agent'), 'whip-evals/0.1.0')
+                self.assertEqual(kwargs, {'timeout': 30})
+
+    def test_catalog_accepts_org_prefixed_listing_but_keeps_pinned_id(self):
+        protocol = load_spec()[2]
+        base = {'context_length': 1048576, 'max_completion_tokens': 131072,
+                'reasoning_efforts': ['high'], 'pricing': {'prompt': '0.000001'}}
+        accepted = {'prefixed only': ([{'id': 'moonshotai/kimi-k3', **base}], 'moonshotai/kimi-k3'),
+                    'exact listing wins': ([{'id': 'moonshotai/kimi-k3', **base}, {'id': 'kimi-k3', **base}], None)}
+        for name, (data, listed) in accepted.items():
+            with self.subTest(name=name):
+                response = io.BytesIO(json.dumps({'data': data}).encode())
+                with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
+                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response):
+                    frozen = catalog(protocol)
+                self.assertEqual(frozen['id'], 'kimi-k3')
+                self.assertEqual(frozen.get('listed_id'), listed)
+                cached = contract({'engine': 'quickjs', 'configuration': configuration('quickjs')}, protocol, frozen)
+                self.assertEqual(cached['catalog_cache']['inference-net']['models'][0]['id'], 'kimi-k3')
+        for data in ([{'id': 'a/kimi-k3', **base}, {'id': 'b/kimi-k3', **base}], [{'id': 'kimi-k3-fast', **base}]):
+            with self.subTest(ids=[m['id'] for m in data]):
+                response = io.BytesIO(json.dumps({'data': data}).encode())
+                with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
+                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response), \
+                     self.assertRaisesRegex(ValueError, 'pinned model/effort is not available'):
+                    catalog(protocol)
+
+    def test_pier_native_proxy_has_only_the_descriptor_cap_changed(self):
+        from pier.environments.docker.docker import DockerEnvironment
+        from pier.environments.factory import EnvironmentFactory
+        from pier.models.agent.network import NetworkAllowlist
+        from pier.models.task.config import TaskConfig
+        from pier.models.trial.config import EnvironmentConfig
+        from pier.models.trial.paths import TrialPaths
+        from whip_evals.adapter import PierDockerEnvironment
+        from whip_evals.doctor import prepare_fixture
+        policy = load_spec()[2]['network']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task = prepare_fixture(root / 'task', 'shared', no_network=True)
+            for no_network in (False, True):
+                with self.subTest(no_network=no_network):
+                    native = TaskConfig.model_validate({'environment': {'network_mode': 'no-network' if no_network else 'public'}}).environment
+                    environment = EnvironmentFactory.create_environment_from_config(
+                        config=EnvironmentConfig(type='docker', import_path=policy['pier_environment_import_path']),
+                        environment_dir=task / 'environment', environment_name='fixture', session_id='fixture',
+                        trial_paths=TrialPaths(trial_dir=root / str(no_network)), task_env_config=native,
+                        network_allowlist=NetworkAllowlist(domains=['api.inference.net']))
+                    self.assertIsInstance(environment, PierDockerEnvironment)
+                    # Only the random token is fixed; the actual pinned generator runs twice.
+                    with patch('pier.environments.docker.docker.new_proxy_token', return_value='offline-proxy-token'):
+                        DockerEnvironment._prepare_egress_proxy_compose(environment)
+                        path = environment._egress_proxy_compose_path
+                        original = read_json(path) if path else None
+                        environment._prepare_egress_proxy_compose()
+                    if not no_network:
+                        self.assertIsNone(environment._egress_proxy_compose_path)
+                        continue
+                    actual = read_json(path)
+                    self.assertEqual(actual['services']['pier-egress-proxy'].pop('ulimits'),
+                                     {'nofile': policy['pier_proxy_nofile']})
+                    self.assertEqual(actual, original)  # Main service, auth, domains and networks unchanged.
+                    with patch.object(DockerEnvironment, '_prepare_egress_proxy_compose'):
+                        environment._egress_proxy_compose_path = None
+                        with self.assertRaisesRegex(RuntimeError, 'required inference proxy'):
+                            environment._prepare_egress_proxy_compose()
+                        environment._egress_proxy_compose_path = path
+                        path.write_text(json.dumps({'services': {}}))
+                        with self.assertRaises(KeyError):
+                            environment._prepare_egress_proxy_compose()
+
+    def test_doctor_ref_reaches_integration_build_and_preserves_default(self):
+        from contextlib import redirect_stdout
+        from whip_evals.cli import main
+        from whip_evals.doctor import doctor, integration_check
+        ref = 'e9c97beabf82f1d6923039b8f6a4ca6959ebcb00'
+        host = {'runner_versions': load_spec()[2]['runner_versions'], 'os': 'linux'}
+        for selected in (None, ref):
+            with self.subTest(ref=selected):
+                argv = ['doctor', '--integration'] + (['--ref', selected] if selected else [])
+                with patch('whip_evals.doctor.doctor', return_value={'status': 'ready'}) as check, redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(argv), 0)
+                check.assert_called_once_with(integration=True, ref=selected)
+                with patch('whip_evals.doctor.environment', return_value=host), \
+                     patch('whip_evals.doctor.shutil.which', return_value='/offline/tool'), \
+                     patch('whip_evals.doctor.integration_check', return_value={'passed': True}) as integrate:
+                    self.assertEqual(doctor(integration=True, ref=selected)['status'], 'ready')
+                integrate.assert_called_once_with(EVALS, ref=selected)
+                with tempfile.TemporaryDirectory() as temporary, \
+                     patch('whip_evals.doctor.build_candidate', side_effect=RuntimeError('offline build boundary')) as build:
+                    with self.assertRaisesRegex(RuntimeError, 'offline build boundary'):
+                        integration_check(Path(temporary), ref=selected)
+                build.assert_called_once_with('fixture', 'starlark', evals=Path(temporary), ref=selected)
+        with patch('whip_evals.doctor.environment', return_value=host), \
+             patch('whip_evals.doctor.shutil.which', return_value='/offline/tool'), \
+             patch('whip_evals.doctor.integration_check') as integrate:
+            doctor(ref=ref)
+        integrate.assert_not_called()  # --ref alone is still read-only.
 
     def test_balanced_paired_schedule(self):
         tasks = load_spec()[0]['tasks']
@@ -94,6 +387,11 @@ class ContractTests(unittest.TestCase):
             kwargs = config['agents'][0]['kwargs']
             self.assertEqual([kwargs[k] for k in ('max_cost', 'max_tokens', 'max_turns', 'max_output')], [0] * 4)
             self.assertTrue(kwargs['native_defaults'])
+            if runner == 'pier':
+                self.assertEqual(config['environment']['import_path'],
+                                 load_spec()[2]['network']['pier_environment_import_path'])
+            else:
+                self.assertNotIn('import_path', config['environment'])
             self.assertEqual(kwargs['commit'], runner == 'pier')
             self.assertGreater(envelope['outer_watchdog_seconds'], envelope['agent_runner_seconds'])
 
@@ -141,11 +439,16 @@ class PreparationTests(unittest.TestCase):
         import tomllib
         with tempfile.TemporaryDirectory() as temporary:
             for mode in ('shared', 'separate'):
-                path = prepare_fixture(Path(temporary) / mode, mode)
                 for runner in ('harbor', 'pier'):
+                    path = prepare_fixture(Path(temporary) / (runner + mode), mode, no_network=runner == 'pier')
                     cfg = import_module(runner + '.models.task.config').TaskConfig.model_validate(tomllib.loads((path / 'task.toml').read_text()))
                     self.assertEqual(cfg.agent.timeout_sec, 120)
                     self.assertTrue(cfg.verifier.collect)
+                    if runner == 'pier':
+                        self.assertEqual(cfg.environment.network_mode.value, 'no-network')
+                        self.assertEqual(cfg.verifier.network_mode.value, 'no-network')
+                    else:
+                        self.assertEqual(cfg.environment.network_mode.value, 'public')
                     if mode == 'separate':
                         self.assertEqual(cfg.verifier.environment_mode.value, mode)
                         self.assertIn('COPY test.sh /tests/test.sh', (path / 'tests/Dockerfile').read_text())

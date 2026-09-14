@@ -1,0 +1,302 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 1,
+      "agent_median_seconds": 12.358032829000003,
+      "agent_p95_seconds": 12.358032829000003,
+      "agent_time_count": 1,
+      "cache_read_ratio": 0.0,
+      "cancelled": 1,
+      "cost_usd": "0.000000",
+      "effective_cost_per_pass_usd": "0.000000",
+      "evidence_complete": 1,
+      "failed": 0,
+      "graded": 1,
+      "graded_pass_rate": 1.0,
+      "known_cost_usd": "0.000000",
+      "passed": 1,
+      "planned": 1,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 1,
+          "agent_median_seconds": 12.358032829000003,
+          "agent_p95_seconds": 12.358032829000003,
+          "agent_time_count": 1,
+          "cache_read_ratio": 0.0,
+          "cancelled": 1,
+          "cost_usd": "0.000000",
+          "effective_cost_per_pass_usd": "0.000000",
+          "evidence_complete": 1,
+          "failed": 0,
+          "graded": 1,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 1,
+          "planned": 1,
+          "started": 1,
+          "success_median_seconds": 12.358032829000003,
+          "success_time_count": 1,
+          "termination_sources": {
+            "user_cancelled": 1
+          },
+          "tokens": {
+            "cache_tokens": 0,
+            "input_tokens": 500,
+            "model_calls": 5,
+            "output_tokens": 150,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "started": 1,
+      "success_median_seconds": 12.358032829000003,
+      "success_time_count": 1,
+      "suites": {
+        "fixture": {
+          "accounting_complete": 1,
+          "agent_median_seconds": 12.358032829000003,
+          "agent_p95_seconds": 12.358032829000003,
+          "agent_time_count": 1,
+          "cache_read_ratio": 0.0,
+          "cancelled": 1,
+          "cost_usd": "0.000000",
+          "effective_cost_per_pass_usd": "0.000000",
+          "evidence_complete": 1,
+          "failed": 0,
+          "graded": 1,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "0.000000",
+          "passed": 1,
+          "planned": 1,
+          "started": 1,
+          "success_median_seconds": 12.358032829000003,
+          "success_time_count": 1,
+          "termination_sources": {
+            "user_cancelled": 1
+          },
+          "tokens": {
+            "cache_tokens": 0,
+            "input_tokens": 500,
+            "model_calls": 5,
+            "output_tokens": 150,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "termination_sources": {
+        "user_cancelled": 1
+      },
+      "tokens": {
+        "cache_tokens": 0,
+        "input_tokens": 500,
+        "model_calls": 5,
+        "output_tokens": 150,
+        "unknown_cost_calls": 0
+      },
+      "ungraded": 0,
+      "verified_success_rate": 1.0
+    }
+  },
+  "cloud": {
+    "infra_cost_status": "not_reconciled",
+    "infra_cost_usd": null,
+    "request": {
+      "bundle_sha256": "3397705fba0a0bd434cd5f56586b5724b63bb0a0a606dab8d1b8d2996cd22455",
+      "controller_source_sha256": "796412002c8cf0e0da9aab1bb0a59f063b3e8a7407ed21aba25ebc6607db171a",
+      "created_at": "2026-09-11T18:55:15.317611Z",
+      "planned": 1,
+      "run_id": "modal-native-fault-20260911-e3",
+      "settings": {
+        "app": "whip-eval",
+        "environment": "whipcode",
+        "fixture": true,
+        "jobs": 1,
+        "qualification_receipt": "modal-qualification-20260911",
+        "qualification_status": "passed",
+        "shapes": {
+          "harbor": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          },
+          "pier": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          }
+        },
+        "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3"
+      }
+    },
+    "status": {
+      "call_id": "fc-01M28X60CP383018VERMWSFSQS",
+      "started_at": "2026-09-11T18:55:23.651246Z",
+      "status": "running"
+    }
+  },
+  "comparison_key": "674d8f5f8657d13b9bb2feca9f525907fb31fe6cbee7c949ee0749caec19ad7c",
+  "comparisons": [],
+  "excluded_from_scores": true,
+  "external_provider_calls": 0,
+  "finished_at": "2026-09-11T18:58:50.172877Z",
+  "fixture": true,
+  "manifest_sha256": "c011fbe74459c48792c033c2f6da2d4bcbb73037ba19093a4d003241dec96263",
+  "methodology_comparable": false,
+  "profile": "fixture",
+  "profile_version": 1,
+  "run_id": "modal-native-fault-20260911-e3",
+  "schema_version": 1,
+  "status": "complete",
+  "trials": [
+    {
+      "accounting_complete": true,
+      "agent_seconds": 12.358032829000003,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/cli.ndjson": "3ea33b3fc35a9c56d1934f211aa0024ad9d5ed4bd9b6efbef194042b885ab821",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/configuration.json": "5a57e4c365108be0cd36a402bd648fb96707c80a46630f60d839a95421c3ad6c",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/content-export.json": "e8136dc033465b019b3cb5e9dbefb2a8e434c1bacce1884a6ef5e389b5c3f05c",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/events.ndjson": "86c329d9a88808edafc46bd3a255732a49196adea11456887968ee2321db6542",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/identity.json": "138295673e75139483ee8c980ca790e7710adac42708ccc0591a6fa21f8c13ca",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/metrics.json": "970cfd92193ae598d8660e5899d15f5bbbe55b1c7b9483245c5973c2930b673f",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/outcome.json": "3b4c0f518a1a7151e052977152a1c17c403a2f170cccf037de943c249bc1e1fc",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/provider-catalog.json": "11a91a09c9e281676f1bbc259dd3a406ce342f440487edae76c2ed8f539a8bd6",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/sessions.db": "3355e19781e3f4b5880cfe5f7a10c19d5346bbec7143a43dd0acc61e691ba9b9",
+          "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/agent/state.json": "223b116684d1f42fd05cca3f64a30317e67af634907fa7fedd80035b4a836299"
+        },
+        "native_result": "attempts/t0001/artifacts/jobs/t0001/harbor-shared__dm6KRQ8/result.json",
+        "native_result_sha256": "37df86ce09e034ad7360fa0bc70e3375ba8d4e5d70557452a57fca602962ec87"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 5
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 50214
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 650
+        }
+      ],
+      "cost_sources": {
+        "reported": 5
+      },
+      "cost_usd": "0.000000",
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 2,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 100,
+        "reported_cost_calls": 5,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 2.1,
+        "sampled_peak_container_rss_bytes": 277958656,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0001",
+      "input_tokens": 500,
+      "known_cost_usd": "0.000000",
+      "model_calls": 5,
+      "output_tokens": 150,
+      "phase_seconds": {
+        "agent_execution": 13.662906,
+        "agent_setup": 0.702939,
+        "cleanup": 0.353682242000005,
+        "environment_setup": 8.520244,
+        "verifier": 3.285728
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "fixture/harbor-shared",
+      "termination_source": "user_cancelled",
+      "trial_seconds": 32.025028179,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    }
+  ],
+  "wall_seconds": null
+}

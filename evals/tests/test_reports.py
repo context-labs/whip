@@ -98,6 +98,42 @@ class ReportTests(unittest.TestCase):
         self.assertFalse(row['evidence_complete'])
         self.assertIn('accounting_snapshot_mismatch', row['error_codes'])
 
+    def test_recovered_retry_keeps_unknown_billing_but_complete_grade_and_evidence(self):
+        trial, raw, agent = evidence_fixture(self.root)
+        state = read_json(agent / 'state.json')
+        success = state['calls'][0]
+        failed = dict(success, status='failed', cost_source='unknown', usage_source='estimated',
+                      cost_micros=0, result=dict(Dispatched=True, Failed=True, Usage={}))
+        with sqlite3.connect(agent / 'sessions.db') as db:
+            db.row_factory = sqlite3.Row
+            columns = ('root_id', 'status', 'cost_source', 'usage_source', 'cost_micros', 'attempt', 'result')
+            values = [failed[name] for name in columns]
+            db.execute('INSERT INTO model_calls VALUES(?,?,?,?,?,?,?)',
+                       [json.dumps(v) if isinstance(v, dict) else v for v in values])
+            state['calls'] = rows(db, 'SELECT * FROM model_calls')
+        write_json(agent / 'state.json', state)
+        write_json(agent / 'metrics.json', aggregate(state['calls']))
+        native = read_json(agent.parent / 'result.json')
+        native['agent_result']['metadata']['whip_accounting_complete'] = False
+        write_json(agent.parent / 'result.json', native)
+        row = normalize_trial(trial, raw, self.root)
+        self.assertTrue(row['success'])
+        self.assertTrue(row['evidence_complete'], row['error_codes'])
+        self.assertFalse(row['accounting_complete'])
+        self.assertEqual(row['model_calls'], 2)
+        self.assertEqual(row['unknown_cost_calls'], 1)
+        self.assertEqual(row['unknown_usage_calls'], 1)
+        self.assertEqual(row['known_cost_usd'], '1.234567')
+        self.assertIsNone(row['cost_usd'])
+        manifest = dict(run_id='offline-recovered-retry', schedule=[trial],
+                        candidates=[{'id': 'candidate'}], profile='smoke',
+                        profile_version=1, comparison_key='fixture', seed=1)
+        result = build_result(manifest, [row])
+        self.assertEqual(result['status'], 'complete')
+        self.assertIsNone(result['arms']['candidate']['cost_usd'])
+        self.assertEqual(result['arms']['candidate']['known_cost_usd'], '1.234567')
+        self.assertEqual(len(read_json(agent / 'state.json')['calls']), 2)
+
     def test_missing_usage_does_not_become_zero(self):
         trial, raw, agent = evidence_fixture(self.root)
         state = read_json(agent / 'state.json')
@@ -160,6 +196,36 @@ class ReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             compare_trials([control, control], [fast_failure])
 
+    def test_fixture_classification_survives_standalone_json_and_markdown(self):
+        trial = dict(id='t1', task_id='fixture/harbor-shared', candidate_id='candidate',
+                     repetition=1, runner='harbor')
+        manifest = dict(run_id='qualification', schedule=[trial], candidates=[{'id': 'candidate'}],
+                        profile='fixture', profile_version=1, comparison_key='fixture', seed=1,
+                        fixture=True, excluded_from_scores=True, external_provider_calls=0)
+        result = build_result(manifest, [])
+        output = self.root / 'qualification'
+        write_report(output, manifest, result)
+        standalone = read_json(output / 'result.json')
+        self.assertIs(standalone['fixture'], True)
+        self.assertIs(standalone['excluded_from_scores'], True)
+        self.assertEqual(standalone['external_provider_calls'], 0)
+        self.assertEqual(standalone['status'], 'partial')
+        self.assertIsNone(standalone['trials'][0]['cost_usd'])
+        markdown = (output / 'report.md').read_text()
+        self.assertIn('Authored native qualification fixtures', markdown)
+        self.assertIn('Excluded from benchmark scores and leaderboard rankings', markdown)
+        self.assertIn('No external provider calls (0)', markdown)
+        self.assertNotIn('Local Frontier adaptation', markdown)
+
+        del manifest['external_provider_calls']
+        result = build_result(manifest, [])
+        self.assertNotIn('external_provider_calls', result)
+        output = self.root / 'unknown-provider-calls'
+        write_report(output, manifest, result)
+        markdown = (output / 'report.md').read_text()
+        self.assertIn('External provider calls: unknown', markdown)
+        self.assertNotIn('No external provider calls', markdown)
+
     def test_immutable_report_and_duplicate_matrix(self):
         trial, raw, _ = evidence_fixture(self.root)
         row = normalize_trial(trial, raw, self.root)
@@ -169,6 +235,9 @@ class ReportTests(unittest.TestCase):
         output = self.root / 'report'
         write_report(output, manifest, result)
         self.assertEqual(read_json(output / 'result.json'), result)
+        for field in ('fixture', 'excluded_from_scores', 'external_provider_calls'):
+            self.assertNotIn(field, result)
+        self.assertIn('Local Frontier adaptation', (output / 'report.md').read_text())
         self.assertTrue((output / 'trials.csv').exists())
         with self.assertRaises(FileExistsError):
             write_report(output, manifest, result)
