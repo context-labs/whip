@@ -146,9 +146,10 @@ Size: about 90 lines removed plus their tests.
 Steps: keep the resource-fit check and the runner-version match; drop the Docker TCP listener probe and the hard-link proof file.
 Size: about 20 lines removed.
 
-**B9. Prune the volume after a verified fetch** (decision 13).
-Steps: after `fetch` has verified every hash in every attempt's marker inventory, delete `/<run>/` on the evidence volume and the run's inputs (`bundle.tar`, manifest, schedule) on the inputs volume; `fetch --keep` skips it; an unverified fetch never prunes. `status` notes when a run has been fetched and pruned.
-Size: about 25 lines.
+**B9. A finished run leaves nothing on Modal** (decision 13, widened 2026-09-14).
+Why: compute already cleans itself (the controller terminates each VM when its attempt ends; every VM also carries a hard timeout of outer watchdog + 30 min; the coordinator ends with the run; zero containers after both campaigns). Data never has: 14 run prefixes on the evidence volume, 14 bundles on the inputs volume, and 510 state-dict keys across 18 runs remained after everything was fetched.
+Steps: after `fetch` has verified every hash in every attempt's marker inventory, delete `/<run>/` on the evidence volume, `/<run>/` on the inputs volume (bundle, manifest, schedule), and every `<run>/...` key in the state dict except a single `<run>/fetched` record (fetch id, local path, timestamp); `fetch --keep` skips all of it; an unverified fetch never prunes. Add `whip-eval modal prune <run>` for a run that will never be fetched (aborted or superseded), which deletes the same three things after checking no container for the run is alive. `status` shows `fetched`/`pruned`. The fixed infrastructure (app, two volumes, dict, secret, worker image) stays; it is the next run's plumbing and costs nothing idle.
+Size: about 45 lines plus tests for verified, unverified, and `--keep`.
 
 ### Phase C: evidence pipeline (decision 8)
 
@@ -168,7 +169,7 @@ Size: about 40 lines plus test.
 
 ### Phase E: tests, docs, cleanup
 
-Prune `evals/tests` to the remaining behaviour (target about 1,300 lines from 2,200); rewrite the "Detached Modal campaigns" section of `evals/README.md` to describe the simplified path in one screen; retire the qualification-era guidance in `.ai-docs/plans/modal-evals/README.md` with a pointer here. Per decision 10, once the new scaffold has passed its verification: delete `evals/artifacts/*`, the historical `evals/reports/*`, the accepted-baseline pointer, the old run prefixes on both Modal volumes, and the `whip-eval-qualification-20260911-evidence` volume; the plan documents remain the record.
+Prune `evals/tests` to the remaining behaviour (target about 1,300 lines from 2,200); rewrite the "Detached Modal campaigns" section of `evals/README.md` to describe the simplified path in one screen; retire the qualification-era guidance in `.ai-docs/plans/modal-evals/README.md` with a pointer here. Per decision 10, once the new scaffold has passed its verification: delete `evals/artifacts/*`, the historical `evals/reports/*`, and the accepted-baseline pointer; the plan documents remain the record. The Modal side of the historical data (all run prefixes on both volumes, the state dict's run keys, and the `whip-eval-qualification-20260911-evidence` volume) can be wiped as soon as Sam authorizes it, since every run is already fetched to the box.
 
 ## Verification
 
