@@ -33,13 +33,13 @@ import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionInfoBar } from './session-info-bar';
 import { openSessionView } from './session-tab-routing';
-import { SessionModelPicker } from './model-selection';
+import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
-import { selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
 
 const loadingStyles = stylex.create({
   overlay: {
@@ -84,6 +84,8 @@ export function ConversationRoute({ rootId, runtimeId }: { rootId: string; runti
   useSessionTabs();
   const { hosts } = useAppState();
   const client = hosts.find(host => host.runtimeId === runtimeId)?.client;
+  // The tab strip renders open tabs; this body paints only when no tab holds the session (it is also mounted for a frame while a route commit leaves the tab).
+  if (runtime.tabs.workspace().tabs.some(tab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId)) return null;
   if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
   if (!client) return <div {...stylex.props(layout.empty)}>Connect to the session’s execution host.</div>;
   return <ConversationHostStatus client={client} runtimeId={runtimeId} />;
@@ -108,6 +110,7 @@ export function SessionContent({
   agentId,
   panel,
   viewId,
+  summaryCwd,
 }: {
   kind: 'chat' | 'repl';
   view: SessionView;
@@ -115,6 +118,8 @@ export function SessionContent({
   agentId: string;
   panel?: InspectorSection;
   viewId?: string;
+  /** Directory from the tab summary; stands in for the root's cwd while the session opens. */
+  summaryCwd?: string;
 }) {
   const runtime = useRuntime();
   useSessionTabs();
@@ -179,6 +184,8 @@ export function SessionContent({
     connection.state === 'connected' &&
     !wrongRuntime &&
     state.status === 'live';
+  // Opening: connected, no snapshot yet, no failure. Placeholders stay neutral until the host answers.
+  const opening = connection.state === 'connected' && !root && !state.error && (state.status === 'idle' || state.status === 'loading');
   const history = state.history[agentId];
   const presentation =
     agentId === session.rootId
@@ -264,7 +271,7 @@ export function SessionContent({
     <>
 
       <SessionInfoBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
-        cwd={agentId === session.rootId ? root?.meta.cwd : agent?.cwd}
+        cwd={agentId === session.rootId ? (root ? root.meta.cwd : summaryCwd) : agent?.cwd} pending={opening}
         agentName={agentId === session.rootId ? 'Root' : agent?.name || agentId}
         onAgents={() => setPanel('agents')}
         onRoot={agentId !== session.rootId ? () => {
@@ -316,7 +323,7 @@ export function SessionContent({
           {!root && state.error ? <p {...stylex.props(layout.emptyText)}>Session content is unavailable. Use Refresh above.</p>
             : !activeTurn && agent?.last_turn && ['failed', 'cancelled', 'interrupted'].includes(agent.last_turn.status)
             ? <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
-            : <><h2 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h2>
+            : <><h2 {...stylex.props(layout.emptyTitle)}>What do you want to work on?</h2>
           <p {...stylex.props(layout.emptyText)}>
             Give WHIP a goal, then follow the work and guide it as needed.
           </p></>}
@@ -358,15 +365,16 @@ export function SessionContent({
         agentId={agentId}
         connected={connection.state === 'connected' && !wrongRuntime && !!root}
         unavailableReason={connection.state === 'connected' && !root ? 'Session content is unavailable.' : undefined}
+        pending={opening}
         activeTurn={activeTurn}
         lastTurn={agent?.last_turn ?? undefined}
         runtimeId={expectedRuntimeId}
         viewId={viewId}
         active={focused && !panel}
-        modelControl={root && <>
+        modelControl={root ? <>
           <PermissionModePicker view={view} root={root} connected={connected} agentId={agentId} />
           <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />
-        </>}
+        </> : opening && <PickerSkeletons />}
       />}
       <Sheet
         open={!!panel && focused}

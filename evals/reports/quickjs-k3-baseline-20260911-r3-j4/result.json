@@ -1,0 +1,4546 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 28,
+      "agent_median_seconds": 251.8018508653622,
+      "agent_p95_seconds": 2352.4558845639904,
+      "agent_time_count": 30,
+      "cache_read_ratio": null,
+      "cancelled": 0,
+      "cost_usd": null,
+      "effective_cost_per_pass_usd": null,
+      "evidence_complete": 30,
+      "failed": 11,
+      "graded": 30,
+      "graded_pass_rate": 0.6333333333333333,
+      "known_cost_usd": "124.581345",
+      "passed": 19,
+      "planned": 30,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 28,
+          "agent_median_seconds": 251.8018508653622,
+          "agent_p95_seconds": 2352.4558845639904,
+          "agent_time_count": 30,
+          "cache_read_ratio": null,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 30,
+          "failed": 11,
+          "graded": 30,
+          "graded_pass_rate": 0.6333333333333333,
+          "known_cost_usd": "124.581345",
+          "passed": 19,
+          "planned": 30,
+          "started": 30,
+          "success_median_seconds": 121.75600330205634,
+          "success_time_count": 19,
+          "termination_sources": {
+            "benchmark_deadline": 3,
+            "none": 27
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": 2589,
+            "output_tokens": null,
+            "unknown_cost_calls": 2
+          },
+          "ungraded": 0,
+          "verified_success_rate": 0.6333333333333333
+        }
+      },
+      "started": 30,
+      "success_median_seconds": 121.75600330205634,
+      "success_time_count": 19,
+      "suites": {
+        "datacurve": {
+          "accounting_complete": 9,
+          "agent_median_seconds": 1550.960934814997,
+          "agent_p95_seconds": 3560.377445152029,
+          "agent_time_count": 9,
+          "cache_read_ratio": 0.9856592894775882,
+          "cancelled": 0,
+          "cost_usd": "109.458413",
+          "effective_cost_per_pass_usd": "21.891683",
+          "evidence_complete": 9,
+          "failed": 4,
+          "graded": 9,
+          "graded_pass_rate": 0.5555555555555556,
+          "known_cost_usd": "109.458413",
+          "passed": 5,
+          "planned": 9,
+          "started": 9,
+          "success_median_seconds": 1605.6736899050884,
+          "success_time_count": 5,
+          "termination_sources": {
+            "none": 9
+          },
+          "tokens": {
+            "cache_tokens": 211944050,
+            "input_tokens": 215027700,
+            "model_calls": 1988,
+            "output_tokens": 631285,
+            "unknown_cost_calls": 0
+          },
+          "ungraded": 0,
+          "verified_success_rate": 0.5555555555555556
+        },
+        "terminal-bench": {
+          "accounting_complete": 19,
+          "agent_median_seconds": 121.75600330205634,
+          "agent_p95_seconds": 900.2643477041274,
+          "agent_time_count": 21,
+          "cache_read_ratio": null,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 21,
+          "failed": 7,
+          "graded": 21,
+          "graded_pass_rate": 0.6666666666666666,
+          "known_cost_usd": "15.122932",
+          "passed": 14,
+          "planned": 21,
+          "started": 21,
+          "success_median_seconds": 57.90199819393456,
+          "success_time_count": 14,
+          "termination_sources": {
+            "benchmark_deadline": 3,
+            "none": 18
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": 601,
+            "output_tokens": null,
+            "unknown_cost_calls": 2
+          },
+          "ungraded": 0,
+          "verified_success_rate": 0.6666666666666666
+        }
+      },
+      "termination_sources": {
+        "benchmark_deadline": 3,
+        "none": 27
+      },
+      "tokens": {
+        "cache_tokens": null,
+        "input_tokens": null,
+        "model_calls": 2589,
+        "output_tokens": null,
+        "unknown_cost_calls": 2
+      },
+      "ungraded": 0,
+      "verified_success_rate": 0.6333333333333333
+    }
+  },
+  "comparison_key": "0fb0ef083e76adebf4031bb965244053804268e675691dce44a49fb7930ae400",
+  "comparisons": [],
+  "concurrency": {
+    "peak_active_trials": 4,
+    "requested": 4
+  },
+  "finished_at": "2026-09-11T13:40:24.121094Z",
+  "integrity": {
+    "complete": true,
+    "exact_key_match_count": 0,
+    "path": "artifacts/quickjs-k3-baseline-20260911-r3-j4/integrity.json",
+    "sha256": "75c6b46967b7dd5b524866a1e185ac4d3999d41cf70c86eaddee6e6963aa84cc"
+  },
+  "manifest_sha256": "67881155092796b072cd20ac116e280621540e1bb1f089b1622c1d48c18032ce",
+  "methodology_comparable": false,
+  "preparation_seconds": 12.194592448882759,
+  "profile": "full",
+  "profile_version": 1,
+  "run_id": "quickjs-k3-baseline-20260911-r3-j4",
+  "schema_version": 1,
+  "status": "complete",
+  "trials": [
+    {
+      "accounting_complete": true,
+      "agent_seconds": 59.727744369767606,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/cli.ndjson": "763bc202f8d37c312c2feb747a00a6003db78bc26683d85c8fe51bf99a391eb3",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/content-export.json": "17fe77c546266cbcbf71366ac280377c7d379c928c94a47921cfe750c238b6c2",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/events.ndjson": "8c78fa6010322914387c503929946e7d157374b6bf7609b45e311444c6cd9ca0",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/identity.json": "7598e4b1ee88af0482763a94bd6d42594ab3466f5854c129bde5ffc5debb823d",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/metrics.json": "7f1cf6513cd3cf4d910fd6238fc926fcd9630d007da01be95422af058ab0b2bd",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/outcome.json": "8ea9d58be375e83f5e230bbaea55ac47c57cc23307c1850cce01109bb1e642a8",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/sessions.db": "16c9855749ee70bb5656fb84c776e9bbb4fdcddd35d94aeda72c04029f34f6fa",
+          "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/agent/state.json": "bf9c9aeee2ef324138fb13535b59a0f05bc14d5242b72c876c6f441461850dd5"
+        },
+        "native_result": "jobs/t0001/ece7c08b11e9a1e36869f9f1fff76b5f__j4XKzN7/result.json",
+        "native_result_sha256": "e58977b4425ba4ca9f6d2049531f3c98c550c550e1c6e64140c3b8c4b1c9b786"
+      },
+      "cache_tokens": 61412,
+      "calls_by_purpose": {
+        "turn": 10
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 127945
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 70344
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 55333
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 74012
+        }
+      ],
+      "cost_sources": {
+        "estimated": 10
+      },
+      "cost_usd": "0.127945",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 9,
+        "normalized_cost_usd": 0.12793949999999998,
+        "peak_input_tokens": 9209,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 7.949999999999999,
+        "sampled_peak_container_rss_bytes": 218165248,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0001",
+      "input_tokens": 70630,
+      "known_cost_usd": "0.127945",
+      "model_calls": 10,
+      "output_tokens": 3382,
+      "phase_seconds": {
+        "agent_execution": 61.602383,
+        "agent_setup": 17.278965,
+        "cleanup": 0.06764256302267313,
+        "environment_setup": 1.28906,
+        "queue": 0.0008728089742362499,
+        "verifier": 3.47494
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/log-summary-date-ranges",
+      "termination_source": null,
+      "trial_seconds": 99.52983281528577,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 55.31199370697141,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/cli.ndjson": "80f2aa4bc50ecd8af3f4292819d9b1a330b5534c0791ac1b11e2c22e5f599e77",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/content-export.json": "2610623f9dfa97b9aec5d9f0ba5f60be4ecab04a68607dd93ba95ce0503d3077",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/events.ndjson": "04f010b9efcbf2c5be77825e8fb6aafddbfaa5c7073eb35c8bbc0ee728930286",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/identity.json": "898bf53166fd474f0b06b55727e854a55bd375fe8adf3e7d4dfbda54a17f4497",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/metrics.json": "4db924fb486c1b7b217b2c3622356535323bb603d12dd2b870a57d5f3f0fcdc8",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/outcome.json": "2fe1b9a8b1ffb84308a8429dd1e2839c7b0f70111cb55e3c461d2c8ea8936cd8",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/sessions.db": "515a2e7a1d2dd329861d6cf55112f37173b96082605cc9b825dd025a12c1c9b9",
+          "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/agent/state.json": "24b8638a48344b6c8d039587b00e4c220402195abeeb5b3633313047dab21be2"
+        },
+        "native_result": "jobs/t0002/085d2dacb242a2528652ca11d5383335__Kf5LxWB/result.json",
+        "native_result_sha256": "93cb919e82290fcaa982723e7d676ff7650ce5032c405eba1c0e2925afbd1124"
+      },
+      "cache_tokens": 33094,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 100155
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 47559
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 43822
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.100155",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 8,
+        "normalized_cost_usd": 0.1001517,
+        "peak_input_tokens": 7912,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 9.31,
+        "sampled_peak_container_rss_bytes": 287391744,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0002",
+      "input_tokens": 41012,
+      "known_cost_usd": "0.100155",
+      "model_calls": 7,
+      "output_tokens": 2810,
+      "phase_seconds": {
+        "agent_execution": 56.704829,
+        "agent_setup": 9.939567,
+        "cleanup": 0.160577944945544,
+        "environment_setup": 1.29088,
+        "queue": 0.0014149779453873634,
+        "verifier": 6.54742
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/multi-source-data-merger",
+      "termination_source": null,
+      "trial_seconds": 90.0111750238575,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 282.6296707801521,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/cli.ndjson": "7205c613ab99336d4b94843df83d7fe14ceb9172cdabd0c8543aede70c56350a",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/content-export.json": "9b3334fbe18f2f0926c8da71d21b3064f467c913f66e9f0cd337bef92395cc5c",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/events.ndjson": "19bc449d50506d1bb9cfdbe008dc9c4432803cc3ba4a586d2a90546ba9e0931b",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/identity.json": "2af39903024ccb6c3a1a185d10f63526f563c995f03cf596eef4321d5be887f6",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/metrics.json": "cde976d22600d947a91bf8ece916068bd1e1eea5f68db521b27f3dc865d73560",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/outcome.json": "2223fffe4945b66267147131dba559c0f8be9fd70222563f7e379b5d0b07dcb3",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/sessions.db": "aa4672c7f6339fe74c55fc9b408d05fb62f629f2c8516b35a77d70076c513c79",
+          "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/agent/state.json": "9d8a410bd1ba7bb478a670e43abd466af0e8b3d5918be88165fd01adf5c4cdb0"
+        },
+        "native_result": "jobs/t0003/d0cd45c10ff602d9ce44cad038b58042__c6QjgJv/result.json",
+        "native_result_sha256": "18fc49ed4f81e445c8270a267798d0049968480a643ba40a65bb1a6e2ba5557f"
+      },
+      "cache_tokens": 874534,
+      "calls_by_purpose": {
+        "turn": 44
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 706958
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 218399
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 920136
+        }
+      ],
+      "cost_sources": {
+        "estimated": 44
+      },
+      "cost_usd": "0.706958",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 52,
+        "normalized_cost_usd": 0.7069384499999999,
+        "peak_input_tokens": 34392,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 129.09,
+        "sampled_peak_container_rss_bytes": 763285504,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0003",
+      "input_tokens": 908969,
+      "known_cost_usd": "0.706958",
+      "model_calls": 44,
+      "output_tokens": 11167,
+      "phase_seconds": {
+        "agent_execution": 284.086296,
+        "agent_setup": 11.810083,
+        "cleanup": 0.06835985602810979,
+        "environment_setup": 1.21098,
+        "queue": 0.0017410079017281532,
+        "verifier": 5.825379
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/build-cython-ext",
+      "termination_source": null,
+      "trial_seconds": 318.4599209013395,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 4126.447618297301,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/cli.ndjson": "2f110888ccd3c51b3fe6f2a2aab44d98817c99aa02c0078c367eec39c2a9fc1d",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/content-export.json": "4b30932e207cda7cde1f0eadb6699e02f0d65b4422b06f9e45d4d2370796b8c5",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/events.ndjson": "7cce5685e0ab8f5076f924ac43aceeb74b37b1ad78a2897e875d78058b8fd7a4",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/identity.json": "6ae4b8fe140b450fd45e59d38c581d86200229f35eec4a3938035c6a2c03fc58",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/metrics.json": "db5f3ddc0f94e2277f5954106232131330d41616f16c3b419ca5846c5777d556",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/outcome.json": "638d7a3e37a4b5591ce64759e0235fd26bdee81f1aa1a0f639dd13777b3e039c",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/sessions.db": "b3ebbf4789c2271839aa604b1a0f5b0bef30214e69a85d2fb6d56bc30206ac3f",
+          "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/agent/state.json": "43647b458b32b9c9c1273942942b0384aa1695dd24015b0786020b606aff38dd"
+        },
+        "native_result": "jobs/t0004/b87b6531507c96423270e6d4ce578fd0__CicpmEs/result.json",
+        "native_result_sha256": "502d9cac73df0ca13c7a8b5147fbae31dff108981deb7fc11883741c8903797b"
+      },
+      "cache_tokens": 83657205,
+      "calls_by_purpose": {
+        "turn": 488
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 39692264
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 77700
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 3542493
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 84709748
+        }
+      ],
+      "cost_sources": {
+        "estimated": 488
+      },
+      "cost_usd": "39.692264",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 488,
+        "normalized_cost_usd": 39.6920377,
+        "peak_input_tokens": 318986,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1602.56,
+        "sampled_peak_container_rss_bytes": 561881088,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0004",
+      "input_tokens": 84579047,
+      "known_cost_usd": "39.692264",
+      "model_calls": 488,
+      "output_tokens": 130701,
+      "phase_seconds": {
+        "agent_execution": 4131.693631,
+        "agent_setup": 1.036264,
+        "cleanup": 0.07251275377348065,
+        "environment_setup": 4.057672,
+        "queue": 0.0025744359008967876,
+        "verifier": 72.298863
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/expr-try-catch-errors",
+      "termination_source": null,
+      "trial_seconds": 4226.56625272613,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 55.685654012952,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/cli.ndjson": "fa9da21f85a62fac353daff3b42adadda756e0d90f95979159f195ac2a767872",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/content-export.json": "4eb275b7cf7f81bc0c6fe9ecd24a4de7b69f098a12614271622e19b03ab13d40",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/events.ndjson": "391d0828440ee746b3ad02f51989dcfb29bae433e5ec1ce8dbe725c5c3bb2278",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/identity.json": "ed58cbca64a690ca026e9afd7cf49031ab45a84b30fbafd3626503bbea8b48a0",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/metrics.json": "e12241d2315f5e6e0a5f2a6e5544392569de46f3f9cc6570c4cce5fc85412321",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/outcome.json": "5da98ed2a8759799464d49f77beb8ab2b1d27e0353d13a79185d77a54edd0429",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/sessions.db": "3cf06aeececd5736f139124d81ce6af7950e8c1f83983a687685633dc4116b9b",
+          "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/agent/state.json": "17673218a5d2368a89e684fcbaa214570dcf19d9d77974decd5cf88cb9abd726"
+        },
+        "native_result": "jobs/t0005/2e09a0846d33123615c5e351f9aa2ec7__mwARQZ8/result.json",
+        "native_result_sha256": "27585f8b2979dd91568818a44c19ed778dc032ca3c7aa957a99ded9f632ea22e"
+      },
+      "cache_tokens": 18586,
+      "calls_by_purpose": {
+        "turn": 4
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 106217
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 52161
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 30428
+        }
+      ],
+      "cost_sources": {
+        "estimated": 4
+      },
+      "cost_usd": "0.106217",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 3,
+        "normalized_cost_usd": 0.10621415000000001,
+        "peak_input_tokens": 8558,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 7.09,
+        "sampled_peak_container_rss_bytes": 173199360,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0005",
+      "input_tokens": 27147,
+      "known_cost_usd": "0.106217",
+      "model_calls": 4,
+      "output_tokens": 3281,
+      "phase_seconds": {
+        "agent_execution": 57.045943,
+        "agent_setup": 102.341393,
+        "cleanup": 0.07222800701856613,
+        "environment_setup": 1.202516,
+        "queue": 90.04413106106222,
+        "verifier": 62.585582
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/constraints-scheduling",
+      "termination_source": null,
+      "trial_seconds": 238.5922178933397,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 127.99379849806428,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/cli.ndjson": "dff7e0c840961602acc67d9fa8fe4ad4b67d9962ba32441722bb227af4e5a92d",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/content-export.json": "17bf99bfd21e2111a1bc25e9be5458a631e4d439d362d15c4c49f355f1541c44",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/events.ndjson": "bfff10f7feabef5504cff60c15f8b1f5d45bcb92357b16fc3a5cb8d09e02928e",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/identity.json": "ed26b2071bad202fe42b22effdb40dbc32a24b7db7e554718c919654c4e53b87",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/metrics.json": "e454d567df0eb81fdeb32966c10e5d1b84b4fc7f669420da56cd6acae5219e92",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/outcome.json": "1017186fef5067a7499bd683ca1b50ea6aa5435d8bdd5c2e5226a97c864ad349",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/sessions.db": "321c59dfdf5c19737e62305e22ec57ba83197c9abb0ddc34858700288c03e8f1",
+          "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/agent/state.json": "ffa36e4db3871ab84b2ceeb0d9984302901064fdab8f8bf791aa85baec2bc8f5"
+        },
+        "native_result": "jobs/t0006/603b5c2b78b8defc22e262bfc814d199__sMNL3aa/result.json",
+        "native_result_sha256": "3ad7ebb6f242329d96af7f0195271d0e2e26a5b3216f8cf89bd02b6b0b90d64a"
+      },
+      "cache_tokens": 28492,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 189742
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 123979
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 43222
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.189742",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 6,
+        "normalized_cost_usd": 0.18973915,
+        "peak_input_tokens": 7143,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 15.66,
+        "sampled_peak_container_rss_bytes": 213225472,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0006",
+      "input_tokens": 35641,
+      "known_cost_usd": "0.189742",
+      "model_calls": 7,
+      "output_tokens": 7581,
+      "phase_seconds": {
+        "agent_execution": 129.682088,
+        "agent_setup": 15.896617,
+        "cleanup": 0.06953569408506155,
+        "environment_setup": 1.196128,
+        "queue": 99.5741230188869,
+        "verifier": 3.638344
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/sqlite-db-truncate",
+      "termination_source": null,
+      "trial_seconds": 165.56182068167254,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 2711.2721854341216,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/cli.ndjson": "3699fed628b0b4a7370a419ebf981a64c9d13a4744309e01e71d88ebdce2bc3a",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/content-export.json": "7b0b00269c9165d52f116a2dc3bceacae27e7cf7b646172ab691d640eeeb13e0",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/events.ndjson": "2600b009b8bd4b9d450a386a6fba575dc09f0f4021867426450d13fab6b14172",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/identity.json": "c4c6b2b4ee335874d0ec10671c06dc1729f01a16598c2bb5cfc9a4f5b20a874c",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/metrics.json": "e41467f719bc5711e375cc77b06227312262dfea240f94067622472891fca7aa",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/outcome.json": "b769dca9f3fa529c970d21cdc4ca6b816984ff966229582071cc519bed8eb153",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/sessions.db": "bcf3599e53a22dcc607d2b2a87443a70bcf3d07e354dc975ca2c2735d0b10fe7",
+          "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/agent/state.json": "521703e031dfb6b40b492ad46e55419e8208a007085a79db1a800912d4d1635d"
+        },
+        "native_result": "jobs/t0007/ac6c823fd37f8d7e661bdeec5270a5c5__be8MaFa/result.json",
+        "native_result_sha256": "2734f7f9144a911ff390b8377daf9e0958d17f59ef13e0537451606625011009"
+      },
+      "cache_tokens": 34166662,
+      "calls_by_purpose": {
+        "turn": 281
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 18028870
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 286584
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 2527066
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 21
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 34744760
+        }
+      ],
+      "cost_sources": {
+        "estimated": 281
+      },
+      "cost_usd": "18.028870",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 288,
+        "normalized_cost_usd": 18.028736749999993,
+        "peak_input_tokens": 227095,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 866.48,
+        "sampled_peak_container_rss_bytes": 1444913152,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0007",
+      "input_tokens": 34613619,
+      "known_cost_usd": "18.028870",
+      "model_calls": 281,
+      "output_tokens": 131141,
+      "phase_seconds": {
+        "agent_execution": 2719.412474,
+        "agent_setup": 1.03125,
+        "cleanup": 0.07173704821616411,
+        "environment_setup": 3.544342,
+        "queue": 265.18991617299616,
+        "verifier": 75.815194
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/arktype-json-schema-refs-dependencies",
+      "termination_source": null,
+      "trial_seconds": 2817.9480701829307,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 49.71858796896413,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/cli.ndjson": "134f2b04b603c69ae1c49687f82d2d9592ecfcd83cce17c854d0845c77bd87ec",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/content-export.json": "e424b09aa67e3414627bfdb0c3f53c0ac23dd7bb148a258179f0ac20efc5d40f",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/events.ndjson": "d01bae4db6538738bb9a906e24c935a779c260f4ae423a68578a5aa60e11170d",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/identity.json": "fd05c829e6b0864a89f4c32b1451a18ab9dbd11b9f48693b5799a88ed08e3150",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/metrics.json": "097f41a510659e9b9a5cfcd283b766a3fe3893f5ea9b9605ae49ca525108f3d0",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/outcome.json": "ce11028084109ce233b61612ab72dcf0b73dbd6dddb51ff04d32b34052081005",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/sessions.db": "fedd362f68beee4b68aafa8029dfe0c63f4e71132a770aa0ba5e6e115023bce7",
+          "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/agent/state.json": "d24fabb2ad452b9971c18c7236acd516b52dcad076d1f95e920668484aed2bc4"
+        },
+        "native_result": "jobs/t0008/55685a57c8a05d1143a6ea524a89acf1__aL79DGF/result.json",
+        "native_result_sha256": "a3c03ee9b7d504dfd4c0f710864286a7ddcead338ed5fdcc02f8d36c0dbe379f"
+      },
+      "cache_tokens": 102194,
+      "calls_by_purpose": {
+        "turn": 13
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 132625
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 11968
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 44909
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 1
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 118421
+        }
+      ],
+      "cost_sources": {
+        "estimated": 13
+      },
+      "cost_usd": "0.132625",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 13,
+        "normalized_cost_usd": 0.13261665,
+        "peak_input_tokens": 14471,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 6.96,
+        "sampled_peak_container_rss_bytes": 196624384,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0008",
+      "input_tokens": 116677,
+      "known_cost_usd": "0.132625",
+      "model_calls": 13,
+      "output_tokens": 1744,
+      "phase_seconds": {
+        "agent_execution": 51.427852,
+        "agent_setup": 15.107678,
+        "cleanup": 0.06840601190924644,
+        "environment_setup": 1.207402,
+        "queue": 318.5449813948944,
+        "verifier": 3.644101
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/vulnerable-secret",
+      "termination_source": null,
+      "trial_seconds": 86.71453064633533,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 123.58198046684265,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/cli.ndjson": "c88ddbb8db2f57470c91b1ce89036881d4e1de79c9b9060f240d2adffc06ff8b",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/content-export.json": "e250a3fefc372ad2c3a4d93b3c7c768fd88829aac62a8f30e2468d39f08c1c3e",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/events.ndjson": "3155555b2b4d09349a25a3e8d04f1e15f8ff60ecf21cc8ab9fc29ec3d4ff7726",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/identity.json": "1c7ada93c4661182d2a2f01a8169b22c11f2c23ab997f9d926313ec01ec24de1",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/metrics.json": "9ab3c7244302a8aafacefcf0140224da3ecdb177f82cbc21b8802ea1f2ca4299",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/outcome.json": "906ca693db7f3f0a8668fcfc43bb8081b816e255e3097ae118a9bbc9d0deba23",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/sessions.db": "c4c6e205a2b450465bbe670d5697a2c7275ccccc74ffd779f2c831abaf8baae6",
+          "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/agent/state.json": "5f217b1b6deb38cd3edd4d227fb0b01212c4cfed78883d07020ed7cb3738c42c"
+        },
+        "native_result": "jobs/t0009/cbd10576f3d2b7eb3d3bd2831c41a74e__YtQR3wB/result.json",
+        "native_result_sha256": "cff5b039274b950c719539eed0828cf4ee1bc06ea123453ca75723818fdc5157"
+      },
+      "cache_tokens": 242424,
+      "calls_by_purpose": {
+        "turn": 22
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 296302
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 103674
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 115560
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 5
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 267746
+        }
+      ],
+      "cost_sources": {
+        "estimated": 22
+      },
+      "cost_usd": "0.296302",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 30,
+        "normalized_cost_usd": 0.29629175,
+        "peak_input_tokens": 19036,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 17.310000000000002,
+        "sampled_peak_container_rss_bytes": 214040576,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0009",
+      "input_tokens": 261481,
+      "known_cost_usd": "0.296302",
+      "model_calls": 22,
+      "output_tokens": 6265,
+      "phase_seconds": {
+        "agent_execution": 125.325047,
+        "agent_setup": 11.527526,
+        "cleanup": 0.06544929416850209,
+        "environment_setup": 1.271352,
+        "queue": 328.6732245567255,
+        "verifier": 3.762474
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/sanitize-git-repo",
+      "termination_source": null,
+      "trial_seconds": 157.14551074197516,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 972.0935765448958,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/cli.ndjson": "9450bbfcee55ed8638b47d9a828a35e3c8f2815a90268e078950d53e4482be93",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/content-export.json": "20d81d809d958623262233b459591de212f153142540abb7a2e71b6ab4862838",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/events.ndjson": "6420027b1cf546164845fcc72d0c8e153eabe87d0d111c3db4e14b60036cd79c",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/identity.json": "0c1a5e8bce7c83c9cfe3cc74c04771f30ee78482c9eca2633bee4cddf97e7785",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/metrics.json": "e8382a38076f5e983d72b4ea5620fb5e291ddb279aa1ec8c59af71e23d120650",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/outcome.json": "29a93fa4e27900e06f99dbc7d8c246977af23b72aab1fcacc4d2f8056b94f549",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/sessions.db": "bbfd953a1eea779c4871fca5566c1a06d29657c2d266ccdfb9c318f50b74faf9",
+          "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/agent/state.json": "c618831e3e1d619b7e9def5f7243021b175be65bc54dd12737559350dbecf897"
+        },
+        "native_result": "jobs/t0010/a899b881c0b6ad2644287c212b1f30b2__Ns69HPq/result.json",
+        "native_result_sha256": "87712354e467fd8c8bf82a6af216f7f463096bd58d1bb1899473401700ca492d"
+      },
+      "cache_tokens": 8561591,
+      "calls_by_purpose": {
+        "turn": 155
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 5075815
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 309890
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 886143
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 15
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 8803763
+        }
+      ],
+      "cost_sources": {
+        "estimated": 155
+      },
+      "cost_usd": "5.075815",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 159,
+        "normalized_cost_usd": 5.075746950000001,
+        "peak_input_tokens": 101758,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 270.49,
+        "sampled_peak_container_rss_bytes": 419123200,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0010",
+      "input_tokens": 8759944,
+      "known_cost_usd": "5.075815",
+      "model_calls": 155,
+      "output_tokens": 43819,
+      "phase_seconds": {
+        "agent_execution": 978.262276,
+        "agent_setup": 0.991724,
+        "cleanup": 2.163723237812519,
+        "environment_setup": 3.791953,
+        "queue": 405.2865515467711,
+        "verifier": 22.625935
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/httpx-multipart-response-parsing",
+      "termination_source": null,
+      "trial_seconds": 1025.0765342470258,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 900.22216823278,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/cli.ndjson": "4e67c67c747a0f90fd0dd2add05b85d841777f667fc2d5bdeb6f08d63fa57883",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/cli.stderr": "8eb222ad383fe0ae42000df5202f4ddc875a104c5409fb2aa5eb07b4cd6aed4a",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/content-export.json": "54562f863911e3d98efa74b2b8d6a04acf93d0e0382f6bd66bbb97fc4580ec29",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/events.ndjson": "b2efa62b8cc9cbd22b45c76d477f2ae82835520b326b9eb2125eaedba8144d78",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/identity.json": "357fa4a07739a94aec30f1e68dea8656da33cc121e226628cbac641a2b773c70",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/metrics.json": "645b01a7332d4ac1f29dd82f0e336d00c0c5a0fed8f962476edb13eaba6ecf8b",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/outcome.json": "d2aa38716840632ad61aa2ae2fbf16355a66215a27ed61665a8a230e1dc35d20",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/sessions.db": "8bc5115803dc3679c9efbf02ba82f5504e4f2d3ade27e14aadf96ca732e5731a",
+          "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/agent/state.json": "ea1af2c32dffc42244ffca065442cad5e905a08f05ad4e0b23daf57b4ac4bda7"
+        },
+        "native_result": "jobs/t0011/ba9b470be65de40af477b11bb2574fff__k4LamgP/result.json",
+        "native_result_sha256": "9ad1d4d4f3c4308ce24c063d43ff51128953bf20937beeeecc3e83f2d35e7b0c"
+      },
+      "cache_tokens": 761388,
+      "calls_by_purpose": {
+        "turn": 45
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 535395
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 132098
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 152262
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 3
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 794254
+        }
+      ],
+      "cost_sources": {
+        "estimated": 45
+      },
+      "cost_usd": "0.535395",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 46,
+        "normalized_cost_usd": 0.5353720999999999,
+        "peak_input_tokens": 26450,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 780.48,
+        "sampled_peak_container_rss_bytes": 523218944,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "timeout",
+      "grader_status": "failed",
+      "id": "t0011",
+      "input_tokens": 787882,
+      "known_cost_usd": "0.535395",
+      "model_calls": 45,
+      "output_tokens": 6372,
+      "phase_seconds": {
+        "agent_execution": 902.065099,
+        "agent_setup": 106.74305,
+        "cleanup": 0.07013270305469632,
+        "environment_setup": 1.222762,
+        "queue": 485.8585424236953,
+        "verifier": 29.849447
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/chess-best-move",
+      "termination_source": "benchmark_deadline",
+      "trial_seconds": 1055.156795910094,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 191.86147170607,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/cli.ndjson": "9130f8837b29dfd948e6b8015f1f74ef929221a8e17ecf5ddaee595ac8136157",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/content-export.json": "d6a2a320e6e3f22643da9415578c05aadb78d4b0e7b5e46839dd12ba8c5bd87f",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/events.ndjson": "2d052923e7e0e039a92396799ebec0dcf3f12a39068c3d2b60daced473e663a5",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/identity.json": "df93babf9c85b19a235f5bc9c12eb8cb70b107d7bbaab950713f9c94c3f3da5f",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/metrics.json": "ad05be6783f88515b8c977e15d9556e54f81e3bf39cea9ba61ddcc0af9589027",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/outcome.json": "5ef8e7f5b8d82585dc6bc20d30470722fa04be9850f09276c539f146bb84344a",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/sessions.db": "379a3ea3ed0751f36aec7c6a9c32e805e298a7496d6fac4a5bd1a64ea7990f73",
+          "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/agent/state.json": "cd73b9d3b612682a158cd4c53da1dc2953915cd2843baec60166f45ad0c82b5d"
+        },
+        "native_result": "jobs/t0012/127b0e9eb55baf1e8d4d112acaadad81__QvxjN7x/result.json",
+        "native_result_sha256": "22071a0665ebfd450685228ead532eb4ab4e2ba1ce6c013e3b1567f9c7455cdd"
+      },
+      "cache_tokens": 24144,
+      "calls_by_purpose": {
+        "turn": 6
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 296861
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 187430
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 44327
+        }
+      ],
+      "cost_sources": {
+        "estimated": 6
+      },
+      "cost_usd": "0.296861",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 5,
+        "normalized_cost_usd": 0.29685695000000006,
+        "peak_input_tokens": 7088,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 20.86,
+        "sampled_peak_container_rss_bytes": 173621248,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0012",
+      "input_tokens": 31237,
+      "known_cost_usd": "0.296861",
+      "model_calls": 6,
+      "output_tokens": 13090,
+      "phase_seconds": {
+        "agent_execution": 193.23872,
+        "agent_setup": 137.558155,
+        "cleanup": 0.0775495539419353,
+        "environment_setup": 1.216164,
+        "queue": 1430.7755323867314,
+        "verifier": 57.253891
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/polyglot-c-py",
+      "termination_source": null,
+      "trial_seconds": 404.7039387449622,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 121.75600330205634,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/cli.ndjson": "f973cfaed9afd26906f2641e6105a7abe6c8231aa7b8bc940d227e4d1e3e3286",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/content-export.json": "550f6ff2f5ded27ecb453c12ed727e77f02d8c8adc1d2fb0e9fe9647af47c630",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/events.ndjson": "9536f299757854e17cf77a8a5dc81638410b579ff366aa8450a56663fd98de97",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/identity.json": "3844569ec4bf2de6d7949981531a85b9347b726d1b69b40ae76f7de286e45bea",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/metrics.json": "69f79a3048fd72a278c5f731bf283585c2c74768b536e64de3c649539703f995",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/outcome.json": "b1692410444133c17b945f5de4f9db9b07a9f60e23063df8a28d67bb1985cc0a",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/sessions.db": "0aa1d5890de06547f76541df243347977305a7ffdd079b13c033cd8070ae8ba5",
+          "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/agent/state.json": "570207218ddcf91f8fe88ec6266662991f5c9695711009ed85d00da276bf289a"
+        },
+        "native_result": "jobs/t0013/835301a8c522904fb5e71431f3b0bf23__kYCf397/result.json",
+        "native_result_sha256": "1514c51fbb32ef107e97fd3c0928ec275f46a728e2fad81e53e0c66a1310bb96"
+      },
+      "cache_tokens": 14353,
+      "calls_by_purpose": {
+        "turn": 4
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 228050
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 118292
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 30226
+        }
+      ],
+      "cost_sources": {
+        "estimated": 4
+      },
+      "cost_usd": "0.228050",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 3,
+        "normalized_cost_usd": 0.22804905000000003,
+        "peak_input_tokens": 5800,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 14.530000000000001,
+        "sampled_peak_container_rss_bytes": 175722496,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0013",
+      "input_tokens": 20156,
+      "known_cost_usd": "0.228050",
+      "model_calls": 4,
+      "output_tokens": 10070,
+      "phase_seconds": {
+        "agent_execution": 123.231431,
+        "agent_setup": 110.039203,
+        "cleanup": 0.07134544290602207,
+        "environment_setup": 1.228431,
+        "queue": 1541.063844542019,
+        "verifier": 66.537708
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/regex-log",
+      "termination_source": null,
+      "trial_seconds": 316.42349760234356,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 595.5952320070937,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/cli.ndjson": "d680900a428e10d618e9630f95ff2e345cd95e2523151f2ca787459cd88bcdc5",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/content-export.json": "6d968c2cc0ddbe68bc0eddb6bf1119aed960fd65a225cbca239f43bf1190f23e",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/events.ndjson": "b490e203e9767e0fffc042b77a1ceb7cb4473e44abdbdd425e02947fc45fc215",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/identity.json": "1051d5a8950db9a9cca8ff55ce2bea66b48657ba59b592e7f6d9deafee5cb379",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/metrics.json": "f0ebc25424dd45f8329210b40f1c6dc2b8c9d00ceb78185fca557f956ad86366",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/outcome.json": "464d21d884b5bc25b1ab3d4584f97e381ff3a5584712921037acf8c66554b6f8",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/sessions.db": "7064f99b6f4a925af21ea058f2b8be3a614628e3c2e60994722b5f2ba1aa0965",
+          "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/agent/state.json": "952e56e277d1ac382567d46ab7f3ccb9714344c2cc11ad996e3cd43c038130d7"
+        },
+        "native_result": "jobs/t0014/6af0e829153dad2c71a0206842b45d0d__rYWpGCg/result.json",
+        "native_result_sha256": "a0970ce4db058f18d229f28a23bc70588e98e51a693909251e45c0102dc07124"
+      },
+      "cache_tokens": 2972208,
+      "calls_by_purpose": {
+        "turn": 76
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 2386270
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 73820
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 521926
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 4
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 3145570
+        }
+      ],
+      "cost_sources": {
+        "estimated": 76
+      },
+      "cost_usd": "2.386270",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 92,
+        "normalized_cost_usd": 2.38623625,
+        "peak_input_tokens": 72413,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 170.93,
+        "sampled_peak_container_rss_bytes": 504918016,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0014",
+      "input_tokens": 3113231,
+      "known_cost_usd": "2.386270",
+      "model_calls": 76,
+      "output_tokens": 32339,
+      "phase_seconds": {
+        "agent_execution": 599.780549,
+        "agent_setup": 1.00207,
+        "cleanup": 0.0776763572357595,
+        "environment_setup": 4.009209,
+        "queue": 1835.5309883947484,
+        "verifier": 37.052197
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": false,
+      "task_id": "datacurve/anko-typed-variable-bindings",
+      "termination_source": null,
+      "trial_seconds": 659.0081941708922,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 57.813286763615906,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/cli.ndjson": "fae755549108d1bde998ae31f68815ff87ccff6d6e05a2663f556f0f6e5dc80e",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/content-export.json": "c707cabe73475aec88f3e135d286fb4f2276312124b935065f34e36bf4f99532",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/events.ndjson": "a41bbe899a38999df504793f2df5cc33ede503822ed76600e65086bb2bf67e6a",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/identity.json": "abe028877074e53a1cdbc1371d1fff533251958bd02b1a99f0ea6626c320b708",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/metrics.json": "a8a115a6227426de934a6e78426fea3296eea1e5c4171357cb1281e596aae2aa",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/outcome.json": "7e8ba0066ddadc0a547d7d3d3aa96f24e049cebe72f96089d98c1c9962295584",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/sessions.db": "3751f1d78e4aa9af1c7903950c97eb67a6d6c570f127e0599a32693223b1e73a",
+          "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/agent/state.json": "9df3f1d278827a54c90da6f3553a721f08b9078c3e1e5a89f9d3e65a62a36ccf"
+        },
+        "native_result": "jobs/t0015/f1598c5a11c81339930cd0922377ebe2__ceB8r4j/result.json",
+        "native_result_sha256": "673b1b744aa5694323bb9e4507f7d07791ddef3dc9cdea35ebdbe906f31ee4d0"
+      },
+      "cache_tokens": 35443,
+      "calls_by_purpose": {
+        "turn": 6
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 117637
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 48899
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 49352
+        }
+      ],
+      "cost_sources": {
+        "estimated": 6
+      },
+      "cost_usd": "0.117637",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 5,
+        "normalized_cost_usd": 0.1176346,
+        "peak_input_tokens": 10843,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 10.76,
+        "sampled_peak_container_rss_bytes": 303034368,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0015",
+      "input_tokens": 46291,
+      "known_cost_usd": "0.117637",
+      "model_calls": 6,
+      "output_tokens": 3061,
+      "phase_seconds": {
+        "agent_execution": 59.24974,
+        "agent_setup": 1.000622,
+        "cleanup": 0.0787784499116242,
+        "environment_setup": 1.200246,
+        "queue": 1857.5649400688708,
+        "verifier": 9.665934
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/modernize-scientific-stack",
+      "termination_source": null,
+      "trial_seconds": 86.52576947584748,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 923.5082515659742,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/cli.ndjson": "c0f70e3cb5c75e5d468c18d3e97ad47948c4833383c3e5d30bcdccc3f877b1d1",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/content-export.json": "3ec31b33210cf2eb17050fcfa8b43d7757db986e94050eda8c7c1885cf6f9c85",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/events.ndjson": "5572c1d47853c15a2bff4b47c3a63d29a8435533c15fc91baf98cb6cf92253b3",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/identity.json": "71de5702044c6f008b59ca1f2985be30f9da492d912b4dc11048257b88704025",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/metrics.json": "6ac19ea4f658211b7bfaf88939c4a3647a5f2c00a6f46139b13eb569d9a97ffe",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/outcome.json": "f2ab0ac82973adfa5db3793d7606b1dfba75631d23819087909390017990e52f",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/sessions.db": "4f41bcfe00bffeba5ebae77630c1b1348df3414a2f9b9823a44eadbdaa38a54b",
+          "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/agent/state.json": "f2dff4ad7d173fbb7805cba7ec167ab231e39847f44da80835ebb18b186ed487"
+        },
+        "native_result": "jobs/t0016/b263dda13c5388dd557d5655d48d3c64__VqCmv4D/result.json",
+        "native_result_sha256": "fda83bb729f45feccbf8760c16c312d17c66fee77dc8caddd75ae8f1244999ce"
+      },
+      "cache_tokens": 6280609,
+      "calls_by_purpose": {
+        "turn": 107
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 4155453
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 164210
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 817981
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 6
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6512835
+        }
+      ],
+      "cost_sources": {
+        "estimated": 107
+      },
+      "cost_usd": "4.155453",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 123,
+        "normalized_cost_usd": 4.155402900000001,
+        "peak_input_tokens": 95821,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 271.9,
+        "sampled_peak_container_rss_bytes": 4194402304,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0016",
+      "input_tokens": 6467039,
+      "known_cost_usd": "4.155453",
+      "model_calls": 107,
+      "output_tokens": 45796,
+      "phase_seconds": {
+        "agent_execution": 931.09961,
+        "agent_setup": 1.026209,
+        "cleanup": 0.06773458374664187,
+        "environment_setup": 3.422576,
+        "queue": 1944.1359725459479,
+        "verifier": 52.997727
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": false,
+      "task_id": "datacurve/scc-bounded-memory-spilling",
+      "termination_source": null,
+      "trial_seconds": 1006.7652177913114,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 220.97403095057234,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/cli.ndjson": "1ca43469cc924849b27b4387b469f92eda2c385bd889c8d4de0d6bc51a71f94f",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/content-export.json": "cacd3911794c5d0fce75d7cab348beaa25684532492018f0b6100262719cdbb2",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/events.ndjson": "bd639000e5d840eea7229263f0daa82240b7b7f8407cbc5935b98c4023427825",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/identity.json": "60cc8ab77e7752580eca931d6b1ff827c3fdd3ee7fe316323d08e9db48b7b226",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/metrics.json": "eafd3f2820a05902b049a173731bb722321446d36a21596ac0d216beab10a739",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/outcome.json": "8744296116b7ff4a49678bf4a9b9b81455629ffe78d514a047f5961327299c37",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/sessions.db": "904396673028df762db23aeb64700d89e2e052053b57163db0bec9ea68ed1cc5",
+          "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/agent/state.json": "d12b241e31f32c602054d50782378e49096cfe2ddf38b66545bc1ea169f040a5"
+        },
+        "native_result": "jobs/t0017/3c035d7bcc102ac828a3b122ea95fb62__LoATcLd/result.json",
+        "native_result_sha256": "fccf46c5223f566d163354b9c5086a2551c9745bacbc6a86be01e2013844b41f"
+      },
+      "cache_tokens": 400122,
+      "calls_by_purpose": {
+        "turn": 33
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 532758
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 188177
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 453851
+        }
+      ],
+      "cost_sources": {
+        "estimated": 33
+      },
+      "cost_usd": "0.532758",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 31,
+        "normalized_cost_usd": 0.5327437500000001,
+        "peak_input_tokens": 23744,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 28.27,
+        "sampled_peak_container_rss_bytes": 281305088,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0017",
+      "input_tokens": 443727,
+      "known_cost_usd": "0.532758",
+      "model_calls": 33,
+      "output_tokens": 10124,
+      "phase_seconds": {
+        "agent_execution": 222.37159,
+        "agent_setup": 60.420094,
+        "cleanup": 0.07523821899667382,
+        "environment_setup": 1.190561,
+        "queue": 2494.7598245837726,
+        "verifier": 191.0688
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/dna-insert",
+      "termination_source": null,
+      "trial_seconds": 490.5348025318235,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 1913.9026279449463,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/cli.ndjson": "cd91347d623f200a865be7e09875253bae1bd856dae143bcec8402e35c4a3247",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/content-export.json": "1cf24b65805ffeaeba0eb217719c00c533e23cb78c1bd762942fc1128e2c799a",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/events.ndjson": "2fe39f1a6e6ce2c64275d7dd90e20bf1240ff972d0d575a849988182c681c820",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/identity.json": "b3ae77ff748043e6892051e19a08aa0f62fbe60feaa6478fb6359a17d3e22251",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/metrics.json": "db5172e9d94c46cfcc78ae2bd9d1d1f218a06435fbcdcf2e5b87a294048a46a4",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/outcome.json": "25f49c1e762dc527a2799b0ac445c5e6c99a969760dcc322a14180907a99d7cd",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/sessions.db": "af8a22565e3d9fb196d6de18a1283d48cbb9774c3601cb1d03b2578fd6b1839e",
+          "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/agent/state.json": "e913ec73bf6d5a5f1f555fd6732401e3cd7e4d0f8a81ff0e279870f11dd20cac"
+        },
+        "native_result": "jobs/t0018/33e5de173df19f01abe4a2a2843b0eb0__d5c4nWY/result.json",
+        "native_result_sha256": "f5a4a7f5b68c9b016a39f6093cce66ecbd4194e78aeeda638499aa4ab05ea85b"
+      },
+      "cache_tokens": 28163425,
+      "calls_by_purpose": {
+        "turn": 287
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 14102221
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 179139
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 1724029
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 9
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 28599531
+        }
+      ],
+      "cost_sources": {
+        "estimated": 287
+      },
+      "cost_usd": "14.102221",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 285,
+        "normalized_cost_usd": 14.102085200000003,
+        "peak_input_tokens": 180903,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 656.37,
+        "sampled_peak_container_rss_bytes": 842833920,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0018",
+      "input_tokens": 28529241,
+      "known_cost_usd": "14.102221",
+      "model_calls": 287,
+      "output_tokens": 70290,
+      "phase_seconds": {
+        "agent_execution": 1917.44144,
+        "agent_setup": 1.009678,
+        "cleanup": 0.06911579612642527,
+        "environment_setup": 4.025787,
+        "queue": 2951.280552098062,
+        "verifier": 19.044697
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": false,
+      "task_id": "datacurve/katex-multicolumn-array-spans",
+      "termination_source": null,
+      "trial_seconds": 1959.1405575932004,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 57.99070962425321,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/cli.ndjson": "66edec8107b3d89b73d5532e1c4a4a712bb7a8c4b9e2bd8460b1243b709f4948",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/content-export.json": "7356ec7fa6e070cca51f8bd6d6aa40c45fc90680988076efe11ef9e73be0a06d",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/events.ndjson": "25bd23172b7c51577e124fb681bbd86c65467e56cb6d975ba0017a3ef27e6045",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/identity.json": "a720b6e64f63c0f2b2a54bf216897340629895ce3f7dce5abe447664ec7eb14d",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/metrics.json": "9d9b8180f5772b15a49bf6d226fbc69539fca3cb20368c8e423cc861b7a97df6",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/outcome.json": "8607616861a028bf20b6dcb0f213a277bdc8aa5c1c1a313008724a10f55aee88",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/sessions.db": "e815a42d185cf6986e88ae1267e43b5d2fa08c7de47fd3ed3d5cba8bedea3ba8",
+          "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/agent/state.json": "02935fc4d33a7c43d2f17b6a33d2810ca66ebaf7e8796ec7611dba05c9a31025"
+        },
+        "native_result": "jobs/t0019/00571e02d092d265bae75646dc9e3da8__D8Ra6cP/result.json",
+        "native_result_sha256": "bae15b45b7f5bfa6a307e3df4e0d8bbe98211d204d496dbb469d48046dd08656"
+      },
+      "cache_tokens": 39386,
+      "calls_by_purpose": {
+        "turn": 9
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 76663
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 49257
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 47466
+        }
+      ],
+      "cost_sources": {
+        "estimated": 9
+      },
+      "cost_usd": "0.076663",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 8,
+        "normalized_cost_usd": 0.07666005,
+        "peak_input_tokens": 6243,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 10.38,
+        "sampled_peak_container_rss_bytes": 322170880,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0019",
+      "input_tokens": 45637,
+      "known_cost_usd": "0.076663",
+      "model_calls": 9,
+      "output_tokens": 1829,
+      "phase_seconds": {
+        "agent_execution": 59.62688,
+        "agent_setup": 16.189112,
+        "cleanup": 0.06742221070453525,
+        "environment_setup": 1.240385,
+        "queue": 2985.3434942248277,
+        "verifier": 3.400933
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/kv-store-grpc",
+      "termination_source": null,
+      "trial_seconds": 95.71965600503609,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 322.9243932282552,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/cli.ndjson": "b6ef0c29b9ad1548d164523f32cdda55a19994270fbc887146f8c4515c299d11",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/content-export.json": "d93ec1dbd40f872742c833fabd87da0e0e811cf2ef8fd1cbcd5523bda2471a30",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/events.ndjson": "8d4699650d28326ae6c7b9b20813b5a6b1d7db2924765b818af2b532ce6ea9d5",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/identity.json": "200bdd553f92eef23fcc1c6737f65146a9966ddc200ad2e466cd86736de7c683",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/metrics.json": "e41dc7c2222226484bdc9bde6e62644c9450afea3d7c4f19d56118f2a58a00f8",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/outcome.json": "0e8379cf11cf629f891b446c7e5b7a6faa40e860a4b2563a03c4501177f1d1d0",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/sessions.db": "71add21b888a8631c253b928c85a973fbeb3335686f46e95f10a687984aa08d2",
+          "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/agent/state.json": "325714bf88fe6601bf139e157afac4f7bf39456513d123ce7598b4b34e676075"
+        },
+        "native_result": "jobs/t0020/3736d1b6d223668036832f8db7848910__8JjeFi9/result.json",
+        "native_result_sha256": "3bc38c30fb2e51cb7fd602e45fac1a3dd752088704143d348f78521ab4850675"
+      },
+      "cache_tokens": 746961,
+      "calls_by_purpose": {
+        "turn": 40
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 770464
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 200441
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 313051
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 5
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 798756
+        }
+      ],
+      "cost_sources": {
+        "estimated": 40
+      },
+      "cost_usd": "0.770464",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 39,
+        "normalized_cost_usd": 0.7704471499999999,
+        "peak_input_tokens": 34906,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 48.41,
+        "sampled_peak_container_rss_bytes": 228712448,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0020",
+      "input_tokens": 781906,
+      "known_cost_usd": "0.770464",
+      "model_calls": 40,
+      "output_tokens": 16850,
+      "phase_seconds": {
+        "agent_execution": 324.742943,
+        "agent_setup": 16.447196,
+        "cleanup": 0.07239494705572724,
+        "environment_setup": 1.222547,
+        "queue": 3081.0933755720034,
+        "verifier": 3.70125
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/gcode-to-text",
+      "termination_source": null,
+      "trial_seconds": 361.4408013052307,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": 900.2643477041274,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/cli.ndjson": "d6754aaa3c3d76ab1dfc96a72fc86b49525bc5abd75b805346970691eeb4aec9",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/cli.stderr": "8eb222ad383fe0ae42000df5202f4ddc875a104c5409fb2aa5eb07b4cd6aed4a",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/content-export.json": "28d52d1384d40c4fecdd9e07f01b1eadb3fd49f4f84c47c2711d4f5a0b63f069",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/events.ndjson": "608adcdd25426cf6d064a28914ff3d59efce455e33e4a621b36cdd5f7a765066",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/identity.json": "acc5cb03a10021bb98f0ba6f3e08fb3874b257d9767af53284fa6a8305cf260c",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/metrics.json": "99839cd2c02bbfa309e7bcc98700e8f02f8ea1dc4b262ae4661634e18403b96b",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/outcome.json": "2c94a28bb0766d52cafc24498332f004a8ab4299aee2e2ce92b997ded1eeda62",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/sessions.db": "1278b0ae2045feaa6fd4655dfc64f3ed7a41658fbe92d7b8681b08eb4d3b3d15",
+          "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/agent/state.json": "edb91e909e2b12cb34da9b4c7cde760e99667142665955f1b0cf7a9bc04c0a3f"
+        },
+        "native_result": "jobs/t0021/6553e214d77159eed51f4343683cd5ba__fd9nVrb/result.json",
+        "native_result_sha256": "8d2367cb6da3c821c6068ccd61607ab50ecd16ab76975af7252609fd58324566"
+      },
+      "cache_tokens": null,
+      "calls_by_purpose": {
+        "turn": 90
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 20960735,
+          "used_value": 2875387
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 75191
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 811534
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 3
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 1098938,
+          "used_value": 3571431
+        }
+      ],
+      "cost_sources": {
+        "estimated": 89,
+        "unknown": 1
+      },
+      "cost_usd": null,
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 89,
+        "normalized_cost_usd": 2.875345899999999,
+        "peak_input_tokens": 75284,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 204.15,
+        "sampled_peak_container_rss_bytes": 367497216,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 1,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "timeout",
+      "grader_status": "failed",
+      "id": "t0021",
+      "input_tokens": null,
+      "known_cost_usd": "2.875387",
+      "model_calls": 90,
+      "output_tokens": null,
+      "phase_seconds": {
+        "agent_execution": 902.07423,
+        "agent_setup": 16.441994,
+        "cleanup": 0.0737771550193429,
+        "environment_setup": 1.202289,
+        "queue": 3084.222020932939,
+        "verifier": 3.47243
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/largest-eigenval",
+      "termination_source": "benchmark_deadline",
+      "trial_seconds": 938.8008858999237,
+      "unknown_cost_calls": 1,
+      "unknown_usage_calls": 1
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 39.16172977723181,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/cli.ndjson": "aa058295b52ba2a0d811ff3c2f3bb002bde067a70318cea48b13c73f4fe19d4f",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/content-export.json": "b2a2dfff53b2a7567c8600e2bb405d31764eb0636ef108b82bdd9c6d6b9595d3",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/events.ndjson": "863a943c1e52e6709a282cca5412139d2883bafc8b65de31bb82c6853e6707ff",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/identity.json": "93b77cd86a643a64402a4c1a89bc249c4451958a322a362244dd305fbc2265eb",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/metrics.json": "9991524a27ae3ccad3e8e82858b782fe5f3580baeb20a46a5bba2f2773e84d4f",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/outcome.json": "2ca60fc200e64e50a3e5ea5f7c62ac1be59d7c9e9819a39134ca45ecc5481fa1",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/sessions.db": "84d706bd11ab46ed859a020b603102dd310b503925158549b723609c6b544333",
+          "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/agent/state.json": "fb5840c55aa23fc5d110690d852c91d20426de439acb2555d882c16eabd09dd9"
+        },
+        "native_result": "jobs/t0022/8b3c2227cdd940fd23971ad32da277d4__LxtodiL/result.json",
+        "native_result_sha256": "83b25921380a434b74065478b78752eed0bafe1a92d77b6c7eacf0da6dbe62e3"
+      },
+      "cache_tokens": 23940,
+      "calls_by_purpose": {
+        "turn": 6
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 77515
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 34835
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 32500
+        }
+      ],
+      "cost_sources": {
+        "estimated": 6
+      },
+      "cost_usd": "0.077515",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 5,
+        "normalized_cost_usd": 0.07751305,
+        "peak_input_tokens": 6402,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 5.3,
+        "sampled_peak_container_rss_bytes": 209956864,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0022",
+      "input_tokens": 30347,
+      "known_cost_usd": "0.077515",
+      "model_calls": 6,
+      "output_tokens": 2153,
+      "phase_seconds": {
+        "agent_execution": 40.776408,
+        "agent_setup": 16.162182,
+        "cleanup": 0.075054791290313,
+        "environment_setup": 1.186054,
+        "queue": 3442.6245780778117,
+        "verifier": 3.809329
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/openssl-selfsigned-cert",
+      "termination_source": null,
+      "trial_seconds": 77.11935976007953,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 35.97828065464273,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/cli.ndjson": "d3a755aa712988697691bb1d36ccd6e6ef2605ef1b507bb5f3e895d7bd192d61",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/content-export.json": "746caf32cb7406eadd7ad0f548bc926ccbbd8b6e6e0f20436a09445059583484",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/events.ndjson": "b94759ce80f3acee09a03667e8db33c98ab1a25368855220de1999cb36fc8f13",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/identity.json": "df472215e8adb0adb49a8301a0f4fb68056c8471893206626e825c9217b1a4cf",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/metrics.json": "17ff1ad0088b4f94c7e9e2452120e1c694eb1a48c4f17e21bf248004ab2d18c4",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/outcome.json": "eb165ad267c09c57babec47f5004bf4c9f1584d5954a36f5a1e3696ca6c0a0b2",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/sessions.db": "1f50a352b114fd8537bf846d13d30645ca8f162de1d145e3b60b3be04810029c",
+          "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/agent/state.json": "93185c0a9a15ab5bf03f56d5f448d81618b41c7622a5202303b28cc3e684fe21"
+        },
+        "native_result": "jobs/t0023/69c9ed62273c6c959445fdb7af22d6a1__z6w6iZk/result.json",
+        "native_result_sha256": "3760c1b4c89b9f074023ce7f9e8d1b537410105bd185a6bd0e40d63f0d219925"
+      },
+      "cache_tokens": 23039,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 90566
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 32071
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 36888
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.090566",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 6,
+        "normalized_cost_usd": 0.090563,
+        "peak_input_tokens": 6445,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 4.62,
+        "sampled_peak_container_rss_bytes": 176889856,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0023",
+      "input_tokens": 35207,
+      "known_cost_usd": "0.090566",
+      "model_calls": 7,
+      "output_tokens": 1681,
+      "phase_seconds": {
+        "agent_execution": 37.499186,
+        "agent_setup": 233.70716,
+        "cleanup": 0.0705473399721086,
+        "environment_setup": 1.203993,
+        "queue": 3519.8017622800544,
+        "verifier": 61.899867
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/git-leak-recovery",
+      "termination_source": null,
+      "trial_seconds": 349.6672656019218,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 99.11800856469199,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/cli.ndjson": "e365863fdfd834baba38e95f7dce8d7c81cda3edf68559f8839e14e12bcaf35b",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/content-export.json": "be3469578225a2cf881ce75f9b1b388ef9a6e6c19e0a7e0a9e0b337880e7604e",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/events.ndjson": "5847a552bb64f485046e0b4df196bf8f5b690a1a53b28cd12c47f7d2c0e165f3",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/identity.json": "8155a7810bed594938664efb17c25cacce4a62c20f6430095dec75f5f3028314",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/metrics.json": "a5f08004f06c03d9639e84a94c02d7627f769f47cc92106907a62107510ffb74",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/outcome.json": "86eaf9186bed924f5e4fff22feffe5d23d2a9c47acc4f73b0f17430ab31ac12a",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/sessions.db": "7f80e126a88f4b1b030e31cb1b19d7d5263f964e33e787ed35dc4fee5db0882d",
+          "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/agent/state.json": "dba7978af895be143d762bf3c0ed8041986ba103f7774bdc291718249eeebcb3"
+        },
+        "native_result": "jobs/t0024/6961d4bfd6eda998378addcf995d35e1__qhskXh8/result.json",
+        "native_result_sha256": "c21385f484c00826cc038d49f2a2425b103b85be25bcc73a09e89ec8f217cf47"
+      },
+      "cache_tokens": 115456,
+      "calls_by_purpose": {
+        "turn": 16
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 303146
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 16924
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 93615
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 152873
+        }
+      ],
+      "cost_sources": {
+        "estimated": 16
+      },
+      "cost_usd": "0.303146",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 18,
+        "normalized_cost_usd": 0.30313850000000003,
+        "peak_input_tokens": 12894,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 11.66,
+        "sampled_peak_container_rss_bytes": 197304320,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0024",
+      "input_tokens": 145986,
+      "known_cost_usd": "0.303146",
+      "model_calls": 16,
+      "output_tokens": 6887,
+      "phase_seconds": {
+        "agent_execution": 100.606446,
+        "agent_setup": 97.124671,
+        "cleanup": 0.0697948019951582,
+        "environment_setup": 1.217568,
+        "queue": 3869.4936939729378,
+        "verifier": 34.806869
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/merge-diff-arc-agi-task",
+      "termination_source": null,
+      "trial_seconds": 249.20401300908998,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 299.15817139297724,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/cli.ndjson": "0e58271378a25025e3ffb37235e0655ff80fb90df14d476f6d7f39ee58cbcf3a",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/content-export.json": "741c6def7a4add370163d156ae8243eae6ef12e9201d551123e7e45ab6651bdb",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/events.ndjson": "6d73708df74c23e87eeb907073f9ce2e6954c186013de86447f28b861771e0cd",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/identity.json": "f3f6dfff2e89a699f7a53dd87aee9d404c7dff7b67006bc251a023345322ecf9",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/metrics.json": "c920c3113770c23449c577c796a2471176341208a3edc60c29a72ff12b70e16b",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/outcome.json": "86ed5a61302baeaeda0045d50d1b321a8352bc3efb62666245335df822bedcd3",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/sessions.db": "63871f384c677043cd047fefdebb79d8594dd3e91c5b65c8fa6695e08433d586",
+          "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/agent/state.json": "9f296dca41f07cd36cde8d33983db7534498fc8bd9f9a51eb3d8ea217f8d1d25"
+        },
+        "native_result": "jobs/t0025/6048027992c33a904860c93476db336e__s92WWif/result.json",
+        "native_result_sha256": "b935b15ff4dca17b3ffee6c2c1695b288b15075dad6c6f55d313b89f8d611e24"
+      },
+      "cache_tokens": 94273,
+      "calls_by_purpose": {
+        "turn": 12
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 493279
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 293726
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 127944
+        }
+      ],
+      "cost_sources": {
+        "estimated": 12
+      },
+      "cost_usd": "0.493279",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 14,
+        "normalized_cost_usd": 0.493273,
+        "peak_input_tokens": 13309,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 39.32,
+        "sampled_peak_container_rss_bytes": 250589184,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0025",
+      "input_tokens": 107593,
+      "known_cost_usd": "0.493279",
+      "model_calls": 12,
+      "output_tokens": 20351,
+      "phase_seconds": {
+        "agent_execution": 300.596576,
+        "agent_setup": 166.00388,
+        "cleanup": 0.0687738792039454,
+        "environment_setup": 1.193531,
+        "queue": 4023.2445079148747,
+        "verifier": 33.315594
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/extract-elf",
+      "termination_source": null,
+      "trial_seconds": 516.5987679911777,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 1550.960934814997,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/cli.ndjson": "c31e0479075b6bbe4b294cf5436a4f4cc40a04f981924023fce660f1073f93ce",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/content-export.json": "73e4d7ed0a105104adb8a952a73ce4fcd2a8f997e08cae2561d15d56ff707e8c",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/events.ndjson": "25beb5f7cf6699d490a42feed3452de75d55e3ac4a4e8425f49c2419b838571a",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/identity.json": "7a3b4fa88dff96dc5cfe8c5e0dc26bbc3fce5838bae2993f90c1c5c8a0681d1c",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/metrics.json": "956800f246aaa1804d8c065dc07954491d22bedba8e59c6eb2bd3e53bed9be0e",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/outcome.json": "e8976e7108311a0fd9149f436874c9830d7f7d9d7c3b6cdd7bdc27b44aef2efa",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/sessions.db": "180eb9eb5e190ebb56f2e895d49a6fd1fed89493634aa62ddf3e2c8e66ba5fad",
+          "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/agent/state.json": "e09e0325eb61aacc9c3a1e076258ccd960304fc70f77ddc18ed9bef180d52c7b"
+        },
+        "native_result": "jobs/t0026/ca691d4680108690eb0f0afb5c6d4ac5__CcXXWZM/result.json",
+        "native_result_sha256": "3cbadbea89280cf4b2c594fe44b7415f8d2ea3e290ab5c8fadecfdacef28324a"
+      },
+      "cache_tokens": 18066976,
+      "calls_by_purpose": {
+        "turn": 227
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 9545839
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 77551
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 1222684
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 7
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 18431038
+        }
+      ],
+      "cost_sources": {
+        "estimated": 227
+      },
+      "cost_usd": "9.545839",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 227,
+        "normalized_cost_usd": 9.54573075,
+        "peak_input_tokens": 155077,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 616.46,
+        "sampled_peak_container_rss_bytes": 1074057216,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0026",
+      "input_tokens": 18375461,
+      "known_cost_usd": "9.545839",
+      "model_calls": 227,
+      "output_tokens": 55577,
+      "phase_seconds": {
+        "agent_execution": 1554.284704,
+        "agent_setup": 0.99524,
+        "cleanup": 0.07415032479912043,
+        "environment_setup": 3.683717,
+        "queue": 4118.7660913360305,
+        "verifier": 77.49015
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": false,
+      "task_id": "datacurve/meriyah-explicit-resource-declarations",
+      "termination_source": null,
+      "trial_seconds": 1654.0007034651935,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 46.54929968342185,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/cli.ndjson": "38053ff20273dfc5c3e5f3fc6ccb0cd5b786625f1b013b182fd3bdd1a54b8f51",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/content-export.json": "fe3bffc60ff27fe21774b38f3470fc36cd92f53495328ed516c892c92259f2f1",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/events.ndjson": "801cc70d4302c99ffd8a9bba142ad74bdb66a6adefc2a5485883ee0607ff3115",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/identity.json": "e8ba28c28154911c7b8a90348c98973a595f5c0b683a074f7da63204ff62ca23",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/metrics.json": "0f0b17b8e7396914a632dc2b1ff6134bda7ff467b2f5d8e0963ba80caa9a5bcb",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/outcome.json": "9b9f4b3c1e0566c10fc8fcecdbcfcb9d1fb3093f13e7769dc369179dc6f9f305",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/sessions.db": "bda8ef2b4ccbdf1ab3ed0bdddef6c7b564285fef2290bbacfdadc432426237ed",
+          "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/agent/state.json": "e40e098dfce7a62c269329971c2110cc7e9c8e127df392bb258d812e0a53b9c2"
+        },
+        "native_result": "jobs/t0027/c092fe2539a9180081ed2b697003ac51__5o3wdi3/result.json",
+        "native_result_sha256": "b9146c93ec89b08570356e448900c86312b0204890c668b370490f11f8b8a32e"
+      },
+      "cache_tokens": 37407,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 97391
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 42707
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 48676
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.097391",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 6,
+        "normalized_cost_usd": 0.09738855,
+        "peak_input_tokens": 8871,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 5.83,
+        "sampled_peak_container_rss_bytes": 176660480,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0027",
+      "input_tokens": 46284,
+      "known_cost_usd": "0.097391",
+      "model_calls": 7,
+      "output_tokens": 2392,
+      "phase_seconds": {
+        "agent_execution": 47.93373,
+        "agent_setup": 95.858028,
+        "cleanup": 0.0745239732787013,
+        "environment_setup": 1.225367,
+        "queue": 4227.2855853070505,
+        "verifier": 66.538812
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/db-wal-recovery",
+      "termination_source": null,
+      "trial_seconds": 226.99737254204229,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": 1200.1457906779833,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/cli.ndjson": "0e814810b3fb59352a7fe540ee261a66f80126f243ca6efd40f5eae0dba27c5f",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/cli.stderr": "e4cfb3779f62f2b3fe2629a3d71fd72b41545e8e3cad7b563b5f29d49a8e9c04",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/content-export.json": "6634175880c4d2e2e28d4a35ee9fd7351a37d821747317e47b23681b212d16a8",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/events.ndjson": "2da749b9fa7d53509813c3f8e4d0f20330b89745562b91edb5e385f4cbc4348f",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/identity.json": "3b357beef61dc10fd7d95d585bb9d2ee977ed0ca3ad5042e91e2a8bd4fde3bd3",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/metrics.json": "589c50dfe28e8ff36057e49dbdf8f1da6f9c64e0cffe3dd27a2978d6efeb9640",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/outcome.json": "d4e5ab385130bfca04aedad74dc0ae79c76e1318af7e04ba60dd80dd37824f55",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/sessions.db": "727168f81e0f35c415160a896c6740795628b6cf4a0f2d553b8705a0cd1ed0ee",
+          "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/agent/state.json": "ce16ae34fe65acc6bf336df9ffeb24ec0c0c07606692c85d234913492e402836"
+        },
+        "native_result": "jobs/t0028/f5a3276c1894ee4a99311ec962484184__uUWVcJN/result.json",
+        "native_result_sha256": "8b08cf9043ec375875fcda3c04381e686661b2ab0f59081021445669dfe0a17a"
+      },
+      "cache_tokens": null,
+      "calls_by_purpose": {
+        "helper": 1,
+        "turn": 212
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 21229608,
+          "used_value": 6967876
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 223398
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 1453771
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 23
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 1167007,
+          "used_value": 9980026
+        }
+      ],
+      "cost_sources": {
+        "estimated": 212,
+        "unknown": 1
+      },
+      "cost_usd": null,
+      "definition_sha256": "d56c6d6b65f21feb9c962a2095500dd820f23ab17fd8d9cf5da731b420c85079",
+      "diagnostics": {
+        "agent_count": 2,
+        "cell_errors": 0,
+        "cells": 208,
+        "normalized_cost_usd": 6.96777605,
+        "peak_input_tokens": 106062,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 406.99,
+        "sampled_peak_container_rss_bytes": 383381504,
+        "turn_count": 3,
+        "unknown_normalized_cost_calls": 1,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "timeout",
+      "grader_status": "failed",
+      "id": "t0028",
+      "input_tokens": null,
+      "known_cost_usd": "6.967876",
+      "model_calls": 213,
+      "output_tokens": null,
+      "phase_seconds": {
+        "agent_execution": 1202.197436,
+        "agent_setup": 16.310279,
+        "cleanup": 0.06990993162617087,
+        "environment_setup": 1.201838,
+        "queue": 4454.312512204051,
+        "verifier": 3.65963
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": false,
+      "task_id": "terminal-bench/code-from-image",
+      "termination_source": "benchmark_deadline",
+      "trial_seconds": 1238.7788215382025,
+      "unknown_cost_calls": 1,
+      "unknown_usage_calls": 1
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 1605.6736899050884,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/cli.ndjson": "f6afc2fd12c840a18a129f97ccebc457d08ba99909e9880534126bf2226278c2",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/content-export.json": "72324831a51af7268f1cf19a8b69db2de8f46aaeef5bb061ce05dc8bf74aefeb",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/events.ndjson": "aea7fb9a8935a84083f1649d6f619e092d98e5872093b618b4e8b735c4b84780",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/identity.json": "ecf08605774c5d3acdc9144b4367cdde442a7fb682fb05d70c27f5da7949fb9d",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/metrics.json": "71a9aeeec2461aeec7f502047a0ea2fef9719a16d3c3e578927a836a5338bef9",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/outcome.json": "c6ad09a7244ea00f3816a9cda29fa422afba538f500dc40222c52bdfbca6b407",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/sessions.db": "4b5587c2e23c09b2ce768a22d497081bc01c124283047e289d6a5b1cdbabc459",
+          "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/agent/state.json": "f8643cc5bb4cf4a7c5f8bdc9affc5ecd5c086d2608ba002fad87cc831e62db28"
+        },
+        "native_result": "jobs/t0029/824addad6eec69ea12235ab3dc3f5309__aJsLGFg/result.json",
+        "native_result_sha256": "fde68ed150ee2c08696fa9eada7e3d1ebf16f11f692541c6d7fa85e71abcc05b"
+      },
+      "cache_tokens": 21702500,
+      "calls_by_purpose": {
+        "turn": 228
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 11218102
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 1873893
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 1485377
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 87
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 22067691
+        }
+      ],
+      "cost_sources": {
+        "estimated": 228
+      },
+      "cost_usd": "11.218102",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 232,
+        "normalized_cost_usd": 11.217994500000001,
+        "peak_input_tokens": 153100,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 616.25,
+        "sampled_peak_container_rss_bytes": 1054449664,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0029",
+      "input_tokens": 21998638,
+      "known_cost_usd": "11.218102",
+      "model_calls": 228,
+      "output_tokens": 69053,
+      "phase_seconds": {
+        "agent_execution": 1616.69655,
+        "agent_setup": 0.993294,
+        "cleanup": 0.06893128482624888,
+        "environment_setup": 3.649,
+        "queue": 4539.9207791690715,
+        "verifier": 41.170631
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/python-statemachine-state-data-scoping",
+      "termination_source": null,
+      "trial_seconds": 1680.517951042857,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 1112.3565882733092,
+      "artifacts": {
+        "evidence_files": {
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/cli.ndjson": "5196f9f8a71e5b443d0a285c6fe2b290ca61776d4d80909be42a35b6cf4972de",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/configuration.json": "e37796e57c698fb042c230a51b0a8b9e06e210513224093d3c7dcf25c67a3d1c",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/content-export.json": "df1a58c84ab9cb4a96922e6df8b0b6f7b501ead84936bf62402b3fa21433022d",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/events.ndjson": "644e41e376ad6ba6018b836f8323d47f8703cd6ed90745ab11fca25f5594b030",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/identity.json": "7239cbb84c4d665476b40e50413c609cb8da54917523cd67a5c44c9698d6a390",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/metrics.json": "55eab7b774c3b90484e5d51fa98d4cd9dd6aa5580838a92300370a792aca2d39",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/outcome.json": "9efa2884e98ed415afd7ac86b6f0c3b69b3a8735d203673c52f7810334027d23",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/provider-catalog.json": "4fb06d31cc764cb0ea8ca9076a15a848f44d1eb8d6076ad6d64da27784b52ec7",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/sessions.db": "852302b931cf3f6dc0dfc360eb518dc1ba2cabbc190b19f2771a69b238ae74f8",
+          "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/agent/state.json": "2f8e2437ba9518b7d6a4c89514425e083a2820bb1e84e457bf36bac6e3b70d8a"
+        },
+        "native_result": "jobs/t0030/c5561a8ddad21f061fd81cb741440561__sUA54cD/result.json",
+        "native_result_sha256": "b742c01e4c08a8204bf2f3e88338c354c92d663fba32667ec8f4a03ef09a568e"
+      },
+      "cache_tokens": 8372874,
+      "calls_by_purpose": {
+        "turn": 139
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 5253579
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 78941
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 946825
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 8
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 8644049
+        }
+      ],
+      "cost_sources": {
+        "estimated": 139
+      },
+      "cost_usd": "5.253579",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "cell_errors": 0,
+        "cells": 138,
+        "normalized_cost_usd": 5.253509499999999,
+        "peak_input_tokens": 113037,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 385.65,
+        "sampled_peak_container_rss_bytes": 702865408,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0,
+        "unresolved_cells": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0030",
+      "input_tokens": 8591480,
+      "known_cost_usd": "5.253579",
+      "model_calls": 139,
+      "output_tokens": 52569,
+      "phase_seconds": {
+        "agent_execution": 1117.950671,
+        "agent_setup": 1.02956,
+        "cleanup": 0.07171336002647877,
+        "environment_setup": 3.987216,
+        "queue": 4910.843062340748,
+        "verifier": 67.511279
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/fastapi-deprecation-response-headers",
+      "termination_source": null,
+      "trial_seconds": 1207.9359428449534,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    }
+  ],
+  "wall_seconds": 6233.402481031138
+}

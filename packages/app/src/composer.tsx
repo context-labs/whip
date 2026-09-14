@@ -73,6 +73,7 @@ export function Composer({
   viewId,
   modelControl,
   active = false,
+  pending = false,
 }: {
   session: Session;
   agentId: string;
@@ -84,6 +85,8 @@ export function Composer({
   viewId?: string;
   modelControl?: ReactNode;
   active?: boolean;
+  /** The session is still opening: keep the footprint, skip the unavailable hint. */
+  pending?: boolean;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
@@ -480,7 +483,7 @@ export function Composer({
           }}
         />
       )}
-      {!connected && <div role="status" {...stylex.props(styles.hint)}>
+      {!connected && !pending && <div role="status" {...stylex.props(styles.hint)}>
         {unavailableReason ?? 'Reconnecting.'} Your draft stays here; it will not be sent automatically.
       </div>}
     </form>

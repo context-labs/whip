@@ -347,18 +347,6 @@ export class SessionTabs {
     if (!this.snapshot.previous.some(item => item.runtimeId === runtimeId)) return;
     this.write(this.workspace(), this.snapshot.previous.filter(item => item.runtimeId !== runtimeId), [...this.migrated, runtimeId]);
   }
-  /** Materialize a retained recovery identity without selecting it or reopening closed work. */
-  ensureNew(id: string, options: NewChatOptions = {}): SessionTab {
-    const workspace = this.workspace();
-    const existing = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
-    if (existing) return existing;
-    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
-    const tab = parseTab({ ...options, id, kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
-    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => pane.id === workspace.focusedPaneId
-      ? { ...pane, tabs: [...pane.tabs, tab] } : pane) }, undefined, undefined, true);
-    return Object.freeze(tab);
-  }
   openNew(options: NewChatOptions = {}): NewChatTab {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
     const tab = parseTab({ ...options, id: newId(), kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
@@ -608,3 +596,6 @@ function splitNode(existing: SessionLayout, pane: SessionPane, edge: SplitEdge):
   const before = edge === 'left' || edge === 'top';
   return { type: 'split', id: newId(), direction: edge === 'left' || edge === 'right' ? 'horizontal' : 'vertical', ratio: .5, first: before ? pane : existing, second: before ? existing : pane };
 }
+
+/** The draft identity a New Chat tab's first message is composed under. */
+export const welcomeDraftKey = (draftId: string) => `new:${draftId}:prompt`;

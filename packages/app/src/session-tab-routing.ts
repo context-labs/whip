@@ -73,6 +73,16 @@ export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate']
   } catch (error) { runtime.reportWorkspace(error); }
 }
 
+/** After the last tab closes, keep a place to type: a New Chat on the closed tab's host and folder (the default host when that host is gone). Closing a New Chat itself empties the workspace. */
+export function openAfterLastClose(runtime: AppRuntime, navigate: AnyRouter['navigate'], closed?: { kind: SessionTab['kind']; runtimeId?: string }, cwd?: string) {
+  if (closed && closed.kind !== 'new') {
+    const known = runtime.getSnapshot().hosts.some(host => host.runtimeId === closed.runtimeId);
+    openNewChat(runtime, navigate, known ? { runtimeId: closed.runtimeId, cwd: cwd || undefined } : {}, true);
+    return;
+  }
+  void navigate({ to: '/', replace: true }).catch(error => runtime.reportWorkspace(error));
+}
+
 /** A native link can select an already saved host, but cannot create one. */
 export function createSessionNavigator(runtime: AppRuntime, navigate: (path: string) => void, currentLocation?: () => unknown) {
   let epoch = 0; let disposed = false;

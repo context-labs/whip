@@ -83,6 +83,58 @@ func TestStreamRetriesTransientStatus(t *testing.T) {
 	}
 }
 
+// A recovered 520 must retain the failed attempt's missing usage separately.
+func TestStreamRetries520PreservingUnknownAttemptUsage(t *testing.T) {
+	noSleep(t)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(520)
+			fmt.Fprint(w, "error code: 520")
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],`+
+			`"usage":{"prompt_tokens":4,"completion_tokens":2}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(server.Close)
+	client := New(server.URL, "test")
+	var attempts []ModelAttempt
+	var settled []ModelAttemptResult
+	request := Request{Model: "fixture", Accounting: testCallAccounting(
+		func(_ context.Context, attempt ModelAttempt) (func(ModelAttemptResult) error, error) {
+			attempts = append(attempts, attempt)
+			return func(result ModelAttemptResult) error {
+				settled = append(settled, result)
+				return nil
+			}, nil
+		},
+	)}
+	var retries []RetryEvent
+	client.OnRetry = func(event RetryEvent) { retries = append(retries, event) }
+	message, _, err := client.Stream(t.Context(), request, nil, nil, nil)
+	if err != nil || message.Content != "ok" {
+		t.Fatalf("message=%+v err=%v", message, err)
+	}
+	if calls.Load() != 2 || len(attempts) != 2 || len(settled) != 2 || len(retries) != 1 {
+		t.Fatalf("calls=%d attempts=%+v settled=%+v retries=%+v", calls.Load(), attempts, settled, retries)
+	}
+	if attempts[0].LogicalID == "" || attempts[0].LogicalID != attempts[1].LogicalID ||
+		attempts[0].Number != 1 || attempts[1].Number != 2 {
+		t.Fatalf("attempt identities=%+v", attempts)
+	}
+	if !settled[0].Dispatched || !settled[0].Failed || settled[0].Usage.Reported {
+		t.Fatalf("failed request must retain unknown usage: %+v", settled[0])
+	}
+	if !settled[1].Dispatched || settled[1].Failed || !settled[1].Usage.Reported ||
+		settled[1].Usage.PromptTokens != 4 || settled[1].Usage.CompletionTokens != 2 {
+		t.Fatalf("successful retry usage=%+v", settled[1])
+	}
+	if retries[0].Max != DefaultMaxAttempts {
+		t.Fatalf("retry limit=%d, want %d", retries[0].Max, DefaultMaxAttempts)
+	}
+}
+
 // Transport errors (connection refused) are retryable too.
 func TestStreamRetriesTransportError(t *testing.T) {
 	noSleep(t)

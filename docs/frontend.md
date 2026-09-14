@@ -491,8 +491,9 @@ Clearing a previously persisted draft remains unsaved if deleting its durable
 record fails; an in-memory tombstone does not authorize a successful close.
 
 Desktop Cmd-W invokes the existing focused-tab close action, preserving drafts
-and daemon work. Closing the final session tab returns to New session; Cmd-W on
-a page with no active session tab hides the window. It does not disconnect any
+and daemon work. Closing the final session or terminal tab opens a New Chat on that tab's host and
+folder, so the workspace always offers a place to type; closing a New Chat as the
+last tab empties the workspace, and Cmd-W with no active tab hides the window. It does not disconnect any
 SDK client. Stable and beta hosts format `whip://` and `whip-beta://` links
 respectively through the preload's channel capability; both use the same renderer.
 Native session links use
@@ -1064,59 +1065,36 @@ remaining inventory and Refresh. **Connect Remote** opens the shared Add server
 dialog for local setup; remote setup retains its execution-host selector.
 Provider rows grow for wrapped labels and mobile touch targets. Connection and
 model confirmation reuse the existing flows; completing setup restores the draft
-composer without sending it. Recovery controls remain available independently
-of provider readiness.
+composer without sending it.
 
-`WelcomeSubmissions` in `welcome-submission.ts` owns first-message recovery in
-`AppRuntime`. Per-draft metadata journals freeze the original host/client,
-create/submit identities, parameters, root and state, but no prompt text. They are
-bounded to 32 records, 8 KiB each and 256 KiB total (UTF-8, including legacy records); admission uses the platform storage transaction before any
-network work. State transitions and retirement use that transaction and check the
-original create identity, so a late observer cannot replace a newer submission.
-The editable welcome prompt and frozen submission use the existing
-bounded draft store (32 nonempty entries, 256 KiB each, 1 MiB total), keyed by stable
-draft ID independently of host selection. Editable and frozen copies compete for
-that budget; unresolved frozen copies survive ordinary cross-window draft cleanup.
-Durable draft revisions distinguish later edits even when text becomes identical.
-Revision-only metadata is removed on startup; keys and tokens never enter either
-store. Storage failure prevents sending instead of leaving an unrecorded request.
+Sending the first message is three commands through the runtime's command
+runner: `sessions.create`, an optional `session.effort` with `persist_default:
+false` when the draft chose an effort, then `submit`. Acceptance of the submit
+promotes the New Chat tab in place into the session's tab (`SessionTabs.promoteNew`);
+the router follows only when that draft route is still focused, so a background
+pane never steals focus. The draft is cleared only if its text is still what was
+sent; a failure before acceptance keeps the text and shows the error under the
+composer. An uncertain or absent delivery shows the command runner's notice with
+Check status and Send again, the same handling ordinary messages get. There is no
+separate first-message journal: a reload during the few seconds of a first send
+can leave a created session in the sidebar beside the retained draft, an accepted
+trade for the recovery layer and its UI that used to cover it. Storage from that
+layer (`whip.web.welcome*` records and frozen `:submission` draft copies) is
+removed at startup.
 
 Welcome offers **Session options** in the model picker's footer for the agent
 definition and **Execution language**, keeping them out of the initial composer.
 Execution language is available only before session creation, using the
 host's advertised `execution_engines`. Starlark is the initial default; JavaScript
-(QuickJS) is opt-in. The selected value survives draft navigation and is frozen
-as an explicit `execution_engine` in the creation journal before admission.
-Legacy journals without a language retain Starlark. Status recovery never sends
-a payload; an explicit retry of an absent creation retains the original language.
+(QuickJS) is opt-in. The selected value survives draft navigation and is sent as
+an explicit `execution_engine` with the create command.
 The host owns the immutable session selection, inherited by all descendants.
 Execution settings change `default_execution_engine` for future sessions only,
 through the existing revisioned configuration query and editor. Missing discovery
-disables creation instead of assuming a language is supported.
+disables creation instead of assuming a language is supported. Neither reconnect,
+host switching nor auth completion silently submits the draft.
 
-Create and submit retain separate original command identities. An explicit draft
-effort has its own journaled `session.effort` identity and is applied after creation,
-before submitting the prompt, with `persist_default: false`. Recovery checks that
-original command before continuing; an uncertain effort never sends the prompt early.
-Drafts without an effort override inherit the host's creation default. Reload/reattach
-checks status; a confirmed absent request requires explicit retry with the original
-identity. Accepted input durably promotes the same draft descriptor to a session
-before retiring its journal and clears only the matching draft revision. App-owned
-completion works after unmount or close, preserves pane/order/view identity, and
-never reopens closed tabs or steals another pane/Settings focus. Only the still-focused
-draft route is replaced with its session URL. Failed promotion retains recovery.
-Later execution failures remain in runtime command observations. `welcome-recovery.tsx`
-keeps unresolved operations and nonempty orphan prompts reachable from empty/New Chat
-state after history eviction or capacity-blocked legacy import. Local editing locks
-while first-message admission/recovery is pending; newer programmatic revisions remain
-recoverable in a separate draft after promotion. Accepted journals whose cleanup failed
-can retry durable association and retirement offline without another create/submit.
-Legacy host prompts/journals are imported once with deterministic ownership; original
-command identities survive. Neither reconnect, host switching nor auth completion
-silently submits the draft. New-draft admission, metadata edits and promotion reject
-storage failure rather than claiming an unpersisted durable transition.
-
-Provider/runtime/recovery settings share `HostSelector`:
+Provider and runtime settings share `HostSelector`:
 the dropdown shows the host name and connection dot, followed by a status badge.
 The initial selection follows the last session's host or Local. Pin the resolved host for the Settings visit: disappearance or
 identity replacement preserves the old form disabled, rather than silently
@@ -1128,7 +1106,7 @@ Appearance and keyboard preferences remain viewing-device settings.
 `/settings` takes over the app window with its own category navigation and
 independently scrolling content. It hides conversation navigation and the tab
 strip; it never inserts a Settings tab or rebuilds the saved split tree. Runtime,
-connection management, notifications, command recovery and global dialogs remain
+connection management, notifications and global dialogs remain
 mounted above the route. Visible session consumers release their leases while
 Settings is open; daemon work continues.
 
@@ -1146,7 +1124,7 @@ exit clears the record. Composer drafts, attachments, split layout and reading
 positions retain their existing owners.
 
 The category modules live under `settings/`: General, Appearance, Providers &
-models, Agents & execution, Servers, Recovery, and About & updates. Agents &
+models, Agents & execution, Servers, and About & updates. Agents &
 execution also hosts the agent editor (`settings/agents.tsx`): it lists the
 host's definitions from `definitions.list`, derives the module and capability
 catalog from the built-in coding definition, builds the canonical document with
@@ -1168,8 +1146,7 @@ submit category-scoped revision-checked patches. `SettingsEditsProvider` guards
 category/host/Back navigation with Save, Discard, or Stay; secret inputs allow only
 Discard or Stay and never enter persisted recovery. Reverting fields to their
 original values makes the form clean. Provider polling exists only during an
-active login flow and is aborted on cleanup. Recovery filters durable commands by
-their owning runtime, while local draft recovery remains available offline.
+active login flow and is aborted on cleanup.
 
 Subscription login uses the same host-scoped daemon flow as API-provider
 onboarding: the optional `provider` selects `openai-codex`, with omission retaining
@@ -1514,6 +1491,47 @@ the strip baseline. The drag preview keeps that contour without a drop shadow.
 Preserve the production CSP and existing geometry exceptions. The only script-source
 relaxation is `'wasm-unsafe-eval'` for ghostty-web's terminal parser; no style-source
 relaxation is acceptable, which is why xterm.js was not adopted.
+
+### Empty workspace
+
+The empty workspace (`empty-workspace.tsx`) is the front door: first run, storage
+loss, and URLs whose tab is not open here. It reuses the New Chat heading, lists
+the shell's actions as rows with the live keycaps from Settings (`formatForDisplay`
+from the hotkeys package). One vocabulary across the sidebar, palette and this page:
+New session · Search sessions · New terminal · Commands · Reopen closed tab.
+Empty states everywhere ask "What do you want to work on?"; failure copy is
+reserved for stale URLs and real errors.
+
+### Loading states and placeholders
+
+Keep the interface still while a host answers. Four rules, in priority order
+(background and measurements: `.ai-docs/plans/loading-states/`):
+
+1. Never show a wrong state as a placeholder. "Unavailable", "Connect a
+   provider", "not available" describe outcomes; while a read is still pending
+   the copy is neutral ("Loading session…") or absent. Derive failure copy from
+   an error or a terminal status, never from "no data yet".
+2. Reserve the footprint instead of swapping components. Header, composer and
+   toolbar exist from the first paint at their final height and their contents
+   fill in; a disabled real control or an empty fixed-height slot usually
+   suffices. `SessionContent` and `WelcomeComposer` do this with an `opening` /
+   `isPending` flag rather than a separate loading view.
+3. Use a skeleton only where a blank slot would read as incomplete: the
+   composer's mode/model/effort pills (`PickerSkeletons`) and short lists that
+   fill a dialog (SSH profiles, folder rows). No skeleton for one-line status
+   text, sidebar sessions, or settings sections.
+4. Put status text where the content will appear, inside the slot it describes,
+   so removing it does not shift what follows.
+
+Spinners may be delayed to avoid flashing on fast reads (the directory dialog
+waits 180 ms); footprint reservation is never delayed, because a slot that
+appears late is itself a flash. When two layouts are mutually exclusive and the
+choice needs a host round trip (New Chat's composer versus provider setup), the
+answer is fetched ahead of time: `AppRuntime.primeProviders` warms the provider
+inventory when a host connects (the splash waits for Local's), and the last
+answer is remembered per host in device storage (`provider-readiness.ts`) so the
+first paint after a reload is already right. Route bodies for tabs the workspace already
+owns render nothing, so a route commit never paints their "missing" copy.
 
 ### Themes are foundational
 

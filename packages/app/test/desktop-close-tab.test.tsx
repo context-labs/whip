@@ -49,7 +49,9 @@ function fixture(path = '/h/mac/s/a', roots = ['a', 'b']) {
   });
   const connected = { state: 'connected', info: { runtime_id: 'mac', negotiated_capabilities: [] } };
   const client = { host: { attention: async () => ({ items: [] }) }, subscribe: () => () => {}, getSnapshot: () => connected, close: vi.fn() } as unknown as WhipClient;
-  const home = { ...runtime.getSnapshot().home!, client, runtimeId: 'mac', state: 'connected' as const };
+  // The sidebar catalog knows each session's folder before any summaries poll; closing the last tab reuses it.
+  const list = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'live', page: { items: roots.map(id => ({ id, cwd: `/work/${id}` })) }, truncated: false }) };
+  const home = { ...runtime.getSnapshot().home!, client, runtimeId: 'mac', state: 'connected' as const, list };
   vi.spyOn(runtime, 'getSnapshot').mockReturnValue({ ...runtime.getSnapshot(), home, hosts: [home] });
   for (const root of roots) runtime.tabs.open('mac', root);
   if (roots.includes('a')) runtime.tabs.visit('mac', 'a', {});
@@ -116,10 +118,15 @@ it('Cmd-W closes the focused session tab through the existing action and preserv
   f.dispose(); expect(f.listeners.size).toBe(0);
 });
 
-it('Cmd-W returns to New session after the final tab, then hides the window on the next command', () => {
+it('Cmd-W past the final session tab opens a New Chat on its host, then empties, then hides the window', () => {
   const f = fixture('/h/mac/s/a', ['a']);
+  f.closeTab();
+  const [draft] = f.runtime.tabs.workspace().tabs;
+  expect(f.runtime.tabs.workspace().tabs).toHaveLength(1); expect(draft).toMatchObject({ kind: 'new', runtimeId: 'mac', cwd: '/work/a' });
+  expect(routing.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ to: '/new/$draftId', params: { draftId: draft!.id }, replace: true }));
+  expect(f.hideWindow).not.toHaveBeenCalled();
   f.closeTab(); expect(f.runtime.tabs.workspace().tabs).toHaveLength(0);
-  expect(routing.navigate).toHaveBeenCalledWith({ to: '/', replace: true }); expect(f.hideWindow).not.toHaveBeenCalled();
+  expect(routing.navigate).toHaveBeenLastCalledWith({ to: '/', replace: true }); expect(f.hideWindow).not.toHaveBeenCalled();
   f.closeTab(); expect(f.hideWindow).toHaveBeenCalledOnce(); expect(f.client.close).not.toHaveBeenCalled(); f.dispose();
 });
 

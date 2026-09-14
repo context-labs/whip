@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, ChevronDown, Settings2, Palette, Cable, Bot, Network, LifeBuoy, Info, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Settings2, Palette, Cable, Bot, Network, Info, Search } from 'lucide-react';
 import { Button, Input, Sheet } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, typography, scale } from '@whip/ui/tokens.stylex';
@@ -8,11 +8,11 @@ import { useAppState, useRuntime } from './context';
 import { HostSelector } from './host-selector';
 import { layout } from './styles';
 import { AppearanceSettings } from './settings/appearance';
-import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, RecoverySettings, ConnectionsSettings, AgentsSettings } from './settings/sections';
+import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, ConnectionsSettings, AgentsSettings } from './settings/sections';
 import { SettingsEditsProvider } from './settings/unsaved';
 import { settingsCategories, searchSettings, settingsBackDestination, type SettingsSearch, type SettingsSection } from './settings/navigation';
 
-const icons = { general: Settings2, appearance: Palette, providers: Cable, execution: Bot, connections: Network, recovery: LifeBuoy, about: Info };
+const icons = { general: Settings2, appearance: Palette, providers: Cable, execution: Bot, connections: Network, about: Info };
 
 export function Settings(props: SettingsSearch) {
   return <SettingsEditsProvider><SettingsLayout {...props} /></SettingsEditsProvider>;
@@ -39,7 +39,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
   if (!identityChanged && observedHost?.client) retained.current.host = observedHost;
   const host = identityChanged || !observedHost?.client ? retained.current.host ?? observedHost : observedHost;
   const enabled = !identityChanged && !!observedHost?.client && observedHost.state === 'connected';
-  const hostSection = section === 'providers' || section === 'execution' || section === 'recovery';
+  const hostSection = section === 'providers' || section === 'execution';
   const results = searchSettings(query, !!runtime.platform.notify, !!runtime.platform.updates);
   const navigateSection = (next: SettingsSection, anchor?: string) => {
     void navigate({ to: '/settings', search: { section: next, ...(target ? { host: target } : {}), ...(anchor ? { setting: anchor } : {}) }, replace: true });
@@ -126,7 +126,6 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
           {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'execution' && host?.client && <AgentsSettings key={`agents:${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'connections' && <ConnectionsSettings />}
-          {section === 'recovery' && <RecoverySettings key={`${host?.id}:${host?.runtimeId}`} client={host?.client} enabled={enabled} />}
           {section === 'about' && <AboutSettings />}
         </div>
       </main>

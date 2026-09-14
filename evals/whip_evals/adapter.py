@@ -5,15 +5,20 @@ planning, host effects, child sessions and recovery remain in the Whip daemon.
 """
 
 import asyncio
+from dataclasses import replace
 import hashlib
 import json
 import os
 from pathlib import Path
 import shlex
+import stat
+import tempfile
 
 from harbor.agents.base import BaseAgent as HarborBaseAgent
 from pier.agents.base import BaseAgent as PierBaseAgent
 from pier.models.agent.network import NetworkAllowlist
+from pier.environments.docker.docker import DockerEnvironment
+from .common import write_json
 from .observe import final_accounting_complete
 
 
@@ -37,6 +42,98 @@ def clear_accounting(context):
     context.n_input_tokens = context.n_output_tokens = context.n_cache_tokens = None
     if hasattr(context, "peak_context_tokens"):
         context.peak_context_tokens = None
+
+
+async def download_content(environment, logs_dir, manifest):
+    """Publish only a complete, validated native bulk copy of scoped content."""
+    bodies = manifest.get("bodies") if isinstance(manifest, dict) else None
+    if not isinstance(bodies, list):
+        raise ValueError("invalid content manifest")
+    expected = {}
+    for body in bodies:
+        digest = body.get("digest") if isinstance(body, dict) else None
+        size = body.get("bytes") if isinstance(body, dict) else None
+        if (not isinstance(digest, str) or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)
+                or type(size) is not int or size < 0 or digest in expected):
+            raise ValueError("invalid content identity")
+        expected[digest] = size
+    destination = logs_dir / "content" / "sha256"
+    if os.path.lexists(destination):
+        raise ValueError("content destination already exists")
+    if not expected:
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.parent.resolve() != destination.parent.absolute():
+        raise ValueError("content destination must not follow symlinks")
+    with tempfile.TemporaryDirectory(prefix=".transfer-", dir=destination.parent) as temporary:
+        staging = Path(temporary)
+        await environment.download_dir("/logs/agent/whip/content/sha256", staging)
+        if staging.is_symlink() or {p.name for p in staging.iterdir()} != set(expected):
+            raise ValueError("content transfer inventory mismatch")
+        for digest, size in expected.items():
+            path = staging / digest
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise ValueError("content transfer requires regular files")
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+                if os.fstat(stream.fileno()).st_size != size:
+                    raise ValueError("content transfer size mismatch")
+                sha = hashlib.sha256()
+                while chunk := stream.read(1024 * 1024):
+                    sha.update(chunk)
+                    await asyncio.sleep(0)
+                if sha.hexdigest() != digest:
+                    raise ValueError("content transfer digest mismatch")
+            await asyncio.sleep(0)
+        if os.path.lexists(destination):
+            raise ValueError("content destination already exists")
+        staging.rename(destination)
+
+
+class PierDockerEnvironment(DockerEnvironment):
+    """Bound only the inference proxy's FD table; task policy remains native."""
+
+    def _prepare_egress_proxy_compose(self):
+        # Pinned Pier 0.3.1 private hook: fail visibly if its proxy shape changes.
+        # The VM bootstrap alone supplies this immutable ownership marker.
+        # Pier's synchronous pinned hook uses trial_paths only for its two
+        # credential-bearing outputs. Restore native paths before any await.
+        if os.environ.get("WHIP_EVAL_OWNER_ID"):
+            if getattr(self, "_whip_proxy_directory", None) is not None:
+                raise RuntimeError("private proxy was already prepared")
+            private = tempfile.TemporaryDirectory(prefix="whip-eval-proxy-", dir="/tmp")
+            self._whip_proxy_directory = private
+            original = self.trial_paths
+            try:
+                self.trial_paths = replace(original, trial_dir=Path(private.name))
+                super()._prepare_egress_proxy_compose()
+            except BaseException:
+                private.cleanup()
+                self._whip_proxy_directory = None
+                raise
+            finally:
+                self.trial_paths = original
+        else:
+            super()._prepare_egress_proxy_compose()
+        path = self._egress_proxy_compose_path
+        if path is None:
+            if not self.task_env_config.allow_internet and self.network_allowlist.domains:
+                raise RuntimeError("Pier did not generate the required inference proxy")
+            return
+        compose = json.loads(path.read_text())
+        proxy = compose["services"]["pier-egress-proxy"]
+        proxy.setdefault("ulimits", {})["nofile"] = {"soft": 65536, "hard": 65536}
+        write_json(path, compose)
+
+
+    async def stop(self, delete):
+        try:
+            await super().stop(delete)
+        finally:
+            private = getattr(self, "_whip_proxy_directory", None)
+            if private is not None:
+                private.cleanup()
+                self._whip_proxy_directory = None
 
 
 class WhipAdapter:
@@ -81,6 +178,21 @@ class WhipAdapter:
         configure = getattr(environment, "agent_process_env", None)
         return configure(values) if configure else values
 
+    async def setup_probe(self, environment, stage, command, **kwargs):
+        clock = asyncio.get_running_loop().time
+        started = clock()
+        receipt = {"stage": stage, "timeout_seconds": kwargs.get("timeout_sec")}
+        try:
+            result = await environment.exec(command, **kwargs)
+            receipt["return_code"] = result.return_code
+            return result
+        except BaseException as error:
+            receipt["error_code"] = type(error).__name__
+            raise
+        finally:
+            receipt["elapsed_seconds"] = clock() - started
+            write_json(self.logs_dir / ("setup-" + stage + ".json"), receipt)
+
     async def setup(self, environment):
         if self.ripgrep.exists():
             await environment.exec("mkdir -p /usr/local/bin", timeout_sec=15, user="root")
@@ -88,7 +200,7 @@ class WhipAdapter:
             installed = await environment.exec("chmod 755 /usr/local/bin/rg && /usr/local/bin/rg --version", timeout_sec=15, user="root")
             if installed.return_code != 0:
                 raise RuntimeError("bundled ripgrep failed startup")
-        result = await environment.exec(
+        result = await self.setup_probe(environment, "dependencies",
             "mkdir -p /opt/whip /logs/agent/whip && "
             "(command -v python3 >/dev/null && command -v curl >/dev/null && command -v rg >/dev/null && command -v git >/dev/null || "
             "(apt-get update -qq && apt-get install -y -qq python3 ca-certificates curl ripgrep git))",
@@ -167,7 +279,11 @@ class WhipAdapter:
                     probes["last_timeout_elapsed_seconds"] = clock() - started
                     continue
                 if (probe.stdout or "").strip():
-                    self.update_context(context, json.loads(probe.stdout))
+                    sample = json.loads(probe.stdout)
+                    self.update_context(context, sample)
+                    # This host-side receipt survives runner/observer death even
+                    # when final native export cannot run. It never proves finality.
+                    write_json(self.logs_dir / "metrics.interim.json", sample)
                     now = clock()
                     probes["max_staleness_seconds"] = max(probes["max_staleness_seconds"], now - last_sample)
                     last_sample = now
@@ -213,20 +329,13 @@ class WhipAdapter:
                             evidence_errors.append(name + ": " + type(error).__name__)
                             self.logger.warning("Whip evidence %s unavailable: %s", name, type(error).__name__)
                     if "content-export.json" in downloaded:
-                        content = json.loads((self.logs_dir / "content-export.json").read_text())
-                        for body in content.get("bodies", []):
-                            digest = body.get("digest", "")
-                            if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-                                evidence_errors.append("invalid content identity")
-                                continue
-                            target = self.logs_dir / "content" / "sha256" / digest
-                            target.parent.mkdir(parents=True, exist_ok=True)
-                            try:
-                                await environment.download_file("/logs/agent/whip/content/sha256/" + digest, target)
-                                if target.stat().st_size != body["bytes"] or hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-                                    raise ValueError("content transfer mismatch")
-                            except Exception as error:
-                                evidence_errors.append("content transfer: " + type(error).__name__)
+                        try:
+                            content = json.loads((self.logs_dir / "content-export.json").read_text())
+                            await download_content(environment, self.logs_dir, content)
+                        except TimeoutError:
+                            raise
+                        except Exception as error:
+                            evidence_errors.append("content transfer: " + type(error).__name__)
             except TimeoutError:
                 cleanup_truncated = True
                 evidence_errors.append("evidence/daemon cleanup exceeded deadline")

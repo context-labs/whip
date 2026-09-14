@@ -1,0 +1,421 @@
+{
+  "artifact_root": "artifacts/modal-native-fixture-20260911-a",
+  "baseline_at_launch": null,
+  "candidates": [
+    {
+      "binary_path": "cache/builds/7d3fd5f474e98e224cece0b8c41b3465749a8b21227bd97766966d42296c0ec3/whip-linux-amd64",
+      "binary_sha256": "34615892ba094c4e2a40a07a5443ea3c30231810a7d6ff0442859fd4a597fd5a",
+      "build": {
+        "binary_sha256": "34615892ba094c4e2a40a07a5443ea3c30231810a7d6ff0442859fd4a597fd5a",
+        "recipe": {
+          "CGO_ENABLED": "0",
+          "GOARCH": "amd64",
+          "GOOS": "linux",
+          "commit": "01f2db670c46cdb787333537f42e7e91582504cb",
+          "flags": [
+            "-trimpath",
+            "-buildvcs=false",
+            "-ldflags",
+            "-X main.version=01f2db670c46cdb787333537f42e7e91582504cb"
+          ],
+          "go_version": "go version go1.27.0 linux/amd64",
+          "source_sha256": "7c60cc353e2cb44f9e507c04ab77991eb1c808bc8709108b80bfe9c11bf71cbd"
+        },
+        "ripgrep_sha256": "f401154e2393f9002ac77e419f9ee5521c18f4f8cd3e32293972f493ba06fce7"
+      },
+      "commit": "01f2db670c46cdb787333537f42e7e91582504cb",
+      "configuration": {
+        "browser": {
+          "enabled": false
+        },
+        "compactModel": "kimi-k3",
+        "compactProvider": "inference-net",
+        "computer": {
+          "enabled": false
+        },
+        "defaultEffort": "high",
+        "defaultModel": "kimi-k3",
+        "defaultProvider": "inference-net",
+        "mcpImport": {
+          "claude": {
+            "enabled": false
+          },
+          "codex": {
+            "enabled": false
+          }
+        },
+        "models": {
+          "kimi-k3": {
+            "context": 1048576,
+            "maxOut": 0,
+            "providers": [
+              "inference-net"
+            ],
+            "vision": true
+          }
+        },
+        "providers": {
+          "inference-net": {
+            "api": "openai-completions",
+            "apiKeyEnv": "INFERENCE_API_KEY",
+            "baseUrl": "https://api.inference.net/v1",
+            "name": "Inference.net"
+          }
+        },
+        "rlm": {
+          "defaultEngine": "quickjs"
+        }
+      },
+      "dirty": false,
+      "engine": "quickjs",
+      "id": "candidate",
+      "source_sha256": "7c60cc353e2cb44f9e507c04ab77991eb1c808bc8709108b80bfe9c11bf71cbd"
+    }
+  ],
+  "capacity": null,
+  "catalog": {
+    "external_provider_calls": 0,
+    "fixture": true
+  },
+  "comparison": {
+    "environment": {
+      "app": "whip-eval",
+      "automatic_task_retries": 0,
+      "backend": "modal-docker",
+      "environment": "whipcode",
+      "external_provider_calls": 0,
+      "fixture": true,
+      "image_policy": "original-pinned-task-images",
+      "jobs": 2,
+      "promotion_allowed": false,
+      "qualification_receipt": "modal-qualification-20260911",
+      "qualification_status": "passed",
+      "shapes": {
+        "harbor": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        },
+        "pier": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        }
+      },
+      "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3",
+      "worker_root": "/work/evals"
+    },
+    "measurement_code": {
+      "__init__.py": "01180c8b4c31897bb09717f4af6a89e9e3b733587eae173c023322346d2b947c",
+      "adapter.py": "0e99173e0d3f6a9b07455694725cc4c93f649b6d68362cdcb9a0e28cfd65db2b",
+      "common.py": "e375cfd3f956ea2f95bee0dc854d97bceaf92d057ff21d39c2cfe2a841f12291",
+      "execution.py": "a4964ffd583119edc7f93586b382e61f25331f0a3eccb66ef53e8ad3aede3098",
+      "integrity.py": "6bdaaaab299735f18220d76f9dc738d9648d67557d4a60e04bf135729108e81a",
+      "modal_bundle.py": "056e3938a0a7a7f6ea60e7f55ee0d30fe325ab64feb16f12ae3b853d98e178f7",
+      "observe.py": "18b97431b4324fbcfef31ebd760c3a7edc0517d37c4b1972793e9d1a074fc49c",
+      "prepare.py": "c0540604b9149c7eb64eb228b563b0ffb63510979bcb79fbc4eed6a2cf832cfa",
+      "prepare_ripgrep.py": "5bda541978748495cdcee099d88fba834c3c5a0d9a1c5b10472a304a2ac7f8cf",
+      "report.py": "d54c5970ed959afe690cac642e1e7d2e035164e8d857438d71f80534bebcb131",
+      "result_evidence.py": "3fa97ebdabba8c557efda313d607e51554da5cd1b8f4cc2a3daad9aff9469310",
+      "tasks.py": "b54320c96bba08aaa1cab4f7f5e37578a0df4a8331f60d7ef97c63387e51242a"
+    },
+    "protocol_sha256": "202d11b0d04d47ccb5b25c53a1dab1b906081c0765b08a239220717911e94810",
+    "provider_catalog_sha256": "f46c93f6a9443e366c903aeb581ea21d9b613c9c3c926e74cb3bfa9bcb71fcea",
+    "requested_jobs": 2,
+    "resource_policy": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf"
+  },
+  "comparison_key": "f4d27bc29df6acd42f6d9f1318c61e07ca328dd70454d16f85a7277fb8faf916",
+  "cost_estimate": {
+    "basis_run_id": null,
+    "cost_usd": null,
+    "is_limit": false,
+    "method": "accepted per-task mean cost, projected to all planned arms/repetitions"
+  },
+  "created_at": "2026-09-11T17:53:20.520397Z",
+  "excluded_from_scores": true,
+  "external_provider_calls": 0,
+  "external_references": {},
+  "fixture": true,
+  "fixture_tasks": [
+    {
+      "agent_seconds": 120.0,
+      "id": "fixture/harbor-shared",
+      "resources": {
+        "cpus": 2,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "verifier_mode": "shared",
+      "verifier_seconds": 60.0
+    },
+    {
+      "agent_seconds": 120.0,
+      "id": "fixture/pier-separate",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 4096,
+        "storage_mb": 20480
+      },
+      "runner": "pier",
+      "verifier_mode": "separate",
+      "verifier_seconds": 60.0
+    }
+  ],
+  "host": {
+    "backend": "modal-docker",
+    "qualified": false
+  },
+  "jobs": 2,
+  "label": "",
+  "prepared_tasks": {
+    "fixture/harbor-shared": "112e9322846094c6e784fbc9b92a444906f513d6859a803f3fe8f0c525786821",
+    "fixture/pier-separate": "1e3977e0d3290f46ee2ba2ebb2cfcda8b58e4f28989517a59114254d4e576fb8"
+  },
+  "profile": "fixture",
+  "profile_version": 1,
+  "promote": false,
+  "promotion_policy": {
+    "bootstrap_samples": 10000,
+    "max_cost_ratio": 1.1,
+    "max_latency_ratio": 1.1,
+    "min_common_success_tasks": 5,
+    "repetitions": 3,
+    "version": 1
+  },
+  "protocol": {
+    "agent_setup_seconds": 600,
+    "automatic_task_retries": 0,
+    "cleanup_seconds": 240,
+    "commit_instruction": "Commit your final changes in this disposable task repository so the evaluator can collect git diff BASE HEAD.",
+    "effort": "high",
+    "endpoint": "https://api.inference.net/v1",
+    "execution": {
+      "app": "whip-eval",
+      "automatic_task_retries": 0,
+      "backend": "modal-docker",
+      "environment": "whipcode",
+      "external_provider_calls": 0,
+      "fixture": true,
+      "image_policy": "original-pinned-task-images",
+      "jobs": 2,
+      "promotion_allowed": false,
+      "qualification_receipt": "modal-qualification-20260911",
+      "qualification_status": "passed",
+      "shapes": {
+        "harbor": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        },
+        "pier": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        }
+      },
+      "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3",
+      "worker_root": "/work/evals"
+    },
+    "headroom": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "id": "frontier-v1-local-v1-modal-docker-v1-fixture-v1",
+    "limits": {
+      "cost_usd": null,
+      "output_override": null,
+      "rounds": null,
+      "tokens": null
+    },
+    "max_jobs": 90,
+    "methodology": "Authored native qualification fixtures; excluded from benchmark scores",
+    "methodology_comparable": false,
+    "model": "kimi-k3",
+    "network": {
+      "pier_agent_provider_exception": [
+        "api.inference.net"
+      ],
+      "pier_environment_import_path": "whip_evals.adapter:PierDockerEnvironment",
+      "pier_proxy_nofile": {
+        "hard": 65536,
+        "soft": 65536
+      },
+      "task_policy": "resolved native task declarations and pinned runner defaults"
+    },
+    "observer_grace_seconds": 45,
+    "platform": "linux/amd64",
+    "promotion": {
+      "bootstrap_samples": 10000,
+      "max_cost_ratio": 1.1,
+      "max_latency_ratio": 1.1,
+      "min_common_success_tasks": 5,
+      "repetitions": 3,
+      "version": 1
+    },
+    "provider": "inference-net",
+    "runner_guard_seconds": 60,
+    "runner_versions": {
+      "datacurve-pier": "0.3.1",
+      "harbor": "0.22.0"
+    },
+    "sampling": {
+      "temperature": null,
+      "top_p": null
+    },
+    "schema_version": 1,
+    "track": "frontier-v1-local-v1/kimi-k3-inference-high-modal-docker-v1-fixture-v1"
+  },
+  "repetitions": 1,
+  "resolved_tasks": {
+    "fixture/harbor-shared": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 120.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 300.0,
+        "cpus": 2,
+        "docker_image": null,
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "mkdir -p /logs/artifacts && curl --fail --max-time 10 http://127.0.0.1:8765/proof.txt > /logs/artifacts/service-proof.txt && cd /app && git diff --binary $(git rev-list --max-parents=0 HEAD) HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 30.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 60.0,
+        "user": null
+      }
+    },
+    "fixture/pier-separate": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 120.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 300.0,
+        "cpus": 2,
+        "docker_image": null,
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "mkdir -p /logs/artifacts && curl --fail --max-time 10 http://127.0.0.1:8765/proof.txt > /logs/artifacts/service-proof.txt && cd /app && git diff --binary $(git rev-list --max-parents=0 HEAD) HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 30.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 300.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 2048,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 10240,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 60.0,
+        "user": null
+      }
+    }
+  },
+  "run_id": "modal-native-fixture-20260911-a",
+  "schedule": [
+    {
+      "binary_sha256": "34615892ba094c4e2a40a07a5443ea3c30231810a7d6ff0442859fd4a597fd5a",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0001",
+      "repetition": 1,
+      "resources": {
+        "cpus": 2,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "fixture/harbor-shared"
+    },
+    {
+      "binary_sha256": "34615892ba094c4e2a40a07a5443ea3c30231810a7d6ff0442859fd4a597fd5a",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0002",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 4096,
+        "storage_mb": 20480
+      },
+      "runner": "pier",
+      "task_id": "fixture/pier-separate"
+    }
+  ],
+  "schema_version": 1,
+  "seed": 20260910,
+  "task_ids": [
+    "fixture/harbor-shared",
+    "fixture/pier-separate"
+  ],
+  "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf",
+  "track": "frontier-v1-local-v1/kimi-k3-inference-high-modal-docker-v1-fixture-v1",
+  "uv_lock_sha256": "22e9de6676e3923fa6a0ab7cfa1f7b1595e1b4b41d21265bd8d6de026d49f97d"
+}

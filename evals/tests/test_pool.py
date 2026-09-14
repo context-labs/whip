@@ -31,6 +31,29 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(len(results), 8)
             self.assertTrue(all(r['phase_seconds']['queue'] >= 0 for r in results.values()))
 
+    def test_one_failed_trial_with_unknown_billing_does_not_cancel_pool(self):
+        cancelled = threading.Event()
+        collected = {}
+        def worker(trial, stop):
+            self.assertFalse(stop.is_set())
+            return dict(started=True, cleanup=dict(complete=True),
+                        execution_status='agent_error' if trial['id'] == '0' else 'completed',
+                        success=trial['id'] != '0', evidence_complete=True,
+                        accounting_complete=trial['id'] != '0',
+                        cost_usd=None if trial['id'] == '0' else '1.000000',
+                        known_cost_usd='1.000000',
+                        unknown_cost_calls=1 if trial['id'] == '0' else 0)
+        results = run_pool(self.trials(6), dict(cpus=4, memory_mb=16, storage_mb=40), 2,
+                           worker, cancelled=cancelled,
+                           on_result=lambda trial, result: collected.update({trial['id']: result}))
+        self.assertFalse(cancelled.is_set())
+        self.assertEqual(set(results), {str(i) for i in range(6)})
+        self.assertEqual(set(collected), set(results))
+        self.assertTrue(all(r['started'] for r in results.values()))
+        self.assertEqual(sum(r['success'] for r in results.values()), 5)
+        self.assertIsNone(results['0']['cost_usd'])
+        self.assertEqual(results['0']['unknown_cost_calls'], 1)
+
     def test_cleanup_failure_halts_new_dispatch(self):
         started = []
         def worker(trial, cancelled):

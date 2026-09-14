@@ -76,6 +76,20 @@ it('deletes only after confirmation and clears the clicked root on its original 
   expect(f.remove).toHaveBeenCalledOnce();
   expect(route.navigate).not.toHaveBeenCalled();
 });
+it('deleting the current and only session lands in a New Chat on that host', async () => {
+  const f = fixture();
+  route.location = { pathname: '/h/remote/s/same-root' };
+  route.navigate.mockResolvedValue(undefined);
+  const openNew = vi.fn(() => ({ id: 'draft', kind: 'new', runtimeId: 'remote', cwd: '', permissionMode: 'prompt' }));
+  Object.assign(f.runtime.tabs, { openNew }); Object.assign(f.host, { runtimeId: 'remote' });
+  f.rerender();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete…', exact: true }));
+  await screen.findByText(f.metadata.title);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete session', exact: true }));
+  await waitFor(() => expect(f.runtime.forgetSession).toHaveBeenCalledOnce());
+  expect(openNew).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runtimeId: 'remote' }));
+  expect(route.navigate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: '/new/$draftId', params: { draftId: 'draft' }, replace: true }));
+});
 it('archive keeps tabs and drafts, with an Undo that restores the same root', async () => {
   const f = fixture();
   fireEvent.click(screen.getByRole('button', { name: 'Archive', exact: true }));

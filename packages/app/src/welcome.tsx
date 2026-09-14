@@ -13,31 +13,26 @@ import { WelcomeHostPicker } from './welcome-host-picker';
 import { HostDialog, LocalRuntimeSetup } from './host-dialog';
 import type { HostConnection } from './hosts';
 import { DirectoryPicker } from './directory-picker';
-import type { NewChatTab } from './session-tabs';
+import { welcomeDraftKey, type NewChatTab } from './session-tabs';
 import { ProviderSetup } from './provider-setup';
 import { useProviderConnections } from './settings/provider-connections';
-import { CatalogModelPicker, DraftEffortPicker, catalogModels, modelEfforts, useProviderCatalog } from './model-selection';
+import { CatalogModelPicker, DraftEffortPicker, PickerSkeletons, catalogModels, modelEfforts, useProviderCatalog } from './model-selection';
 import { PermissionModeControl } from './permission-mode';
-import { welcomeDraftKey } from './welcome-submission';
 import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
 import { SessionInfoBar } from './session-info-bar';
-import { WelcomeRecovery } from './welcome-recovery';
 import { definitionOptions, useDefinitions } from './definitions';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
   const runtime = useRuntime();
   const navigate = useNavigate();
   const { hosts } = useAppState();
-  useSyncExternalStore(runtime.welcome.subscribe, runtime.welcome.getSnapshot);
   const [adding, setAdding] = useState(false);
   const [hostSelectionError, setHostSelectionError] = useState<unknown>();
   const selected = tab.hostProfileId ?? tab.runtimeId;
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
-  let locked = false;
-  try { locked = !!runtime.welcome.get(tab.id); } catch { locked = true; }
   const selectHost = (id: string) => {
-    if (locked || id === host?.id) return;
+    if (id === host?.id) return;
     const next = hosts.find(host => host.id === id);
     try {
       runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId, cwd: '', model: undefined, provider: undefined, effort: undefined });
@@ -45,28 +40,21 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
       if (next && next.state !== 'connected') void runtime.connections.connect(id).catch(() => {});
     } catch (error) { setHostSelectionError(error); }
   };
-  const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={locked} onSelect={selectHost}
+  const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={false} onSelect={selectHost}
     onManage={() => void navigate({ to: '/settings', search: { section: 'connections' } })} />;
   return <><SessionInfoBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
     <div {...stylex.props(styles.page)}><div {...stylex.props(styles.column)}>
       {host && runtime.platform.localRuntime && host.profile?.target.kind === 'local' && host.state !== 'connected'
         ? <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><LocalRuntimeSetup host={host} />{hostControl}</>
-        : host?.client ? <NewSession key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onConnectRemote={() => setAdding(true)} />
+        : host?.client ? <WelcomeComposer key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onConnectRemote={() => setAdding(true)} />
         : <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><p role="status">{host ? `${host.name} is ${host.state === 'closed' ? 'disconnected' : host.state}.` : 'Select or add an execution host to begin.'}</p>
           <div {...stylex.props(styles.toolbar)}>{hostControl}{host
             ? <Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>
             : <Button onClick={() => setAdding(true)}>Add server</Button>}</div></>}
       <ErrorNotice type="action" owner={tab.id} title="Could not change host" error={hostSelectionError} />
-      <WelcomeRecovery currentId={tab.id} />
     </div></div>
     <HostDialog open={adding} onOpenChange={setAdding} onSaved={selectHost} />
   </>;
-}
-
-function NewSession({ client, host, tab, focused, hostControl, onConnectRemote }: { client: WhipClient; host: HostConnection; tab: NewChatTab; focused: boolean; hostControl: ReactNode; onConnectRemote(): void }) {
-  const connection = useWhipConnection(client);
-  if (!connection.info?.runtime_id) return <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><p role="status">Connecting to {host.name}…</p>{hostControl}</>;
-  return <WelcomeComposer client={client} host={host} tab={tab} focused={focused} hostControl={hostControl} onConnectRemote={onConnectRemote} />;
 }
 
 /** Editable state belongs to the stable workspace draft, not the selected host. */
@@ -75,7 +63,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
 }) {
   const runtime = useRuntime();
   const app = useAppState();
-  useSyncExternalStore(runtime.welcome.subscribe, runtime.welcome.getSnapshot);
   const connection = useWhipConnection(client);
   const runtimeId = connection.info?.runtime_id ?? host.runtimeId!;
   const key = welcomeDraftKey(tab.id);
@@ -111,46 +98,56 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'off');
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
   const requiresUpdate = !!providers.inventory.data && !selection;
-  let recovery: ReturnType<typeof runtime.welcome.get>;
-  let recoveryError = '';
-  try { recovery = runtime.welcome.get(tab.id); } catch (error) { recoveryError = errorMessage(error); }
-  const executionEngine = recovery?.params?.execution_engine ?? tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
+  const executionEngine = tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
   const engineOptions = (engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs')
     .map(engine => ({ value: engine.id, label: engine.label }));
   const engineAvailable = engineOptions.some(engine => engine.value === executionEngine);
   // The agent definition the session runs. Older hosts do not advertise the
   // registry; they run the coding agent and the picker stays hidden.
   const definitions = useDefinitions(client, connected);
-  const definition = recovery?.params?.definition ?? tab.definition ?? 'coding';
+  const definition = tab.definition ?? 'coding';
   const definitionChoices = definitionOptions(definitions.query.data?.items);
-  const definitionAvailable = !definitions.supported || definitionChoices.some(choice => choice.value === definition);
+  const definitionAvailable = !definitions.supported || !definitions.query.data || definitionChoices.some(choice => choice.value === definition);
   const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
   function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
-  async function submit(mode: 'start' | 'check' | 'retry' = 'start') {
-    if (!connected || busy || (mode === 'start' && (!draft.trim() || recovery || recoveryError))) return;
-    if (mode === 'start' && requiresUpdate) return;
-    if (mode === 'start' && !engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
-    if (mode === 'start' && definitions.query.data && !definitionAvailable) { setError(`This host has no agent definition named ${definition}. Choose an available agent.`); return; }
-    if (mode === 'start' && !ready) { openProviders(); return; }
-    if (mode === 'start' && !effortAvailable) { setError('Choose an available reasoning effort for this model before sending.'); return; }
-    if (mode === 'start' && !cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
+  async function submit() {
+    if (!connected || busy || !draft.trim() || requiresUpdate || unresolved) return;
+    if (!engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
+    if (definitions.query.data && !definitionAvailable) { setError(`This host has no agent definition named ${definition}. Choose an available agent.`); return; }
+    if (!ready) { openProviders(); return; }
+    if (!effortAvailable) { setError('Choose an available reasoning effort for this model before sending.'); return; }
+    if (!cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
     setBusy(true); setError('');
+    const text = draft;
     try {
-      mode === 'start'
-        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model, provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }, { effort: tab.effort === undefined ? undefined : effort })
-        : await runtime.welcome.resume(tab.id, client, mode === 'retry');
+      // Create, apply the chosen effort, then send. Each step runs through the
+      // command runner, whose delivery tracking keeps a dropped connection from
+      // sending twice and surfaces an unresolved send under the composer.
+      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
+      const rootId = created.result?.root_id;
+      if (!rootId) throw new Error('Session creation returned no session.');
+      if (tab.effort !== undefined) await runtime.run(client.session(rootId).command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, key);
+      // Acceptance is the handover: this tab becomes the session's and the turn runs there.
+      await new Promise<void>((resolve, reject) => {
+        let accepted = false;
+        void runtime.run(client.session(rootId).submit({ text }), 'Send first message', () => { accepted = true; resolve(); }, key).catch(error => { if (!accepted) reject(error); });
+      });
+      runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
+      if (runtime.draft(key) === text) runtime.setDraft(key, '');
     } catch (error) { if (mounted.current) setError(errorMessage(error)); }
     finally { if (mounted.current) setBusy(false); }
   }
-  const disabled = !connected || busy || !!recovery || !!recoveryError;
-  const setupVisible = (!ready || showProviders) && !recovery && !recoveryError;
+  const disabled = !connected || busy;
+  // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
+  const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
+  const setupVisible = knownReady === false || showProviders;
   return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : 'What do you want to work on?'}</h1>
   <div ref={panel} {...stylex.props(styles.content)}>
     {!setupVisible && <><form onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
       <Textarea ref={input} autoFocus={focused} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
-        value={draft} disabled={busy || !!recovery || !!recoveryError} maxLength={256 * 1024} onChange={event => { try { runtime.setDraft(key, event.target.value); } catch (error) { setError(errorMessage(error)); } }}
-        onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!recovery) void submit(); } }} />
+        value={draft} disabled={busy} maxLength={256 * 1024} onChange={event => { try { runtime.setDraft(key, event.target.value); } catch (error) { setError(errorMessage(error)); } }}
+        onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} />
       <div {...stylex.props(styles.toolbar, styles.composerToolbar)}>
         <IconButton variant="ghost" label="Attach text or images" title="Attachments are available after the session starts" disabled><Paperclip size={15} /></IconButton>
         <IconButton variant="ghost" label="Add context" title="Context suggestions are available after the session starts" disabled><AtSign size={16} /></IconButton>
@@ -160,8 +157,9 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
           onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : 'off' })}
           footer={<Button variant="ghost" onClick={() => setShowOptions(true)}><SlidersHorizontal size={14} />Session options</Button>} />
+          : providers.inventory.isPending ? <PickerSkeletons count={2} />
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
-        <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />
+        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
           disabled={disabled || requiresUpdate || !engineAvailable || !effortAvailable || !ready || !draft.trim() || !cwd.trim()}><ArrowUp size={16} /></Button>
       </div>
@@ -182,21 +180,19 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         options={definitionAvailable ? definitionChoices : [...definitionChoices, { value: definition, label: `${definition} (unavailable)`, disabled: true }]}
         onValueChange={definition => updateSetup({ definition })} /></Field>}
     </Dialog>
-    {!setupVisible && (!engineAvailable || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
+    {!setupVisible && connected && (!engineAvailable || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
     {!setupVisible && !effortAvailable && !catalog.isPending && <p role="status" {...stylex.props(styles.note)}>Choose an available reasoning effort for this model before sending.</p>}
-    {(recovery || recoveryError) && <div data-error-type="submission" data-error-owner={key} role="status" {...stylex.props(layout.notice, layout.column)}>
-      <span>{recoveryError || recovery?.error || (recovery?.state === 'accepted' ? 'Your first message was accepted. Continue the created session.' : 'Your first message has a saved recovery record. Check its status before sending again.')}</span>
-      {recovery && <div {...stylex.props(layout.row)}>
-        {recovery.state !== 'failed' && <Button disabled={!connected || busy} onClick={() => void submit('check')}>{recovery.state === 'accepted' ? 'Continue session' : 'Check first message'}</Button>}
-        {(recovery.state === 'absent' || unresolved?.delivery === 'absent') && <Button variant="secondary" disabled={!connected || busy} onClick={() => void submit('retry')}>Retry original request</Button>}
-        {recovery.state === 'failed' && <Button variant="secondary" disabled={busy} onClick={() => { void runtime.welcome.finish(tab.id, recovery!.create.commandId).then(() => setError('')).catch(error => setError(errorMessage(error))); }}>Discard failed request</Button>}
-        {recovery.rootId && <Button variant="ghost" onClick={() => void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: recovery!.create.runtimeId, rootId: recovery!.rootId! }, search: {} })}>Open created session</Button>}
-      </div>}
-    </div>}
-    {error && !recovery && !recoveryError && <ErrorNotice type="submission" owner={key} error={error} />}
-    {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
+    {unresolved && <ErrorNotice type="submission" owner={key} tone="warning"
+      title={unresolved.delivery === 'absent' ? 'Your first message was not received' : 'Checking whether your first message was received'}
+      error={unresolved.error || 'Check this command before sending again. Your draft is preserved.'}
+      action={<>
+        <Button type="button" variant="ghost" disabled={!connected} onClick={() => void runtime.checkCommand(unresolved.id).catch(error => setError(errorMessage(error)))}>Check status</Button>
+        {unresolved.delivery === 'absent' && <Button type="button" variant="ghost" disabled={!connected} onClick={() => void runtime.retryCommand(unresolved.id).catch(error => setError(errorMessage(error)))}>Send again</Button>}
+      </>} />}
+    {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} />}
+    {!connected && <p role="status" {...stylex.props(styles.note)}>{connection.info ? 'Reconnecting to' : 'Connecting to'} {host.name}. Your draft stays here and will not be sent automatically.</p>}
     {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers}
-      actions={host.local ? <Button variant="ghost" disabled={busy || !!recovery || !!recoveryError} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : hostControl}
+      actions={host.local ? <Button variant="ghost" disabled={busy} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : hostControl}
       onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />}
   </div></>;
 }
@@ -207,7 +203,7 @@ const styles = stylex.create({
   heading: { fontSize: typography.size24, fontWeight: 550, lineHeight: '32px', letterSpacing: '-0.025em', margin: 0 },
   content: { display: 'flex', flexDirection: 'column', gap: scale.space2, minWidth: 0 },
   composer: { display: 'flex', flexDirection: 'column', gap: scale.space2, padding: scale.space3, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 20, backgroundColor: colors.element },
-  input: { minHeight: 96, maxHeight: 220, resize: 'vertical', borderWidth: 0, boxShadow: 'none', outline: 'none', backgroundColor: { default: 'transparent', ':hover': 'transparent' }, fontSize: { default: typography.size14, [scale.phone]: typography.size16 }, padding: scale.space1 },
+  input: { minHeight: 96, maxHeight: 220, resize: 'none', borderWidth: 0, boxShadow: 'none', outline: 'none', backgroundColor: { default: 'transparent', ':hover': 'transparent' }, fontSize: { default: typography.size14, [scale.phone]: typography.size16 }, padding: scale.space1 },
   toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space1, minWidth: 0 },
   composerToolbar: { justifyContent: 'flex-end' },
   send: { borderRadius: '50%', width: { default: 32, [scale.touch]: 44 }, paddingInline: 0 },
