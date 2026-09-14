@@ -4,7 +4,7 @@ import type { WhipClient } from '@whip/sdk';
 import { Button, Dialog, Field, Input, useToast, type MenuItem } from '@whip/ui';
 import { useAppState, useRuntime } from './context';
 import { errorMessage, readPreference, type ProjectEditor } from './platform';
-import { sessionDestination, tabDestination } from './session-tab-routing';
+import { sessionDestination, tabDestination, openAfterLastClose } from './session-tab-routing';
 import { selectedSessionTab } from './session-tabs';
 import { ErrorNotice } from './error-feedback';
 
@@ -133,7 +133,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
         if (currentRoute?.runtimeId === target.runtimeId && currentRoute.rootId === target.rootId) {
           const next = selectedSessionTab(runtime.tabs.workspace());
           if (next) await navigate({ ...tabDestination(next), replace: true });
-          else await navigate({ to: '/', replace: true });
+          else openAfterLastClose(runtime, navigate, { kind: 'chat', runtimeId: target.runtimeId });
         }
       }
       setSelection(undefined);

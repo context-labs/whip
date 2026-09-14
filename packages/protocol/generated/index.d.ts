@@ -1370,6 +1370,7 @@ export interface MCPImportParams {
 export interface MCPImportStatusResult {
   claude: boolean;
   codex: boolean;
+  project: boolean;
 }
 
 export type MCPListResult =

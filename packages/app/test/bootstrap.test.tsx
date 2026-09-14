@@ -31,7 +31,7 @@ it('connects once and shows the desktop window while startup is still pending', 
   vi.mocked(HostConnections.prototype.connectOnLaunch).mockReturnValue(startup);
   const f = fixture();
   expect(HostConnections.prototype.connectOnLaunch).toHaveBeenCalledOnce();
-  expect(renderStartup).toHaveBeenCalledWith(startup);
+  expect(renderStartup).toHaveBeenCalledWith(expect.any(Promise));
   act(() => vi.advanceTimersByTime(40));
   expect(f.bridge.ready).toHaveBeenCalledOnce();
 });
@@ -82,16 +82,15 @@ it('reports text-only draft loss during a desktop update when storage falls back
   expect(f.source.getItem('whip.web.draft.v1:runtime:root:agent')).toBeNull();
 });
 
-it('reports a failed text-only close flush when another window exceeds the aggregate draft limit', () => {
+it('saves a text-only close flush when another window exceeded the draft bound, evicting that overflow', () => {
   const f = fixture();
   f.app.runtime.setDraft('runtime:root:agent', 'unsaved local changes');
   for (let index = 0; index < 33; index++)
     f.source.setItem(`whip.web.draft.v1:other:root:${index}`, 'another window');
   f.close();
-  expect(f.bridge.replyClose).toHaveBeenLastCalledWith('close', {
-    attachments: false, error: expect.stringContaining('Drafts could not be saved'),
-  });
-  expect(f.app.runtime.draft('runtime:root:agent')).toBe('unsaved local changes');
+  expect(f.bridge.replyClose).toHaveBeenLastCalledWith('close', { attachments: false });
+  expect(f.source.getItem('whip.web.draft.v1:runtime:root:agent')).toBe('unsaved local changes');
+  expect(f.source.keys().filter(key => key.startsWith('whip.web.draft.v1:'))).toHaveLength(32);
 });
 
 it('flushes durable text for a desktop close and releases its lifecycle listeners on disposal', () => {

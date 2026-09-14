@@ -91,8 +91,8 @@ func TestCheckedManagerRejectsSchemaAndUnknownToolsBeforeTransmission(t *testing
 	}
 	for _, call := range []capability.MCPCall{first, second} {
 		out, err := m.CallChecked(t.Context(), call, nil)
-		if err != nil || out != call.Tool {
-			t.Fatalf("exact dispatch = %q, %v", out, err)
+		if err != nil || out.Text != call.Tool {
+			t.Fatalf("exact dispatch = %q, %v", out.Text, err)
 		}
 	}
 	if effects.Load() != 2 {
@@ -280,8 +280,8 @@ func TestCheckedManagerInstructionsAndToolError(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := m.CallChecked(t.Context(), call, nil)
-	if err == nil || out != "Error: boom" {
-		t.Fatalf("tool IsError did not fail while retaining output: %q, %v", out, err)
+	if err == nil || out.Text != "Error: boom" {
+		t.Fatalf("tool IsError did not fail while retaining output: %q, %v", out.Text, err)
 	}
 	var effects atomic.Int32
 	instructions := checkedManager(t, testCfg("checked"), checkedServer(&effects))
@@ -319,8 +319,8 @@ func TestCheckedManagerPreservesExactArgumentNumbers(t *testing.T) {
 	call := checkedCall(t, m, "echo")
 	call.Arguments = json.RawMessage(`{"id":9007199254740993}`)
 	output, err := m.CallChecked(t.Context(), call, nil)
-	if err != nil || output != string(call.Arguments) {
-		t.Fatalf("argument number changed before transmission: %q, %v", output, err)
+	if err != nil || output.Text != string(call.Arguments) {
+		t.Fatalf("argument number changed before transmission: %q, %v", output.Text, err)
 	}
 }
 
@@ -334,8 +334,8 @@ func TestCheckedManagerPreservesLargeResult(t *testing.T) {
 	call := checkedCall(t, m, "read")
 	call.Arguments = json.RawMessage(`{}`)
 	output, err := m.CallChecked(t.Context(), call, nil)
-	if err != nil || output != want {
-		t.Fatalf("large result lost before host storage: got %d bytes, want %d, error=%v", len(output), len(want), err)
+	if err != nil || output.Text != want {
+		t.Fatalf("large result lost before host storage: got %d bytes, want %d, error=%v", len(output.Text), len(want), err)
 	}
 }
 

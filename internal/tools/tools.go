@@ -68,6 +68,7 @@ type Services struct {
 	mcpAutomatic        bool
 	permissionRevision  uint64
 	mcpProvider         func() MCPProvider
+	mcpAttachmentStore  func(context.Context, string, []byte) (string, error)
 	permissionLedger    capability.Ledger
 	permissions         map[string]*permissionResolution
 	// Custom tools declared by the agent definition; see custom.go.

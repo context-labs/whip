@@ -135,7 +135,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		if route.Vision {
 			services.SetScreenshotSink(func(images [][]byte) {
-				ag.SteerImages("browser/computer screenshots attached:", screenshotParts(images))
+				ag.SteerImages("images attached (browser/computer screenshots or MCP results):", screenshotParts(images))
 			})
 		}
 		ag.Vision = route.Vision
@@ -180,23 +180,16 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
-		if definition.MCP.Servers != nil {
-			// The definition names the servers it uses; everything else the host
-			// configured stays out of this session.
-			for name := range discovery.Merged {
-				if !slices.Contains(definition.MCP.Servers, name) {
-					delete(discovery.Merged, name)
-				}
-			}
-			for name := range discovery.Blocked {
-				if !slices.Contains(definition.MCP.Servers, name) {
-					delete(discovery.Blocked, name)
-				}
-			}
+		// The definition names the servers it uses; everything else the host
+		// configured stays out of this session. Attachment applies the same step.
+		discovery = mcp.Select(discovery, definition.MCP.Servers)
+		for source, err := range discovery.Errs {
+			config.LogEvent("mcp", fmt.Sprintf("discovery: %s: %v", source, err))
 		}
-		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
+		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 || len(discovery.Errs) > 0 {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)
+			mcpManager.SetSourceErrors(discovery.Errs)
 		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
 			Engine: meta.ExecutionEngine, Definition: definition, Agent: ag, History: history, Limits: limits, Kernels: kernels,

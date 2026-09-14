@@ -20,7 +20,7 @@ import { SessionActionsProvider } from './session-actions';
 import { SessionSearchDialog } from './session-search-dialog';
 import { SessionSidebar } from './session-sidebar';
 import { SidebarResize, useSidebarLayout } from './sidebar-layout';
-import { useAppState, useRuntime, useSessionTabs } from './context';
+import { ShellCommandsContext, useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
 import { HostNotice } from './connection-notice';
 import { ErrorNotice } from './error-feedback';
@@ -102,8 +102,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           title={state.errorTitle} onDismiss={() => runtime.clearError()} />}
 
   </>;
+  const runCommand = (action: string) => {
+    if (action === 'new') openNewChat(runtime, navigate);
+    else if (action === 'commands') setCommands(true);
+    else if (action === 'focus') requestAnimationFrame(focusComposer);
+    else if (action === 'navigation') openSearch();
+    else if (action === 'connect') manageServers();
+    else if (action === 'tabs:search') tabActions.current?.showPicker();
+    else if (action === 'tabs:next') tabActions.current?.next(1);
+    else if (action === 'tabs:previous') tabActions.current?.next(-1);
+    else if (action === 'tabs:close') tabActions.current?.close();
+    else if (action === 'tabs:reopen') tabActions.current?.reopen();
+    else if (action === 'terminal:new') tabActions.current?.newTerminal();
+    else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace())?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
+    else if (isSettingsSection(action)) void navigate({ to: '/settings', search: { section: action } });
+  };
   return (
-    <SessionActionsProvider><div {...stylex.props(layout.shell)}>
+    <SessionActionsProvider><ShellCommandsContext.Provider value={runCommand}><div {...stylex.props(layout.shell)}>
       {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
       {!settings && !compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
@@ -133,7 +148,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         items={[
           { value: 'new', label: 'New session' },
           ...(!settings ? [{ value: 'focus', label: 'Focus message composer' }] : []),
-          { value: 'navigation', label: 'Browse sessions' },
+          { value: 'navigation', label: 'Search sessions' },
           { value: 'connect', label: 'Manage servers' },
           ...(!settings ? [{ value: 'terminal:new', label: 'New terminal' }] : []),
           ...(!settings ? [{ value: 'tabs:search', label: 'Search open tabs' },
@@ -144,21 +159,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           ...(params.rootId ? inspectorSections.map(item => ({ value: `panel:${item.value}`, label: item.label })) : []),
           ...settingsCategories.map(category => ({ value: category.id, label: `${category.label} settings` })),
         ]}
-        onSelect={(action) => {
-          if (action === 'new') openNewChat(runtime, navigate);
-          else if (action === 'focus') requestAnimationFrame(focusComposer);
-          else if (action === 'navigation') openSearch();
-          else if (action === 'connect') manageServers();
-          else if (action === 'tabs:search') tabActions.current?.showPicker();
-          else if (action === 'tabs:next') tabActions.current?.next(1);
-          else if (action === 'tabs:previous') tabActions.current?.next(-1);
-          else if (action === 'tabs:close') tabActions.current?.close();
-          else if (action === 'tabs:reopen') tabActions.current?.reopen();
-          else if (action === 'terminal:new') tabActions.current?.newTerminal();
-          else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace())?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
-          else if (isSettingsSection(action)) void navigate({ to: '/settings', search: { section: action } });
-        }}
+        onSelect={runCommand}
       />
-    </div></SessionActionsProvider>
+    </div></ShellCommandsContext.Provider></SessionActionsProvider>
   );
 }

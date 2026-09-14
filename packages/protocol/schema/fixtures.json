@@ -1167,7 +1167,8 @@
     "type": "MCPImportStatusResult",
     "value": {
       "claude": false,
-      "codex": false
+      "codex": false,
+      "project": false
     }
   },
   {

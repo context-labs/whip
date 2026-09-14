@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -44,21 +42,55 @@ func (s *Session) mcpProvider() tools.MCPProvider {
 	return nil
 }
 
+// attachMCP adds client-supplied servers (ACP passes the editor's MCP
+// configuration) to the root's live manager. Attachments are additive: they
+// never replace the running manager or re-read native configuration, so an
+// attach cannot drop earlier attachments or live imports. Client-supplied
+// origin and source are descriptive; every attachment is untrusted for calls.
+// The definition's server list is the same boundary the factory applies, and
+// a native name cannot be taken over. Both refusals stay visible as blocked
+// rows instead of vanishing. Re-attaching a name this or another client
+// attached earlier replaces that entry.
 func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	// Client-supplied origin and source are descriptive. Only definitions
-	// loaded by this daemon from native WHIP configuration can confer trust.
 	servers := mcp.AttachedConfigs(attached)
-	maps.Copy(servers, mcp.FromConfigMap(cfg.MCPServers))
-	manager := mcp.NewManager(servers)
-	configureMCP(s, Components{MCP: manager})
-	previous := s.swapMCP(manager)
-	if previous != nil {
-		_ = safeClose("previous MCP", previous.Close)
+	selected := mcp.Select(mcp.Filtered{Merged: servers}, s.definition.MCP.Servers)
+	blocked := map[string]mcp.ServerConfig{}
+	refuse := func(name, note string) {
+		cfg := servers[name]
+		cfg.Enabled = new(false)
+		cfg.Note = note
+		blocked[name] = cfg
+		delete(selected.Merged, name)
 	}
+	for name := range servers {
+		if _, ok := selected.Merged[name]; !ok {
+			refuse(name, "outside this agent's MCP server list")
+		}
+	}
+	manager := s.mcpManager()
+	if manager == nil {
+		manager = mcp.NewManager(selected.Merged)
+		manager.SetBlocked(blocked)
+		configureMCP(s, Components{MCP: manager})
+		if previous := s.swapMCP(manager); previous != nil {
+			_ = safeClose("previous MCP", previous.Close)
+		}
+		return nil
+	}
+	var replace []string
+	for name := range selected.Merged {
+		current, exists := manager.Config(name)
+		switch {
+		case !exists:
+		case current.Trusted:
+			refuse(name, "native configuration keeps this name")
+		default:
+			replace = append(replace, name)
+		}
+	}
+	manager.RemoveServers(replace...)
+	manager.AddServers(context.Background(), selected.Merged)
+	manager.AddBlocked(blocked)
 	return nil
 }
 

@@ -13,7 +13,8 @@ standalone terminals remain later work.
 
 Draft text is application-owned and saved separately from command recovery
 metadata. Draft admission allows 32 non-empty drafts, 256 KiB each and 1 MiB
-total, scoped by runtime, session and recipient. Changes are saved after 150 ms and
+total, scoped by runtime, session and recipient. At the bounds, the earliest drafts
+that no open or recently closed tab owns are dropped silently. Changes are saved after 150 ms and
 flushed synchronously when leaving the page. Each recipient has its own storage
 entry, so saving one tab never overwrites another recipient's draft. Competing
 edits to the same recipient use the last explicit write. Reconnecting never
@@ -27,10 +28,9 @@ the page closes or reloads.
 A missing command acknowledgement locks the matching draft against a new-ID
 resend while the app checks authoritative status. Accepted commands continue to
 completion; a definitive missing record offers an explicit retry with the original
-identity and payload. Failed lookups remain unresolved. Settings → Recovery can
-inspect and forget saved identities after reload; those records contain no prompts.
-Its separate, confirmed discard action clears unsent drafts, including drafts for
-removed sessions, without deleting command identities or device preferences.
+identity and payload. Failed lookups remain unresolved and are shown beside the
+composer that sent them. Stored identities contain no prompts and are bounded to
+1024 records; the earliest is dropped when the journal is full.
 
 ## Multiple execution hosts
 
@@ -139,8 +139,8 @@ The limits are 16 files per recipient and 20 MiB across the window; uploads run
 serially. A reload or page close requires selecting files again, and the browser
 warns while attachments remain. Switching focus between hosts preserves transfers
 and attachments. Explicitly detaching a host interrupts only its transfers and
-marks its attachment references unavailable. Explicit removal, accepted submission
-and Settings → Recovery → Discard drafts clear the corresponding attachment state.
+marks its attachment references unavailable. Explicit removal and accepted
+submission clear the corresponding attachment state.
 
 The negotiated `session_summaries` capability supplies tab titles and
 running/queued agent and pending permission/question counts without opening each

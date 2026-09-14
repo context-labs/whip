@@ -17,7 +17,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { draftDestination, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { draftDestination, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
@@ -98,6 +98,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
 
   const pendingNavigation = useRef<string | undefined>(undefined);
   const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.title || tab.titleHint || 'Untitled session';
+  // The sidebar's catalog already holds a session's directory before the first summaries poll, so an opening tab can show its project at first paint.
+  const knownCwd = (tab: SessionTab) => !isSessionTab(tab) ? undefined : item(tab)?.cwd ?? hosts.find(host => host.runtimeId === tab.runtimeId)?.list?.getSnapshot().page?.items?.find(session => session.id === tab.rootId)?.cwd;
   const project = (tab: SessionTab) => (tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
   const hasDraft = (tab: SessionTab) => isSessionTab(tab) && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
   const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab));
@@ -128,9 +130,11 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     // Closing a terminal tab ends its shell; a late failure has nowhere truthful to show.
     const shells = runtime.tabs.workspace().tabs.filter(tab => tab.kind === 'terminal' && viewIds.includes(tab.id));
     for (const tab of shells) if (tab.kind === 'terminal') void runtime.connections.host(tab.runtimeId)?.client?.terminals.close(tab.terminalId).catch(() => {});
+    const closing = active && viewIds.includes(active.id) ? active : undefined;
+    const closingCwd = closing?.kind === 'terminal' ? closing.cwd : closing ? knownCwd(closing) : undefined;
     const next = runtime.tabs.closeViews(viewIds, active?.id);
     setNotice(shells.length === viewIds.length ? (shells.length === 1 ? 'Terminal closed. Its shell has ended.' : 'Terminals closed. Their shells have ended.') : viewIds.length === 1 ? 'Tab closed. Work and drafts are kept.' : 'Tabs closed. Work and drafts are kept.');
-    if (next === null) void navigate({ to: '/', replace: true });
+    if (next === null) openAfterLastClose(runtime, navigate, closing, closingCwd);
     else if (next) go(next, true);
     if (restoreFocus || focusAfterMenu || viewIds.includes(active?.id ?? '')) requestAnimationFrame(() => {
       const replacement = selectedSessionTab(runtime.tabs.workspace());
@@ -267,8 +271,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         }
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : <>
-            <SessionInfoBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? item(tab)?.cwd : undefined} agentName={tab.location.agent ?? 'Root'}
+          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
+            <SessionInfoBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!views.errors.has(workspaceRootKey(tab))}
               activity={<span role="status">{views.errors.has(workspaceRootKey(tab)) ? 'Session unavailable' : 'Loading session…'}</span>}
               onRepl={tab.kind === 'chat' ? () => { void openSessionView(runtime, navigate, tab.id, 'repl'); } : undefined} />
             {views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}

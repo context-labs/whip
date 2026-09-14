@@ -6,9 +6,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/context-labs/whip/internal/capability"
 )
+
+// MCPAttachment is a binary part of a tool result (image, audio, blob
+// resource). The daemon stores it as a content handle owned by the calling
+// agent; Placeholder is the exact text the flattener wrote for it, so the
+// handle can be spliced into that line.
+type MCPAttachment struct {
+	MIME        string
+	Data        []byte
+	Placeholder string
+}
+
+// MCPResult is a checked call's output: the text the model reads, with any
+// structured content appended as JSON, plus binary parts kept as attachments
+// instead of being dropped.
+type MCPResult struct {
+	Text        string
+	Attachments []MCPAttachment
+}
 
 // MCPProvider resolves canonical tool identities and checks a call after its
 // server queue, immediately before transmission.
@@ -16,7 +35,48 @@ type MCPProvider interface {
 	ResolveTool(server, tool string) (capability.MCPCall, error)
 	ValidateArguments(capability.MCPCall) error
 	CallContext(capability.MCPCall) (context.Context, error)
-	CallChecked(context.Context, capability.MCPCall, func(context.Context) error) (string, error)
+	CallChecked(context.Context, capability.MCPCall, func(context.Context) error) (MCPResult, error)
+}
+
+// SetMCPAttachmentStore installs the per-agent store for binary MCP result
+// parts. The daemon binds one per agent so a handle belongs to the caller;
+// authority clones do not inherit it. Without a store (tool hosts, tests) the
+// placeholders stand as they are.
+func (s *Services) SetMCPAttachmentStore(store func(ctx context.Context, mime string, data []byte) (handle string, err error)) {
+	s.mu.Lock()
+	s.mcpAttachmentStore = store
+	s.mu.Unlock()
+}
+
+// absorbMCPAttachments turns binary result parts into content handles owned
+// by the calling agent and, when this agent has a screenshot sink (the root),
+// queues image parts for its next turn through the same path browser and
+// computer captures use. Children have no sink and get the handle only.
+func (s *Services) absorbMCPAttachments(ctx context.Context, result MCPResult) string {
+	text := result.Text
+	s.mu.RLock()
+	store, sink := s.mcpAttachmentStore, s.screenshotSink
+	s.mu.RUnlock()
+	var images [][]byte
+	for _, attachment := range result.Attachments {
+		if sink != nil && strings.HasPrefix(attachment.MIME, "image/") {
+			images = append(images, attachment.Data)
+		}
+		if store == nil || attachment.Placeholder == "" {
+			continue
+		}
+		note := "; not stored"
+		if handle, err := store(ctx, attachment.MIME, attachment.Data); err == nil {
+			note = "; handle " + handle
+		} else {
+			note += ": " + err.Error()
+		}
+		text = strings.Replace(text, attachment.Placeholder, strings.TrimSuffix(attachment.Placeholder, "]")+note+"]", 1)
+	}
+	if len(images) > 0 {
+		sink(images)
+	}
+	return text
 }
 
 type mcpAuthorizer interface {
@@ -157,7 +217,7 @@ func (s *Services) mcpRegistration(ledger capability.Ledger) capability.Registra
 			if err != nil {
 				return "", err
 			}
-			return provider.CallChecked(ctx, call, func(ctx context.Context) error {
+			result, err := provider.CallChecked(ctx, call, func(ctx context.Context) error {
 				current, err := s.currentMCPProvider()
 				if err != nil {
 					return err
@@ -176,6 +236,7 @@ func (s *Services) mcpRegistration(ledger capability.Ledger) capability.Registra
 				}
 				return s.checkMCPRevision(ctx, consent)
 			})
+			return s.absorbMCPAttachments(ctx, result), err
 		},
 	}
 }

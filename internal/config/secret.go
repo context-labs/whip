@@ -30,6 +30,13 @@ const SecretCmdTimeout = 5 * time.Second
 // shell-template authoring convention (MCP env/header values) use
 // ExpandTemplate instead.
 func ResolveSecret(v string) (string, error) {
+	return ResolveSecretContext(context.Background(), v)
+}
+
+// ResolveSecretContext is ResolveSecret bounded by the caller: a "!cmd" helper
+// runs under ctx capped by SecretCmdTimeout, so a cancelled connect does not
+// leave a helper running.
+func ResolveSecretContext(ctx context.Context, v string) (string, error) {
 	switch {
 	case strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}") && isEnvRefBody(v[2:len(v)-1]):
 		name := v[2 : len(v)-1]
@@ -66,8 +73,11 @@ func ResolveSecret(v string) (string, error) {
 		if len(fields) == 0 {
 			return "", fmt.Errorf("secret reference %q: empty command", v)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), SecretCmdTimeout)
+		ctx, cancel := context.WithTimeout(ctx, SecretCmdTimeout)
 		defer cancel()
+		if err := ctx.Err(); err != nil {
+			return "", fmt.Errorf("secret reference %q: %w", v, err)
+		}
 		out, err := exec.CommandContext(ctx, fields[0], fields[1:]...).Output()
 		if err != nil {
 			return "", fmt.Errorf("secret reference %q: %w", v, err)
@@ -229,6 +239,11 @@ func isEnvName(s string) bool {
 // inherit from whip's own environment, and codex's semantics for a missing
 // var are "absent", not "empty".
 func ResolveEnvMap(env map[string]string) (map[string]string, error) {
+	return ResolveEnvMapContext(context.Background(), env)
+}
+
+// ResolveEnvMapContext is ResolveEnvMap with "!cmd" helpers bounded by ctx.
+func ResolveEnvMapContext(ctx context.Context, env map[string]string) (map[string]string, error) {
 	if len(env) == 0 {
 		return env, nil
 	}
@@ -237,7 +252,7 @@ func ResolveEnvMap(env map[string]string) (map[string]string, error) {
 		var rv string
 		var err error
 		if strings.HasPrefix(v, "!") || IsWholeRef(v) {
-			rv, err = ResolveSecret(v)
+			rv, err = ResolveSecretContext(ctx, v)
 		} else {
 			rv, err = ExpandTemplate(v)
 		}
@@ -259,8 +274,13 @@ func ResolveEnvMap(env map[string]string) (map[string]string, error) {
 // so the connect fails cleanly upstream instead of sending a half-resolved
 // reference.
 func ResolveHeader(v string) (string, error) {
+	return ResolveHeaderContext(context.Background(), v)
+}
+
+// ResolveHeaderContext is ResolveHeader with "!cmd" helpers bounded by ctx.
+func ResolveHeaderContext(ctx context.Context, v string) (string, error) {
 	if strings.HasPrefix(v, "!") || IsWholeRef(v) {
-		return ResolveSecret(v)
+		return ResolveSecretContext(ctx, v)
 	}
 	return ExpandTemplate(v)
 }

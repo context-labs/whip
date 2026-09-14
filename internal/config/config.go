@@ -251,15 +251,22 @@ type LSPServer struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
-// MCPImport selects which claude/codex MCP server definitions whip imports.
-// A nil source entry (or nil Enabled) leaves that source on. Example:
+// MCPImport selects which imported MCP server definitions whip picks up.
+// Three sources: claude (the user's ~/.claude.json), codex (the user's
+// ~/.codex/config.toml) and project (the repository's .mcp.json in the
+// session cwd). A nil claude or codex entry (or nil Enabled) leaves that
+// source on: they are the user's own files. project is off unless enabled,
+// because a repository author wrote it and enabling it runs those programs
+// at session start. Example:
 //
 //	"mcpImport": {
-//	  "codex": { "enabled": true, "exclude": ["node_repl"] }
+//	  "codex": { "enabled": true, "exclude": ["node_repl"] },
+//	  "project": { "enabled": true }
 //	}
 type MCPImport struct {
-	Claude *MCPImportSource `json:"claude,omitempty"`
-	Codex  *MCPImportSource `json:"codex,omitempty"`
+	Claude  *MCPImportSource `json:"claude,omitempty"`
+	Codex   *MCPImportSource `json:"codex,omitempty"`
+	Project *MCPImportSource `json:"project,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when
@@ -495,7 +502,7 @@ func marshalConfig(c *Config) ([]byte, error) {
 	header := "// whip configuration — JSONC: comments and trailing commas are allowed.\n" +
 		"// providers: declare each API endpoint once. models: route each model to one or\n" +
 		"// more providers (first is the default). defaultModel/defaultProvider pick the route.\n" +
-		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex imports, e.g.\n" +
+		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex/project imports, e.g.\n" +
 		"//   \"mcpImport\": { \"codex\": { \"enabled\": true, \"exclude\": [\"node_repl\"] } }\n"
 	out := append([]byte(header), body...)
 	return append(out, '\n'), nil

@@ -178,13 +178,25 @@ marks which definitions the caller is authorized to use. Each call runs through
 the durable capability dispatcher, reserves operation capacity, and rechecks its
 grant and current server definition after permission and the server's call queue.
 Large results become handles through the same bounded-output path as built-in
-operations.
+operations. A call's text keeps every text part and appends any
+`structuredContent` as JSON; image, audio and binary resource parts are stored
+as content handles owned by the calling agent and named in the text
+(`[image 1: image/png, 48213 bytes; handle …]`), and image parts also reach the
+root's next turn as vision input through the same path browser and computer
+screenshots use. Children receive the handle only.
 
-Servers explicitly configured in native WHIP configuration are trusted. Imported
-Claude/Codex definitions retain their provenance, including when saved by the
-import command; ACP attachments also require consent or a saved allow rule.
-Only the daemon's native configuration establishes native trust. A client cannot
-claim it or replace a native definition by attaching a server of the same name.
+Servers explicitly configured in native WHIP configuration are trusted.
+Definitions discovered from the project's `.mcp.json`, the Codex file, or the
+global Claude file retain their provenance and require consent or a saved
+allow rule; `whip mcp import` materializes them into native configuration,
+which is how an imported server becomes trusted. The project file is an
+import source of its own and is off unless enabled. ACP attachments are
+additive and untrusted for calls: they join the running manager, an
+attachment outside the agent definition's server list or one that names a
+native server is recorded as blocked instead, and re-attaching a
+non-native name replaces that entry. Only the daemon's native configuration establishes native
+trust. A client cannot claim it or replace a native definition by attaching a
+server of the same name.
 Explicit permission denials and revoked grants still win. Headless execution
 uses preauthorization or denies promptly; it never waits for a permission UI.
 
@@ -203,7 +215,10 @@ reconnecting a manager invalidates pending calls; transmitted calls are never
 automatically retried because their external outcome may be uncertain.
 
 `whip mcp serve` is a protocol bridge for external MCP clients. It hosts
-daemon-owned tool services directly and does not create a model agent.
+daemon-owned tool services directly and does not create a model agent. It
+cannot obtain new consent: operations covered by saved rules run, everything
+else is denied, and an outer client's approval is never treated as whip
+consent.
 
 ## Authorization and output
 

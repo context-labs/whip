@@ -16,7 +16,7 @@ export function mountApplication(platform: AppPlatform, desktop?: DesktopBridge)
   const root = createRoot(element);
   const prompts = platform.hostPrompts;
   const sessionNavigator = createSessionNavigator(application.runtime, path => application.router.history.push(path), () => application.router.state.location);
-  const startup = application.runtime.connections.connectOnLaunch();
+  const startup = application.runtime.connections.connectOnLaunch().then(() => application.runtime.primeProviders(application.runtime.getSnapshot().home?.runtimeId));
   root.render(<StrictMode><application.Application startup={startup}>{prompts && <HostPrompts prompts={prompts} />}</application.Application></StrictMode>);
   const warnBeforeUnload = (event: BeforeUnloadEvent) => {
     const drafts = application.runtime.flushDrafts();

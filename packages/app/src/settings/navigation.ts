@@ -9,7 +9,6 @@ export const settingsCategories = [
   { id: 'providers', label: 'Providers & models', description: 'Connect providers and choose defaults for this execution host.' },
   { id: 'execution', label: 'Agents & execution', description: 'Configure how agents run on this execution host.' },
   { id: 'connections', label: 'Servers', description: 'Manage the computers where Whip runs.' },
-  { id: 'recovery', label: 'Recovery', description: 'Recover saved drafts and check uncertain commands.' },
   { id: 'about', label: 'About & updates', description: 'Application information and available updates.' },
 ] as const;
 export type SettingsSection = (typeof settingsCategories)[number]['id'];
@@ -45,8 +44,6 @@ export const settingEntries: readonly SettingEntry[] = [
   { id: 'import_codex', section: 'execution', label: 'Import Codex configuration', keywords: 'integration' },
   { id: 'agents', section: 'execution', label: 'Custom agents', keywords: 'agent definition persona rules modules capabilities register new' },
   { id: 'hosts', section: 'connections', label: 'Servers', keywords: 'execution hosts connections server remote ssh url tailscale test connection' },
-  { id: 'drafts', section: 'recovery', label: 'Saved drafts', keywords: 'storage device offline discard' },
-  { id: 'commands', section: 'recovery', label: 'Command recovery', keywords: 'uncertain status forget retry' },
   { id: 'updates', section: 'about', label: 'Application updates', keywords: 'version install restart release', desktopOnly: true },
 ];
 export function searchSettings(query: string, nativeNotifications: boolean, updates: boolean): readonly SettingEntry[] {

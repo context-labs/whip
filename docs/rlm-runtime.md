@@ -360,7 +360,10 @@ in either mode, subject to its existing consent gate.
 MCP servers are daemon-owned integrations available from every authorized
 node through `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
 are not appended to the provider’s tool catalog. Root and child therefore keep
-the same stable interface even as MCP servers connect, fail, or reconnect.
+the same stable interface even as MCP servers connect, fail, or reconnect. A
+call's text carries structured content as JSON; image, audio and binary parts
+become content handles owned by the caller and are named in the text, and image
+parts also reach the root's next turn as vision input.
 
 The root session owns the only live manager; attachment, model reload, status,
 root calls, and descendant calls use that synchronized owner. Tool invocations

@@ -160,12 +160,34 @@ root prompt (`evals/rlm`).
 
 ## MCP
 
-- Stdio and streamable HTTP servers are discovered from project, Codex, and
-  WHIP configuration (`internal/mcp`).
+- Stdio and streamable HTTP servers are discovered from four sources merged
+  by name with this precedence: native WHIP configuration, the project's
+  `.mcp.json`, the user's Codex file, the user's global Claude file
+  (`internal/mcp/config.go`, `TestMergePrecedence`). Each import source has
+  its own gate; the project source is off unless enabled because a repository
+  author wrote it (`TestLoadMergedFilteredPolicy`).
+- Only native configuration is trusted. `whip mcp import` writes native,
+  trusted entries (`cmd/whip/mcp_import_test.go`). The definition's server
+  list is applied by one selection step for startup, reload and attachment
+  (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
+  name outside the list or belonging to a native server becomes a blocked row
+  (`TestMCPAttachmentIsAdditiveAndBounded`).
 - Root and child kernels use `mcp.list_servers/list_tools/call`.
+- Status rows distinguish `blocked` (policy-filtered or refused at attach) and
+  `unreadable` (a discovery source that failed to parse) from live servers;
+  the web panel, TUI palette and `whip mcp list` derive their controls from
+  those states (`TestSourceErrorsAreStatusRows`, `mcp_palette_test.go`,
+  `packages/app/test/inspector.test.tsx`).
+- Secrets resolve once at connect for both transports, bounded by the
+  connect's context (`connectSecrets`, `TestResolveSecretContextCancelled`);
+  remote credentials never follow a cross-origin redirect
+  (`TestRemoteRedirectKeepsCredentialsOnOrigin`); auto-reconnect re-arms after
+  a failed redial until its three-attempt cap
+  (`TestManagerAutoReconnectRecoversAfterFailedRedial`).
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
-  reconnect generation guards, and bounded structured/media flattening.
+  reconnect generation guards, complete cursor-paged tool discovery, and
+  results that keep structured content and store binary parts as handles.
 - Remote HTTP requests remain tied to the transport lifetime through SSE body
   reads, including startup before a session is published. Retirement cancels
   stalled streams and permits a one-second best-effort session DELETE. Healthy
@@ -314,7 +336,8 @@ An onboarding draft requires explicit Enter after connection; late login replies
 poll ticks or earlier launch prompts cannot submit or clear an edited draft.
 Preparation errors allow Enter to retry; a terminal connection failure displays
 its cause and instructions to quit/relaunch. Fresh installations
-leave external Claude/Codex MCP imports off and no longer use `setup.done`.
+leave external Claude/Codex MCP imports off, keep the repository's `.mcp.json`
+source off until enabled, and no longer use `setup.done`.
 
 Welcome retains the draft during setup, requires a project folder, and creates
 the session with the chosen tool permission mode before sending. Its bounded
@@ -598,7 +621,7 @@ behavior to its owning code and repeatable validation.
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
 | Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
-| Independent New Chat tabs, host/setup persistence, original-ID first-message recovery, focus-safe in-place promotion and closed/orphan recovery | `packages/app/src/{session-tabs,session-tab-routing,welcome,welcome-submission,welcome-recovery,runtime}.ts*` | App tab/routing/Welcome/submission/runtime/settings/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
+| Independent New Chat tabs, host/setup persistence, and in-place promotion of the tab when the first message is accepted | `packages/app/src/{session-tabs,session-tab-routing,welcome,runtime}.ts*` | App tab/routing/Welcome/runtime/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
@@ -607,9 +630,9 @@ behavior to its owning code and repeatable validation.
 | Errors owned by application, host, session, turn, execution, submission, resource, action or validation, each with one canonical display | [Ownership rules](frontend.md#error-ownership-and-canonical-displays), `packages/app/src/error-feedback.tsx`; latest turn outcome only, recorded execution failures retained | `local-errors.test.tsx`, `welcome-recovery.test.tsx`, error ownership browser fixture |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
-| Full-window Settings with seven categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
+| Full-window Settings with six categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
 | Terminal tabs: a login shell on the session's host in a fourth tab kind, opened from pane and tab menus, the palette or the terminal shortcut; drawn by ghostty-web; reattached with replay after reload or reconnect; closing the tab ends the shell | `packages/app/src/terminal-view.tsx`, `session-tabs.ts` (`TerminalTab`, `openTerminal`, `updateTerminal`), `session-tab-routing.ts` (`openTerminalTab`, `terminalDestination`), `routes/h.$runtimeId.t.$terminalId.tsx`, `session-tab-strip.tsx`, `packages/sdk/src/terminals.ts` | `terminal-view.test.tsx`, `session-tabs.test.ts`, `session-tab-routing.test.ts`, `packages/sdk/test/terminals.test.ts`, `apps/web/scripts/terminal-tabs.mjs`, `apps/desktop/scripts/terminal-smoke.mjs` |
-| Host-scoped configuration, login cleanup, unsaved-edit guards and offline draft recovery | `packages/app/src/settings/{configuration,providers,recovery,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
+| Host-scoped configuration, login cleanup and unsaved-edit guards | `packages/app/src/settings/{configuration,providers,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
 | Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
 | Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
 | Packaged same-origin web assets and explicit `whip web` launch | `internal/webassets`, `cmd/whip/web.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, `cmd/whip/web_test.go`, `scripts/pack-web.test.mjs`, isolated packed-source consumer builds |

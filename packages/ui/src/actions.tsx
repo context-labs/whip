@@ -34,7 +34,7 @@ export function ToggleGroup({value, onValueChange, items, label}: {value: string
   return <BaseToggleGroup value={value} onValueChange={onValueChange} aria-label={label} {...stylex.props(styles.inline)}>{items.map(item => <BaseToggle key={item.value} value={item.value} className={state => stylex.props(styles.control, styles.button, state.pressed && styles.tabActive).className}>{item.label}</BaseToggle>)}</BaseToggleGroup>;
 }
 export function Link({xstyle, ...props}: ComponentPropsWithRef<'a'> & Styled) {return <a {...mergeProps(stylex.props(styles.link, xstyle), props)}/>;}
-export function Kbd({children}: {children: ReactNode}) {return <kbd {...stylex.props(styles.kbd)}>{children}</kbd>;}
+export function Kbd({children, xstyle}: {children: ReactNode} & Styled) {return <kbd {...stylex.props(styles.kbd, xstyle)}>{children}</kbd>;}
 export function CopyButton({text, label = 'Copy', showLabel = false, copy, onError, xstyle}: Styled & {text: string; label?: string; showLabel?: boolean; copy?: (text: string) => Promise<void>; onError?: (error: unknown) => void}) {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(false);

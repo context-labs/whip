@@ -9,7 +9,6 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1754,22 +1753,10 @@ func (m *model) openThinMCPPalette() {
 		{"Disable Claude imports", "/mcp import claude off"},
 		{"Enable Codex imports", "/mcp import codex on"},
 		{"Disable Codex imports", "/mcp import codex off"},
+		{"Enable project .mcp.json imports", "/mcp import project on"},
+		{"Disable project .mcp.json imports", "/mcp import project off"},
 	}
-	var servers []string
-	if m.cfg != nil {
-		servers = make([]string, 0, len(m.cfg.MCPServers))
-		for name := range m.cfg.MCPServers {
-			servers = append(servers, name)
-		}
-	}
-	slices.Sort(servers)
-	for _, name := range servers {
-		commands = append(commands,
-			struct{ title, command string }{"Reconnect " + name, "/mcp " + name + " reconnect"},
-			struct{ title, command string }{"Enable " + name, "/mcp " + name + " enable"},
-			struct{ title, command string }{"Disable " + name, "/mcp " + name + " disable"},
-		)
-	}
+	commands = append(commands, mcpPaletteRows(m.mcpInventory)...)
 	m.openCommandSubpalette("MCP", commands)
 }
 
