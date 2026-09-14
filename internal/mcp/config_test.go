@@ -456,7 +456,7 @@ func TestManagerFromBlockedDiscovery(t *testing.T) {
 		t.Error("the manager must remember node_repl as policy-blocked")
 	}
 	blocked := mgr.Blocked()
-	if len(blocked) != 1 || blocked[0].Status != StatusDisabled || blocked[0].Note == "" {
+	if len(blocked) != 1 || blocked[0].Status != StatusBlocked || blocked[0].Status.String() != "blocked" || blocked[0].Note == "" {
 		t.Errorf("blocked snapshot: %+v", blocked)
 	}
 	if blocked[0].Source != codexFile {

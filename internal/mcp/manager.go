@@ -39,6 +39,8 @@ const (
 	StatusConnecting               // connect kicked off, not yet settled
 	StatusReady                    // connected, tools listed
 	StatusFailed                   // connect/list failed, or the session dropped
+	StatusBlocked                  // filtered by import policy or refused at attach; never a live server
+	StatusUnreadable               // a discovery source that could not be read; not a server at all
 )
 
 func (s Status) String() string {
@@ -51,6 +53,10 @@ func (s Status) String() string {
 		return "ready"
 	case StatusFailed:
 		return "failed"
+	case StatusBlocked:
+		return "blocked"
+	case StatusUnreadable:
+		return "unreadable"
 	}
 	return "unknown"
 }
@@ -1012,7 +1018,7 @@ func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 	defer m.mu.Unlock()
 	m.blocked = make([]Server, 0, len(cfgs))
 	for name, c := range cfgs {
-		m.blocked = append(m.blocked, Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source})
+		m.blocked = append(m.blocked, Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source})
 	}
 	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
 }
@@ -1026,7 +1032,7 @@ func (m *Manager) SetSourceErrors(errs map[string]error) {
 	defer m.mu.Unlock()
 	m.sourceErrors = make([]Server, 0, len(errs))
 	for path, err := range errs {
-		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusFailed, Err: "not imported: " + err.Error(), Source: path})
+		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusUnreadable, Err: "not imported: " + err.Error(), Source: path})
 	}
 	sort.Slice(m.sourceErrors, func(i, j int) bool { return m.sourceErrors[i].Name < m.sourceErrors[j].Name })
 }
@@ -1038,7 +1044,7 @@ func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for name, c := range cfgs {
-		row := Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source}
+		row := Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source}
 		if i := slices.IndexFunc(m.blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
 			m.blocked[i] = row
 			continue

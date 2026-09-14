@@ -190,7 +190,7 @@ func TestSetBlockedAndBlockedByPolicy(t *testing.T) {
 	if len(b) != 2 || b[0].Name != "alpha" || b[1].Name != "zeta" {
 		t.Fatalf("blocked = %+v, want name-sorted alpha,zeta", b)
 	}
-	if b[0].Status != StatusDisabled || b[0].Note != "blocked by mcpImport" || b[0].Source != ".mcp.json" {
+	if b[0].Status != StatusBlocked || b[0].Note != "blocked by mcpImport" || b[0].Source != ".mcp.json" {
 		t.Errorf("blocked[0] = %+v", b[0])
 	}
 	if !m.BlockedByPolicy("zeta") || !m.BlockedByPolicy("alpha") {
@@ -720,10 +720,10 @@ func TestSourceErrorsAreStatusRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("rows = %+v", rows)
 	}
-	if rows[0].Name != ".mcp.json" || rows[0].Status != StatusFailed || !strings.Contains(rows[0].Err, "unexpected end") || rows[0].Source != "/repo/.mcp.json" {
+	if rows[0].Name != ".mcp.json" || rows[0].Status != StatusUnreadable || rows[0].Status.String() != "unreadable" || !strings.Contains(rows[0].Err, "unexpected end") || rows[0].Source != "/repo/.mcp.json" {
 		t.Errorf("project row = %+v", rows[0])
 	}
-	if rows[1].Name != "codex config" || rows[1].Status != StatusFailed || !strings.Contains(rows[1].Err, "line 3") {
+	if rows[1].Name != "codex config" || rows[1].Status != StatusUnreadable || !strings.Contains(rows[1].Err, "line 3") {
 		t.Errorf("codex row = %+v", rows[1])
 	}
 }
