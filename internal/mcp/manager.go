@@ -618,11 +618,20 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	}
 	m.mu.Lock()
 	s.mu.Lock()
-	if !m.closed && m.servers[s.name] == s && s.gen == startGen {
+	settled := !m.closed && m.servers[s.name] == s && s.gen == startGen
+	if settled {
 		s.setStateLocked(StatusFailed, msg)
 	}
+	rearm := settled && s.autoTries > 0
 	s.mu.Unlock()
 	m.mu.Unlock()
+	// A failed auto-reconnect attempt re-arms the next one; kickAutoReconnect
+	// declines once autoTries reaches autoReconnectMax, so the chain is exactly
+	// 1s, 2s, 4s. A startup or manual attempt (autoTries == 0) stays failed
+	// for a human to look at.
+	if rearm {
+		s.kickAutoReconnect(m)
+	}
 }
 
 // toolLister is the slice of a client session that tools/list needs; tests
@@ -1039,6 +1048,7 @@ func (m *Manager) Reconnect(name string) bool {
 	old := s.retireLocked()
 	s.status = StatusConnecting
 	s.gen++
+	s.autoTries = 0 // a human asked: the automatic budget starts over
 	s.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
