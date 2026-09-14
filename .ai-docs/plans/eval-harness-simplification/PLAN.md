@@ -35,6 +35,10 @@ Size today: 4,580 lines in `evals/whip_evals`, 2,200 lines of tests under `evals
 7. **Whip retries a streamed request once when it fails before any token arrives** (hand-off to the whip work; `internal/llm/openai.go` treats SSE error chunks as non-retryable today), and the harness reports such failures as `provider_error`, separate from `agent_error`. Future campaigns pick up the retry when the pinned binary moves.
 8. **Keep the full per-trial export, drop the cross-checks.** Trials still retain metrics, outcome, state, events, CLI output, a copy of `sessions.db`, and every content body, so any trial can be debugged later. Delete snapshot cross-verification, per-body digest re-checks, and the cell-diagnostics resolver.
 9. **This session lands the whip-side stream retry** in `internal/llm/openai.go` with a test, after the harness work, coordinating with the other session on the shared branch.
+10. **Start from scratch once the new scaffold is complete.** Delete all historical runs: `evals/artifacts/*` (23 GB on the box), the historical `evals/reports/*` directories, the old run prefixes on the `whip-eval-evidence` and `whip-eval-inputs` volumes, the qualification-era volume, and the accepted-baseline pointer. The first campaign on the simplified harness becomes the reference; nothing from the kimi-k3 native cohort or the 2026-09-14 campaign is carried forward as a baseline. The plan documents keep their numbers as history.
+11. **Keep the baseline-promotion code** (`--promote`, `baseline.py`, the bootstrap comparison); only the data is wiped. Comparisons resume once a new accepted baseline exists on the simplified harness.
+12. **Drop `events.ndjson` from the per-trial export.** The database backup holds every event with its payload; the ndjson mirror was a crash-safe copy that cost 1.1 GB per campaign. The observer stops writing it; a failed database backup is already reported as an evidence error.
+13. **Delete a run's prefix on the Modal evidence volume after a verified fetch.** The local `evals/artifacts/<run>/fetches/` snapshot is the copy of record; the volume holds only in-flight and unfetched runs. `fetch` prunes once every hash in the markers verifies; `fetch --keep` skips the prune.
 
 ## Inventory
 
@@ -142,27 +146,29 @@ Size: about 90 lines removed plus their tests.
 Steps: keep the resource-fit check and the runner-version match; drop the Docker TCP listener probe and the hard-link proof file.
 Size: about 20 lines removed.
 
+**B9. Prune the volume after a verified fetch** (decision 13).
+Steps: after `fetch` has verified every hash in every attempt's marker inventory, delete `/<run>/` on the evidence volume and the run's inputs (`bundle.tar`, manifest, schedule) on the inputs volume; `fetch --keep` skips it; an unverified fetch never prunes. `status` notes when a run has been fetched and pruned.
+Size: about 25 lines.
+
 ### Phase C: evidence pipeline (decision 8)
 
-**C1. Keep the export, drop the cross-checks.**
-Steps: delete `report.verify_snapshot`, the per-body digest loop, `result_evidence.py`, and the cell-diagnostics counters; keep the required-files list, but a missing file marks `evidence_incomplete` rather than feeding a chain of derived errors; keep `accounting_complete` semantics (unknown-usage calls still make the total unknown, per A5 the known part is shown).
+**C1. Keep the export, drop the cross-checks and the events mirror** (decisions 8 and 12).
+Steps: delete `report.verify_snapshot`, the per-body digest loop, `result_evidence.py`, and the cell-diagnostics counters; the observer stops writing `events.ndjson` (the database's `events` table is the record) and `events.ndjson` leaves the required-files list; a missing required file marks `evidence_incomplete` rather than feeding a chain of derived errors; keep `accounting_complete` semantics (unknown-usage calls still make the total unknown, per A5 the known part is shown).
 Steps: keep `freeze_daemon` (SIGSTOP on the verified daemon) because agent-started services must survive into grading; keep the interim metrics probe for crash-time cost but drop its staleness statistics.
 Tests: `test_reports` and `test_contract` evidence cases pruned to the remaining rules.
 Size: about 250 lines removed (`result_evidence.py` whole, report checks, observer stats).
 
+**C2. Collect each evidence file once.** Why: today's fetch is 5.0 GB for 90 attempts and half of it is duplicate. The native runner already collects the container's `/logs/agent/whip/` directory; the adapter then downloads the same files again into `/logs/agent/` to read two of them. Steps: the adapter downloads only `metrics.json` and `outcome.json` (what it needs for the native result metadata) and stops downloading `sessions.db`, `events.ndjson`, `state.json`, the CLI files, and the content bodies; the report reads evidence from the runner-collected `agent/whip/` path only. Measured on the campaign: `sessions.db` 884 MB (82 files, mean 10.8 MB, max 37.5 MB), content bodies 408 MB, `events.ndjson` 1.1 GB, each present twice. Size: about 25 lines removed in `adapter.py`, path constants in `report.py`.
+
 ### Phase D: whip retries a stalled stream once (decision 9)
 
-**D1. Retry before first token.** Steps: in `internal/llm/openai.go`, when a streamed request fails before any content or reasoning delta arrived, whether by SSE error chunk, transport error, or an idle-stream timeout, retry the request once with a short backoff; failures after the first token stay non-retryable because a partial answer cannot be resumed. Accounting records the failed attempt as before (`attempt_number` increments). Coordinate the edit with the other session on `compaction-loop-and-ui-cleanup`.
+Steps: in `internal/llm/openai.go`, when a streamed request fails before any content or reasoning delta arrived, whether by SSE error chunk, transport error, or an idle-stream timeout, retry the request once with a short backoff; failures after the first token stay non-retryable because a partial answer cannot be resumed. Accounting records the failed attempt as before (`attempt_number` increments). Coordinate the edit with the other session on `compaction-loop-and-ui-cleanup`.
 Tests: `internal/llm` fake server that errors once before the first delta then succeeds; errors after a delta surface unchanged.
 Size: about 40 lines plus test.
 
-**D2. Whip records the error class of a failed model attempt.** Why: the 2026-09-14 campaign had 756 transient provider failures that whip retried successfully, and the fetched evidence cannot say they were unbilled 429s because the durable attempt record keeps only `Failed: true` with zero usage. Steps: in the accounting settle path (`internal/llm/accounting.go`), persist the HTTP status when there was one and a short error class (`rate_limited`, `server_error`, `stream_stalled`, `transport`, `context_limit`) on the failed attempt; the harness report then counts failed calls by class and treats classes that cannot bill as known-zero cost. Tests: one per class in `internal/llm`. Size: about 30 lines plus the report's counter.
-
-**Observation, not an item:** starting 90 workers at once produced the throttling burst. Whip's retry handled it, so no admission ramp is planned; if a provider ever stops tolerating the burst, `--jobs` is the knob.
-
 ### Phase E: tests, docs, cleanup
 
-Prune `evals/tests` to the remaining behaviour (target about 1,300 lines from 2,200); rewrite the "Detached Modal campaigns" section of `evals/README.md` to describe the simplified path in one screen; retire the qualification-era guidance in `.ai-docs/plans/modal-evals/README.md` with a pointer here; remove the 15 GB of qualification bundles and caches from the box after confirming the closures and reports are committed (evidence stays).
+Prune `evals/tests` to the remaining behaviour (target about 1,300 lines from 2,200); rewrite the "Detached Modal campaigns" section of `evals/README.md` to describe the simplified path in one screen; retire the qualification-era guidance in `.ai-docs/plans/modal-evals/README.md` with a pointer here. Per decision 10, once the new scaffold has passed its verification: delete `evals/artifacts/*`, the historical `evals/reports/*`, the accepted-baseline pointer, the old run prefixes on both Modal volumes, and the `whip-eval-qualification-20260911-evidence` volume; the plan documents remain the record.
 
 ## Verification
 
@@ -177,6 +183,6 @@ Phase A first, on its own commit series: it removes the causes of both incidents
 
 ## Preserved / changed / not built
 
-- **Preserved:** native grading and native deadlines; frozen bundles, pinned binary and tasks, exactly-once submission, a run id never reused; cancelled and failed attempts stay in the denominator; no retries or replacements of graded attempts; the daemon freeze at finality; the full per-trial export; cost accounting that never converts unknown to zero; the controller-digest handshake; the Pier proxy-token redirect; `doctor --integration` with the fake provider; the `runtime-ab` study untouched.
-- **Changed:** blast radius of every automatic condition (attempt, not campaign); setup budget and retries; provider-error attribution; status and cost wording; sandbox identity; export protocol; fetch implementation; configuration source; bundle checks; report cross-checks; whip's stream retry.
+- **Preserved:** native grading and native deadlines; the baseline-promotion code path (decision 11, data wiped, mechanism kept); frozen bundles, pinned binary and tasks, exactly-once submission, a run id never reused; cancelled and failed attempts stay in the denominator; no retries or replacements of graded attempts; the daemon freeze at finality; the full per-trial export; cost accounting that never converts unknown to zero; the controller-digest handshake; the Pier proxy-token redirect; `doctor --integration` with the fake provider; the `runtime-ab` study untouched.
+- **Changed:** per-trial export loses `events.ndjson` and its duplicate copies (decisions 8, 12, item C2); fetched runs are pruned from the volume (decision 13); blast radius of every automatic condition (attempt, not campaign); setup budget and retries; provider-error attribution; status and cost wording; sandbox identity; export protocol; fetch implementation; configuration source; bundle checks; report cross-checks; whip's stream retry.
 - **Not built:** any new safeguard; a watchdog or heartbeat service; reconciliation of dead coordinators; secret scanning of any kind; fixture campaigns on Modal; changes to task content, model settings, or grading.
