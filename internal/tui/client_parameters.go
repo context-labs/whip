@@ -84,8 +84,8 @@ func clientCLIParameters(operation, text string) (string, any, error) {
 			if len(fields) == 1 || len(fields) == 2 && fields[1] == "status" {
 				return "mcp.import.status", protocol.EmptyParams{}, nil
 			}
-			if len(fields) != 3 || fields[1] != "claude" && fields[1] != "codex" || fields[2] != "on" && fields[2] != "off" {
-				return fail("mcp import requires claude|codex and on|off")
+			if len(fields) != 3 || fields[1] != "claude" && fields[1] != "codex" && fields[1] != "project" || fields[2] != "on" && fields[2] != "off" {
+				return fail("mcp import requires claude|codex|project and on|off")
 			}
 			return "mcp.import.configure", protocol.MCPImportParams{Source: fields[1], Enabled: fields[2] == "on"}, nil
 		}

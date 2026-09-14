@@ -116,13 +116,22 @@ in `~/.inf/config.json` by the `inf` CLI.
 ## MCP
 
 whip connects to MCP servers and exposes them through `mcp.list_servers`,
-`mcp.list_tools`, and `mcp.call` inside Starlark. Three config styles all work — whip reads your
-existing setup:
+`mcp.list_tools`, and `mcp.call` inside Starlark. Four sources feed one merged
+set; on a name conflict the earlier source in this list wins:
 
-- **claude-style**: a `.mcp.json` in the project root (`{"mcpServers": {...}}`)
-- **codex-style**: `[mcp_servers.*]` tables in `~/.codex/config.toml`
-- **whip-native**: an `"mcp"` block in `~/.whip/config.json` (wins on
-  name conflicts):
+- **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only
+  trusted source: its servers skip per-call consent.
+- **project**: a `.mcp.json` in the session's working directory
+  (`{"mcpServers": {...}}`). Repository-authored, so it is **off until you
+  enable it** with `"mcpImport": {"project": {"enabled": true}}` or
+  `/mcp import project on`. Enabling a source runs its servers' programs at
+  session start; tool consent is not a process sandbox.
+- **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
+- **claude**: `mcpServers` in `~/.claude.json` (on by default).
+
+Each import source takes `enabled`, `only` and `exclude`. Servers a source
+gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
+copies imported servers into the native block, where they become trusted.
 
 ```json
 {

@@ -86,7 +86,7 @@ function fixture() {
     query: vi.fn(async (operation: string) => ({
       result:
         operation === 'mcp.import.status'
-          ? { claude: true, codex: false }
+          ? { claude: true, codex: false, project: false }
           : operation === 'permission.rules'
             ? { rules: [], global: [] }
             : [],

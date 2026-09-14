@@ -335,12 +335,14 @@ func TestMCPTestCLIReady(t *testing.T) {
 // failure instead of claiming success.
 func TestMCPCLISaveFailures(t *testing.T) {
 	home := mcpHome(t, `,
-  "mcp": { "mine": { "command": ["true"] } }`)
+  "mcp": { "mine": { "command": ["true"] } },
+  "mcpImport": { "project": { "enabled": true } }`)
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// an importable project server, so import has something to write
+	// an importable project server (the project source is opted in above),
+	// so import has something to write
 	if werr := os.WriteFile(filepath.Join(wd, ".mcp.json"),
 		[]byte(`{"mcpServers":{"proj":{"command":"true"}}}`), 0o600); werr != nil {
 		t.Fatal(werr)

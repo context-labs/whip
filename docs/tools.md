@@ -180,11 +180,15 @@ grant and current server definition after permission and the server's call queue
 Large results become handles through the same bounded-output path as built-in
 operations.
 
-Servers explicitly configured in native WHIP configuration are trusted. Imported
-Claude/Codex definitions retain their provenance, including when saved by the
-import command; ACP attachments also require consent or a saved allow rule.
-Only the daemon's native configuration establishes native trust. A client cannot
-claim it or replace a native definition by attaching a server of the same name.
+Servers explicitly configured in native WHIP configuration are trusted.
+Definitions discovered from the project's `.mcp.json`, the Codex file, or the
+global Claude file retain their provenance and require consent or a saved
+allow rule; `whip mcp import` materializes them into native configuration,
+which is how an imported server becomes trusted. The project file is an
+import source of its own and is off unless enabled. ACP attachments are
+untrusted for calls. Only the daemon's native configuration establishes native
+trust. A client cannot claim it or replace a native definition by attaching a
+server of the same name.
 Explicit permission denials and revoked grants still win. Headless execution
 uses preauthorization or denies promptly; it never waits for a permission UI.
 

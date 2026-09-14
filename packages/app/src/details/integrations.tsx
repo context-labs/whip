@@ -91,7 +91,7 @@ export function MCP(props: InspectorProps) {
       >
         <QueryFeedback query={imports} view={props.view} />
         {imports.data?.result &&
-          (['claude', 'codex'] as const).map((source) => (
+          (['claude', 'codex', 'project'] as const).map((source) => (
             <div key={source} {...stylex.props(layout.settingsRow)}>
               <span>
                 {source} · {imports.data!.result![source] ? 'Enabled' : 'Disabled'}

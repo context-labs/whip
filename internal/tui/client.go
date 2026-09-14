@@ -1754,6 +1754,8 @@ func (m *model) openThinMCPPalette() {
 		{"Disable Claude imports", "/mcp import claude off"},
 		{"Enable Codex imports", "/mcp import codex on"},
 		{"Disable Codex imports", "/mcp import codex off"},
+		{"Enable project .mcp.json imports", "/mcp import project on"},
+		{"Disable project .mcp.json imports", "/mcp import project off"},
 	}
 	var servers []string
 	if m.cfg != nil {

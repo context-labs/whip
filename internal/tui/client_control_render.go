@@ -71,7 +71,7 @@ func renderRuntimeControl(operation, output string) (string, bool, error) {
 		if err := decode(&value); err != nil {
 			return "", true, err
 		}
-		return fmt.Sprintf("MCP imports: Claude %t · Codex %t", value.Claude, value.Codex), true, nil
+		return fmt.Sprintf("MCP imports: Claude %t · Codex %t · Project .mcp.json %t", value.Claude, value.Codex, value.Project), true, nil
 	case "schedule.create", "schedule.delete":
 		var value protocol.ScheduleResult
 		if err := decode(&value); err != nil {

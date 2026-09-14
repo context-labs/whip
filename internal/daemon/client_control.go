@@ -1269,28 +1269,20 @@ func (s *Session) clientMCPImport(ctx context.Context, operation, sourceName str
 		return "", err
 	}
 	if operation == "mcp.import.status" {
-		return marshalClientOutput(protocol.MCPImportStatusResult{Claude: importState(cfg.MCPImport, "claude") == "on", Codex: importState(cfg.MCPImport, "codex") == "on"}, nil)
+		return marshalClientOutput(importStatus(cfg.MCPImport), nil)
 	}
-	if sourceName != "claude" && sourceName != "codex" {
-		return "", errors.New("mcp import requires claude|codex and on|off")
+	if importSourceSlot(&config.MCPImport{}, sourceName) == nil {
+		return "", errors.New("mcp import requires claude|codex|project and on|off")
 	}
 	cfg, _, err = config.UpdateVersioned("", func(cfg *config.Config) error {
 		if cfg.MCPImport == nil {
 			cfg.MCPImport = &config.MCPImport{}
 		}
-		source := cfg.MCPImport.Claude
-		if sourceName == "codex" {
-			source = cfg.MCPImport.Codex
+		slot := importSourceSlot(cfg.MCPImport, sourceName)
+		if *slot == nil {
+			*slot = &config.MCPImportSource{}
 		}
-		if source == nil {
-			source = &config.MCPImportSource{}
-			if sourceName == "claude" {
-				cfg.MCPImport.Claude = source
-			} else {
-				cfg.MCPImport.Codex = source
-			}
-		}
-		source.Enabled = &enabled
+		(*slot).Enabled = &enabled
 		return nil
 	})
 	if err != nil {
@@ -1301,18 +1293,47 @@ func (s *Session) clientMCPImport(ctx context.Context, operation, sourceName str
 	if err != nil {
 		return "", err
 	}
-	return marshalClientOutput(protocol.MCPImportStatusResult{Claude: importState(cfg.MCPImport, "claude") == "on", Codex: importState(cfg.MCPImport, "codex") == "on"}, nil)
+	return marshalClientOutput(importStatus(cfg.MCPImport), nil)
 }
 
+// importSourceSlot returns the config field for a named import source, or nil
+// for an unknown name.
+func importSourceSlot(value *config.MCPImport, source string) **config.MCPImportSource {
+	switch source {
+	case "claude":
+		return &value.Claude
+	case "codex":
+		return &value.Codex
+	case "project":
+		return &value.Project
+	}
+	return nil
+}
+
+func importStatus(value *config.MCPImport) protocol.MCPImportStatusResult {
+	return protocol.MCPImportStatusResult{
+		Claude:  importState(value, "claude") == "on",
+		Codex:   importState(value, "codex") == "on",
+		Project: importState(value, "project") == "on",
+	}
+}
+
+// importState mirrors mcp.ImportPolicyFrom: the user's claude and codex files
+// are on unless disabled; the repository's project file is off unless enabled.
 func importState(value *config.MCPImport, source string) string {
-	if value == nil {
+	var setting *config.MCPImportSource
+	if value != nil {
+		if slot := importSourceSlot(value, source); slot != nil {
+			setting = *slot
+		}
+	}
+	if setting == nil || setting.Enabled == nil {
+		if source == "project" {
+			return "off"
+		}
 		return "on"
 	}
-	setting := value.Claude
-	if source == "codex" {
-		setting = value.Codex
-	}
-	if setting == nil || setting.Enabled == nil || *setting.Enabled {
+	if *setting.Enabled {
 		return "on"
 	}
 	return "off"

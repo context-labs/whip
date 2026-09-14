@@ -184,12 +184,12 @@ func TestMergePrecedence(t *testing.T) {
 	codex := map[string]ServerConfig{"a": {Command: []string{"codex-a"}}, "c": {Command: []string{"codex-c"}}}
 	claude := map[string]ServerConfig{"a": {Command: []string{"claude-a"}}, "c": {Command: []string{"claude-c"}}, "d": {Command: []string{"claude-d"}}}
 	global := map[string]ServerConfig{"a": {Command: []string{"global-a"}}, "d": {Command: []string{"global-d"}}, "e": {Command: []string{"global-e"}}}
-	m := Merge(whip, codex, claude, global)
+	m := Merge(whip, claude, codex, global)
 	if m["a"].Command[0] != "whip-a" {
-		t.Error("whip config must win over codex and claude")
+		t.Error("whip config must win over the project file and the user's imports")
 	}
-	if m["c"].Command[0] != "codex-c" {
-		t.Error("codex must win over claude")
+	if m["c"].Command[0] != "claude-c" {
+		t.Error("the project .mcp.json must win over the user's codex file")
 	}
 	if m["d"].Command[0] != "claude-d" {
 		t.Error("project .mcp.json must win over global ~/.claude.json")
@@ -200,6 +200,13 @@ func TestMergePrecedence(t *testing.T) {
 	if !m["b"].Disabled() {
 		t.Error("whip-only entry should survive with enabled=false")
 	}
+}
+
+// everySource turns every import source on, for tests about discovery and
+// precedence rather than gating (the project file is off by default).
+func everySource() ImportPolicy {
+	on := ImportSourcePolicy{Enabled: true}
+	return ImportPolicy{Claude: on, Codex: on, Project: on}
 }
 
 func TestLoadMergedDiscovery(t *testing.T) {
@@ -218,7 +225,8 @@ func TestLoadMergedDiscovery(t *testing.T) {
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "absent-claude.json") }
 	defer func() { ClaudeGlobalPath = origG }()
 
-	merged, errs := LoadMerged(dir, map[string]ServerConfig{"mine": {Command: []string{"my-srv"}}})
+	f := LoadMergedFiltered(dir, map[string]ServerConfig{"mine": {Command: []string{"my-srv"}}}, everySource())
+	merged, errs := f.Merged, f.Errs
 	if len(errs) != 0 {
 		t.Fatalf("unexpected discovery errors: %v", errs)
 	}
@@ -232,7 +240,8 @@ func TestLoadMergedDiscovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{broken`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	merged, errs = LoadMerged(dir, nil)
+	f = LoadMergedFiltered(dir, nil, everySource())
+	merged, errs = f.Merged, f.Errs
 	if _, ok := errs[filepath.Join(dir, ".mcp.json")]; !ok {
 		t.Errorf("expected a parse error for .mcp.json, got %v", errs)
 	}
@@ -270,7 +279,8 @@ func TestLoadMergedGlobalClaude(t *testing.T) {
 	CodexPath = func() string { return filepath.Join(dir, "absent-codex.toml") }
 	defer func() { CodexPath = orig }()
 
-	merged, errs := LoadMerged(dir, nil)
+	f := LoadMergedFiltered(dir, nil, everySource())
+	merged, errs := f.Merged, f.Errs
 	if len(errs) != 0 {
 		t.Fatalf("unexpected discovery errors: %v", errs)
 	}
@@ -353,9 +363,24 @@ func TestLoadMergedFilteredPolicy(t *testing.T) {
 		t.Error("disabled source must not merge")
 	}
 
+	// The project file has its own gate: off by default even when the user's
+	// claude file is on, and on only when enabled.
+	f = LoadMergedFiltered(dir, nil, ImportPolicyFrom(nil))
+	if _, ok := f.Merged["proj"]; ok {
+		t.Error("the repository .mcp.json must not import without an explicit project opt-in")
+	}
+	if b, ok := f.Blocked["proj"]; !ok || !strings.Contains(b.Note, "(project)") {
+		t.Errorf("project server should be blocked with a project note, got %+v", f.Blocked["proj"])
+	}
+	on := true
+	f = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}))
+	if _, ok := f.Merged["proj"]; !ok {
+		t.Error("enabling the project source must admit the repository .mcp.json")
+	}
+
 	// Only-allowlist, and exclude beating only when both are set.
 	f = LoadMergedFiltered(dir, nil, ImportPolicy{
-		Claude: ImportSourcePolicy{
+		Project: ImportSourcePolicy{
 			Enabled: true, Only: map[string]bool{"proj": true, "ghost": true},
 			Exclude: map[string]bool{"ghost": true},
 		},
@@ -377,19 +402,21 @@ func TestLoadMergedFilteredPolicy(t *testing.T) {
 		t.Error("no ghost row when whip owns the name")
 	}
 
-	// Zero policy == LoadMerged (import everything).
+	// Nil policy == LoadMerged: the user's own files import wholesale, the
+	// repository's project file stays blocked until enabled.
 	def := LoadMergedFiltered(dir, nil, ImportPolicyFrom(nil))
-	if len(def.Merged) != 4 || len(def.Blocked) != 0 {
-		t.Errorf("nil policy must import everything, got merged=%v blocked=%v", def.Merged, def.Blocked)
+	if len(def.Merged) != 2 || len(def.Blocked) != 2 {
+		t.Errorf("nil policy must import the codex servers and block the project ones, got merged=%v blocked=%v", def.Merged, def.Blocked)
 	}
 
 	// Every discovered entry carries the file it came from, so a failed
 	// server can point at the config to fix.
+	all := LoadMergedFiltered(dir, nil, everySource())
 	for name, want := range map[string]string{
 		"proj":      filepath.Join(dir, ".mcp.json"),
 		"node_repl": codexFile,
 	} {
-		if got := def.Merged[name].Source; got != want {
+		if got := all.Merged[name].Source; got != want {
 			t.Errorf("Merged[%q].Source = %q, want %q", name, got, want)
 		}
 	}
@@ -454,7 +481,7 @@ func TestManagerStatusSource(t *testing.T) {
 	origG := ClaudeGlobalPath
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "absent-claude.json") }
 	defer func() { ClaudeGlobalPath = origG }()
-	f := LoadMergedFiltered(dir, nil, ImportPolicyFrom(nil))
+	f := LoadMergedFiltered(dir, nil, everySource())
 	mgr := NewManager(f.Merged)
 	sts := mgr.Statuses()
 	if len(sts) != 1 || sts[0].Source != filepath.Join(dir, ".mcp.json") {
@@ -478,11 +505,19 @@ func TestImportPolicyFrom(t *testing.T) {
 	if p.Codex.Admits("b") {
 		t.Error("exclude must beat only")
 	}
-	// nil block and nil source both mean "on, unfiltered".
+	// nil block and nil source both mean "on, unfiltered" for the user's own
+	// files, and "off" for the repository's project file.
 	for _, p := range []ImportPolicy{ImportPolicyFrom(nil), ImportPolicyFrom(&config.MCPImport{})} {
 		if !p.Claude.Admits("x") || !p.Codex.Admits("x") {
-			t.Error("nil policy must admit everything")
+			t.Error("nil policy must admit the user's own imports")
 		}
+		if p.Project.Admits("x") {
+			t.Error("nil policy must not admit repository-authored project servers")
+		}
+	}
+	on := true
+	if !ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}).Project.Admits("x") {
+		t.Error("an enabled project source must admit")
 	}
 }
 
