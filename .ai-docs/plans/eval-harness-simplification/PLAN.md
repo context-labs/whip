@@ -152,9 +152,13 @@ Size: about 250 lines removed (`result_evidence.py` whole, report checks, observ
 
 ### Phase D: whip retries a stalled stream once (decision 9)
 
-Steps: in `internal/llm/openai.go`, when a streamed request fails before any content or reasoning delta arrived, whether by SSE error chunk, transport error, or an idle-stream timeout, retry the request once with a short backoff; failures after the first token stay non-retryable because a partial answer cannot be resumed. Accounting records the failed attempt as before (`attempt_number` increments). Coordinate the edit with the other session on `compaction-loop-and-ui-cleanup`.
+**D1. Retry before first token.** Steps: in `internal/llm/openai.go`, when a streamed request fails before any content or reasoning delta arrived, whether by SSE error chunk, transport error, or an idle-stream timeout, retry the request once with a short backoff; failures after the first token stay non-retryable because a partial answer cannot be resumed. Accounting records the failed attempt as before (`attempt_number` increments). Coordinate the edit with the other session on `compaction-loop-and-ui-cleanup`.
 Tests: `internal/llm` fake server that errors once before the first delta then succeeds; errors after a delta surface unchanged.
 Size: about 40 lines plus test.
+
+**D2. Whip records the error class of a failed model attempt.** Why: the 2026-09-14 campaign had 756 transient provider failures that whip retried successfully, and the fetched evidence cannot say they were unbilled 429s because the durable attempt record keeps only `Failed: true` with zero usage. Steps: in the accounting settle path (`internal/llm/accounting.go`), persist the HTTP status when there was one and a short error class (`rate_limited`, `server_error`, `stream_stalled`, `transport`, `context_limit`) on the failed attempt; the harness report then counts failed calls by class and treats classes that cannot bill as known-zero cost. Tests: one per class in `internal/llm`. Size: about 30 lines plus the report's counter.
+
+**Observation, not an item:** starting 90 workers at once produced the throttling burst. Whip's retry handled it, so no admission ramp is planned; if a provider ever stops tolerating the burst, `--jobs` is the knob.
 
 ### Phase E: tests, docs, cleanup
 
