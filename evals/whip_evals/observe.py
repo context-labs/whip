@@ -387,13 +387,14 @@ def run(args):
     if args.commit:
         prompt += "\n\n" + (contract["commit_instruction"] if contract_path else
             "Commit your final changes in this disposable task repository so the evaluator can collect git diff BASE HEAD.")
+    model = config.get("defaultModel", getattr(args, "model", "kimi-k3"))
     command = [args.binary, "run", "--format", "json", "--quiet", "--rlm-engine", args.engine,
                "--permission-mode", "automatic", "--max-cost", str(args.max_cost),
                "--max-tokens", str(args.max_tokens), "--max-turns", str(args.max_turns),
-               "--timeout", str(args.timeout) + "s", "-m", config["defaultModel"], "-p", "inference-net"]
+               "--timeout", str(args.timeout) + "s", "-m", model, "-p", "inference-net"]
     binary_hash = hashlib.sha256(Path(args.binary).read_bytes()).hexdigest()
     atomic_json(evidence / "identity.json", {"binary_sha256": binary_hash, "engine": args.engine,
-                "model": config["defaultModel"], "provider": "inference-net", "reasoning_effort": "high",
+                "model": model, "provider": "inference-net", "reasoning_effort": "high",
                 "instruction_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                 "command": command, "live_provider": not args.fixture, "provider_endpoint": base_url,
                 "finality_policy": "CLI exited plus tree settled with no events for 2 seconds; verified daemon SIGSTOP and settled readback before grading",
