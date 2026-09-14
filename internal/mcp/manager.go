@@ -527,8 +527,8 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				s.mu.Lock()
 				catalogChanges := s.catalogChanges
 				s.mu.Unlock()
-				var listed *sdkmcp.ListToolsResult
-				listed, err = sess.ListTools(ctx, nil)
+				var listed []*sdkmcp.Tool
+				listed, err = listAllTools(ctx, sess)
 				if err != nil {
 					break
 				}
@@ -565,7 +565,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				if ir := sess.InitializeResult(); ir != nil {
 					instr = strings.TrimSpace(ir.Instructions)
 				}
-				s.defs = listed.Tools
+				s.defs = listed
 				s.instr = instr
 				s.sess = sess
 				s.gen++
@@ -623,6 +623,45 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	}
 	s.mu.Unlock()
 	m.mu.Unlock()
+}
+
+// toolLister is the slice of a client session that tools/list needs; tests
+// substitute paged fakes.
+type toolLister interface {
+	ListTools(context.Context, *sdkmcp.ListToolsParams) (*sdkmcp.ListToolsResult, error)
+}
+
+// maxToolPages bounds catalog discovery. Catalyst-sized servers page into the
+// hundreds of tools; a server that never ends its cursor chain must not stall
+// a connect forever.
+const maxToolPages = 64
+
+// listAllTools follows tools/list cursors so the model sees the whole
+// catalog, not the first page. Bounded: at most maxToolPages pages inside the
+// caller's deadline, and a repeated cursor ends the loop with an error rather
+// than spinning. The caller publishes the returned slice atomically.
+func listAllTools(ctx context.Context, lister toolLister) ([]*sdkmcp.Tool, error) {
+	var tools []*sdkmcp.Tool
+	seen := map[string]bool{}
+	params := &sdkmcp.ListToolsParams{}
+	for page := 1; ; page++ {
+		res, err := lister.ListTools(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, res.Tools...)
+		if res.NextCursor == "" {
+			return tools, nil
+		}
+		if seen[res.NextCursor] {
+			return nil, fmt.Errorf("tool catalog cursor %q repeats after page %d", res.NextCursor, page)
+		}
+		if page >= maxToolPages {
+			return nil, fmt.Errorf("tool catalog exceeds %d pages", maxToolPages)
+		}
+		seen[res.NextCursor] = true
+		params = &sdkmcp.ListToolsParams{Cursor: res.NextCursor}
+	}
 }
 
 // setState transitions status and wakes every waiter on the first settle.

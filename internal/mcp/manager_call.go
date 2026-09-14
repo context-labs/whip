@@ -313,7 +313,7 @@ func (s *server) refreshCatalog(m *Manager, sess *sdkmcp.ClientSession) {
 	m.launch("MCP catalog refresh "+s.name, func() {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		listed, err := sess.ListTools(ctx, nil)
+		listed, err := listAllTools(ctx, sess)
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.sess != sess || s.generation != generation {
@@ -323,6 +323,6 @@ func (s *server) refreshCatalog(m *Manager, sess *sdkmcp.ClientSession) {
 			s.err = "tool catalog refresh failed"
 			return
 		}
-		s.defs = listed.Tools
+		s.defs = listed
 	})
 }
