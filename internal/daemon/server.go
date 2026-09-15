@@ -501,6 +501,20 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		}
 		result, err := s.historyPage(connection.ctx, params)
 		return result, rpcFromError(err)
+	case "trace.page":
+		var params protocol.TracePageParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid trace params")
+		}
+		result, err := s.daemon.store.PageSpans(connection.ctx, params.RootID, params.TraceID, params.AfterSeq, params.Limit, params.RootsOnly)
+		return result, rpcFromError(err)
+	case "trace.export":
+		var params protocol.TraceExportParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid trace export params")
+		}
+		result, err := s.traceExport(connection.ctx, params)
+		return result, rpcFromError(err)
 	case "provider.validate":
 		var params ProviderValidateParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {

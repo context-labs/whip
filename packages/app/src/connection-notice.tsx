@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import type { WhipClient } from '@whip/sdk';
 import { useWhipConnection } from '@whip/sdk/react';
 import { Button } from '@whip/ui';
 import { ErrorNotice } from './error-feedback';
 import type { HostConnection } from './hosts';
+import { RuntimeContext } from './context';
+
+const noSubscribe = () => () => {};
 
 export function HostNotice({ host, onManage }: { host: HostConnection; onManage(): void }) {
-  return <ConnectionError state={host.state} error={host.error} name={host.name} owner={host.id} onManage={onManage} />;
+  const prompts = useContext(RuntimeContext)?.platform.hostPrompts;
+  const inDialog = useSyncExternalStore(prompts?.subscribe ?? noSubscribe, () => prompts?.isClaimed(host.id) ?? false);
+  return inDialog ? null : <ConnectionError state={host.state} error={host.error} name={host.name} owner={host.id} onManage={onManage} />;
 }
 
 // Kept as a standalone subscriber for embedders; the shell uses host records so

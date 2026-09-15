@@ -24,6 +24,7 @@ type testMCPProvider struct {
 	queued      chan struct{}
 	proceed     chan struct{}
 	effects     atomic.Int64
+	result      MCPResult // returned instead of "remote result" when Text is set
 }
 
 func (p *testMCPProvider) ResolveTool(server, tool string) (capability.MCPCall, error) {
@@ -44,20 +45,23 @@ func (p *testMCPProvider) CallContext(capability.MCPCall) (context.Context, erro
 	return context.Background(), nil
 }
 
-func (p *testMCPProvider) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (string, error) {
+func (p *testMCPProvider) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (MCPResult, error) {
 	if p.queued != nil {
 		close(p.queued)
 		select {
 		case <-p.proceed:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return MCPResult{}, ctx.Err()
 		}
 	}
 	if err := before(ctx); err != nil {
-		return "", err
+		return MCPResult{}, err
 	}
 	p.effects.Add(1)
-	return "remote result", p.callErr
+	if p.result.Text != "" {
+		return p.result, p.callErr
+	}
+	return MCPResult{Text: "remote result"}, p.callErr
 }
 
 func newMCPServices(t *testing.T) (*Services, *countingLedger, *testMCPProvider, capability.Authority) {
@@ -595,4 +599,50 @@ func TestMCPRemoteFailureDoesNotRetryOrHoldBudget(t *testing.T) {
 		t.Fatalf("MCP inherited filesystem cwd: %+v", admission)
 	}
 	assertMCPSettled(t, ledger, authority)
+}
+
+// TestMCPAttachmentsBecomeHandlesAndImagesSteer: binary result parts go
+// through the per-agent store and the text names the handle; image parts also
+// reach this agent's screenshot sink. Services without a store or sink (a
+// clone before the daemon binds it, a tool host) keep the bare placeholder
+// and steer nothing.
+func TestMCPAttachmentsBecomeHandlesAndImagesSteer(t *testing.T) {
+	result := MCPResult{
+		Text:        "shot\n[image 1: image/png, 3 bytes]",
+		Attachments: []MCPAttachment{{MIME: "image/png", Data: []byte{1, 2, 3}, Placeholder: "[image 1: image/png, 3 bytes]"}},
+	}
+	services, _, provider, _ := newMCPServices(t)
+	services.SetMCPAutomatic(true)
+	provider.result = result
+	var stored []string
+	services.SetMCPAttachmentStore(func(_ context.Context, mime string, data []byte) (string, error) {
+		stored = append(stored, mime+":"+string(data))
+		return "h1", nil
+	})
+	var steered [][]byte
+	services.SetScreenshotSink(func(images [][]byte) { steered = append(steered, images...) })
+	out, err := services.InvokeMCP(t.Context(), "my-server", "write.raw", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "shot\n[image 1: image/png, 3 bytes; handle h1]") {
+		t.Fatalf("output = %q", out)
+	}
+	if len(stored) != 1 || stored[0] != "image/png:\x01\x02\x03" {
+		t.Fatalf("stored = %q", stored)
+	}
+	if len(steered) != 1 || string(steered[0]) != "\x01\x02\x03" {
+		t.Fatalf("steered = %v", steered)
+	}
+
+	bare, _, bareProvider, _ := newMCPServices(t)
+	bare.SetMCPAutomatic(true)
+	bareProvider.result = result
+	out, err = bare.InvokeMCP(t.Context(), "my-server", "write.raw", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != result.Text {
+		t.Fatalf("without a store the placeholder must stand, got %q", out)
+	}
 }

@@ -34,10 +34,20 @@ export function activityStatus(state: DeepReadonly<SessionViewSnapshot>, agentId
   return { text: '', active: false };
 }
 
+// A running turn's counters, so a long turn reads as steady work or as a
+// stalled loop (many compactions, few calls) instead of a bare "Working".
+function turnActivity(agent: Agent): string {
+  const turn = agent.last_turn;
+  if (!turn?.model_calls) return '';
+  const parts = [`${turn.model_calls} ${turn.model_calls === 1 ? 'call' : 'calls'}`];
+  if (turn.compactions) parts.push(`${turn.compactions} ${turn.compactions === 1 ? 'compaction' : 'compactions'}`);
+  return ` · ${parts.join(' · ')}`;
+}
+
 function agentStatus(agent: Agent, active: boolean, connected: boolean): string {
   if (!connected) return 'Updates paused';
   if (agent.blocking_reason) return `Waiting · ${agent.blocking_reason.replaceAll('_', ' ')}`;
-  if (active || agent.status === 'running') return 'Working';
+  if (active || agent.status === 'running') return `Working${turnActivity(agent)}`;
   if (agent.lifecycle_phase === 'queued' || agent.status === 'queued') return 'Queued';
   const outcome = agent.last_turn?.status;
   if (outcome) return outcome === 'succeeded' ? 'Completed' : outcome.charAt(0).toUpperCase() + outcome.slice(1);

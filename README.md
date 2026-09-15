@@ -69,7 +69,8 @@ opens connection management. Changes persist in the execution host's existing
 configuration files, including across restarts.
 Legacy `/auth provider key` also opens masked confirmation. Existing session
 choices remain intact. Fresh installations leave external Claude/Codex MCP
-imports off; enable them explicitly later if wanted.
+imports off and the repository's `.mcp.json` source off; enable them
+explicitly later if wanted.
 
 The web and desktop welcome screen lets you draft first, connect a provider,
 choose a project folder and send. **Ask** is the initial tool permission level;

@@ -28,6 +28,7 @@ const bridge: DesktopBridge = {
   copy: text => invoke('copy', text),
   openExternal: url => invoke('openExternal', url),
   pickDirectory: () => invoke('pickDirectory'),
+  listSSHProfiles: () => invoke('listSSHProfiles'),
   listProjectEditors: () => invoke('listProjectEditors'),
   openProject: (request, urlSource) => invoke('openProject', request, urlSource),
   testLocalRuntime: () => invoke('testLocalRuntime'),

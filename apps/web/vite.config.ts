@@ -21,6 +21,20 @@ export default defineConfig({
       },
     },
     tanstackRouter({ target: 'react', routesDirectory: '../../packages/app/src/routes', generatedRouteTree: '../../packages/app/src/routeTree.gen.ts', autoCodeSplitting: true }),
+    {
+      name: 'whip-stylex-dev-constants',
+      apply: 'serve',
+      enforce: 'pre',
+      configureServer(server) {
+        const tokens = `/@fs/${fileURLToPath(new URL('../../packages/ui/src/tokens.stylex.ts', import.meta.url))}`;
+        server.middlewares.use((request, _response, next) => {
+          if (!request.url?.startsWith('/virtual:stylex.css')) return next();
+          // StyleX collects partial module graphs during startup. Resolve defineConsts
+          // before Lightning CSS sees unresolved var(...) media-query selectors.
+          void server.transformRequest(tokens).then(() => next(), next);
+        });
+      },
+    },
     stylex.vite({
       useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false,
       unstable_moduleResolution: { type: 'commonJS', rootDir: fileURLToPath(new URL('../../', import.meta.url)) },

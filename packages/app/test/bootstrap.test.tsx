@@ -6,21 +6,34 @@ import { createFallbackStorage, resolveURLConnection, urlProfile, type AppPlatfo
 import type { DesktopBridge, DesktopEvent } from '../src/desktop-bridge';
 import { mountApplication } from '../../../apps/web/src/bootstrap';
 
+const renderStartup = vi.hoisted(() => vi.fn());
+
 // Exercise the real bootstrap and draft runtime without mounting unrelated product screens.
 vi.mock('@whip/app', async () => ({
   ...await import('../src/host-prompts'),
   ...await import('../src/session-tab-routing'),
   createWhipApplication(platform: AppPlatform) {
     const runtime = new AppRuntime(platform);
-    return { runtime, Application: () => null, router: { history: { push: vi.fn() } }, dispose: () => runtime.dispose() };
+    return { runtime, Application: ({ startup }: { startup: Promise<unknown> }) => { renderStartup(startup); return null; }, router: { history: { push: vi.fn() } }, dispose: () => runtime.dispose() };
   },
 }));
 
 const mounted: ReturnType<typeof mountApplication>[] = [];
 beforeEach(() => {
+  renderStartup.mockClear();
   vi.useFakeTimers();
   vi.spyOn(HostConnections.prototype, 'connectOnLaunch').mockResolvedValue();
   document.body.innerHTML = '<div id="root"></div>';
+});
+
+it('connects once and shows the desktop window while startup is still pending', () => {
+  const startup = new Promise<void>(() => {});
+  vi.mocked(HostConnections.prototype.connectOnLaunch).mockReturnValue(startup);
+  const f = fixture();
+  expect(HostConnections.prototype.connectOnLaunch).toHaveBeenCalledOnce();
+  expect(renderStartup).toHaveBeenCalledWith(expect.any(Promise));
+  act(() => vi.advanceTimersByTime(40));
+  expect(f.bridge.ready).toHaveBeenCalledOnce();
 });
 afterEach(() => {
   act(() => { for (const app of mounted.splice(0)) app.dispose(); });
@@ -69,16 +82,15 @@ it('reports text-only draft loss during a desktop update when storage falls back
   expect(f.source.getItem('whip.web.draft.v1:runtime:root:agent')).toBeNull();
 });
 
-it('reports a failed text-only close flush when another window exceeds the aggregate draft limit', () => {
+it('saves a text-only close flush when another window exceeded the draft bound, evicting that overflow', () => {
   const f = fixture();
   f.app.runtime.setDraft('runtime:root:agent', 'unsaved local changes');
   for (let index = 0; index < 33; index++)
     f.source.setItem(`whip.web.draft.v1:other:root:${index}`, 'another window');
   f.close();
-  expect(f.bridge.replyClose).toHaveBeenLastCalledWith('close', {
-    attachments: false, error: expect.stringContaining('Drafts could not be saved'),
-  });
-  expect(f.app.runtime.draft('runtime:root:agent')).toBe('unsaved local changes');
+  expect(f.bridge.replyClose).toHaveBeenLastCalledWith('close', { attachments: false });
+  expect(f.source.getItem('whip.web.draft.v1:runtime:root:agent')).toBe('unsaved local changes');
+  expect(f.source.keys().filter(key => key.startsWith('whip.web.draft.v1:'))).toHaveLength(32);
 });
 
 it('flushes durable text for a desktop close and releases its lifecycle listeners on disposal', () => {

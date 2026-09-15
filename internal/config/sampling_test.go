@@ -7,7 +7,7 @@ import "testing"
 // nil-vs-set distinction to omit unset params from requests.
 func TestSamplingParamsParse(t *testing.T) {
 	var c Config
-	err := parseJSONC([]byte(`{
+	err := ParseJSONC([]byte(`{
 		// a comment, because config is JSONC
 		"providers": {"p": {"baseURL": "http://x"}},
 		"models": {

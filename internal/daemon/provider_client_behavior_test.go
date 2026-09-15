@@ -427,7 +427,7 @@ func TestProviderCompletionPersistsCredentialsOnlyBeforeCancellation(t *testing.
 	t.Setenv("WHIP_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "persist")
 	defer service.Close()
-	auth := inferencenet.Auth{UserEmail: "owner@example.test", ProjectID: "project", ProjectName: "Project", MachineKey: "machine-secret", MachineKeyName: "Host"}
+	auth := inferencenet.Auth{UserEmail: "owner@example.test", TeamName: "Test workspace", ProjectID: "project", ProjectName: "Project", MachineKey: "machine-secret", MachineKeyName: "Host"}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := service.finish(ctx, auth); !errors.Is(err, context.Canceled) {
@@ -444,11 +444,11 @@ func TestProviderCompletionPersistsCredentialsOnlyBeforeCancellation(t *testing.
 		t.Fatal(err)
 	}
 	loaded, err := inferencenet.LoadAuth()
-	if err != nil || loaded.MachineKey != auth.MachineKey || loaded.ProjectID != auth.ProjectID {
+	if err != nil || loaded.MachineKey != auth.MachineKey || loaded.ProjectID != auth.ProjectID || loaded.TeamName != auth.TeamName {
 		t.Fatalf("completion did not persist host credentials: %v", err)
 	}
 	status, err := service.ProviderStatus(config.InferenceNetProvider)
-	if err != nil || !status.Configured || status.Email != auth.UserEmail || status.KeySource != "machine" || status.MachineKeyName != "Host" {
+	if err != nil || !status.Configured || status.Email != auth.UserEmail || status.TeamName != auth.TeamName || status.KeySource != "machine" || status.MachineKeyName != "Host" {
 		t.Fatalf("safe account identity=%+v %v", status, err)
 	}
 	beforeConfig, err := service.ReadConfiguration()

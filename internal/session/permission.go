@@ -395,7 +395,7 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 		return err
 	}
 	for _, item := range pending {
-		if err := terminalizePermission(ctx, tx, item.admission, item.id, status, principal, reason); err != nil {
+		if err := s.terminalizePermission(ctx, tx, item.admission, item.id, status, principal, reason); err != nil {
 			return err
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"time"
 
@@ -13,8 +14,12 @@ import (
 
 // `whip sessions` — list stored sessions, newest first. The scriptable
 // companion to `whip run`: find a session, then resume it in the TUI or
-// inspect it from a script.
+// inspect it from a script. `whip sessions export <root>` renders a session's
+// trace as OTLP/JSON.
 func sessionsCLI() error {
+	if args := flag.Args(); len(args) > 1 && args[1] == "export" {
+		return sessionsExportCLI(args[2:])
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	clientID := daemonClientID("sessions")

@@ -225,7 +225,7 @@ func TestRecursiveHostMCPDiscoveryReportsCurrentAuthority(t *testing.T) {
 		t.Fatalf("servers=%+v", servers)
 	}
 	listed := hostBehaviorCall(t, host, "mcp", "list_tools", map[string]any{"server": "local"}).([]map[string]any)
-	if len(listed) != 4 {
+	if len(listed) != 5 { // mutate, mutate.other, echo, image, large
 		t.Fatalf("discovery lost tools: %+v", listed)
 	}
 	for _, tool := range listed {

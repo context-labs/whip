@@ -87,6 +87,15 @@ their own environment. Reusing an already running local daemon does not update
 its environment or restart it. After changing shell keys, use the existing
 explicit daemon restart workflow when appropriate for active work.
 
+Each local connection attempt reads the shell environment once and shares it
+between backend synchronization and attachment. When the verified executable
+and running daemon already match, the successful probe is reused. A backend
+update or daemon start is followed by a fresh readiness check. Window readiness
+does not trigger duplicate synchronization. Results are not cached across
+attempts: reconnect and diagnostics reread the environment, and an explicit
+restart shares a newly read environment throughout that operation. Remote host
+restoration proceeds in the background without holding the startup splash.
+
 **Choose executable** validates an existing installation. **Install whipcode**
 defaults to `~/.local/bin/whipcode`, verifies the bundled payload, and copies
 its exact bytes there atomically. It does not overwrite an existing backend.
@@ -135,6 +144,15 @@ ordinary reconnects preserve the saved identity.
 A changed daemon identity requires explicit confirmation before adopting it;
 old drafts, tabs and command recovery remain scoped to the old runtime. Unknown
 deep-link hosts are never created automatically.
+
+Add server → SSH lists literal aliases from this Mac’s `~/.ssh/config`, with
+explicit HostName/User/Port hints. Include files are read in lexical order, with
+bounds of 64 files/Include patterns, eight nested levels, 1 MiB total input and
+256 profiles. Wildcard/negated aliases and recursive Include globs are not offered;
+conditional Match blocks are not evaluated. Truncation is visible, and manual entry
+remains available. Discovery never invokes SSH or executes Match/ProxyCommand,
+and is deferred until the SSH dialog is opened. OpenSSH resolves the selected
+alias normally at connection time, including defaults and conditional options.
 
 SSH host verification and authentication use shared in-app prompts. Secrets are
 ephemeral, bounded and never saved in profiles or passed as process arguments.

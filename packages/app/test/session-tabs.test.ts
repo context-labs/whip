@@ -8,6 +8,17 @@ function storage(): AppStorage {
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
 describe('window session tabs', () => {
+  it('restores each draft model route and reasoning choice without sharing defaults', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const first = state.openNew({ model: 'gpt-6-astra', provider: 'openai', effort: 'high' });
+    const second = state.openNew({});
+    state.updateNew(first.id, { effort: 'low' });
+    const restored = new SessionTabs(disk).workspace().tabs;
+    expect(restored.find(tab => tab.id === first.id)).toMatchObject({ model: 'gpt-6-astra', provider: 'openai', effort: 'low' });
+    expect(restored.find(tab => tab.id === second.id)).not.toHaveProperty('model');
+    expect(() => state.updateNew(first.id, { provider: undefined })).toThrow('Invalid New Chat options');
+    expect(() => state.updateNew(first.id, { effort: 'high\nlow' })).toThrow('Invalid New Chat options');
+  });
   it('opens fresh REPL views next to their source and restores each identity independently', () => {
     const disk = storage(), state = new SessionTabs(disk);
     state.open('mac', 'before'); state.visit('mac', 'root', { agent: 'child', panel: 'context' }); state.open('mac', 'after');
@@ -472,7 +483,6 @@ describe('New Chat descriptors', () => {
     const disk = { ...storage(), persistent: false }, write = vi.spyOn(disk, 'setItem');
     const state = new SessionTabs(disk), before = state.workspace();
     expect(() => state.openNew()).toThrow('Window storage is unavailable');
-    expect(() => state.ensureNew('recovery')).toThrow('Window storage is unavailable');
     expect(write).not.toHaveBeenCalled();
     expect(state.workspace()).toBe(before);
   });
@@ -488,34 +498,6 @@ describe('New Chat descriptors', () => {
   it('accepts the existing partial session search descriptor contract', () => {
     expect(sessionSearch({ kind: 'repl', location: { agent: 'child' } })).toEqual({ agent: 'child', view: 'repl' });
     expect(sessionSearch({ kind: 'new' })).toEqual({});
-  });
-  it('materializes recovery identities once without selecting, reopening or replacing accepted work', () => {
-    const disk = storage(), state = new SessionTabs(disk);
-    const selected = state.openNew();
-    const id = 'legacy-welcome-' + encodeURIComponent('runtime/one');
-    const recovered = state.ensureNew(id, { cwd: '/legacy' });
-    expect(selectedSessionTab(state.workspace())?.id).toBe(selected.id);
-    expect(state.ensureNew(id, { cwd: '/ignored' })).toEqual(recovered);
-    expect(state.workspace().tabs).toHaveLength(2);
-    state.closeViews([id]);
-    expect(state.ensureNew(id)).toEqual(recovered);
-    expect(state.workspace().tabs).toHaveLength(1);
-    state.promoteNew(id, 'runtime/one', 'accepted');
-    expect(state.ensureNew(id)).toMatchObject({ kind: 'chat', rootId: 'accepted' });
-    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
-  });
-  it('keeps recovery materialization atomic when capacity or storage refuses it', () => {
-    const disk = storage(), state = new SessionTabs(disk);
-    for (let i = 0; i < 32; i++) state.openNew();
-    const before = state.workspace();
-    expect(() => state.ensureNew('legacy-welcome-host')).toThrow('32');
-    expect(state.workspace()).toBe(before);
-    const other = new SessionTabs(disk);
-    other.closeViews([other.workspace().tabs[0]!.id]);
-    const beforeFailure = other.workspace();
-    disk.setItem = () => { throw new Error('quota'); };
-    expect(() => other.ensureNew('legacy-welcome-host')).toThrow('quota');
-    expect(other.workspace()).toBe(beforeFailure);
   });
   it('reopens only the requested retained view', () => {
     const state = new SessionTabs();

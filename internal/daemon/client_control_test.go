@@ -697,6 +697,7 @@ func (m *controlSurfaceMCP) Statuses() []mcp.Server {
 	return []mcp.Server{{Name: "alpha", Status: mcp.StatusReady, Tools: 2}}
 }
 func (m *controlSurfaceMCP) Blocked() []mcp.Server      { return nil }
+func (m *controlSurfaceMCP) SourceErrors() []mcp.Server { return nil }
 func (m *controlSurfaceMCP) Reconnect(name string) bool { return m.record("reconnect", name) }
 func (m *controlSurfaceMCP) Enable(name string) bool    { return m.record("enable", name) }
 func (m *controlSurfaceMCP) Disable(name string) bool   { return m.record("disable", name) }

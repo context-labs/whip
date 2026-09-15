@@ -3,7 +3,7 @@
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `6` (minor `0`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `6` (minor `7`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -88,6 +88,25 @@ is returned as `TextResult.output` beside `text` on submit and steer commands.
 Registered documents from before this minor decode with the fields absent,
 which is the same as null, so their revisions do not move. All additions are
 additive.
+
+Protocol **6.7** adds the durable trace. The daemon records one span per unit of
+work it already observes (a turn, a provider attempt, a model tool call, a host
+call inside a cell, a wait on a permission or question) with nanosecond
+`start_ns`/`end_ns` captured on the observing goroutine, and journals
+`span.started` and `span.ended` with the full `SpanRecord` so a client renders a
+span the moment it begins and merges the settlement by `id`. Spans outlive the
+event window: `trace.page` (query, root association) reads them after an
+`updated_seq` cursor, optionally for one `trace_id` or only the turn spans that
+start traces (`roots_only`), and returns `server_time_ns` so clients draw open
+spans against the daemon's clock. A trace is one root turn; a child turn joins
+the trace of the host call that queued its input (`parent_span_id`/`span_trace_id`
+on inbox rows and mailbox messages), with further digest messages as `links`.
+`trace.export` renders a session (or one trace) as an OTLP/JSON
+`ExportTraceServiceRequest` carrying OTel GenAI and OpenInference attributes,
+returned as a root-scoped content reference; `whip sessions export <root>
+[-trace id] [-o file|-] [-push URL]` wraps it. Every stored stamp is
+now RFC 3339 with a fixed nine-digit fraction; `stream.cell.host` gains
+`operation_id` when the call was admitted through the dispatcher.
 
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
@@ -477,9 +496,14 @@ configuration to distinguish loaded model catalogs from unverified public or
 bundled lists. Ordinary configuration reads omit it; it is not persisted state
 or proof of a successful inference call.
 `provider.disconnect` requires `{ provider, revision }`, removes the selected
-WHIP-owned credential and disables the route. External/environment credentials
-can only be disabled. Legacy `provider.logout` retains account-only behavior.
-Disabling rejects subsequent model-request admissions, including helpers,
+WHIP-owned credentials and clears any disabled flag for that provider.
+Built-in endpoints return to their default environment-key reference; custom
+endpoints and model defaults are preserved. Existing host credentials can make
+the default provider available again. External/environment credentials must be
+removed at their source; reset of a disabled route never deletes them.
+Legacy `provider.logout` retains account-only behavior. The configuration API
+accepts disabled IDs without deleting credentials; re-enabling reuses the existing
+credentials. Disabling rejects subsequent model-request admissions, including helpers,
 subagents and compaction; already admitted calls keep their route snapshot.
 
 `host.directories.list` browses directories on the execution machine before a

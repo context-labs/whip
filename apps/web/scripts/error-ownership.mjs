@@ -183,7 +183,7 @@ try {
     await page.getByRole('button', { name: 'Add server', exact: true }).click();
     const serverDialog = page.getByRole('dialog', { name: 'Add server', exact: true });
     await serverDialog.getByRole('textbox', { name: 'Server address', exact: true }).fill('file:///not-a-server');
-    await serverDialog.getByRole('button', { name: 'Add server', exact: true }).click();
+    await serverDialog.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(notice('validation')).toHaveCount(1);
     await expect(notice('application')).toHaveCount(0);
     await capture('validation');

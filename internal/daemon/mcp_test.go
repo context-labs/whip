@@ -36,6 +36,13 @@ func localMCPFixture(t *testing.T, instructions string, extraTools ...string) (s
 		func(_ context.Context, request *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(request.Params.Arguments)}}}, nil
 		})
+	server.AddTool(&sdkmcp.Tool{Name: "image", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "shot"},
+				&sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte{1, 2, 3}},
+			}}, nil
+		})
 	server.AddTool(&sdkmcp.Tool{Name: "large", InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: strings.Repeat("begin-", 8000) + "MIDDLE_EVIDENCE" + strings.Repeat("-end", 8000)}}}, nil
@@ -213,10 +220,15 @@ func TestMCPChildInheritanceAndNarrowing(t *testing.T) {
 	}
 }
 
-func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
+// TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild: re-attaching
+// a name that is not native replaces that entry in the live manager (no
+// manager swap), stays untrusted, and invalidates a child whose grant was
+// bound to the earlier definition.
+func TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	firstURL, firstEffects := localMCPFixture(t, "old instructions")
-	_, root, runtime := mcpRuntimeFixture(t, firstURL, true)
+	_, root, runtime := mcpRuntimeFixture(t, firstURL, false)
+	before := root.mcpManager()
 	child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "child"})
 	secondInstructions := strings.TrimSpace(strings.Repeat("current server guidance\n", 1000))
 	secondURL, secondEffects := localMCPFixture(t, secondInstructions)
@@ -227,6 +239,9 @@ func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
 		t.Fatalf("attach=%+v", result)
 	}
 	manager := root.mcpManager()
+	if manager != before {
+		t.Fatal("attach replaced the running manager instead of adding to it")
+	}
 	waitMCPReady(t, manager)
 	call, err := manager.ResolveTool("local", "mutate")
 	if err != nil || call.Trusted {
@@ -266,6 +281,90 @@ func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
 	}
 	if body.String() != secondInstructions {
 		t.Fatal("instructions continuation lost content")
+	}
+}
+
+// TestMCPAttachmentIsAdditiveAndBounded: attachments accumulate across names,
+// stay out of a definition's explicit server list, and never take a native
+// name. Refusals are visible as blocked rows.
+func TestMCPAttachmentIsAdditiveAndBounded(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	nativeURL, nativeEffects := localMCPFixture(t, "native")
+	_, root, runtime := mcpRuntimeFixture(t, nativeURL, true)
+	extraURL, _ := localMCPFixture(t, "extra")
+	adminURL, adminEffects := localMCPFixture(t, "admin")
+	root.definition.MCP.Servers = []string{"local", "extra"}
+
+	result := clientCommand(t, root, "acp", "attach-extra", "mcp.attach", protocol.MCPAttachParams{
+		Servers: map[string]mcp.ServerConfig{"extra": {URL: extraURL, StartupTimeout: 2, ToolTimeout: 2}},
+	})
+	if result.Status != "succeeded" {
+		t.Fatalf("attach extra=%+v", result)
+	}
+	result = clientCommand(t, root, "acp", "attach-admin", "mcp.attach", protocol.MCPAttachParams{
+		Servers: map[string]mcp.ServerConfig{
+			"admin": {URL: adminURL, StartupTimeout: 2, ToolTimeout: 2},
+			"local": {URL: adminURL, Origin: "whip", Trusted: true, StartupTimeout: 2, ToolTimeout: 2},
+		},
+	})
+	if result.Status != "succeeded" {
+		t.Fatalf("attach admin=%+v", result)
+	}
+	manager := root.mcpManager()
+	waitMCPReady(t, manager)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := manager.ResolveTool("extra", "mutate"); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := manager.ResolveTool("extra", "mutate"); err != nil {
+		t.Fatalf("second attachment did not keep the first: %v (%+v)", err, manager.Statuses())
+	}
+	if _, err := manager.ResolveTool("admin", "mutate"); err == nil {
+		t.Fatal("attachment outside the definition's server list became callable")
+	}
+	if call, err := manager.ResolveTool("local", "mutate"); err != nil || !call.Trusted {
+		t.Fatalf("attachment took over the native name: call=%+v err=%v", call, err)
+	}
+	notes := map[string]string{}
+	for _, row := range manager.Blocked() {
+		notes[row.Name] = row.Note
+	}
+	if !strings.Contains(notes["admin"], "server list") || !strings.Contains(notes["local"], "native") {
+		t.Fatalf("refusals must stay visible as blocked rows, got %+v", notes)
+	}
+	if err := mcpCell(t, runtime.rootNode, "mutate"); err != nil {
+		t.Fatal(err)
+	}
+	if nativeEffects.Load() != 1 || adminEffects.Load() != 0 {
+		t.Fatalf("native=%d admin=%d", nativeEffects.Load(), adminEffects.Load())
+	}
+}
+
+// TestMCPImageResultsBecomeHandles: an image part of a tool result is stored
+// as a content handle the calling agent can read back, and the call's text
+// names that handle instead of dropping the image.
+func TestMCPImageResultsBecomeHandles(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	url, _ := localMCPFixture(t, "native")
+	_, root, runtime := mcpRuntimeFixture(t, url, true)
+	value, err := runtime.rootNode.host.Call(t.Context(), "mcp", "call", map[string]any{"server": "local", "tool": "image", "arguments": map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := value.(map[string]any)["output"].(string)
+	marker := "; handle "
+	start := strings.Index(text, marker)
+	if !strings.HasPrefix(text, "shot\n[image 1: image/png, 3 bytes") || start < 0 {
+		t.Fatalf("call text = %q, want the image placeholder with a handle", text)
+	}
+	handle := text[start+len(marker):]
+	handle = handle[:strings.Index(handle, "]")]
+	body, metadata, err := root.ReadContent(t.Context(), root.AgentID(), handle, 0, 16)
+	if err != nil || string(body) != "\x01\x02\x03" || metadata.MediaType != "image/png" {
+		t.Fatalf("stored image body=%v metadata=%+v err=%v", body, metadata, err)
 	}
 }
 

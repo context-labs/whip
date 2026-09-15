@@ -10,10 +10,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import urllib.request
 
-from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json
-from .observe import write_config
+from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json, MODEL
+from .observe import catalog_cache, fetch_models, write_config
 from .prepare_ripgrep import prepare as prepare_ripgrep
 
 
@@ -113,20 +112,30 @@ def build_candidate(candidate_id, engine, *, repo=REPO, evals=EVALS, ref=None):
             "configuration": configuration(engine)}
 
 
-def configuration(engine):
+# ponytail: Inference.net rejects prompt + max_tokens above the 1,048,576 context,
+# and the pinned whip binary sends max_tokens = catalog max_completion_tokens when
+# maxOut is 0. 262,144 cannot realistically bind and leaves ~786K for prompts.
+MAX_OUTPUT_TOKENS = 262144
+
+
+def configuration(engine, model=MODEL):
     # Share the existing observer's production-default configuration constructor.
     with tempfile.TemporaryDirectory() as temporary:
-        return write_config(Path(temporary) / "home", engine, 0, native_defaults=True)
+        return write_config(Path(temporary) / "home", engine, MAX_OUTPUT_TOKENS, native_defaults=True, model=model)
 
 
 def catalog(protocol):
     key = os.environ.get("INFERENCE_API_KEY")
     if not key:
         raise ValueError("INFERENCE_API_KEY is required to run; doctor and dry-run need no key")
-    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={"Authorization": "Bearer " + key})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        models = json.load(response)["data"]
-    selected = [m for m in models if m["id"] == protocol["model"]]
+    models = fetch_models(protocol["endpoint"], key)
+    pin = protocol["model"]
+    selected = [m for m in models if m["id"] == pin]
+    if not selected:
+        # ponytail: the provider may list the pinned route under an org prefix
+        # (moonshotai/kimi-k3) while the bare id still routes; keep calling the
+        # pinned id and record the listed one as provenance.
+        selected = [m for m in models if m["id"].rpartition("/")[2] == pin]
     if len(selected) != 1 or protocol["effort"] not in selected[0].get("reasoning_efforts", []):
         raise ValueError("pinned model/effort is not available")
     model = selected[0]
@@ -134,18 +143,15 @@ def catalog(protocol):
     selected = {key: model[key] for key in ("id", "context_length", "max_completion_tokens", "reasoning_efforts", "pricing")}
     if "input_modalities" in model:
         selected["input_modalities"] = model["input_modalities"]
+    if model["id"] != pin:
+        selected["id"], selected["listed_id"] = pin, model["id"]
     return selected
 
 
 def contract(candidate, protocol, model):
     return {"engine": candidate["engine"], "configuration": candidate["configuration"],
             "catalog_model": model, "commit_instruction": protocol["commit_instruction"],
-            "catalog_cache": {protocol["provider"]: {
-                "discoveryVersion": 1, "baseUrl": protocol["endpoint"], "fetchedAt": utc_now(),
-                "models": [{"id": model["id"], "contextLength": model["context_length"],
-                            "maxCompletionTokens": model["max_completion_tokens"],
-                            "reasoningEfforts": model["reasoning_efforts"], "pricing": model["pricing"],
-                            **({"inputModalities": model["input_modalities"]} if "input_modalities" in model else {})}]}}}
+            "catalog_cache": {protocol["provider"]: catalog_cache(protocol["endpoint"], model)}}
 
 
 def pull_images(tasks):

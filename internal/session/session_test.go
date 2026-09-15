@@ -460,12 +460,14 @@ func TestCompactionEvent(t *testing.T) {
 	}
 
 	// Load derives the view: system + summary + tail from cutoff
-	// (raw: sys q1 a1 q2 a2 q3 a3; cutoff 4 keeps a2 q3 a3)
+	// (raw: sys q1 a1 q2 a2 q3 a3; cutoff 4 keeps a2 q3 a3). The fold point
+	// a2 is inside the q2 turn, so q2 is re-pinned after the summary exactly
+	// as the live agent kept it.
 	_, got, err := st.Load(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRoles := []string{"system", "system", "assistant", "user", "assistant"}
+	wantRoles := []string{"system", "system", "user", "assistant", "user", "assistant"}
 	if len(got) != len(wantRoles) {
 		t.Fatalf("derived view: %d messages, want %d: %+v", len(got), len(wantRoles), got)
 	}
@@ -496,9 +498,9 @@ func TestCompactionEvent(t *testing.T) {
 	if raw := st.RawMessages(id); len(raw) != 9 {
 		t.Fatalf("post-compaction save should append, not rewrite: %d raw rows", len(raw))
 	}
-	// the view still holds (cutoff still points at the raw boundary)
+	// the view still holds (cutoff still points at the raw boundary; q2 stays re-pinned)
 	_, got, _ = st.Load(id)
-	if len(got) != 7 || got[2].Content != "a2" || got[6].Content != "a4" {
+	if len(got) != 8 || got[2].Content != "q2" || got[3].Content != "a2" || got[7].Content != "a4" {
 		t.Fatalf("view after save: %+v", got)
 	}
 

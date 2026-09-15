@@ -121,8 +121,10 @@ type BrowserStatusResult struct {
 	Driver  string `json:"driver,omitempty"`
 }
 type MCPImportStatusResult struct {
-	Claude bool `json:"claude"`
-	Codex  bool `json:"codex"`
+	Claude   bool `json:"claude"`
+	Codex    bool `json:"codex"`
+	Project  bool `json:"project"`
+	Opencode bool `json:"opencode"`
 }
 type ComputerStatusResult struct {
 	Enabled        bool     `json:"enabled"`

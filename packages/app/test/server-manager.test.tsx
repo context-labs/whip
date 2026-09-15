@@ -57,7 +57,7 @@ it('adds a URL with a derived name, existing auto-connect default, and returns f
   expect(dialog.queryByLabelText('Username')).toBeNull();
   expect(dialog.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-expanded')).toBe('false');
   fireEvent.change(dialog.getByLabelText('Server address'), { target: { value: 'https://build.example:8443' } });
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   await waitFor(() => expect(f.connections.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'build.example:8443', url: 'https://build.example:8443', connect_on_launch: true }), false, undefined));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(f.connections.select).toHaveBeenCalledWith('saved'); expect(f.connections.connect).toHaveBeenCalledWith('saved');
@@ -67,18 +67,18 @@ it('adds a URL with a derived name, existing auto-connect default, and returns f
 it('keeps invalid and failed URL submissions open with entered fields and prevents duplicate saves', async () => {
   const f = fixture(); const dialog = await add(); const address = dialog.getByLabelText('Server address');
   fireEvent.change(address, { target: { value: 'not a server address' } });
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   expect(await screen.findByText('Enter a valid HTTP or HTTPS server address.')).toBeTruthy();
   expect(address.getAttribute('aria-invalid')).toBe('true');
   fireEvent.change(address, { target: { value: 'https://user:secret@build.example' } });
   expect(screen.queryByRole('alert')).toBeNull();
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   await screen.findByRole('alert'); expect(f.connections.save).not.toHaveBeenCalled();
   expect(screen.getByRole('alert').closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('validation');
   fireEvent.change(address, { target: { value: 'https://build.example' } });
   let reject!: (error: Error) => void;
   f.connections.save.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   expect((address as HTMLInputElement).disabled).toBe(true);
   fireEvent.submit(address.closest('form')!); expect(f.connections.save).toHaveBeenCalledOnce();
   fireEvent.click(dialog.getByRole('button', { name: 'Close', exact: true })); expect(screen.getByRole('dialog')).toBeTruthy();
@@ -106,7 +106,7 @@ it('retains saved URL values and requires explicit identity acceptance', async (
 
 it('keeps SSH available without Local and offers scoped setup cancellation', async () => {
   const f = fixture({ hosts: [host('local', { state: 'closed', client: undefined })], platform: { connectionKinds: ['local', 'url', 'ssh'] } });
-  const dialog = await add(); expect((dialog.getByRole('button', { name: 'Add server' }) as HTMLButtonElement).disabled).toBe(true);
+  const dialog = await add(); expect((dialog.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(dialog.getByRole('tab', { name: 'SSH', exact: true }));
   expect(dialog.queryByLabelText('Server address')).toBeNull(); expect(dialog.queryByLabelText(/Password/)).toBeNull();
   fireEvent.change(dialog.getByLabelText('SSH host or alias'), { target: { value: 'build-alias' } });
@@ -114,12 +114,13 @@ it('keeps SSH available without Local and offers scoped setup cancellation', asy
   f.connections.saveNative.mockImplementationOnce((_, __, value: AbortSignal) => new Promise((_, reject) => {
     signal = value; signal.addEventListener('abort', () => reject(new Error('Connection cancelled')), { once: true });
   }));
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
-  expect(f.connections.saveNative).toHaveBeenCalledWith(expect.objectContaining({ label: 'build-alias', target: { kind: 'ssh', host: 'build-alias' } }), false, expect.any(AbortSignal));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
+  await waitFor(() => expect(f.connections.saveNative).toHaveBeenCalledWith(expect.objectContaining({ label: 'build-alias', target: { kind: 'ssh', host: 'build-alias' } }), false, expect.any(AbortSignal)));
   fireEvent.click(dialog.getByRole('button', { name: 'Cancel connection' }));
-  await screen.findByText('Connection cancelled'); expect(signal.aborted).toBe(true);
+  await dialog.findByRole('button', { name: 'Connect' }); expect(signal.aborted).toBe(true);
+  expect(dialog.queryByRole('alert')).toBeNull();
   expect(f.connections.save).not.toHaveBeenCalled(); expect((dialog.getByLabelText('SSH host or alias') as HTMLInputElement).value).toBe('build-alias');
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
@@ -156,7 +157,7 @@ it('closes after a successful save even if connection subsequently fails', async
   f.connections.connect.mockRejectedValueOnce(new Error('Server went offline'));
   const dialog = within(await screen.findByRole('dialog', { name: 'Add server' }));
   fireEvent.change(dialog.getByLabelText('Server address'), { target: { value: 'https://build.example' } });
-  fireEvent.click(dialog.getByRole('button', { name: 'Add server' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Connect' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(f.onSaved).toHaveBeenCalledWith('saved');
   expect(f.connections.select).toHaveBeenCalledWith('saved');

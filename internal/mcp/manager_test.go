@@ -156,7 +156,7 @@ func TestManagerStructuredAndMedia(t *testing.T) {
 		t.Errorf("structured = %q", out)
 	}
 	out = tools.Execute(context.Background(), ts, "mcp__docs__media", nil)
-	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image content omitted: image/png, 3 bytes]") {
+	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image 1: image/png, 3 bytes]") {
 		t.Errorf("media = %q", out)
 	}
 }
@@ -396,14 +396,67 @@ func TestManagerAutoReconnectGivesUp(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// Let any in-flight last attempt settle, then assert: failed, capped.
+	// Let any in-flight last attempt settle, then assert: failed, and every
+	// budgeted attempt was actually made (a failed redial re-arms the next).
 	time.Sleep(200 * time.Millisecond)
 	st := m.Statuses()[0]
 	if st.Status != StatusFailed {
 		t.Errorf("flaky should end failed, got %v", st.Status)
 	}
-	if got := connects.Load(); got > int64(autoReconnectMax)+1 {
-		t.Errorf("connect attempts = %d, want <= initial + %d retries", got, autoReconnectMax)
+	if got := connects.Load(); got != int64(autoReconnectMax)+1 {
+		t.Errorf("connect attempts = %d, want initial + exactly %d retries", got, autoReconnectMax)
+	}
+	s.mu.Lock()
+	tries := s.autoTries
+	s.mu.Unlock()
+	if tries != autoReconnectMax {
+		t.Errorf("autoTries = %d, want %d", tries, autoReconnectMax)
+	}
+}
+
+// TestManagerAutoReconnectRecoversAfterFailedRedial: the first redial after a
+// drop fails and the second succeeds. The manager must chain to the second
+// attempt on its own instead of stopping after one failure.
+func TestManagerAutoReconnectRecoversAfterFailedRedial(t *testing.T) {
+	t.Setenv("WHIP_TEST_MCP_BACKOFF_MS", "10")
+
+	var connects atomic.Int64
+	m := NewManager(map[string]ServerConfig{"flaky": testCfg("flaky")})
+	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
+		switch connects.Add(1) {
+		case 2:
+			return nil, errors.New("server still restarting")
+		default:
+			return serveTestServer(t, m, "flaky"), nil
+		}
+	}
+	t.Cleanup(m.Close)
+	m.Start(context.Background())
+	waitReady(t, m)
+
+	s := m.servers["flaky"]
+	s.mu.Lock()
+	sess := s.sess
+	droppedGen := s.gen
+	s.mu.Unlock()
+	sess.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	recovered := false
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		recovered = s.status == StatusReady && s.sess != nil && s.gen > droppedGen
+		s.mu.Unlock()
+		if recovered {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !recovered {
+		t.Fatalf("second redial never recovered: %+v", m.Statuses()[0])
+	}
+	if got := connects.Load(); got != 3 {
+		t.Errorf("connect attempts = %d, want initial + failed redial + successful redial", got)
 	}
 }
 
@@ -464,8 +517,8 @@ func TestFlattenPreservesLargeText(t *testing.T) {
 	big := strings.Repeat("x", 60_000) + "middle evidence" + strings.Repeat("y", 60_000)
 	res := &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: big}}}
 	out := flattenResult(res)
-	if out != big {
-		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out), len(big))
+	if out.Text != big {
+		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out.Text), len(big))
 	}
 }
 

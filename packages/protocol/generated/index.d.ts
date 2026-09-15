@@ -60,6 +60,9 @@ export type AgentListResult =
           media_type: string;
           source: string;
         };
+        model_calls?: number;
+        compactions?: number;
+        last_activity_at?: string;
       };
       id: string;
       root_id: string;
@@ -121,6 +124,9 @@ export interface AgentTranscriptResult {
         media_type: string;
         source: string;
       };
+      model_calls?: number;
+      compactions?: number;
+      last_activity_at?: string;
     };
     id: string;
     root_id: string;
@@ -193,6 +199,7 @@ export interface AgentTranscriptResult {
             };
             model?: string;
             rewound_from?: string;
+            call_id?: string;
           };
           body?: null | {
             inline?: unknown;
@@ -297,6 +304,7 @@ export interface BoundedTranscriptPage {
           };
           model?: string;
           rewound_from?: string;
+          call_id?: string;
         };
         body?: null | {
           inline?: unknown;
@@ -562,6 +570,7 @@ export interface ContentEventPayload {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -1356,6 +1365,39 @@ export interface MCPAttachParams {
   };
 }
 
+export interface MCPImportApplyParams {
+  cwd?: string;
+  names: null | string[];
+}
+
+export interface MCPImportApplyResult {
+  imported: null | string[];
+  skipped?: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportCandidatesParams {
+  cwd?: string;
+}
+
+export interface MCPImportCandidatesResult {
+  candidates:
+    | null
+    | {
+        name: string;
+        source: string;
+        state: string;
+        note?: string;
+        brand_hint?: string;
+      }[];
+  offered: boolean;
+  config_path: string;
+  errors?: {
+    [k: string]: string;
+  };
+}
+
 export interface MCPImportParams {
   source: string;
   enabled: boolean;
@@ -1364,6 +1406,8 @@ export interface MCPImportParams {
 export interface MCPImportStatusResult {
   claude: boolean;
   codex: boolean;
+  project: boolean;
+  opencode: boolean;
 }
 
 export type MCPListResult =
@@ -1681,6 +1725,7 @@ export interface ProviderList {
           account_id?: string;
           plan?: string;
           email?: string;
+          team_name?: string;
           project_id?: string;
           project_name?: string;
           machine_key_name?: string;
@@ -1809,6 +1854,7 @@ export interface ProviderStatus {
   account_id?: string;
   plan?: string;
   email?: string;
+  team_name?: string;
   project_id?: string;
   project_name?: string;
   machine_key_name?: string;
@@ -2030,6 +2076,9 @@ export interface RootCollectionPage {
               media_type: string;
               source: string;
             };
+            model_calls?: number;
+            compactions?: number;
+            last_activity_at?: string;
           };
           id: string;
           root_id: string;
@@ -2167,6 +2216,9 @@ export interface RootCollectionPage {
                   media_type: string;
                   source: string;
                 };
+                model_calls?: number;
+                compactions?: number;
+                last_activity_at?: string;
               };
               id: string;
               root_id: string;
@@ -2407,6 +2459,7 @@ export interface RootSnapshot {
         };
         model?: string;
         rewound_from?: string;
+        call_id?: string;
       }[];
   presentation:
     | null
@@ -2446,6 +2499,9 @@ export interface RootSnapshot {
             media_type: string;
             source: string;
           };
+          model_calls?: number;
+          compactions?: number;
+          last_activity_at?: string;
         };
         id: string;
         root_id: string;
@@ -2698,6 +2754,7 @@ export interface RuntimeConfiguration {
       }[];
   import_claude: boolean;
   import_codex: boolean;
+  mcp_import_offered: boolean;
   revision: string;
   default_model: string;
   default_provider: string;
@@ -2855,6 +2912,48 @@ export interface SnapshotParams {
   root_id: string;
 }
 
+export interface SpanPage {
+  root_id: string;
+  spans:
+    | null
+    | {
+        id: string;
+        trace_id: string;
+        parent_id?: string;
+        root_id: string;
+        agent_id: string;
+        turn_id?: string;
+        kind: string;
+        name: string;
+        status: string;
+        start_ns: string;
+        end_ns: string;
+        attrs?: unknown;
+        links?: unknown;
+        updated_seq: string;
+      }[];
+  next_seq: string;
+  has_more: boolean;
+  server_time_ns: string;
+}
+
+export interface SpanRecord {
+  id: string;
+  trace_id: string;
+  parent_id?: string;
+  root_id: string;
+  agent_id: string;
+  turn_id?: string;
+  kind: string;
+  name: string;
+  status: string;
+  start_ns: string;
+  end_ns: string;
+  attrs?: unknown;
+  links?: unknown;
+  updated_seq: string;
+}
+
 export interface StreamEvent {
   accounting?: null | {
     root_id: string;
@@ -2889,6 +2988,7 @@ export interface StreamEvent {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -3081,6 +3181,31 @@ export type ToolSchemaResult =
       };
     }[];
 
+export interface TraceExportParams {
+  root_id: string;
+  trace_id?: string;
+}
+
+export interface TraceExportResult {
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  spans: number;
+  traces: number;
+}
+
+export interface TracePageParams {
+  root_id: string;
+  trace_id?: string;
+  after_seq?: string;
+  limit?: number;
+  roots_only?: boolean;
+}
+
 export interface UnsubscribeParams {
   subscription_id: string;
 }
@@ -3180,6 +3305,10 @@ export interface ContractTypes {
   LifecycleEvent: LifecycleEvent;
   ListParams: ListParams;
   MCPAttachParams: MCPAttachParams;
+  MCPImportApplyParams: MCPImportApplyParams;
+  MCPImportApplyResult: MCPImportApplyResult;
+  MCPImportCandidatesParams: MCPImportCandidatesParams;
+  MCPImportCandidatesResult: MCPImportCandidatesResult;
   MCPImportParams: MCPImportParams;
   MCPImportStatusResult: MCPImportStatusResult;
   MCPListResult: MCPListResult;
@@ -3252,6 +3381,8 @@ export interface ContractTypes {
   SessionUpdateEvent: SessionUpdateEvent;
   ShellParams: ShellParams;
   SnapshotParams: SnapshotParams;
+  SpanPage: SpanPage;
+  SpanRecord: SpanRecord;
   StreamEvent: StreamEvent;
   SubmitPayload: SubmitPayload;
   SubscribeParams: SubscribeParams;
@@ -3279,6 +3410,9 @@ export interface ContractTypes {
   ToolProgressParams: ToolProgressParams;
   ToolResultParams: ToolResultParams;
   ToolSchemaResult: ToolSchemaResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
   UnsubscribeParams: UnsubscribeParams;
   UploadBeginParams: UploadBeginParams;
   UploadChunkParams: UploadChunkParams;
@@ -3340,12 +3474,15 @@ export interface EventPayloadTypes {
   "session.permission_mode.updated": SessionUpdateEvent | ContentEventPayload;
   "session.reload.failed": LifecycleEvent | ContentEventPayload;
   "session.title.updated": SessionUpdateEvent | ContentEventPayload;
+  "span.ended": SpanRecord | ContentEventPayload;
+  "span.started": SpanRecord | ContentEventPayload;
   "state.private.append": LifecycleEvent | ContentEventPayload;
   "state.private.cas": LifecycleEvent | ContentEventPayload;
   "state.private.set": LifecycleEvent | ContentEventPayload;
   "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
   "stream.cell.host.started": StreamEvent | ContentEventPayload;
+  "stream.discard": StreamEvent | ContentEventPayload;
   "stream.hook.decision": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;
@@ -3395,6 +3532,8 @@ export interface RpcMethods {
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
   "mailbox.list": { params: MailboxPageParams; result: MailboxPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mcp.import.apply": { params: MCPImportApplyParams; result: MCPImportApplyResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult; execution: "query"; permission: "host-configuration"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
   "provider.create": { params: ProviderCreateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
@@ -3430,6 +3569,8 @@ export interface RpcMethods {
   "terminal.write": { params: TerminalWriteParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: true };
   "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "trace.page": { params: TracePageParams; result: SpanPage; execution: "query"; permission: "root-association"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
   "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
   "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };

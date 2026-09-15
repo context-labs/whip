@@ -6,7 +6,9 @@ import type { SdkEvent, WhipClient } from './client.js';
 import type { Session } from './session.js';
 import { asError, WhipError } from './errors.js';
 import { boundExecutionEvidence, emptyExecutionEvidence, observeExecution, reconcileExecutions, seedExecutions, settleExecutions, type ExecutionEvidence } from './executions.js';
+import { emptyTraceEvidence, mergeSpanPage, observeSpan, type TraceEvidence } from './trace.js';
 export { executionRows, type ExecutionCell, type ExecutionHostCall, type ExecutionRestart, type ExecutionRow } from './executions.js';
+export { traceSpans, traceRoots, serverNowMs, toTraceSpan, MAX_TRACE_SPANS, type TraceSpan, type TraceEvidence, type TraceSpanKind, type TraceSpanStatus } from './trace.js';
 
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T
   : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
@@ -33,6 +35,8 @@ export interface SessionViewSnapshot {
   retainedBytes: number;
   /** Bounded supplemental REPL evidence; transcript bodies remain in history. */
   executions?: ExecutionEvidence;
+  /** Bounded span evidence for the trace view: durable pages plus live span events, merged by id. */
+  trace?: TraceEvidence;
   truncated: boolean;
   unavailable: boolean;
   error?: Error;
@@ -135,7 +139,7 @@ export class SessionView {
     this.commandListener?.();
     const stream = this.stream;
     this.stream = undefined;
-    this.set({ ...this.current, status: 'closed', executions: undefined }, true);
+    this.set({ ...this.current, status: 'closed', executions: undefined, trace: undefined }, true);
     this.listeners.clear();
     await stream?.dispose();
   }
@@ -322,6 +326,9 @@ export class SessionView {
       this.set({
         status: 'live', root, history, collections: {}, retainedBytes: 0,
         executions: seedExecutions(this.current.executions, snapshot, history),
+        // Spans do not depend on the history revision; a refresh keeps them and
+        // the next loadTrace pages in whatever the journal window missed.
+        trace: this.current.trace,
         truncated: Object.values(root.omitted ?? {}).some(Boolean), unavailable: this.unknownSeen,
       }, true);
       void this.consume(stream, epoch);
@@ -358,12 +365,16 @@ export class SessionView {
       event, previous.active_turns, this.current.history, Date.now());
     let root = { ...previous, cursor: event.seq };
     let unavailable = this.current.unavailable;
+    let trace = this.current.trace;
     const payload = event.payload as Record<string, unknown>;
     if (event.unknown || (payload?.truncated && payload.content)) {
       unavailable = true;
       if (!this.unknownSeen) { this.unknownSeen = true; this.scheduleRefresh(); }
     }
-    if (event.kind === 'stream.accounting') {
+    if (event.kind === 'span.started' || event.kind === 'span.ended') {
+      // Span events carry the whole record, so no snapshot refresh is needed.
+      trace = observeSpan(trace ?? emptyTraceEvidence(previous.root_id), { kind: event.kind, payload: event.payload });
+    } else if (event.kind === 'stream.accounting') {
       const accounting = (event.payload as StreamEvent).accounting;
       if (accounting && accounting.root_id === root.root_id && accounting.agent_id === root.root_id
         && accounting.scope === 'subtree' && (!root.accounting || BigInt(accounting.revision) >= BigInt(root.accounting.revision))) {
@@ -413,7 +424,35 @@ export class SessionView {
     // Hidden tabs can throttle notification timers indefinitely. Bound incoming
     // growth independently, without reserializing the cached history per delta.
     this.pendingBytes += bytes(event);
-    this.set({ ...this.current, root, executions, unavailable }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
+    this.set({ ...this.current, root, executions, unavailable, trace }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
+  }
+
+  /**
+   * Page the root's durable spans into the view. The first call reads from the
+   * beginning; later calls continue from the page cursor, so a reconnect that
+   * missed journal events catches up without discarding what live events built.
+   */
+  async loadTrace(): Promise<void> {
+    if (this.lifetime.signal.aborted) throw new Error('Session view is closed');
+    const epoch = this.epoch;
+    const rootId = this.session.rootId;
+    let evidence = this.current.trace ?? emptyTraceEvidence(rootId);
+    if (evidence.loading) return;
+    this.set({ ...this.current, trace: { ...evidence, loading: true, error: undefined } }, true);
+    try {
+      for (let pages = 0; pages < 8; pages++) {
+        const page = await this.session.client.call('trace.page', { root_id: rootId, after_seq: evidence.pageCursor, limit: 2048 }, { signal: this.lifetime.signal });
+        if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+        evidence = mergeSpanPage(this.current.trace ?? evidence, page);
+        this.set({ ...this.current, trace: { ...evidence, loading: page.has_more } }, true);
+        if (!page.has_more) break;
+      }
+      if (evidence.loading) this.set({ ...this.current, trace: { ...evidence, loading: false } }, true);
+    } catch (error) {
+      if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+      this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), loading: false, error: asError(error) } }, true);
+      throw error;
+    }
   }
 
   private async readHistory(agentId: string, older: boolean): Promise<void> {

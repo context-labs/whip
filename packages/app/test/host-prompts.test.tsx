@@ -155,3 +155,22 @@ it('declines oversized messages and challenges without truncating a host fingerp
   expect(f.bridge.answerPrompt.mock.calls).toEqual([['too-long', null], ['too-many-fields', null]]);
   expect(screen.queryByRole('dialog')).toBeNull();
 });
+
+it('routes concurrent hosts by attempt and queues unrelated prompts behind the foreground dialog', async () => {
+  const f = fixture(); f.mount();
+  const releaseA = f.prompts.registerAttempt('attempt-a', 'host-a');
+  const releaseB = f.prompts.registerAttempt('attempt-b', 'host-b');
+  const unclaim = f.prompts.claim('host-b');
+  f.emit({ kind: 'prompt', prompt: { ...prompt('a'), attemptId: 'attempt-a' } });
+  f.emit({ kind: 'prompt', prompt: { ...prompt('b'), attemptId: 'attempt-b' } });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  const b = f.prompts.forHost('host-b')!;
+  expect(b.prompt.id).toBe('b');
+  await act(async () => f.prompts.answer(b.serial, []));
+  expect(f.bridge.answerPrompt).toHaveBeenCalledExactlyOnceWith('b', []);
+  expect(f.prompts.forHost('host-a')?.prompt.id).toBe('a');
+  act(() => unclaim());
+  expect(screen.getByRole('dialog', { name: 'SSH request a' })).toBeTruthy();
+  act(() => { releaseA(); releaseB(); });
+  expect(screen.queryByRole('dialog')).toBeNull();
+});

@@ -245,6 +245,7 @@ func TestAccountingFailurePreservesResponseWithoutRetry(t *testing.T) {
 
 func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	t.Run("short elapsed permit", func(t *testing.T) {
+		noSleep(t) // a budget-shortened permit is retried like any other ceiling
 		var result ModelAttemptResult
 		budget := attemptBudgetFunc(func(_ context.Context, attempt ModelAttempt) (ModelPermit, error) {
 			return ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: 10 * time.Millisecond, Settle: func(got ModelAttemptResult) error { result = got; return nil }}, nil
@@ -286,19 +287,25 @@ func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	})
 }
 
-func TestModelLogicalDeadlineIncludesBackoff(t *testing.T) {
+// The caller's own deadline bounds the whole call including backoff; whip no
+// longer imposes a total of its own (only the per-attempt ceiling).
+func TestCallerDeadlineBoundsBackoff(t *testing.T) {
 	calls := 0
 	client := New("https://provider.example", "secret")
-	client.HTTP.Timeout = 10 * time.Millisecond
 	client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		calls++
 		response := accountingResponse(503, "busy")
 		response.Status = "503 Service Unavailable"
 		return response, nil
 	})
-	_, _, err := client.Complete(context.Background(), Request{Model: "m"})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	_, _, err := client.Complete(ctx, Request{Model: "m"})
 	if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
 		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+	if retryable(err) {
+		t.Fatalf("a caller's deadline must not be retryable: %v", err)
 	}
 }
 
@@ -328,11 +335,21 @@ func TestInputEstimateCannotWrapOrDoubleCountTextParts(t *testing.T) {
 	}
 }
 
-func TestStreamNeverRetriesPartialOutputWithNilCallbacks(t *testing.T) {
+// Output is tracked even with nil callbacks: a stream that fails after any
+// delta is regenerated within the regeneration budget (not the larger
+// pre-token budget), and every attempt is settled.
+func TestStreamRegeneratesPartialOutputWithinBudgetWithNilCallbacks(t *testing.T) {
 	noSleep(t)
 	for _, delta := range []string{`{"content":"partial"}`, `{"reasoning_content":"thinking"}`, `{"tool_calls":[{"index":0,"function":{"arguments":"{"}}]}`} {
 		t.Run(delta, func(t *testing.T) {
 			calls := 0
+			var settled []ModelAttemptResult
+			budget := attemptBudgetFunc(func(_ context.Context, attempt ModelAttempt) (ModelPermit, error) {
+				return ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: attempt.Timeout, Settle: func(result ModelAttemptResult) error {
+					settled = append(settled, result)
+					return nil
+				}}, nil
+			})
 			client := New("https://provider.example", "secret")
 			client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) {
 				calls++
@@ -340,9 +357,14 @@ func TestStreamNeverRetriesPartialOutputWithNilCallbacks(t *testing.T) {
 				response.Body = io.NopCloser(io.MultiReader(strings.NewReader(`data: {"choices":[{"delta":`+delta+`}]}`+"\n\n"), accountingBrokenReader{}))
 				return response, nil
 			})
-			_, _, err := client.Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
-			if err == nil || calls != 1 {
-				t.Fatalf("partial output replayed: calls=%d err=%v", calls, err)
+			_, _, err := client.Stream(context.Background(), Request{Model: "m", MaxTokens: 10, Accounting: &CallAccounting{Budget: budget}}, nil, nil, nil)
+			if err == nil || calls != 1+DefaultRegenerations || len(settled) != calls {
+				t.Fatalf("calls=%d settled=%d err=%v", calls, len(settled), err)
+			}
+			for _, result := range settled {
+				if !result.Dispatched || !result.Failed {
+					t.Fatalf("every attempt must settle as dispatched and failed: %+v", result)
+				}
 			}
 		})
 	}

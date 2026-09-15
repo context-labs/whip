@@ -338,6 +338,33 @@ function nativeFixture(profiles = [remote('a')], saved: ConnectionProfile[] = []
 }
 const sshProfile = (id = 'server'): ConnectionProfile => ({ id: `ssh:${id}`, label: id, target: { kind: 'ssh', host: id } });
 
+it('releases startup after Local connects while selected SSH continues in the background', async () => {
+  const f = nativeFixture([], [localProfile, sshProfile()]);
+  const remote = deferred<void>();
+  mocks.connecting.set('http://server.test', remote.promise);
+  await f.hosts.connectOnLaunch();
+  expect(f.hosts.home().state).toBe('connected');
+  expect(mocks.clients.find(client => client.endpoint === 'http://server.test')?.connect).toHaveBeenCalledOnce();
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.client).toBeUndefined();
+  remote.resolve();
+  await vi.waitFor(() => expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.state).toBe('connected'));
+});
+
+it('releases startup on Local failure and reports a later SSH failure independently', async () => {
+  const f = nativeFixture([], [localProfile, sshProfile()]);
+  const local = deferred<void>();
+  const remote = deferred<void>();
+  mocks.connecting.set('http://local.test', local.promise);
+  mocks.connecting.set('http://server.test', remote.promise);
+  const startup = f.hosts.connectOnLaunch();
+  await vi.waitFor(() => expect(mocks.clients).toHaveLength(2));
+  local.reject(new Error('Local unavailable'));
+  await startup;
+  expect(f.hosts.home().error).toBe('Local unavailable');
+  remote.reject(new Error('SSH unavailable'));
+  await vi.waitFor(() => expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.error).toBe('SSH unavailable'));
+});
+
 it('keeps local, URL and SSH transports independently attached through refresh and native disconnect', async () => {
   const f = nativeFixture(); await start(f.hosts);
   await f.hosts.saveNative(sshProfile());
@@ -375,6 +402,7 @@ it('cancels a native save on the deduplicated host without touching other hosts'
   cancel.abort(); expect(signal.aborted).toBe(true);
   const dispose = vi.fn(); setup.resolve({ endpoint: 'http://late.test', dispose });
   await rejection; expect(dispose).toHaveBeenCalledOnce();
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.error).toBeUndefined();
   expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.runtimeId).toBe('remote');
   expect(f.hosts.getSnapshot().hosts.some(host => host.id === 'ssh:duplicate')).toBe(false);
   expect(f.values.get('whip.hosts.v2')).toBe(before);

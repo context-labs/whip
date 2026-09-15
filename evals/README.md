@@ -2,11 +2,96 @@
 
 Use `whip-eval` for new Frontier evaluations. It runs the real Whip CLI and
 native Harbor/Pier graders, freezes the inputs, and writes a comparable report.
-Kimi K3 on Inference.net, with high reasoning effort, is the initial model route.
+Kimi K3 on Inference.net, with high reasoning effort, was the initial model route; since 2026-09-13 the pinned route is `kimi-k3-fast` (`frontier/protocol.json`, `whip_evals.common.MODEL`), after the provider renamed `kimi-k3` and its stream stalled on long calls. Reports from the two routes are separate environments.
 
-**Implementation status:** offline validation is complete. No benchmark trials or
-machine-qualification containers were run during implementation. There is no
-accepted baseline yet. Establish it on the evaluation machine after qualification.
+**Execution environments:** the native Docker workflow and its retained reports
+remain authoritative. The Modal workflow below runs the same native trials on
+disposable cloud VMs; it is a separate environment, never an automatic baseline.
+
+## Modal campaigns
+
+One detached coordinator per campaign; one disposable Modal VM per trial, running
+the unchanged native Docker trial (Harbor/Pier runner, adapter, observer, grader).
+The VM writes its evidence to the `whip-eval-evidence` volume, writes a final
+`complete.json` marker listing every file's SHA-256, and exits. The coordinator
+waits for the VM to exit, then reads the marker. Nothing retries a model attempt.
+
+```sh
+# Offline expansion only: 90 planned trials, no build/network/Modal/model calls.
+uv run --project evals --locked whip-eval modal submit full --dry-run
+
+# Live campaign: 30 tasks x 3 repetitions, up to frontier/modal.json max_jobs VMs at once.
+uv run --project evals --locked whip-eval modal submit full --run-id <unique-run-id> --allow-model-calls
+uv run --project evals --locked whip-eval modal status <run-id>
+uv run --project evals --locked whip-eval modal cancel <run-id>     # the only thing that cancels a campaign
+uv run --project evals --locked whip-eval modal fetch <run-id>      # report, then prune Modal-side data
+uv run --project evals --locked whip-eval modal fetch <run-id> --keep
+uv run --project evals --locked whip-eval modal prune <run-id>      # after a --keep fetch or an abandoned run
+```
+
+`frontier/modal.json` holds the non-secret placement: environment `whipcode`,
+app `whip-eval`, the immutable worker image id, the VM shape per runner, and
+`max_jobs`. `submit` freezes an allowlisted bundle (prepared tasks, candidate
+binary, ripgrep, contracts, evaluator source, dependency locks), uploads it, and
+spawns the coordinator with the bundle digest and the controller source digest.
+A stale deployment fails before dispatch. A run id is never reused. The CLI may
+exit after submission.
+
+**What can stop a run.** Only `cancel`. A worker that exits without a marker, a
+VM the platform lost, an unproven exit, or a controller error is recorded on
+that attempt and the rest of the campaign continues. Cancelled and failed
+attempts stay in the denominator.
+
+**Setup.** Dependency bootstrap inside the task container gets 600 s and three
+tries before any model call; the runner setup budget covers all three. Every
+try leaves a `setup-*.json` receipt in the trial's agent directory.
+
+**Fetch.** Downloads the run's evidence prefix with `modal volume get` (the CLI's
+parallel transfer; three tries), verifies every hash each worker's marker listed,
+reads
+each trial's native result and the observer's `agent/whip/` files, and writes
+`reports/<run>/fetches/<id>/`. Trials whose marker or hashes are missing are
+`cloud_snapshot_incomplete`; their observed cost is kept as a lower bound.
+When the coordinator has finished, fetch records `<run>/fetched` in the state
+dict and deletes the run's inputs, evidence, and other state keys unless
+`--keep` is passed. Report status is `complete`, `cancelled` (a human
+cancelled), or `incomplete` (what is missing is counted in `status_detail`).
+Cost columns show known cost and the number of calls with unknown usage.
+
+**Failure attribution.** Provider stream failures (`api error: ...`, gateway
+no-token stalls, 429/5xx) are `provider_error`; agent faults are `agent_error`.
+Whip repeats a stream that failed before its first token once.
+
+### Cloud administration
+
+All resources live in workspace `inference-net`, environment `whipcode`, app
+`whip-eval`. Authenticate Modal outside the repository; never put Modal tokens in
+VM secrets, images, bundles, tracked JSON, logs, or reports.
+
+```sh
+cd evals
+uv run --locked modal deploy -m whip_evals.modal_cloud --env whipcode
+uv run --locked modal volume create whip-eval-inputs --env whipcode
+uv run --locked modal volume create whip-eval-evidence --env whipcode
+uv run --locked modal dict create whip-eval-state --env whipcode
+```
+
+Provision the secret `whip-eval-inference` with **only** `INFERENCE_API_KEY`.
+Workers receive that secret and the two volume mounts; they never receive a
+Modal account token. Task containers receive neither the Docker socket nor Modal
+credentials. On a cloud worker the Pier inference proxy's generated compose file
+(which carries the proxy token) is written to a private VM-local directory, not
+to the evidence volume (`WHIP_EVAL_CLOUD=1` in the launch command).
+
+`python -m whip_evals.modal_image --output <ignored-receipt.json>` builds the
+Docker-in-VM base image (Debian/Python 3.12, frozen `uv.lock`, checksum-pinned
+Docker, Compose, Buildx; UNIX-socket dockerd only). Put the new image id in
+`frontier/modal.json`. Candidate code is extracted from the SHA-verified bundle,
+never baked into the image.
+
+Redeploy the coordinator whenever `modal_cloud.py`, `common.py`, or
+`execution.py` changes; `submit` passes their digest and a mismatch fails the
+run before any VM is created.
 
 ## Setup on the evaluation machine
 
@@ -33,6 +118,8 @@ The explicit integration check **does start eight disposable fixture trials**:
 
 ```sh
 uv run --project evals --locked whip-eval doctor --integration
+# Qualify the current host harness/fixtures against an immutable runtime commit.
+uv run --project evals --locked whip-eval doctor --integration --ref <commit-sha>
 ```
 
 It uses an authored fake provider, with no external model calls. Both engines and
@@ -40,6 +127,18 @@ both native runners exercise shared and separate verifiers, root/child finality,
 whole-tree accounting, external content export, numeric file paging, a background
 service surviving finality, and collection/application of a committed patch. It
 writes private evidence under `artifacts/doctor-*/` and never contributes scores.
+`doctor --ref` selects the runtime build for integration only; without it, the
+existing working-file snapshot behavior is unchanged. The host harness and
+fixtures always come from the current checkout; the result records build identity.
+
+Pier fixtures exercise `no-network` in both shared and separate verifier modes.
+The supported native environment import hook selects our small Docker extension,
+which caps only the inference proxy's soft/hard `nofile` limits at 65,536. This
+avoids Squid allocating an enormous FD table from host-inherited Docker defaults;
+it does not relax task networks, proxy authentication, or the provider allowlist.
+The extension depends on Pier 0.3.1's private proxy-preparation hook and fails
+visibly on an incompatible proxy shape. The protocol and measured adapter/runner
+launch hashes record this adaptation; the locked dependency itself is unchanged.
 
 For scored runs, supply `INFERENCE_API_KEY` through your environment or secret
 manager. The CLI never asks you to put a literal key in a command or report.
@@ -134,12 +233,29 @@ ID is refused. Final reports live in `evals/reports/<run-id>/`:
 
 `request.json` records the planned workload; `progress.json` is temporary. A failure during preparation records
 `preparation-error.json`; no task score is asserted without launching a campaign.
-An interrupted execution finalizes a partial report where possible. A hard host
+An interrupted execution finalizes a `cancelled` report where possible. A hard host
 crash may leave only the manifest and private evidence.
 
 Bulk evidence lives in ignored `evals/artifacts/<run-id>/`: native runner output,
 verifier logs and patches, transcripts/events, SQLite snapshots, call accounting,
-content bodies, contracts, and an integrity inventory. Ignored `evals/cache/`
+content bodies, and contracts. Ignored `evals/cache/`
+
+Each trial's `agent/whip/sessions.db` is a full online backup of the trial's
+whip database taken after the daemon was frozen, so it carries the session
+trace (`spans` table, schema 19 and later) alongside turns, model calls,
+operations and transcripts. `result.json` reports `diagnostics.span_count` and
+`diagnostics.open_span_count` per trial. To analyse a trial with the OTLP
+tooling, point a scratch whip home at the copy and export it:
+
+```sh
+mkdir -p /tmp/trial-home/runtime-v2 && cp <artifact-root>/.../agent/whip/sessions.db /tmp/trial-home/runtime-v2/
+echo '{}' > /tmp/trial-home/config.json
+WHIP_HOME=/tmp/trial-home whip sessions export <root-id> -o trial.otlp.json
+WHIP_HOME=/tmp/trial-home whip daemon stop
+```
+
+The root id is the single row of the copy's `sessions` table; the exporter
+reads only tables inside the database, so nothing else is needed.
 retains exact source archives, binaries, ripgrep and prepared task bundles.
 Small reports and baseline pointers are eligible for Git; nothing is auto-committed.
 Retain accepted evidence **and its build cache** indefinitely. There is no automatic
@@ -163,8 +279,8 @@ Ctrl+C stops dispatch, cancels owned runner work, and keeps available evidence.
 After a crashed runner has exited, `whip-eval cleanup RUN_ID` removes only containers
 whose native identity and exact log mount prove ownership. Cleanup cannot resume
 execution. Use a new run ID for a new experiment. Exit status 2 means a command
-failed or the resulting run is partial; a complete run with valid task failures
-still exits 0.
+failed or the run was cancelled; a complete or incomplete run with valid task
+failures still exits 0.
 
 ## Metric contract (schema version 1)
 
@@ -187,7 +303,11 @@ ledger. Diagnostic cost repricing and sampled RSS/CPU are not complete billing o
 exclusive-process resource measurements. Native grades remain authoritative even
 when execution ends abnormally; evidence and accounting coverage are separate.
 SQLite calls, exported state, metrics, finality, identity and content digests are
-cross-checked before declaring complete accounting/evidence.
+cross-checked before declaring complete accounting/evidence. Content bodies use one
+native directory download into isolated staging, then exact manifest, regular-file,
+size and SHA256 validation before atomic publication. The same 240-second cleanup
+deadline covers transfer and validation; incomplete copies never become complete
+evidence. Metadata transfers and native log collection remain separate.
 
 ## Accepted baseline
 

@@ -49,7 +49,8 @@ with tempfile.TemporaryDirectory(prefix='whipcode-distributions-') as directory:
     # whipcode. Deliberately use long homes to exercise the hashed socket fallback.
     stable_home = home / ('stable-' + 'x' * 90)
     code_home = home / ('code-' + 'x' * 90)
-    env.update(WHIP_HOME=str(stable_home), WHIPCODE_HOME=str(code_home), WHIP_NETWORK='1')
+    env.update(WHIP_HOME=str(stable_home), WHIPCODE_HOME=str(code_home),
+               WHIP_NETWORK='1', WHIPCODE_NETWORK='0')
     stable = binaries['whip']
     code = binaries['whipcode']
     def status(binary):

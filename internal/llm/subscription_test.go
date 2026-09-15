@@ -131,9 +131,11 @@ func TestSubscriptionAuthRetryUsesFreshCredentialAndSeparateAttempt(t *testing.T
 	}
 }
 
-func TestSubscriptionNoRetryAfterReasoningWithNilCallbacks(t *testing.T) {
+func TestSubscriptionRegeneratesAfterReasoningWithinBudgetWithNilCallbacks(t *testing.T) {
+	noSleep(t)
 	client, _ := subscriptionTestClient(t)
-	client.MaxRetries = 3
+	client.MaxRetries = 6
+	client.Regenerations = 1
 	requests := 0
 	client.HTTP.Transport = subscriptionTransport(func(*http.Request) (*http.Response, error) {
 		requests++
@@ -142,8 +144,8 @@ func TestSubscriptionNoRetryAfterReasoningWithNilCallbacks(t *testing.T) {
 		))}, nil
 	})
 	_, _, err := client.Complete(t.Context(), Request{Model: "gpt-5.5"})
-	if !errors.Is(err, io.ErrUnexpectedEOF) || requests != 1 {
-		t.Fatalf("replayed after output with nil callbacks: requests=%d err=%v", requests, err)
+	if !errors.Is(err, io.ErrUnexpectedEOF) || requests != 2 {
+		t.Fatalf("output is regenerated only within the regeneration budget: requests=%d err=%v", requests, err)
 	}
 }
 

@@ -12,7 +12,7 @@ func EventPayloads() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
 	for _, kind := range []string{
 		"stream.text", "stream.reasoning", "stream.tool.call", "stream.tool.started", "stream.tool.output", "stream.tool.completed",
-		"stream.notice", "stream.usage", "stream.accounting", "stream.cell.host.started", "stream.cell.host", "stream.tool.progress", "stream.hook.decision", "stream.terminal.started", "stream.terminal.output",
+		"stream.notice", "stream.discard", "stream.usage", "stream.accounting", "stream.cell.host.started", "stream.cell.host", "stream.tool.progress", "stream.hook.decision", "stream.terminal.started", "stream.terminal.output",
 		"stream.terminal.awaiting", "stream.terminal.completed",
 	} {
 		result[kind] = reflect.TypeFor[StreamEvent]()
@@ -41,6 +41,11 @@ func EventPayloads() map[string]reflect.Type {
 		"model.call.started", "model.call.settled", "model.call.corrected", "model.call.interrupted", "message.updated", "message.queued", "message.done", "message.deferred", "message.delivered", "scratch.restored",
 	} {
 		result[kind] = reflect.TypeFor[session.LifecycleEvent]()
+	}
+	// Trace spans: the full record on both edges, so a client can render a
+	// span the moment it starts and merge the settlement by id when it ends.
+	for _, kind := range []string{"span.started", "span.ended"} {
+		result[kind] = reflect.TypeFor[session.SpanRecord]()
 	}
 	return result
 }

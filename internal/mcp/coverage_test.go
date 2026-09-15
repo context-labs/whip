@@ -139,10 +139,13 @@ func TestFlattenRemainingContentTypes(t *testing.T) {
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///bin", Blob: []byte{9, 9}}},
 		&sdkmcp.ResourceLink{URI: "https://link", Name: "ref"},
 	}})
-	for _, want := range []string{"audio content omitted", "[resource file:///x]", "contents", "binary resource omitted", "resource link: https://link (ref)"} {
-		if !strings.Contains(res, want) {
-			t.Errorf("missing %q in %q", want, res)
+	for _, want := range []string{"[audio 1: audio/wav, 1 bytes]", "[resource file:///x]", "contents", "[binary resource 2: file:///bin, 2 bytes]", "resource link: https://link (ref)"} {
+		if !strings.Contains(res.Text, want) {
+			t.Errorf("missing %q in %q", want, res.Text)
 		}
+	}
+	if len(res.Attachments) != 2 || res.Attachments[0].MIME != "audio/wav" || res.Attachments[1].MIME != "application/octet-stream" || string(res.Attachments[1].Data) != "\x09\x09" {
+		t.Errorf("binary parts must travel as attachments, got %+v", res.Attachments)
 	}
 }
 

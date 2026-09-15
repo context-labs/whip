@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "imported": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "skipped": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/MCPImportApplyResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPImportApplyResult",
+  "required": [
+    "imported"
+  ],
+  "additionalProperties": false
+}

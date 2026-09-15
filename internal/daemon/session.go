@@ -115,7 +115,14 @@ type turnCompaction struct {
 // new transcript messages, compactions, and the durable items the model saw
 // (steer rows injected at a boundary, mailbox messages shown or read).
 type turnJournal struct {
-	TurnID            string
+	TurnID string
+	// SpanID and TraceID identify the turn's trace span; every model call,
+	// cell, host call and wait of the turn parents under it.
+	SpanID  string
+	TraceID string
+	// LastModelCallID is the attempt that most recently settled, so the tool
+	// calls it emitted can name it.
+	LastModelCallID   string
 	BaseSeq           int
 	HookNotices       []string        // ephemeral lines a hook raised this turn
 	Output            json.RawMessage // the final message validated against the definition's output contract

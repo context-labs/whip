@@ -104,7 +104,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
     checks.push('real host form keeps unsaved edits on Stay and discards only after the explicit action');
 
-    for (const label of ['General', 'Agents & execution', 'Servers', 'Recovery', 'About & updates']) {
+    for (const label of ['General', 'Agents & execution', 'Servers', 'About & updates']) {
       await category(label).click();
       await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: /^Attention ·/ })).toHaveCount(0);

@@ -9,7 +9,6 @@ import type { ReactNode } from 'react';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { ConfigurationSettings } from '../src/settings/configuration';
-import { RecoverySettings } from '../src/settings/recovery';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
@@ -29,7 +28,7 @@ function fixture() {
   });
   const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: { openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
   const state = { commands: [] };
-  const runtime = { queries, report: vi.fn(), getSnapshot: () => state, subscribe: () => () => {}, discardDrafts: vi.fn() } as unknown as AppRuntime;
+  const runtime = { queries, report: vi.fn(), getSnapshot: () => state, subscribe: () => () => {} } as unknown as AppRuntime;
   function wrapper(children: ReactNode) { return <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>; }
   return { get, update, runtime, queries, client, wrapper, changeServer(next: RuntimeConfiguration) { server = next; },
     render(category: 'providers' | 'execution') { return render(wrapper(<ConfigurationSettings client={client} enabled category={category} />)); },
@@ -103,15 +102,6 @@ it('does not save disconnected host drafts and cancels a local wait when the for
   const signal = f.update.mock.calls[0]![1].signal;
   expect(signal.aborted).toBe(false);
   view.unmount(); expect(signal.aborted).toBe(true);
-});
-
-it('keeps draft recovery usable without any host client', async () => {
-  const f = fixture(); render(f.wrapper(<RecoverySettings />));
-  expect(screen.getByText(/Connect to an execution host to inspect its command recovery/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Discard saved drafts…' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Discard drafts' }));
-  expect(f.runtime.discardDrafts).toHaveBeenCalledOnce();
-  expect(f.get).not.toHaveBeenCalled();
 });
 
 it('retains the one mounted draft when disconnect cleanup removes host query data', async () => {
@@ -192,14 +182,3 @@ it('classifies invalid defaults as validation and preserves the draft without wr
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
-it('keeps failed draft deletion inside its confirmation and clears it after retry', async () => {
-  const f = fixture();
-  vi.mocked(f.runtime.discardDrafts).mockImplementationOnce(() => { throw new Error('Device storage unavailable'); });
-  render(f.wrapper(<RecoverySettings />));
-  fireEvent.click(screen.getByRole('button', { name: 'Discard saved drafts…' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Discard drafts' }));
-  expect(screen.getByRole('dialog').querySelector('[data-error-type="action"]')).not.toBeNull();
-  expect(f.runtime.report).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Discard drafts' }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-});

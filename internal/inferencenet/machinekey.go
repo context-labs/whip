@@ -100,7 +100,7 @@ func (a *Auth) pickWorkspace(ctx context.Context, sess session, choose ChooseFun
 			}
 		}
 	}
-	a.TeamID = team.ID
+	a.TeamID, a.TeamName = team.ID, team.Name
 
 	projects, err := ListProjects(ctx, a.SessionToken, team)
 	if err != nil {

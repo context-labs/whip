@@ -16,6 +16,20 @@ function runtime(storage?: AppStorage) {
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.options.length = 0; mocks.remotes.clear(); mocks.client.configuration.get.mockResolvedValue({ revision: '1', remote_hosts: [] }); });
 afterEach(() => { vi.useRealTimers(); });
+describe('provider inventory priming', () => {
+  it('prefetches the inventory once per connection, keeps it cached, and remembers readiness on the device', async () => {
+    const list = vi.fn(async () => ({ revision: '1', selection: { ready: false }, providers: [] }));
+    Object.assign(mocks.client, { providers: { list } });
+    const app = runtime(); await app.connect();
+    await Promise.all([app.primeProviders('runtime'), app.primeProviders('runtime')]);
+    expect(list).toHaveBeenCalledOnce();
+    expect(app.queries.getQueryData(['provider-list', 'runtime'])).toMatchObject({ selection: { ready: false } });
+    expect(app.platform.storage.getItem('whip.web.provider-ready.v1:runtime')).toBe('false');
+    await app.primeProviders(undefined); await app.primeProviders('unknown-host');
+    expect(list).toHaveBeenCalledOnce();
+    app.dispose();
+  });
+});
 describe('application observation ownership', () => {
   it('forgets one deleted root across views, child drafts and local presentation without touching another runtime', async () => {
     vi.useFakeTimers();
@@ -263,43 +277,67 @@ describe('draft persistence and bounded storage', () => {
     expect(runtime(first.platform.storage).draft('runtime:root:a')).toBe('Explicit competing edit');
     first.dispose(); second.dispose();
   });
-  it('refuses overflow without truncating or evicting another draft', () => {
+  it('evicts the earliest unowned drafts at the count and total bounds; a single oversized draft is still refused', () => {
     const app = runtime();
     for (let i = 0; i < 32; i++) app.setDraft(`runtime:root:${i}`, `draft ${i}`);
-    expect(() => app.setDraft('runtime:root:overflow', 'new')).toThrow('32 unsent drafts');
-    expect(() => app.setDraft('runtime:root:0', 'é'.repeat(128 * 1024 + 1))).toThrow('256 KiB');
-    expect(app.draft('runtime:root:0')).toBe('draft 0');
+    app.setDraft('runtime:root:overflow', 'new');
+    expect(app.draft('runtime:root:overflow')).toBe('new');
+    expect(app.draft('runtime:root:0')).toBe('');
+    expect(app.draft('runtime:root:1')).toBe('draft 1');
+    expect(() => app.setDraft('runtime:root:1', 'é'.repeat(128 * 1024 + 1))).toThrow('256 KiB');
+    expect(app.draft('runtime:root:1')).toBe('draft 1');
     app.dispose();
     const total = runtime();
     for (let i = 0; i < 3; i++) total.setDraft(`runtime:root:${i}`, 'a'.repeat(256 * 1024));
-    expect(() => total.setDraft('runtime:root:3', 'a'.repeat(256 * 1024))).toThrow('1 MiB');
-    expect(total.draft('runtime:root:2')).toHaveLength(256 * 1024);
+    total.setDraft('runtime:root:3', 'a'.repeat(256 * 1024));
+    expect(total.draft('runtime:root:3')).toHaveLength(256 * 1024);
+    expect(total.draft('runtime:root:0')).toBe('');
     total.dispose();
   });
-  it('allows explicit clearing when another writer has exceeded aggregate bounds', () => {
+  it('evicts drafts of tabs that are no longer open before drafts of open or recently closed tabs', () => {
     const app = runtime();
-    for (let index = 0; index < 33; index++) app.platform.storage.setItem(`whip.web.draft.v1:runtime:root:${index}`, 'External draft');
-    expect(() => app.setDraft('runtime:root:new', 'Additional')).toThrow('32 unsent drafts');
-    app.setDraft('runtime:root:0', ''); app.flushDrafts();
-    expect(app.platform.storage.getItem('whip.web.draft.v1:runtime:root:0')).toBeNull();
-    app.setDraft('runtime:root:1', 'Updated'); app.flushDrafts();
-    expect(app.platform.storage.getItem('whip.web.draft.v1:runtime:root:1')).toBe('Updated');
+    app.tabs.open('runtime', 'kept'); app.setDraft('runtime:kept:root', 'Keep me');
+    const draft = app.tabs.openNew(); app.setDraft(`new:${draft.id}:prompt`, 'Keep the New Chat too');
+    const closed = app.tabs.open('runtime', 'closed'); app.tabs.closeViews([closed]); app.setDraft('runtime:closed:root', 'Reopenable');
+    for (let i = 0; i < 31; i++) app.setDraft(`runtime:gone:${i}`, `orphan ${i}`);
+    expect(app.draft('runtime:kept:root')).toBe('Keep me');
+    expect(app.draft(`new:${draft.id}:prompt`)).toBe('Keep the New Chat too');
+    expect(app.draft('runtime:closed:root')).toBe('Reopenable');
+    expect(app.draft('runtime:gone:0')).toBe(''); expect(app.draft('runtime:gone:1')).toBe('');
+    expect(app.draft('runtime:gone:30')).toBe('orphan 30');
     app.dispose();
   });
-  it('explicitly discards saved and pending drafts without changing recovery or preferences', () => {
-    vi.useFakeTimers();
+  it('retires first-message journals and their frozen payload copies from earlier builds', () => {
+    const values = new Map<string, string>([
+      ['whip.web.welcome.v2:abc', '{}'], ['whip.web.welcome.v1:host', '{}'], ['whip.web.welcome-import.v1:host', 'legacy-welcome-host'],
+      ['whip.web.draft.v1:new:abc:submission', 'frozen'], ['whip.web.draft-revision.v1:new:abc:submission', 'r1'],
+      ['whip.web.draft.v1:host:welcome:prompt', 'old prompt'], ['whip.web.draft.v1:runtime:root:root', 'kept'],
+    ]);
+    const app = runtime({ keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } });
+    expect([...values.keys()]).toEqual(['whip.web.draft.v1:runtime:root:root']);
+    expect(app.draft('runtime:root:root')).toBe('kept');
+    app.dispose();
+  });
+  it('drops the earliest recovery identity instead of refusing when the journal is full', async () => {
+    const app = runtime(); await app.connect();
+    const recovery = mocks.options.at(-1)!.recoveryStorage;
+    const record = (id: string) => ({ version: 1 as const, runtimeId: 'runtime', clientId: 'client', commandId: id, operation: 'submit' as const });
+    app.platform.storage.setItem('whip.web.recovery.v1', JSON.stringify(Array.from({ length: 1024 }, (_, index) => record(`c${index}`))));
+    await recovery.put(record('latest'));
+    const ids = (await recovery.list()).map(item => item.commandId);
+    expect(ids).toHaveLength(1024); expect(ids[0]).toBe('c1'); expect(ids.at(-1)).toBe('latest');
+    app.dispose();
+  });
+  it('keeps another writer\'s overflow within the bound and still allows explicit clearing', () => {
     const app = runtime();
-    app.setDraft('runtime:root:saved', 'Saved'); app.flushDrafts();
-    app.setDraft('runtime:root:pending', 'Pending');
-    app.platform.storage.setItem('whip.web.recovery.v1', 'identity metadata');
-    app.platform.storage.setItem('whip.appearance.theme.v1', 'theme preference');
-    app.discardDrafts();
-    expect(app.draft('runtime:root:saved')).toBe('');
-    expect(app.draft('runtime:root:pending')).toBe('');
-    expect(vi.getTimerCount()).toBe(0);
-    expect(app.platform.storage.keys().filter(key => key.startsWith('whip.web.draft.v1:'))).toEqual([]);
-    expect(app.platform.storage.getItem('whip.web.recovery.v1')).toBe('identity metadata');
-    expect(app.platform.storage.getItem('whip.appearance.theme.v1')).toBe('theme preference');
+    for (let index = 0; index < 33; index++) app.platform.storage.setItem(`whip.web.draft.v1:runtime:root:${index}`, 'External draft');
+    app.setDraft('runtime:root:new', 'Additional'); app.flushDrafts();
+    expect(app.platform.storage.keys().filter(key => key.startsWith('whip.web.draft.v1:'))).toHaveLength(32);
+    expect(app.platform.storage.getItem('whip.web.draft.v1:runtime:root:new')).toBe('Additional');
+    app.setDraft('runtime:root:5', ''); app.flushDrafts();
+    expect(app.platform.storage.getItem('whip.web.draft.v1:runtime:root:5')).toBeNull();
+    app.setDraft('runtime:root:6', 'Updated'); app.flushDrafts();
+    expect(app.platform.storage.getItem('whip.web.draft.v1:runtime:root:6')).toBe('Updated');
     app.dispose();
   });
   it('retains in-memory drafts and reports failed writes', () => {
@@ -513,17 +551,3 @@ describe('split pane observation and draft consumers', () => {
   });
 });
 
-it('notifies recipient subscribers after discarding saved and pending drafts', () => {
-  const app = runtime();
-  app.setDraft('host:root:saved', 'saved'); app.flushDrafts();
-  app.setDraft('host:root:pending', 'pending');
-  const saved = vi.fn(), pending = vi.fn(), empty = vi.fn();
-  app.subscribeDraft('host:root:saved', saved);
-  app.subscribeDraft('host:root:pending', pending);
-  app.subscribeDraft('host:root:empty', empty);
-  app.discardDrafts();
-  expect(saved).toHaveBeenCalledTimes(1); expect(pending).toHaveBeenCalledTimes(1);
-  expect(empty).not.toHaveBeenCalled();
-  expect(app.draft('host:root:saved')).toBe(''); expect(app.draft('host:root:pending')).toBe('');
-  app.dispose();
-});

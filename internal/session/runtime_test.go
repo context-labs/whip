@@ -532,8 +532,9 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	if len(stored) != 9 || stored[1].Content != "q1" || stored[8].Content != "a4" {
 		t.Fatalf("raw history was rewritten: %+v", stored)
 	}
+	// cutoff 4 folds inside the q2 turn, so q2 is re-pinned after the summary.
 	_, history, err := st.Load(rootID)
-	if err != nil || len(history) != 7 || history[1].Role != "system" || history[6].Content != "a4" {
+	if err != nil || len(history) != 8 || history[1].Role != "system" || history[2].Content != "q2" || history[7].Content != "a4" {
 		t.Fatalf("compacted reconstruction=%+v err=%v", history, err)
 	}
 }
@@ -781,22 +782,32 @@ func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	// Failing the root emits turn.interrupted for its one running turn, then
-	// root.failed, so the failure event is two past the previous cursor.
+	// Failing the root emits turn.interrupted for its one running turn and
+	// closes its open spans, then root.failed, so the failure event is the
+	// newest event and the interruption sits between the previous cursor and it.
 	eventSeq, err := st.FailRoot(context.Background(), root.root, "actor panic")
-	if err != nil || eventSeq != int64(eventsBefore+2) {
+	if err != nil || eventSeq <= int64(eventsBefore+1) {
 		t.Fatalf("failure event seq=%d err=%v", eventSeq, err)
 	}
-	var interruptedKind string
-	if err := st.db.QueryRowContext(context.Background(), `SELECT kind FROM events WHERE root_id=? AND seq=?`, root.root, eventsBefore+1).Scan(&interruptedKind); err != nil || interruptedKind != "turn.interrupted" {
-		t.Fatalf("event before failure = %q, %v", interruptedKind, err)
+	var interruptedTurns int
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=? AND seq>? AND seq<? AND kind='turn.interrupted'`, root.root, eventsBefore, eventSeq).Scan(&interruptedTurns); err != nil || interruptedTurns != 1 {
+		t.Fatalf("turn.interrupted events before failure = %d, %v", interruptedTurns, err)
+	}
+	var failedKind string
+	if err := st.db.QueryRowContext(context.Background(), `SELECT kind FROM events WHERE root_id=? AND seq=?`, root.root, eventSeq).Scan(&failedKind); err != nil || failedKind != "root.failed" {
+		t.Fatalf("failure event kind = %q, %v", failedKind, err)
+	}
+	var openSpans int
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM spans WHERE root_id=? AND end_ns=0`, root.root).Scan(&openSpans); err != nil || openSpans != 0 {
+		t.Fatalf("failed root left %d open spans, %v", openSpans, err)
 	}
 	if _, err := st.FailRoot(context.Background(), root.root, "second panic"); !errors.Is(err, ErrRootTerminal) {
 		t.Fatalf("second failure error = %v", err)
 	}
+	// A terminal retry appends nothing: the event count stays at the failure event.
 	var eventsAfter int
-	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore+2 {
-		t.Fatalf("terminal retry appended events=%d want=%d err=%v", eventsAfter, eventsBefore+2, err)
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || int64(eventsAfter) != eventSeq {
+		t.Fatalf("terminal retry appended events=%d want=%d err=%v", eventsAfter, eventSeq, err)
 	}
 
 	var status string

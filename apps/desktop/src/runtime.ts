@@ -349,64 +349,71 @@ export class LocalRuntime {
       while (this.mutationDone) await this.mutationDone;
       signal.throwIfAborted();
       return this.mutation(async () => {
-        const saved = await this.settings();
-        if (!saved?.managed) return;
-        if (saved.managed.channel !== this.channel) throw new Error('This backend belongs to another Whip release channel. Switch its installation explicitly before connecting.');
-        const expected = this.options.manifest.files.whipcode.sha256;
-        const actual = await fileDigest(saved.executable, signal).catch(error => {
-          if (error.code === 'ENOENT') throw new Error('whipcode is not installed at the saved path. Install it again before connecting.');
-          throw error;
-        });
-        if (actual !== saved.managed.sha256 && actual !== expected)
-          throw new Error('whipcode was changed outside desktop. Choose that executable to manage it externally, or explicitly reinstall Whip.');
-        const env = await this.environment(signal);
-        const completed = { sha256: expected, channel: this.channel,
-          ...(saved.managed.approvedVersion !== this.options.manifest.version ? { approvedVersion: saved.managed.approvedVersion } : {}) };
-        if (actual === expected) {
-          const status = await this.probe(env, saved.executable, signal);
-          if (status.state === 'stopped' || status.stale || (status.state === 'running' && status.daemonBuild === this.options.manifest.buildId)) {
-            await this.save(saved.executable, signal, completed);
-            return;
-          }
-        }
-        progress('Verifying the Whip backend update…');
-        await verifyRuntime(this.options.source, this.options.manifest, signal);
-        const source = path.join(this.options.source, 'whipcode');
-        const args = ['_desktop-runtime-sync', '--executable', saved.executable, '--expected-sha256', saved.managed.sha256, '--sha256', expected];
-        const apply = async (interrupt: boolean) => {
-          const result = JSON.parse(await run(source, [...args, ...(interrupt ? ['--interrupt'] : [])], env, signal, 45_000));
-          if (!['ready', 'approval-required'].includes(result.state) || result.buildId !== this.options.manifest.buildId || result.executable !== saved.executable)
-            throw new Error('The backend updater returned an invalid result. Retry the update.');
-          return result.state as 'ready' | 'approval-required';
-        };
-        let result = await apply(saved.managed.approvedVersion === this.options.manifest.version);
-        if (result === 'approval-required') {
-          const approved = await this.options.confirmUpdate?.(`Whip ${this.options.manifest.version} needs to update its local backend. Restarting interrupts work running through desktop, terminal, web, or mobile. Sessions and configuration remain on disk.`);
-          signal.throwIfAborted();
-          if (!approved) throw new Error('Backend update deferred. Running work continues. Connect This Mac again when you are ready to restart and update.');
-          await this.save(saved.executable, signal, { ...saved.managed, approvedVersion: this.options.manifest.version });
-          progress('Updating and restarting the local Whip backend…');
-          result = await apply(true);
-        }
-        if (result !== 'ready') throw new Error('The backend update still requires approval. Retry the update.');
-        await this.save(saved.executable, signal, completed);
-        progress('The Whip app and backend are up to date.');
+        await this.synchronizeAttempt(await this.environment(signal), signal, progress);
       });
     })();
     try { await this.synchronizing; } finally { this.synchronizing = undefined; }
   }
 
+  // Called under the mutation lock. Results live only for this attempt; updates
+  // return no cached probe so callers validate the replacement before attaching.
+  private async synchronizeAttempt(env: NodeJS.ProcessEnv, signal: AbortSignal, progress: (message: string) => void) {
+    const saved = await this.settings();
+    if (!saved?.managed) return;
+    if (saved.managed.channel !== this.channel) throw new Error('This backend belongs to another Whip release channel. Switch its installation explicitly before connecting.');
+    const expected = this.options.manifest.files.whipcode.sha256;
+    const actual = await fileDigest(saved.executable, signal).catch(error => {
+      if (error.code === 'ENOENT') throw new Error('whipcode is not installed at the saved path. Install it again before connecting.');
+      throw error;
+    });
+    if (actual !== saved.managed.sha256 && actual !== expected)
+      throw new Error('whipcode was changed outside desktop. Choose that executable to manage it externally, or explicitly reinstall Whip.');
+    const completed = { sha256: expected, channel: this.channel,
+      ...(saved.managed.approvedVersion !== this.options.manifest.version ? { approvedVersion: saved.managed.approvedVersion } : {}) };
+    if (actual === expected) {
+      const status = await this.probe(env, saved.executable, signal);
+      if (status.state === 'stopped' || status.stale || (status.state === 'running' && status.daemonBuild === this.options.manifest.buildId)) {
+        await this.save(saved.executable, signal, completed);
+        return status;
+      }
+    }
+    progress('Verifying the Whip backend update…');
+    await verifyRuntime(this.options.source, this.options.manifest, signal);
+    const source = path.join(this.options.source, 'whipcode');
+    const args = ['_desktop-runtime-sync', '--executable', saved.executable, '--expected-sha256', saved.managed.sha256, '--sha256', expected];
+    const apply = async (interrupt: boolean) => {
+      const result = JSON.parse(await run(source, [...args, ...(interrupt ? ['--interrupt'] : [])], env, signal, 45_000));
+      if (!['ready', 'approval-required'].includes(result.state) || result.buildId !== this.options.manifest.buildId || result.executable !== saved.executable)
+        throw new Error('The backend updater returned an invalid result. Retry the update.');
+      return result.state as 'ready' | 'approval-required';
+    };
+    let result = await apply(saved.managed.approvedVersion === this.options.manifest.version);
+    if (result === 'approval-required') {
+      const approved = await this.options.confirmUpdate?.(`Whip ${this.options.manifest.version} needs to update its local backend. Restarting interrupts work running through desktop, terminal, web, or mobile. Sessions and configuration remain on disk.`);
+      signal.throwIfAborted();
+      if (!approved) throw new Error('Backend update deferred. Running work continues. Connect This Mac again when you are ready to restart and update.');
+      await this.save(saved.executable, signal, { ...saved.managed, approvedVersion: this.options.manifest.version });
+      progress('Updating and restarting the local Whip backend…');
+      result = await apply(true);
+    }
+    if (result !== 'ready') throw new Error('The backend update still requires approval. Retry the update.');
+    await this.save(saved.executable, signal, completed);
+    progress('The Whip app and backend are up to date.');
+  }
+
   async prepare(signal: AbortSignal, progress: (message: string) => void): Promise<string> {
-    await this.synchronize(signal, progress);
+    if (this.synchronizing) await this.synchronizing;
+    signal.throwIfAborted();
     return this.mutation(async () => {
       progress('Locating the canonical whipcode executable…');
       const env = await this.environment(signal);
-      const executable = await this.selected(env);
+      const verified = await this.synchronizeAttempt(env, signal, progress);
+      const executable = verified?.executable ?? await this.selected(env);
       progress('Checking the installation and contacting the daemon…');
-      const status = await this.probe(env, executable, signal);
+      const status = verified ?? await this.probe(env, executable, signal);
       if (!executable || status.state === 'missing' || status.state === 'incompatible' || (status.state === 'unhealthy' && !status.stale))
         throw new Error(status.message + (status.state === 'missing' ? '' : ' Open Settings → Servers for connection diagnostics.'));
-      await this.save(executable, signal);
+      if (!verified) await this.save(executable, signal);
       if (status.state === 'running') { progress('Attaching to the local daemon…'); return status.socket!; }
       progress('Starting the canonical whipcode daemon…');
       let failure = '';
@@ -422,10 +429,13 @@ export class LocalRuntime {
   async restart(signal: AbortSignal): Promise<LocalRuntimeStatus> {
     return this.mutation(async () => {
       const env = await this.environment(signal);
-      const executable = await this.executable(signal);
+      const executable = await this.selected(env);
+      if (!executable) throw new Error('Set up this Mac or choose an executable in Settings → Servers before connecting.');
+      await this.metadata(executable, env, signal);
       try { await run(executable, ['daemon', 'restart'], env, signal, 25_000); }
       catch (error) { signal.throwIfAborted(); throw new Error(startupFailure(error)); }
-      return this.test(signal);
+      const { socket: _socket, stale: _stale, ...status } = await this.probe(env, executable, signal);
+      return status;
     });
   }
 }

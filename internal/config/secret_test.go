@@ -1,9 +1,11 @@
 package config
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveSecretEnvVar(t *testing.T) {
@@ -273,5 +275,19 @@ func TestResolveSecretDefaultUnsetInnerVarErrors(t *testing.T) {
 	t.Setenv("WHIP_INNER_SET", "inner")
 	if got, err := ResolveSecret("${WHIP_OUTER_UNSET:-$WHIP_INNER_SET}"); err != nil || got != "inner" {
 		t.Errorf("default with a set inner var = %q, %v; want inner", got, err)
+	}
+}
+
+// A cancelled caller must not leave a "!cmd" helper running: the helper is
+// bounded by the caller's context, not only by SecretCmdTimeout.
+func TestResolveSecretContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if _, err := ResolveSecretContext(ctx, "!sleep 1"); err == nil {
+		t.Fatal("cancelled context resolved a helper command")
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("cancelled helper took %s", elapsed)
 	}
 }

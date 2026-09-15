@@ -13,7 +13,8 @@ standalone terminals remain later work.
 
 Draft text is application-owned and saved separately from command recovery
 metadata. Draft admission allows 32 non-empty drafts, 256 KiB each and 1 MiB
-total, scoped by runtime, session and recipient. Changes are saved after 150 ms and
+total, scoped by runtime, session and recipient. At the bounds, the earliest drafts
+that no open or recently closed tab owns are dropped silently. Changes are saved after 150 ms and
 flushed synchronously when leaving the page. Each recipient has its own storage
 entry, so saving one tab never overwrites another recipient's draft. Competing
 edits to the same recipient use the last explicit write. Reconnecting never
@@ -27,10 +28,9 @@ the page closes or reloads.
 A missing command acknowledgement locks the matching draft against a new-ID
 resend while the app checks authoritative status. Accepted commands continue to
 completion; a definitive missing record offers an explicit retry with the original
-identity and payload. Failed lookups remain unresolved. Settings → Recovery can
-inspect and forget saved identities after reload; those records contain no prompts.
-Its separate, confirmed discard action clears unsent drafts, including drafts for
-removed sessions, without deleting command identities or device preferences.
+identity and payload. Failed lookups remain unresolved and are shown beside the
+composer that sent them. Stored identities contain no prompts and are bounded to
+1024 records; the earliest is dropped when the journal is full.
 
 ## Multiple execution hosts
 
@@ -139,8 +139,8 @@ The limits are 16 files per recipient and 20 MiB across the window; uploads run
 serially. A reload or page close requires selecting files again, and the browser
 warns while attachments remain. Switching focus between hosts preserves transfers
 and attachments. Explicitly detaching a host interrupts only its transfers and
-marks its attachment references unavailable. Explicit removal, accepted submission
-and Settings → Recovery → Discard drafts clear the corresponding attachment state.
+marks its attachment references unavailable. Explicit removal and accepted
+submission clear the corresponding attachment state.
 
 The negotiated `session_summaries` capability supplies tab titles and
 running/queued agent and pending permission/question counts without opening each
@@ -248,6 +248,18 @@ WHIP_NETWORK=1 ./whip daemon restart
 
 ## Develop against an existing daemon
 
+For UI iteration, run `npm run dev:web` from the repository root and open
+`http://127.0.0.1:3000`. Vite reloads changes in `apps/web`, `packages/app` and
+`packages/ui`; `task update:local` is only needed to rebuild/install the packaged
+desktop app. Run `npm run build` after changing SDK source, since the renderer
+consumes its built output. Backend changes require a matching rebuilt daemon.
+
+`task run -- web` runs the source **whip** CLI and opens daemon-served production
+assets; it does not start Vite. By default, whip uses `~/.whip` and `WHIP_*`, while
+the installed **whipcode** uses `~/.whipcode` and `WHIPCODE_*`. Restarting one does
+not replace the other's daemon. An `unsupported protocol major` error can mean
+the source CLI is attaching to an older daemon in that other runtime directory.
+
 Vite proxies `/api`, including WebSockets, to `http://127.0.0.1:8080` by default,
 matching the desktop-managed local whipcode endpoint. Set `WHIP_WEB_DAEMON` to
 override that address. The browser still connects to port 3000; Vite forwards
@@ -284,7 +296,8 @@ allow the Origin where this web app is open.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check the daemon's protocol and allowed origins. A running older daemon is not
-upgraded by starting Vite: this app requires protocol 5. Build it with `task build`,
+upgraded by starting Vite: the daemon must match the protocol major in
+`internal/protocol/types.go` and the generated SDK contract. Build it with `task build`,
 stop the old daemon using its original binary, and start `./whip` with the network
 settings above. Use the same `WHIP_HOME` on both commands to retain the same
 runtime. Stopping a daemon interrupts active work. Do not reset a compatible

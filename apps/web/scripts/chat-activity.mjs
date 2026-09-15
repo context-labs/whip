@@ -81,7 +81,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
       await hosts.getByRole('textbox', { name: /Server name/ }).fill('Chat activity fixture');
       await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(fixture.info.endpoint);
-      await hosts.getByRole('button', { name: 'Add server', exact: true }).click();
+      await hosts.getByRole('button', { name: 'Connect', exact: true }).click();
       await hosts.waitFor({ state: 'hidden' });
     }
     await page.goto(url);

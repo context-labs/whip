@@ -68,6 +68,7 @@ type Services struct {
 	mcpAutomatic        bool
 	permissionRevision  uint64
 	mcpProvider         func() MCPProvider
+	mcpAttachmentStore  func(context.Context, string, []byte) (string, error)
 	permissionLedger    capability.Ledger
 	permissions         map[string]*permissionResolution
 	// Custom tools declared by the agent definition; see custom.go.
@@ -737,6 +738,9 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	if identity.operationPrefix != "" {
 		request.OperationID = identity.operationPrefix + ":" + operationID
 	}
+	if observe, ok := ctx.Value(operationObserverKey{}).(func(string)); ok && observe != nil {
+		observe(request.OperationID)
+	}
 	permission := &permissionInvocation{}
 	ctx = context.WithValue(ctx, permissionInvocationKey{}, permission)
 	defer func() {
@@ -770,6 +774,16 @@ func randomID() (string, error) {
 func dispatchCall(ctx context.Context) (capability.Call, bool) {
 	call, ok := ctx.Value(dispatchCallKey{}).(capability.Call)
 	return call, ok
+}
+
+type operationObserverKey struct{}
+
+// WithOperationObserver reports the durable operation id of every host
+// operation dispatched under ctx. The RLM kernel uses it to name the
+// operations row a host call became, so its trace span can open the full
+// arguments and result.
+func WithOperationObserver(ctx context.Context, observe func(operationID string)) context.Context {
+	return context.WithValue(ctx, operationObserverKey{}, observe)
 }
 
 // updateKey carries a per-tool-call partial-output callback. The agent layer

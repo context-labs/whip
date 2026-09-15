@@ -68,6 +68,15 @@ direct-tool and RLM agents.
   budget pressure, and repeated worker crashes.
 - [ ] Expand Linux/macOS race and restart coverage for recursive trees and MCP
   reconnection.
+- [x] Repair the MCP contracts and make the MCP surfaces honest: one selection
+  step for the definition's server list, additive untrusted attach, a separate
+  project import source, import as the trust path, origin-bound credentials,
+  complete paged discovery, chained reconnects, visible source errors, and
+  structured/binary results kept. See the
+  [MCP contracts plan](../.ai-docs/plans/mcp-contracts/PLAN.md).
+- [ ] MCP progressive discovery: paged per-server listing, lexical search and
+  describe, built once in the daemon and reused by model, web and TUI. Recorded
+  as a follow-up in the MCP contracts plan; not started.
 
 The original runtime plan and implementation learnings live in
 [`docs/plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md`](plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md).
@@ -118,6 +127,13 @@ in
   Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [x] React web implementation with separate UI/app/web source packages, TanStack
   application primitives, Base UI controls and extracted StyleX styles.
+- [x] MCP import screen in the web and desktop app: the servers other agents
+  configured on a host (Codex, Claude, OpenCode, project file) offered once on
+  New session and from Settings, ticked servers written as native trusted
+  entries, no probing before import. See the
+  [MCP import onboarding plan](../.ai-docs/plans/mcp-import-onboarding/README.md).
+- [x] Shared web/desktop startup splash with Whip's wordmark, HALO animations,
+  reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { ProviderList, ProviderLoginStatus } from '@whip/protocol';
+import type { ConfigurationUpdate, ProviderList, ProviderLoginStatus } from '@whip/protocol';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
@@ -37,9 +37,9 @@ function fixture(entries: Entry[] = [entry('openrouter', 'environment', true, { 
       discover: vi.fn(async (): Promise<ProviderList> => ({ revision: '7', default_provider: 'openrouter', providers: entries, selection: { ready: false, model: '', provider: '', reason: 'key_required' } })),
       setKey: vi.fn(async () => ({})),
       disconnect: vi.fn(async () => ({ warnings: [] })), rotateKey: vi.fn(async () => ({})),
-      login: { list: vi.fn(async () => ({ flows: [] as ProviderLoginStatus[] })), begin: vi.fn(async () => ({})) },
+      login: { cancel: vi.fn(async (id: string) => loginStatus({ flow_id: id, state: 'cancelled' })), selectTeam: vi.fn(async (id: string, team: string) => loginStatus({ flow_id: id, state: 'loading_projects', team_id: team })), selectProject: vi.fn(async (id: string, project: string) => loginStatus({ flow_id: id, state: 'provisioning', project_id: project })), createProject: vi.fn(async (id: string, _name: string) => loginStatus({ flow_id: id, state: 'provisioning' })), list: vi.fn(async () => ({ flows: [] as ProviderLoginStatus[] })), begin: vi.fn(async (): Promise<ProviderLoginStatus> => ({ flow_id: 'new-login', provider: 'openai-codex', state: 'authorizing', teams: [], projects: [], expires_at: '2099-01-01T00:00:00Z' })) },
     },
-    configuration: { get: vi.fn(async () => config), update: vi.fn(async () => ({})) },
+    configuration: { get: vi.fn(async () => config), update: vi.fn(async (_patch: ConfigurationUpdate) => ({})) },
   };
   const runtime = { queries, platform: { copy: vi.fn(async () => {}), openExternal: vi.fn(async () => {}) }, report: vi.fn(), connections: { host: () => ({ name: 'Remote workstation' }) } } as unknown as AppRuntime;
   const wrap = (node: ReactNode) => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{node}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
@@ -57,7 +57,9 @@ function fixture(entries: Entry[] = [entry('openrouter', 'environment', true, { 
 
 it('shows host-owned sources, bundled logos and source-appropriate controls', async () => {
   const f = fixture();
-  expect(await screen.findByText('Connections belong to Remote workstation.')).toBeTruthy();
+  const choices = await screen.findByRole('region', { name: 'Connect a provider' });
+  expect(within(choices).getByRole('button', { name: 'Refresh' })).toBeTruthy();
+  expect(screen.queryByText('Connections belong to Remote workstation.')).toBeNull();
   expect(await screen.findByText('Environment')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Connect OpenAI (ChatGPT subscription)' })).toBeTruthy();
   expect(document.querySelector('use')?.getAttribute('href')).toMatch(/providers\.svg#openrouter$/);
@@ -65,8 +67,10 @@ it('shows host-owned sources, bundled logos and source-appropriate controls', as
   const dialog = await screen.findByRole('dialog', { name: 'OpenRouter' });
   expect(within(dialog).getByText('OPENROUTER_API_KEY')).toBeTruthy();
   expect(within(dialog).queryByRole('button', { name: 'Disconnect provider' })).toBeNull();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Disable on this host' }));
-  await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalledExactlyOnceWith({ revision: '7', disabled_providers: ['unrelated', 'openrouter'] }, { signal: expect.any(AbortSignal) }));
+  await openConnectionOptions();
+  expect(screen.queryByRole('menuitem', { name: 'Disconnect provider' })).toBeNull();
+  expect(screen.getByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
   expect(f.client.providers.disconnect).not.toHaveBeenCalled();
 });
 
@@ -79,8 +83,10 @@ it.each([['env_file', 'Environment file'], ['key_file', 'Key file']])('identifie
   expect(within(dialog).getByText('OPENROUTER_API_KEY')).toBeTruthy();
   expect(within(dialog).getByText('/fixtures/provider-keys/openrouter')).toBeTruthy();
   expect(within(dialog).queryByRole('button', { name: 'Disconnect provider' })).toBeNull();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Disable on this host' }));
-  await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalledExactlyOnceWith({ revision: '7', disabled_providers: ['unrelated', 'openrouter'] }, { signal: expect.any(AbortSignal) }));
+  await openConnectionOptions();
+  expect(screen.queryByRole('menuitem', { name: 'Disconnect provider' })).toBeNull();
+  expect(screen.getByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
   expect(f.client.providers.disconnect).not.toHaveBeenCalled();
 });
 
@@ -98,20 +104,40 @@ it('connects with a key once, clears the draft, and keeps secrets out of queries
   expect((await screen.findByLabelText('API key') as HTMLInputElement).value).toBe('');
 });
 
+it.each([
+  ['openai', 'OPENAI_API_KEY'], ['openrouter', 'OPENROUTER_API_KEY'], ['groq', 'GROQ_API_KEY'],
+])('explains both key entry and environment setup below the %s input', async (id, variable) => {
+  fixture([entry(id, 'environment', false, { configured: true, environment_variable: variable })], { setup: true });
+  fireEvent.click(await screen.findByRole('button', { name: `Connect ${id === 'openrouter' ? 'OpenRouter' : id}` }));
+  const dialog = await screen.findByRole('dialog');
+  const input = within(dialog).getByLabelText('API key');
+  const help = within(dialog).getByText(/Enter an API key above, or specify/);
+  expect(input.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(help.textContent).toContain(variable);
+  if (id === 'openrouter') expect(within(dialog).queryByRole('button', { name: 'Get an API key' })).toBeNull();
+  expect(help.textContent).toContain('Restart the host after changing environment variables to refresh.');
+  expect(input.getAttribute('aria-describedby')).toContain(help.id);
+  expect(within(dialog).queryByText('Environment', { exact: true })).toBeNull();
+  expect(within(dialog).queryByText('API key required', { exact: true })).toBeNull();
+});
+
 it('keeps default repair explicit and allows removing a disabled saved key', async () => {
   const f = fixture([entry('openrouter', 'literal', false, { disabled: true, configured: true, auth_state: 'connected' })]);
   expect(await screen.findByText(/Your default model is unchanged/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Manage default provider' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect provider' }));
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect provider' }));
   await waitFor(() => expect(f.client.providers.disconnect).toHaveBeenCalledExactlyOnceWith({ provider: 'openrouter', revision: '7' }, { signal: expect.any(AbortSignal) }));
   expect(f.client.configuration.update).not.toHaveBeenCalled();
 });
 
-it('rejects stale disable without mutating and refreshes the inventory', async () => {
-  const f = fixture();
-  f.config.revision = '8';
+it('keeps disconnect conflicts visible without changing configuration', async () => {
+  const f = fixture([entry('openrouter', 'literal', true)]);
+  f.client.providers.disconnect.mockRejectedValueOnce(new Error('Provider settings changed.'));
   fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Disable on this host' }));
+  await openConnectionOptions();
+  expect(screen.getByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect provider' }));
   await screen.findByText(/Provider settings changed/);
   expect(f.client.configuration.update).not.toHaveBeenCalled();
   expect(f.client.providers.list.mock.calls.length).toBeGreaterThan(1);
@@ -122,7 +148,8 @@ it('uses the detected host key only after an explicit connection choice', async 
   provider.methods = ['api_key', 'environment'];
   const f = fixture([provider]);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use detected key' }));
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Use detected key' }));
   await screen.findByText('OpenRouter now uses the detected host key.');
   expect(f.client.providers.setKey).toHaveBeenCalledExactlyOnceWith({ provider: 'openrouter', revision: '7', key: '', environment: true }, { signal: expect.any(AbortSignal) });
 });
@@ -133,7 +160,25 @@ it('offers the existing subscription flow and disables mutations when the host d
   fireEvent.click(await screen.findByRole('button', { name: 'Sign in', exact: true }));
   await waitFor(() => expect(f.client.providers.login.begin).toHaveBeenCalledExactlyOnceWith({ provider: 'openai-codex', signal: expect.any(AbortSignal) }));
   f.offline();
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Sign in', exact: true }) as HTMLButtonElement).disabled).toBe(true));
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Waiting for host…' }) as HTMLButtonElement).disabled).toBe(true));
+});
+
+it('keeps first-time browser sign-in focused on connection choices, even with an empty environment definition', async () => {
+  const provider = entry('inference-net', 'environment', false, { configured: true, environment_variable: 'INFERENCE_API_KEY' });
+  provider.methods = ['login', 'api_key'];
+  fixture([provider], { setup: true });
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect inference-net' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Sign in with your Inference.net account, or use an API key.')).toBeTruthy();
+  expect(within(dialog).getByRole('button', { name: 'Sign in with Inference.net', exact: true })).toBeTruthy();
+  expect(within(dialog).queryByText('Environment', { exact: true })).toBeNull();
+  expect(within(dialog).queryByText('API key required')).toBeNull();
+  expect(within(dialog).queryByText('INFERENCE_API_KEY')).toBeNull();
+  expect(within(dialog).queryByRole('button', { name: 'Disable on this host' })).toBeNull();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Use an API key' }));
+  expect(within(dialog).getByLabelText('API key')).toBeTruthy();
+  expect(within(dialog).getByText('INFERENCE_API_KEY')).toBeTruthy();
+  expect(within(dialog).queryByRole('button', { name: 'Disable on this host' })).toBeNull();
 });
 
 it('aborts an in-flight key request on unmount without replaying it', async () => {
@@ -201,7 +246,8 @@ it.each([false, true])('refreshes machine-account status without replaying rotat
   const f = fixture([entry('inference-net', 'machine', true, { email: 'fixture@example.com' })]);
   if (uncertain) f.client.providers.rotateKey.mockRejectedValueOnce(new Error('acknowledgement lost'));
   fireEvent.click(await screen.findByRole('button', { name: 'Manage inference-net' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Rotate machine key' }));
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Rotate machine key' }));
   await screen.findByText(uncertain ? 'acknowledgement lost' : 'Machine key rotated.');
   await waitFor(() => expect(f.client.providers.list.mock.calls.length).toBeGreaterThan(1));
   expect(f.client.providers.rotateKey).toHaveBeenCalledExactlyOnceWith('inference-net', { signal: expect.any(AbortSignal) });
@@ -213,7 +259,8 @@ it('disconnects subscriptions with the inventory revision and never offers API-k
   fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenAI (ChatGPT subscription)' }));
   expect(screen.queryByLabelText('API key')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Rotate machine key' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Disconnect provider' }));
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect provider' }));
   await screen.findByText('OpenAI (ChatGPT subscription) disconnected.');
   expect(f.client.providers.disconnect).toHaveBeenCalledExactlyOnceWith({ provider: 'openai-codex', revision: '7' }, { signal: expect.any(AbortSignal) });
   expect(f.client.providers.rotateKey).not.toHaveBeenCalled();
@@ -221,8 +268,9 @@ it('disconnects subscriptions with the inventory revision and never offers API-k
 
 it('does not describe a signed-out subscription as connected', async () => {
   fixture([entry('openai-codex', 'subscription', false, { configured: true, auth_state: 'signed_out' })]);
-  fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenAI (ChatGPT subscription)' }));
-  expect(await screen.findAllByText('Not signed in')).not.toHaveLength(0);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI (ChatGPT subscription)' }));
+  expect(screen.queryByText('Connected', { exact: true })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Sign in', exact: true })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Disconnect provider' })).toBeNull();
   expect(screen.queryByLabelText('API key')).toBeNull();
 });
@@ -256,7 +304,7 @@ it('keeps a failed API key ephemeral while preserving the connection form for re
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'rejected-private-key' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   await screen.findByText('The API key was rejected. Enter a new key.');
-  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('rejected-private-key');
   expect(JSON.stringify(f.queries.getQueryCache().getAll().map(query => query.state.data))).not.toContain('rejected-private-key');
   expect(f.client.providers.setKey).toHaveBeenCalledOnce();
 });
@@ -267,9 +315,9 @@ it('observes an existing login, presents a human state, and copies its code with
   await waitFor(() => expect(f.client.providers.list).toHaveBeenCalled());
   await act(async () => { f.queries.setQueryData(['provider-login-flows', 'host'], { flows: [flow] }); });
   fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
-  expect(await screen.findByText('Waiting for sign-in')).toBeTruthy();
+  expect(await screen.findByText('Finish signing in in your browser')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
-  await screen.findByRole('button', { name: 'Code copied' });
+  await screen.findByRole('button', { name: 'Copied' });
   expect(f.runtime.platform.copy).toHaveBeenCalledExactlyOnceWith('CODE-123');
   expect(f.client.providers.login.begin).not.toHaveBeenCalled();
 });
@@ -281,7 +329,7 @@ it('reconciles current host flows before beginning another login from a stale di
   const flow: ProviderLoginStatus = { flow_id: 'began-while-detached', provider: 'openai-codex', state: 'authorizing', teams: [], projects: [], expires_at: '2099-01-01T00:00:00Z' };
   f.client.providers.login.list.mockResolvedValue({ flows: [flow] });
   fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
-  await screen.findByText('Waiting for sign-in');
+  await screen.findByText('Finish signing in in your browser');
   expect(f.client.providers.login.begin).not.toHaveBeenCalled();
 });
 
@@ -387,6 +435,7 @@ it('retires discovery when disconnected and rediscovers on setup reconnect', asy
   const f = fixture([entry('openrouter', 'none', false)], { setup: true });
   await screen.findByRole('button', { name: 'Connect OpenRouter' });
   expect(f.client.providers.discover).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
   f.client.providers.discover.mockImplementationOnce(() => new Promise(() => {}));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh', exact: true }));
   await waitFor(() => expect(f.client.providers.discover).toHaveBeenCalledTimes(2));
@@ -401,6 +450,7 @@ it('retires discovery when disconnected and rediscovers on setup reconnect', asy
 
 it('keeps the setup refresh disabled while its initial discovery is pending', async () => {
   const f = fixture([entry('openrouter', 'none', false)], { setup: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
   f.client.providers.discover.mockImplementationOnce(() => new Promise(() => {}));
   await waitFor(() => expect(f.client.providers.discover).toHaveBeenCalledOnce());
   expect((screen.getByRole('button', { name: 'Refresh', exact: true }) as HTMLButtonElement).disabled).toBe(true);
@@ -418,4 +468,229 @@ it('reenables refresh when the hook changes hosts without remounting during disc
   await waitFor(() => expect((screen.getByRole('button', { name: 'Refresh', exact: true }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh', exact: true }));
   await waitFor(() => expect(f.client.providers.discover).toHaveBeenCalledTimes(2));
+});
+
+it.each([false, true])('shares four default provider choices and expansion (onboarding: %s)', async setup => {
+  const providers = ['inference-net', 'openai-codex', 'openai', 'anthropic', 'openrouter', 'groq'].map(id => entry(id, 'environment', false, { configured: true }));
+  providers[0].recommended = true;
+  const f = fixture(providers, { setup });
+  await screen.findByRole('button', { name: 'Connect inference-net' });
+  expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
+  expect(screen.getByRole('button', { name: 'Connect OpenRouter' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Connect groq' })).toBeNull();
+  expect(screen.getAllByText('Recommended')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
+  expect(screen.getByRole('button', { name: 'Connect groq' })).toBeTruthy();
+  expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(6);
+  fireEvent.click(screen.getByRole('button', { name: 'Show fewer providers' }));
+  expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
+  expect(screen.queryByText('Environment', { exact: true })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Connect OpenRouter' }));
+  expect(await screen.findByRole('dialog', { name: 'OpenRouter' })).toBeTruthy();
+  expect(screen.getByLabelText('API key')).toBeTruthy();
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
+});
+
+
+function loginStatus(overrides: Partial<ProviderLoginStatus> = {}): ProviderLoginStatus {
+  return { flow_id: 'inference-flow', provider: 'inference-net', state: 'authorizing', teams: [{ id: 'a', name: 'Personal' }, { id: 'b', name: 'Work' }], projects: [], expires_at: '2099-01-01T00:00:00Z', ...overrides };
+}
+
+async function inferenceFixture(flow?: ProviderLoginStatus) {
+  const provider = entry('inference-net', 'environment', false, { environment_variable: 'INFERENCE_API_KEY' });
+  provider.methods = ['login', 'api_key'];
+  const f = fixture([provider]);
+  await screen.findByRole('button', { name: 'Connect inference-net' });
+  f.client.providers.login.begin.mockResolvedValue(loginStatus());
+  if (flow) await act(async () => { f.queries.setQueryData(['provider-login-flows', 'host'], { flows: [flow] }); });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect inference-net' }));
+  return f;
+}
+
+it('asks before discarding a key on Back and keeps methods mutually exclusive', async () => {
+  const f = await inferenceFixture();
+  fireEvent.click(screen.getByRole('button', { name: 'Use an API key' }));
+  expect(screen.queryByRole('button', { name: 'Sign in with Inference.net' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'draft-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+  const confirmation = await screen.findByRole('dialog', { name: 'Discard this API key?' });
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Keep editing' }));
+  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('draft-key');
+  fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard key' }));
+  expect(await screen.findByRole('button', { name: 'Sign in with Inference.net' })).toBeTruthy();
+  expect(screen.queryByLabelText('API key')).toBeNull();
+  expect(f.client.providers.setKey).not.toHaveBeenCalled();
+});
+
+it('keeps the API-key draft through a host disconnect without enabling a write', async () => {
+  const f = await inferenceFixture();
+  fireEvent.click(screen.getByRole('button', { name: 'Use an API key' }));
+  fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'draft-key' } });
+  f.offline();
+  expect((screen.getByRole('button', { name: 'Connect', exact: true }) as HTMLButtonElement).disabled).toBe(true);
+  f.reconnect();
+  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('draft-key');
+  expect(f.client.providers.setKey).not.toHaveBeenCalled();
+});
+
+it('waits for Continue before selecting a workspace and keeps project loading separate', async () => {
+  const f = await inferenceFixture(loginStatus({ state: 'choose_team' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+  expect(f.client.providers.login.selectTeam).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+  await screen.findByRole('heading', { name: 'Loading projects' });
+  expect(f.client.providers.login.selectTeam).toHaveBeenCalledExactlyOnceWith('inference-flow', 'b', { signal: expect.any(AbortSignal) });
+  expect(screen.queryByLabelText('Project name')).toBeNull();
+  expect(screen.queryByRole('radiogroup')).toBeNull();
+});
+
+it('can return from projects to workspace selection without writing until Continue', async () => {
+  const f = await inferenceFixture(loginStatus({ state: 'choose_project', team_id: 'a', projects: [{ id: 'p', name: 'App' }, { id: 'q', name: 'Tools' }] }));
+  fireEvent.click(screen.getByRole('radio', { name: 'App' }));
+  expect(f.client.providers.login.selectProject).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+  await screen.findByRole('heading', { name: 'Loading projects' });
+  expect(f.client.providers.login.selectTeam).toHaveBeenCalledOnce();
+  expect(f.client.providers.login.selectProject).not.toHaveBeenCalled();
+});
+
+it('preserves a project name after rejected validation and prevents concurrent creation', async () => {
+  const f = await inferenceFixture(loginStatus({ state: 'choose_project', team_id: 'a' }));
+  f.client.providers.login.createProject.mockRejectedValueOnce(new Error('Project name is too long.'));
+  fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'My project' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create and connect' }));
+  await screen.findByText('Project name is too long.');
+  expect((screen.getByLabelText('Project name') as HTMLInputElement).value).toBe('My project');
+  f.client.providers.login.createProject.mockImplementationOnce(() => new Promise(() => {}));
+  fireEvent.click(screen.getByRole('button', { name: 'Create and connect' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Connecting…' }));
+  expect(f.client.providers.login.createProject).toHaveBeenCalledTimes(2);
+});
+
+it('returns to method choice after explicit cancellation but preserves interrupted results', async () => {
+  const f = await inferenceFixture(loginStatus());
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  await screen.findByText('Sign-in cancelled. Choose how you’d like to connect.');
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Use an API key' })).toBeTruthy();
+  expect(f.client.providers.login.cancel).toHaveBeenCalledOnce();
+});
+
+it('retains interrupted provisioning instead of claiming cancellation succeeded', async () => {
+  const f = await inferenceFixture(loginStatus({ state: 'provisioning', team_id: 'a' }));
+  f.client.providers.login.cancel.mockResolvedValueOnce(loginStatus({ state: 'interrupted' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  await screen.findByRole('heading', { name: 'Sign-in interrupted' });
+  expect(screen.queryByText('Sign-in cancelled. Choose how you’d like to connect.')).toBeNull();
+  expect(screen.queryByRole('radiogroup')).toBeNull();
+});
+
+it('replaces an expired flow during retry and submits begin only once', async () => {
+  const f = await inferenceFixture(loginStatus());
+  await act(async () => { f.queries.setQueryData(['provider-login-flows', 'host'], { flows: [loginStatus({ state: 'expired' })] }); });
+  await screen.findByRole('heading', { name: 'This sign-in has expired' });
+  f.client.providers.login.begin.mockImplementationOnce(() => new Promise(() => {}));
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+  await screen.findByRole('heading', { name: 'Starting sign-in…' });
+  expect(screen.queryByText('This sign-in has expired')).toBeNull();
+  await waitFor(() => expect(f.client.providers.login.begin).toHaveBeenCalledOnce());
+});
+
+it('closes after a recovered flow succeeds without changing the default model', async () => {
+  const f = await inferenceFixture(loginStatus());
+  await act(async () => { f.queries.setQueryData(['provider-login-flows', 'host'], { flows: [loginStatus({ state: 'succeeded' })] }); });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(f.client.providers.list.mock.calls.length).toBeGreaterThan(1);
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
+});
+
+it('closing a pending sign-in does not cancel it and reopening does not open the browser', async () => {
+  const f = await inferenceFixture(loginStatus({ verification_url: 'https://example.com/verify', user_code: 'CODE' }));
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Connect inference-net' }));
+  await screen.findByRole('button', { name: 'Open verification page' });
+  expect(f.client.providers.login.cancel).not.toHaveBeenCalled();
+  expect(f.runtime.platform.openExternal).not.toHaveBeenCalled();
+});
+
+
+async function openConnectionOptions() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Connection options' }));
+  await screen.findByRole('menu');
+}
+
+
+it.each(['Context Labs', undefined])('shows the saved team below email only when its name is available (%s)', async teamName => {
+  fixture([entry('inference-net', 'machine', true, { email: 'fixture@example.com', team_name: teamName, project_name: 'Whip' })]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage inference-net' }));
+  const dialog = await screen.findByRole('dialog');
+  const labels = Array.from(dialog.querySelectorAll('dt')).map(item => item.textContent);
+  expect(labels).toEqual(teamName ? ['Connection method', 'Email', 'Team', 'Project'] : ['Connection method', 'Email', 'Project']);
+  if (teamName) expect(within(dialog).getByText(teamName)).toBeTruthy();
+});
+
+
+it('returns a disconnected provider to its normal connection form', async () => {
+  const provider = entry('inference-net', 'literal', true);
+  provider.methods = ['login', 'api_key'];
+  const f = fixture([provider]);
+  f.client.providers.disconnect.mockImplementationOnce(async () => {
+    provider.status = { ...provider.status, key_source: 'environment', available: false, disabled: false, auth_state: 'key_required' };
+    return { warnings: [] };
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage inference-net' }));
+  await openConnectionOptions();
+  expect(screen.getByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect provider' }));
+  await screen.findByText('inference-net disconnected.');
+  fireEvent.click(screen.getByRole('button', { name: 'Connect inference-net' }));
+  expect(await screen.findByRole('button', { name: 'Sign in with Inference.net' })).toBeTruthy();
+  expect(screen.queryByText('Disabled on this host')).toBeNull();
+});
+
+
+it.each(['literal', 'machine', 'subscription', 'environment'])('disables and re-enables %s credentials without reconnecting', async source => {
+  const provider = entry('openrouter', source, true);
+  const f = fixture([provider]);
+  f.client.configuration.update.mockImplementation(async patch => {
+    f.config.disabled_providers = patch.disabled_providers ?? [];
+    provider.status.disabled = f.config.disabled_providers.includes(provider.id);
+    provider.status.available = !provider.status.disabled;
+    return {};
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disable on this host' }));
+  await screen.findByText('OpenRouter disabled on Remote workstation.');
+  expect(f.client.configuration.update).toHaveBeenLastCalledWith({ revision: '7', disabled_providers: ['unrelated', 'openrouter'] }, { signal: expect.any(AbortSignal) });
+  expect(screen.getByText('Disabled providers')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Manage OpenRouter' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Disabled on this host')).toBeTruthy();
+  expect(within(dialog).queryByLabelText('API key')).toBeNull();
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Enable on this host' }));
+  await screen.findByText('OpenRouter enabled on Remote workstation.');
+  expect(f.client.configuration.update).toHaveBeenLastCalledWith({ revision: '7', disabled_providers: ['unrelated'] }, { signal: expect.any(AbortSignal) });
+  expect(screen.queryByText('Disabled providers')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Manage OpenRouter' }));
+  expect(await within(await screen.findByRole('dialog')).findByText('Connected', { exact: true })).toBeTruthy();
+  expect(f.client.providers.setKey).not.toHaveBeenCalled();
+  expect(f.client.providers.login.begin).not.toHaveBeenCalled();
+  expect(f.client.providers.disconnect).not.toHaveBeenCalled();
+});
+
+it('does not overwrite configuration that changed before toggling a provider', async () => {
+  const f = fixture([entry('openrouter', 'literal', true)]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  f.config.revision = '8';
+  await openConnectionOptions();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Disable on this host' }));
+  await screen.findByText(/Provider settings changed. Review/);
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
+  expect(f.client.providers.disconnect).not.toHaveBeenCalled();
 });

@@ -2,6 +2,15 @@ import * as stylex from '@stylexjs/stylex';
 import { appearance, colors, scale, surface, typography } from './tokens.stylex';
 
 export const styles = stylex.create({
+  radioCards: {gap: 0},
+  radioCard: {minHeight: 60, paddingBlock: 10, paddingInline: 12, gap: 12, borderRadius: scale.radiusControl, fontSize: typography.size14, cursor: 'pointer', backgroundColor: {default: 'transparent', ':hover': colors.hover}},
+  radioCardControl: {borderColor: surface.secondaryText},
+  radioCardSelected: {backgroundColor: colors.hover},
+  radioCardIcon: {width: 20, flexShrink: 0, display: 'flex', alignItems: 'center'},
+  radioCardBody: {flex: 1, minWidth: 0, overflowWrap: 'anywhere'},
+  radioCardDescription: {fontSize: typography.size12, fontWeight: 400},
+  radioCardEnd: {width: 58, flexShrink: 0, display: 'flex', justifyContent: 'flex-end'},
+  radioFirst: {order: -1, display: 'flex'},
   control: { fontFamily: typography.sans, fontSize: typography.size13, lineHeight: '1.5385', color: colors.foreground, borderRadius: scale.radiusControl, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, outline: {default: 'none', ':focus-visible': `1px solid ${surface.secondaryText}`}, outlineOffset: 2, minHeight: {default: 32, [scale.touch]: 44}, transitionProperty: 'background-color, border-color', transitionDuration: appearance.motionFast, backgroundColor: {default: colors.panel, ':hover': colors.hover}, opacity: {default: 1, ':disabled': 0.45}, cursor: {default: 'pointer', ':disabled': 'not-allowed'} },
   button: {display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBlock: 5, paddingInline: 11, fontWeight: 530, whiteSpace: 'nowrap', userSelect: 'none', flexShrink: 0},
   primary: {backgroundColor: {default: colors.foreground, ':hover': `color-mix(in srgb, ${colors.foreground} 86%, ${colors.background})`}, color: colors.background, borderColor: 'transparent'},

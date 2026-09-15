@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -125,6 +126,10 @@ type InboxEnqueue struct {
 	OperationID     string
 	TraceID         string
 	Payload         RuntimePayload
+	// ParentSpanID and SpanTraceID name the host call that queued this input,
+	// so the turn it starts can parent under it in the trace.
+	ParentSpanID string
+	SpanTraceID  string
 }
 
 type InboxSequence struct {
@@ -444,7 +449,62 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 	}, stamp); err != nil {
 		return err
 	}
+	// A root turn always starts its own trace (Decision 1).
+	if _, _, err := s.startTurnSpanTx(ctx, tx, rootID, agentID, rootTurnID(agentID, inboxSeq), "inbox", inboxSeq, SpanLink{}, nil, stamp); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// startTurnSpanTx opens the agent span for a turn. parent names the span that
+// caused the turn (a spawn, submit, or send host call); an empty parent starts
+// a new trace. links are further causes, such as the rest of a mailbox digest.
+func (s *Store) startTurnSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, turnID, trigger string, inboxSeq int64, parent SpanLink, links []SpanLink, stamp string) (spanID, traceID string, err error) {
+	spanID = TurnSpanID(rootID, agentID, turnID)
+	traceID = parent.TraceID
+	if parent.SpanID == "" || traceID == "" {
+		parent, traceID = SpanLink{}, TraceIDForTurn(turnID)
+	}
+	name, definition := turnSpanNameTx(ctx, tx, rootID, agentID)
+	attrs := map[string]any{"trigger": trigger, "agent_name": name, "definition": definition}
+	if inboxSeq > 0 {
+		attrs["inbox_seq"] = inboxSeq
+		var kind string
+		var input []byte
+		if err := tx.QueryRowContext(ctx, `SELECT kind,substr(payload_inline,1,?) FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`,
+			SpanExcerptLimit+1, rootID, agentID, inboxSeq).Scan(&kind, &input); err == nil {
+			attrs["inbox_kind"] = kind
+			if kind == "submit" || kind == "steer" || kind == "schedule" {
+				attrs["input"] = SpanExcerpt(string(input))
+			}
+		}
+	}
+	record := SpanRecord{
+		ID: spanID, TraceID: traceID, ParentID: parent.SpanID, RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindAgent, Name: name, Status: SpanStatusRunning, StartNS: time.Now().UnixNano(),
+		Attrs: SpanAttrs(attrs), Links: spanLinksJSON(links),
+	}
+	return spanID, traceID, s.startSpanTx(ctx, tx, record, stamp)
+}
+
+// endTurnSpanTx closes a turn's span with its outcome. The last assistant
+// message is the visible result; the error text is bounded like everything
+// else in attrs.
+func (s *Store) endTurnSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, turnID, status, errorText string, messages []llm.Message, stamp string) error {
+	attrs := map[string]any{}
+	if errorText != "" {
+		attrs["error"] = SpanExcerpt(errorText)
+	}
+	for _, message := range slices.Backward(messages) {
+		if message.Role == "assistant" && message.Content != "" {
+			attrs["output"] = SpanExcerpt(message.Content)
+			break
+		}
+	}
+	return s.endSpanTx(ctx, tx, SpanRecord{
+		ID: TurnSpanID(rootID, agentID, turnID), TraceID: TraceIDForTurn(turnID), RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindAgent, Name: "turn", Status: spanStatusForTurn(status), EndNS: time.Now().UnixNano(), Attrs: SpanAttrs(attrs),
+	}, stamp)
 }
 
 // StartRootMailboxTurn records a root turn triggered by ready mail rather
@@ -467,6 +527,16 @@ func (s *Store) StartRootMailboxTurn(ctx context.Context, rootID, agentID string
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
 		AgentID: agentID, TurnID: turnID, InboxKind: "mailbox", Phase: "running", Status: "running",
 	}, stamp); err != nil {
+		return "", err
+	}
+	// The root's mail-triggered turn starts its own trace; the messages that
+	// woke it are links, so the cause stays navigable without chaining every
+	// later root turn into the first trace.
+	links, err := mailboxCausesTx(ctx, tx, rootID, agentID, stamp)
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := s.startTurnSpanTx(ctx, tx, rootID, agentID, turnID, "mailbox", 0, SpanLink{}, links, stamp); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -671,6 +741,9 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 	}, stamp); err != nil {
 		return err
 	}
+	if err := s.endTurnSpanTx(ctx, tx, commit.RootID, commit.AgentID, turnID, status, commit.Error, commit.Messages, stamp); err != nil {
+		return err
+	}
 	if beforeCommit != nil {
 		if err := beforeCommit(); err != nil {
 			return err
@@ -729,7 +802,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 		return InboxSequence{}, ErrInvalidScheduleSlot
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE schedules SET last_fire=? WHERE session_id=? AND id=? AND last_fire=?`,
-		claim.Slot.UTC().Format(time.RFC3339), claim.RootID, claim.ScheduleID, lastFireText)
+		formatStamp(claim.Slot), claim.RootID, claim.ScheduleID, lastFireText)
 	if err != nil {
 		return InboxSequence{}, err
 	}
@@ -749,7 +822,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 		return InboxSequence{}, err
 	}
 	sequence, err := s.enqueueInboxTx(ctx, tx, item, prepared, "schedule.fired", actorEvent{
-		ScheduleID: claim.ScheduleID, Slot: claim.Slot.UTC().Format(time.RFC3339),
+		ScheduleID: claim.ScheduleID, Slot: formatStamp(claim.Slot),
 	})
 	if err != nil {
 		return InboxSequence{}, err
@@ -907,7 +980,7 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
 		return err
 	}
-	return nil
+	return s.interruptOpenSpansTx(ctx, tx, rootID, nil, stamp)
 }
 
 // emitInterruptedTurnEventsTx records a terminal turn event for every running
@@ -1049,8 +1122,8 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 		return InboxSequence{}, err
 	}
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at) VALUES(?,?,?,?, 'queued',?,?,?)`,
-		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at,parent_span_id,span_trace_id) VALUES(?,?,?,?, 'queued',?,?,?,?,?)`,
+		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp, item.ParentSpanID, item.SpanTraceID); err != nil {
 		return InboxSequence{}, err
 	}
 	event.AgentID = item.AgentID
@@ -1072,29 +1145,39 @@ func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind
 	if err != nil {
 		return 0, err
 	}
-	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "actor event"}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	seq, err := nextEventSeqTx(ctx, tx, rootID)
 	if err != nil {
 		return 0, err
 	}
-	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
-		return 0, err
-	}
+	return seq, s.insertEventWithSeqTx(ctx, tx, rootID, seq, kind, payload, "actor event", stamp)
+}
+
+func nextEventSeqTx(ctx context.Context, tx *sql.Tx, rootID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq); err != nil {
-		return 0, err
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq)
+	return seq, err
+}
+
+// insertEventWithSeqTx journals one payload at a sequence the caller already
+// allocated with nextEventSeqTx inside the same transaction, so a row that
+// records its own event sequence (a span's updated_seq) can be written first.
+func (s *Store) insertEventWithSeqTx(ctx context.Context, tx *sql.Tx, rootID string, seq int64, kind string, payload []byte, source, stamp string) error {
+	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: source}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return err
+	}
+	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
+		return err
 	}
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
 		rootID, seq, kind, inline, reference, stamp); err != nil {
-		return 0, err
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
-		return 0, err
+		return err
 	}
-	if err := s.projectTurnEvent(ctx, tx, rootID, kind, payload, seq, stamp); err != nil {
-		return 0, err
-	}
-	return seq, nil
+	return s.projectTurnEvent(ctx, tx, rootID, kind, payload, seq, stamp)
 }
 
 func (s *Store) CommitRuntime(ctx context.Context, transition RuntimeTransition) (RuntimeResult, error) {
@@ -1612,6 +1695,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
+		return err
+	}
+	if err := s.interruptOpenSpansTx(ctx, tx, "", nil, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -12,6 +12,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:command.submit` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
 | `rpc:config.get` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
 | `rpc:config.update` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
+| `rpc:mcp.import.candidates` | Web | New session offer and Settings → Configuration → Servers from other agents: the MCP servers other agents configured on the host, read from files only. |
+| `rpc:mcp.import.apply` | Web | Import or Skip on that screen: writes the chosen servers into the host's native mcp block and records the answer. |
 | `rpc:content.read` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
@@ -69,6 +71,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
 | `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
 | `rpc:hook.result` | SDK-only | Headless executor hook handlers answer before_tool, before_spawn, and turn_start invocations for their lease generation; an empty reply allows unchanged. The desktop observes stream.hook.decision events rather than sending this RPC. |
+| `rpc:trace.export` | SDK-only | `whip sessions export` builds the OTLP/JSON document for a session (or one trace) and reads it back through a root-scoped content reference. The SDK has no helper and the desktop trace view has no export action yet. |
+| `rpc:trace.page` | Web | Session trace view (`?view=trace`) pages the `spans` table by `updated_seq` and merges `span.started`/`span.ended` events on top (`packages/sdk/src/trace.ts`, `packages/app/src/trace-view.tsx`). |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.finish` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |

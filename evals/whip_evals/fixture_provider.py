@@ -31,7 +31,7 @@ def qualification_code(engine, child):
             'await agents.spawn({name:"fixture-child",prompt:' + json.dumps(prompt) + '});')
 
 
-def start(engine, qualification=False):
+def start(engine):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -51,14 +51,7 @@ def start(engine, qualification=False):
             child = any(m.get("role") == "user" and "fixture-child:" in str(m.get("content")) for m in messages)
             has_tool = any(m.get("role") == "tool" for m in messages)
             if request.get("tools") and not has_tool:
-                if engine == "starlark":
-                    code = ('shell.run(command="sleep 1")\nfiles.write(path="child.txt", content="child")' if child else
-                            'child = agents.spawn(name="fixture-child", prompt="fixture-child: create child.txt with exact content child")\nfiles.write(path="proof.txt", content="proof")\nfiles.write(path="large.txt", content="x" * 70000)\nfiles.read(path="large.txt")')
-                else:
-                    code = ('await shell.run({command:"sleep 1"}); await files.write({path:"child.txt",content:"child"});' if child else
-                            'const child = await agents.spawn({name:"fixture-child",prompt:"fixture-child: create child.txt with exact content child"}); await files.write({path:"proof.txt",content:"proof"}); await files.write({path:"large.txt",content:"x".repeat(70000)}); await files.read({path:"large.txt"});')
-                if qualification:
-                    code = qualification_code(engine, child)
+                code = qualification_code(engine, child)
                 delta = {"tool_calls": [{"index": 0, "id": "fixture-call", "type": "function", "function": {"name": "rlm_exec", "arguments": json.dumps({"code": code})}}]}
                 reason = "tool_calls"
             else:

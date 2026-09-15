@@ -162,7 +162,8 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 		DisabledProviders:      &disabled,
 		DefaultExecutionEngine: c.RLM.Engine(),
 		RemoteHosts:            &hosts,
-		ImportClaude:           claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
+		ImportClaude:           claude, ImportCodex: codex, MCPImportOffered: c.MCPImport != nil && c.MCPImport.Offered,
+		Revision: revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
 		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries,
@@ -545,7 +546,7 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	flow := s.flows[id]
-	if flow == nil || flow.status.State != "choose_team" || flow.ctx.Err() != nil {
+	if flow == nil || (flow.status.State != "choose_team" && flow.status.State != "choose_project") || flow.ctx.Err() != nil {
 		return ProviderLoginStatus{}, errors.New("login is not waiting for a team")
 	}
 	index := slices.IndexFunc(flow.teams, func(team inferencenet.Team) bool { return team.ID == teamID })
@@ -559,6 +560,8 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 // selectLoginTeam starts discovery while the caller holds s.mu.
 func (s *ProviderService) selectLoginTeam(flow *providerLoginFlow, selected inferencenet.Team) {
 	flow.team, flow.status.TeamID, flow.status.State = selected, selected.ID, "loading_projects"
+	flow.projects, flow.status.Projects = nil, []ProviderChoice{}
+	flow.status.ProjectID = ""
 	token, team := flow.token, flow.team
 	s.wg.Go(func() {
 		projects, err := s.projects(flow.ctx, token, team)
@@ -627,7 +630,7 @@ func (s *ProviderService) provisionLogin(flow *providerLoginFlow, project infere
 			if flow.ctx.Err() != nil {
 				err = flow.ctx.Err()
 			} else {
-				err = s.finish(flow.ctx, inferencenet.Auth{SessionToken: token, UserEmail: email, TeamID: team.ID, ProjectID: project.ID, ProjectName: project.Name})
+				err = s.finish(flow.ctx, inferencenet.Auth{SessionToken: token, UserEmail: email, TeamID: team.ID, TeamName: team.Name, ProjectID: project.ID, ProjectName: project.Name})
 			}
 			s.provisionMu.Unlock()
 		}

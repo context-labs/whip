@@ -216,6 +216,9 @@
               },
               "rewound_from": {
                 "type": "string"
+              },
+              "call_id": {
+                "type": "string"
               }
             },
             "required": [

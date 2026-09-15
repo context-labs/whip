@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 func TestFullScreenLayoutFitsTerminal(t *testing.T) {
@@ -70,9 +71,18 @@ func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
 			t.Fatalf("opencode command dialog restored Classic surface %q", removed)
 		}
 	}
+	// Server rows come from the daemon's inventory, not local config: the
+	// config's "local" is stale here and must not appear; the daemon's rows do.
+	m.mcpInventory = []daemon.MCPStatusResult{{Name: "docs", Status: "ready", Tools: 3}, {Name: "ghost", Status: "blocked", Note: "blocked by mcpImport config (project)"}}
 	m.openThinMCPPalette()
-	if out := strings.Join(m.ocDialogRows(), "\n"); !strings.Contains(out, "MCP import status") || !strings.Contains(out, "Enable Codex imports") || !strings.Contains(out, "Reconnect local") {
-		t.Fatalf("MCP subpanel is incomplete:\n%s", out)
+	out = strings.Join(m.ocDialogRows(), "\n")
+	for _, want := range []string{"MCP import status", "Enable Codex imports", "Enable project .mcp.json imports", "Reconnect docs", "Disable docs for this session", "Why is ghost blocked"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("MCP subpanel is missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Reconnect local") || strings.Contains(out, "Reconnect ghost") {
+		t.Fatalf("MCP subpanel offered a control the daemon cannot honor:\n%s", out)
 	}
 }
 

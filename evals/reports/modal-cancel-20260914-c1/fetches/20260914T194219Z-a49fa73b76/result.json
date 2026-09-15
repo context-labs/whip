@@ -1,0 +1,579 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 0,
+      "agent_median_seconds": null,
+      "agent_p95_seconds": null,
+      "agent_time_count": 0,
+      "cache_read_ratio": null,
+      "cancelled": 1,
+      "cost_usd": null,
+      "effective_cost_per_pass_usd": null,
+      "evidence_complete": 0,
+      "evidence_incomplete": 8,
+      "failed": 0,
+      "graded": 0,
+      "graded_pass_rate": null,
+      "known_cost_usd": "0.000000",
+      "passed": 0,
+      "planned": 8,
+      "provider_errors": 0,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 0,
+          "agent_median_seconds": null,
+          "agent_p95_seconds": null,
+          "agent_time_count": 0,
+          "cache_read_ratio": null,
+          "cancelled": 1,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 0,
+          "evidence_incomplete": 8,
+          "failed": 0,
+          "graded": 0,
+          "graded_pass_rate": null,
+          "known_cost_usd": "0.000000",
+          "passed": 0,
+          "planned": 8,
+          "provider_errors": 0,
+          "started": 1,
+          "success_median_seconds": null,
+          "success_time_count": 0,
+          "termination_sources": {
+            "none": 7,
+            "user_cancelled": 1
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": null,
+            "output_tokens": null,
+            "unknown_cost_calls": null,
+            "unknown_usage_calls": null
+          },
+          "ungraded": 8,
+          "verified_success_rate": 0.0
+        }
+      },
+      "started": 1,
+      "success_median_seconds": null,
+      "success_time_count": 0,
+      "suites": {
+        "datacurve": {
+          "accounting_complete": 0,
+          "agent_median_seconds": null,
+          "agent_p95_seconds": null,
+          "agent_time_count": 0,
+          "cache_read_ratio": null,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 0,
+          "evidence_incomplete": 2,
+          "failed": 0,
+          "graded": 0,
+          "graded_pass_rate": null,
+          "known_cost_usd": "0.000000",
+          "passed": 0,
+          "planned": 2,
+          "provider_errors": 0,
+          "started": 0,
+          "success_median_seconds": null,
+          "success_time_count": 0,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": null,
+            "output_tokens": null,
+            "unknown_cost_calls": null,
+            "unknown_usage_calls": null
+          },
+          "ungraded": 2,
+          "verified_success_rate": 0.0
+        },
+        "terminal-bench": {
+          "accounting_complete": 0,
+          "agent_median_seconds": null,
+          "agent_p95_seconds": null,
+          "agent_time_count": 0,
+          "cache_read_ratio": null,
+          "cancelled": 1,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 0,
+          "evidence_incomplete": 6,
+          "failed": 0,
+          "graded": 0,
+          "graded_pass_rate": null,
+          "known_cost_usd": "0.000000",
+          "passed": 0,
+          "planned": 6,
+          "provider_errors": 0,
+          "started": 1,
+          "success_median_seconds": null,
+          "success_time_count": 0,
+          "termination_sources": {
+            "none": 5,
+            "user_cancelled": 1
+          },
+          "tokens": {
+            "cache_tokens": null,
+            "input_tokens": null,
+            "model_calls": null,
+            "output_tokens": null,
+            "unknown_cost_calls": null,
+            "unknown_usage_calls": null
+          },
+          "ungraded": 6,
+          "verified_success_rate": 0.0
+        }
+      },
+      "termination_sources": {
+        "none": 7,
+        "user_cancelled": 1
+      },
+      "tokens": {
+        "cache_tokens": null,
+        "input_tokens": null,
+        "model_calls": null,
+        "output_tokens": null,
+        "unknown_cost_calls": null,
+        "unknown_usage_calls": null
+      },
+      "ungraded": 8,
+      "verified_success_rate": 0.0
+    }
+  },
+  "cloud": {
+    "request": {
+      "bundle_sha256": "637e7683e5ae0c726839b138d84f9ec39e964cdd5361f39587f140e6a4f019a6",
+      "controller_source_sha256": "e04f888d08f75ccaa63d8e82be7340929184ee54c33369184961e1b56b9f0918",
+      "created_at": "2026-09-14T19:39:57.097586Z",
+      "planned": 8,
+      "run_id": "modal-cancel-20260914-c1",
+      "settings": {
+        "app": "whip-eval",
+        "environment": "whipcode",
+        "jobs": 1,
+        "max_jobs": 90,
+        "shapes": {
+          "harbor": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          },
+          "pier": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          }
+        },
+        "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3"
+      }
+    },
+    "status": {
+      "concurrency": {
+        "peak_active_trials": 1
+      },
+      "finished_at": "2026-09-14T19:41:27.345173Z",
+      "planned": 8,
+      "recorded": 8,
+      "run_id": "modal-cancel-20260914-c1",
+      "status": "cancelled",
+      "unproven_vm_exits": 0
+    }
+  },
+  "comparison_key": "b0ee2e5b284e5a9d189e1343ae811e9dccaade4b905272c8b9589242f59ef287",
+  "comparisons": [],
+  "finished_at": "2026-09-14T19:42:22.979115Z",
+  "manifest_sha256": "892c7b66feda454d4b90381d60acc2b5a0c8331394b6f02559714fa697a84cca",
+  "methodology_comparable": false,
+  "profile": "smoke",
+  "profile_version": 1,
+  "run_id": "modal-cancel-20260914-c1",
+  "schema_version": 1,
+  "status": "cancelled",
+  "status_detail": {
+    "cancelled_trials": 1,
+    "evidence_incomplete": 8,
+    "provider_errors": 0,
+    "ungraded": 8
+  },
+  "trials": [
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/cli.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/identity.json": "a92706de1a4e226a0596628bc9fb28c9448663c05bb25d200996ea5ecb780567",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/metrics.json": "e9276b7d6cee52496afa13c805ca410168385db1b73c977d27d1c74fcf15c7b4",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/state.json": "7c8acee7ee26394d5106a225b41018b23f8672e8f0367d9ed739bcfbc1633745"
+        },
+        "native_result": "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/result.json",
+        "native_result_sha256": "76345f9d8602944c16c764a949211244e8abed28956e3339aa8ceef541d268d4"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 1
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 5916996,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 2578
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 266312,
+          "used_value": 0
+        }
+      ],
+      "cost_sources": {
+        "unknown": 1
+      },
+      "cost_usd": null,
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 0.0,
+        "peak_input_tokens": 0,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 1.44,
+        "sampled_peak_container_rss_bytes": 190550016,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 1
+      },
+      "error_codes": [
+        "adapter_export_error",
+        "incomplete_content_export",
+        "incomplete_final_snapshot",
+        "incomplete_finality",
+        "missing_required_evidence"
+      ],
+      "evidence_complete": false,
+      "execution_status": "cancelled",
+      "grader_status": "error",
+      "id": "t0001",
+      "input_tokens": 0,
+      "known_cost_usd": "0.000000",
+      "model_calls": 1,
+      "native_cleanup_complete": true,
+      "output_tokens": 0,
+      "partial_observation": {
+        "event_cursor": 10,
+        "not_final": true,
+        "observed_cache_tokens": 0,
+        "observed_input_tokens": 0,
+        "observed_output_tokens": 0,
+        "path": "artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__kR2Lmo6/agent/whip/metrics.json"
+      },
+      "phase_seconds": {
+        "agent_execution": 13.577213,
+        "agent_setup": 19.182878,
+        "cleanup": 0.13495224100000058,
+        "environment_setup": 1.265038,
+        "verifier": null
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": null,
+      "task_id": "terminal-bench/code-from-image",
+      "termination_source": "user_cancelled",
+      "trial_seconds": 49.816480459,
+      "unknown_cost_calls": 1,
+      "unknown_usage_calls": 1
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0002",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "harbor",
+      "started": false,
+      "success": null,
+      "task_id": "terminal-bench/build-cython-ext",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0003",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "pier",
+      "started": false,
+      "success": null,
+      "task_id": "datacurve/httpx-multipart-response-parsing",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0004",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "harbor",
+      "started": false,
+      "success": null,
+      "task_id": "terminal-bench/openssl-selfsigned-cert",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0005",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "harbor",
+      "started": false,
+      "success": null,
+      "task_id": "terminal-bench/db-wal-recovery",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0006",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "harbor",
+      "started": false,
+      "success": null,
+      "task_id": "terminal-bench/regex-log",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0007",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "pier",
+      "started": false,
+      "success": null,
+      "task_id": "datacurve/anko-typed-variable-bindings",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": null,
+      "artifacts": {},
+      "cache_tokens": null,
+      "candidate_id": "candidate",
+      "cleanup_complete": false,
+      "cost_usd": null,
+      "error_codes": [
+        "cloud_snapshot_incomplete"
+      ],
+      "evidence_complete": false,
+      "execution_status": "not_started",
+      "grader_status": "missing",
+      "id": "t0008",
+      "input_tokens": null,
+      "known_cost_usd": "0.000000",
+      "model_calls": null,
+      "native_cleanup_complete": null,
+      "output_tokens": null,
+      "phase_seconds": {},
+      "repetition": 1,
+      "runner": "harbor",
+      "started": false,
+      "success": null,
+      "task_id": "terminal-bench/kv-store-grpc",
+      "termination_source": null,
+      "trial_seconds": null,
+      "unknown_cost_calls": null,
+      "unknown_usage_calls": null
+    }
+  ],
+  "wall_seconds": null
+}

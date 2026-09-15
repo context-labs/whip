@@ -9,6 +9,7 @@ import { routeTree } from './routeTree.gen';
 import { bindSessionTabs } from './session-tab-routing';
 import { bindSettingsNavigation } from './settings/navigation';
 import { useSyncExternalStore, type ReactNode } from 'react';
+import { StartupScreen } from './startup-screen';
 
 export { createHostPrompts, HostPrompts } from './host-prompts';
 export { createSessionNavigator } from './session-tab-routing';
@@ -20,11 +21,14 @@ export function createWhipApplication(platform: AppPlatform, history?: RouterHis
   const unbindSettings = bindSettingsNavigation(runtime, router);
   const subscribeContrast = platform.systemContrast?.subscribe ?? (() => () => {});
   const readContrast = platform.systemContrast?.getSnapshot ?? (() => undefined);
-  function Application({ children }: { children?: ReactNode }) {
+  function Application({ children, startup }: { children?: ReactNode; startup?: Promise<unknown> }) {
     const systemContrast = useSyncExternalStore(subscribeContrast, readContrast, readContrast);
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} systemContrast={systemContrast} onNotice={message => runtime.report(message)}>
-        <UIProvider><QueryClientProvider client={runtime.queries}><RouterProvider router={router} />{children}</QueryClientProvider></UIProvider>
+        <UIProvider><QueryClientProvider client={runtime.queries}>
+          {startup ? <StartupScreen startup={startup}><RouterProvider router={router} /></StartupScreen> : <RouterProvider router={router} />}
+          {children}
+        </QueryClientProvider></UIProvider>
       </ThemeProvider>
     </RuntimeContext.Provider>;
   }

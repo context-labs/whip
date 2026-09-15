@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 6,
+  "minor": 7,
   "operations": [
     {
       "name": "command.status",
@@ -212,6 +212,22 @@ export const manifest = {
       "permission": "root-agent-association",
       "params_type": "MailboxReadParams",
       "result_type": "MailboxInspection"
+    },
+    {
+      "name": "mcp.import.apply",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-configuration",
+      "params_type": "MCPImportApplyParams",
+      "result_type": "MCPImportApplyResult"
+    },
+    {
+      "name": "mcp.import.candidates",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "MCPImportCandidatesParams",
+      "result_type": "MCPImportCandidatesResult"
     },
     {
       "name": "operation.invoke",
@@ -499,6 +515,22 @@ export const manifest = {
       "permission": "executor-lease",
       "params_type": "ToolResultParams",
       "result_type": "Accepted"
+    },
+    {
+      "name": "trace.export",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-association",
+      "params_type": "TraceExportParams",
+      "result_type": "TraceExportResult"
+    },
+    {
+      "name": "trace.page",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-association",
+      "params_type": "TracePageParams",
+      "result_type": "SpanPage"
     },
     {
       "name": "upload.begin",
@@ -1129,12 +1161,15 @@ export const manifest = {
     "session.permission_mode.updated": "SessionUpdateEvent",
     "session.reload.failed": "LifecycleEvent",
     "session.title.updated": "SessionUpdateEvent",
+    "span.ended": "SpanRecord",
+    "span.started": "SpanRecord",
     "state.private.append": "LifecycleEvent",
     "state.private.cas": "LifecycleEvent",
     "state.private.set": "LifecycleEvent",
     "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
     "stream.cell.host.started": "StreamEvent",
+    "stream.discard": "StreamEvent",
     "stream.hook.decision": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",

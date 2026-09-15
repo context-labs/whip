@@ -29,6 +29,9 @@ func TestRetryableClassification(t *testing.T) {
 		{nil, false},
 		{context.Canceled, false},
 		{context.DeadlineExceeded, false},
+		{stallError{Stall: time.Second}, true},
+		{ceilingError{Ceiling: time.Second}, true},
+		{fmt.Errorf("wrapped: %w", stallError{Stall: time.Second}), true},
 		{&HTTPError{Status: "400 Bad Request", Body: "bad"}, false},
 		{&HTTPError{Status: "401 Unauthorized", Body: "nope"}, false},
 		{&HTTPError{Status: "403 Forbidden", Body: "nope"}, false},
@@ -80,6 +83,58 @@ func TestStreamRetriesTransientStatus(t *testing.T) {
 	}
 	if retries[0].Attempt != 1 || retries[0].Err == nil {
 		t.Fatalf("retry event: %+v", retries[0])
+	}
+}
+
+// A recovered 520 must retain the failed attempt's missing usage separately.
+func TestStreamRetries520PreservingUnknownAttemptUsage(t *testing.T) {
+	noSleep(t)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(520)
+			fmt.Fprint(w, "error code: 520")
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],`+
+			`"usage":{"prompt_tokens":4,"completion_tokens":2}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(server.Close)
+	client := New(server.URL, "test")
+	var attempts []ModelAttempt
+	var settled []ModelAttemptResult
+	request := Request{Model: "fixture", Accounting: testCallAccounting(
+		func(_ context.Context, attempt ModelAttempt) (func(ModelAttemptResult) error, error) {
+			attempts = append(attempts, attempt)
+			return func(result ModelAttemptResult) error {
+				settled = append(settled, result)
+				return nil
+			}, nil
+		},
+	)}
+	var retries []RetryEvent
+	client.OnRetry = func(event RetryEvent) { retries = append(retries, event) }
+	message, _, err := client.Stream(t.Context(), request, nil, nil, nil)
+	if err != nil || message.Content != "ok" {
+		t.Fatalf("message=%+v err=%v", message, err)
+	}
+	if calls.Load() != 2 || len(attempts) != 2 || len(settled) != 2 || len(retries) != 1 {
+		t.Fatalf("calls=%d attempts=%+v settled=%+v retries=%+v", calls.Load(), attempts, settled, retries)
+	}
+	if attempts[0].LogicalID == "" || attempts[0].LogicalID != attempts[1].LogicalID ||
+		attempts[0].Number != 1 || attempts[1].Number != 2 {
+		t.Fatalf("attempt identities=%+v", attempts)
+	}
+	if !settled[0].Dispatched || !settled[0].Failed || settled[0].Usage.Reported {
+		t.Fatalf("failed request must retain unknown usage: %+v", settled[0])
+	}
+	if !settled[1].Dispatched || settled[1].Failed || !settled[1].Usage.Reported ||
+		settled[1].Usage.PromptTokens != 4 || settled[1].Usage.CompletionTokens != 2 {
+		t.Fatalf("successful retry usage=%+v", settled[1])
+	}
+	if retries[0].Max != DefaultMaxAttempts {
+		t.Fatalf("retry limit=%d, want %d", retries[0].Max, DefaultMaxAttempts)
 	}
 }
 
@@ -263,5 +318,61 @@ func TestRetryRespectsCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("cancellation took %v; backoff should have been interrupted", elapsed)
+	}
+}
+
+// Provider failures delivered inside a 200 stream are classified by wording.
+// Inference.net's 30 s no-token gateway stall reads as transient: before any
+// delta it is retried within the attempt budget, after a delta the partial is
+// discarded and the message regenerated within the regeneration budget.
+// Unclassified wording before a delta is repeated exactly once; a permanent
+// message is never repeated.
+func TestStreamClassifiesProviderErrorChunks(t *testing.T) {
+	noSleep(t)
+	stall := "data: {\"error\":{\"message\":\"Inference stream timed out: No next token received for 30000ms\"}}\n\n"
+	odd := "data: {\"error\":{\"message\":\"boom\"}}\n\n"
+	quota := "data: {\"error\":{\"message\":\"insufficient quota for this model\"}}\n\n"
+	ok := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+	partial := "data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n" + stall
+	cases := []struct {
+		name      string
+		responses []string
+		wantCalls int
+		wantErr   string
+		wantText  string
+	}{
+		{"stall then success", []string{stall, ok}, 2, "", "ok"},
+		{"closed before any delta then success", []string{"", ok}, 2, "", "ok"},
+		{"three stalls then success", []string{stall, stall, stall, ok}, 4, "", "ok"},
+		{"stall after a delta is regenerated", []string{partial, ok}, 2, "", "ok"},
+		{"stalls after deltas exhaust the regeneration budget", []string{partial, partial, partial, ok}, 1 + DefaultRegenerations, "No next token", "par"},
+		{"unclassified wording is repeated once", []string{odd, odd, ok}, 2, "boom", ""},
+		{"permanent wording is never repeated", []string{quota, ok}, 1, "insufficient quota", ""},
+		{"permanent wording after a delta is never regenerated", []string{"data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n" + quota, ok}, 1, "insufficient quota", "par"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				body := tc.responses[min(calls, len(tc.responses)-1)]
+				calls++
+				w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			msg, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+			if msg.Content != tc.wantText {
+				t.Fatalf("content %q, want %q", msg.Content, tc.wantText)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("provider called %d times, want %d", calls, tc.wantCalls)
+			}
+		})
 	}
 }

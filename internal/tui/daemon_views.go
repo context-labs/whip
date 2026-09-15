@@ -36,6 +36,46 @@ func renderMCPStatus(raw string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+// cacheMCPInventory keeps the daemon's latest status rows for the MCP palette.
+func (m *model) cacheMCPInventory(raw string) {
+	var servers []daemon.MCPStatusResult
+	if err := json.Unmarshal([]byte(raw), &servers); err == nil {
+		m.mcpInventory = servers
+	}
+}
+
+// mcpPaletteRows derives the MCP palette's server rows from the daemon's last
+// status snapshot rather than from local config: imported, attached and
+// remote-daemon servers appear in status while a name in local config may not
+// be live at all. Each row offers only what the daemon can honor for that
+// state; blocked and unreadable rows point at the status view that says why.
+func mcpPaletteRows(inventory []daemon.MCPStatusResult) []struct{ title, command string } {
+	type row = struct{ title, command string }
+	if len(inventory) == 0 {
+		return []row{{"Load MCP server status (fills this list)", "/mcp status"}}
+	}
+	rows := make([]row, 0, 2*len(inventory))
+	for _, server := range inventory {
+		name := server.Name
+		switch server.Status {
+		case "blocked":
+			rows = append(rows, row{"Why is " + name + " blocked", "/mcp status"})
+		case "unreadable":
+			rows = append(rows, row{"Why is " + name + " unreadable", "/mcp status"})
+		case "disabled":
+			rows = append(rows, row{"Enable " + name + " for this session", "/mcp " + name + " enable"})
+		case "connecting":
+			rows = append(rows, row{"Disable " + name + " for this session", "/mcp " + name + " disable"})
+		default:
+			rows = append(rows,
+				row{"Reconnect " + name, "/mcp " + name + " reconnect"},
+				row{"Disable " + name + " for this session", "/mcp " + name + " disable"},
+			)
+		}
+	}
+	return rows
+}
+
 func renderLSPStatus(raw string) (string, error) {
 	var servers []daemon.LSPStatusResult
 	if err := json.Unmarshal([]byte(raw), &servers); err != nil {
