@@ -26,11 +26,18 @@ function fixture() {
     server = { ...server, ...patch, revision: 'v2' };
     return server;
   });
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: { openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
+  const mcpImport = {
+    candidates: vi.fn(async () => ({ offered: true, config_path: '/home/u/.whip/config.json', candidates: [
+      { name: 'paper', source: 'codex', source_path: '/home/u/.codex/config.toml', transport: 'http', state: 'importable' },
+      { name: 'exa', source: 'claude', source_path: '/home/u/.claude.json', transport: 'http', state: 'importable' },
+    ] })),
+    apply: vi.fn(async ({ names }: { names: string[] }) => ({ imported: names, offered: true })),
+  };
+  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, supports: (_surface: string, name: string) => name.startsWith('mcp.import'), mcpImport, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: { openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
   const state = { commands: [] };
   const runtime = { queries, report: vi.fn(), getSnapshot: () => state, subscribe: () => () => {} } as unknown as AppRuntime;
   function wrapper(children: ReactNode) { return <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>; }
-  return { get, update, runtime, queries, client, wrapper, changeServer(next: RuntimeConfiguration) { server = next; },
+  return { get, update, mcpImport, runtime, queries, client, wrapper, changeServer(next: RuntimeConfiguration) { server = next; },
     render(category: 'providers' | 'execution') { return render(wrapper(<ConfigurationSettings client={client} enabled category={category} />)); },
   };
 }

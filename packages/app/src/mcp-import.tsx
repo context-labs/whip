@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { MCPImportApplyResult, MCPImportCandidate, MCPImportCandidatesResult } from '@whip/protocol';
+import type { MCPImportApplyResult, MCPImportCandidatesResult } from '@whip/protocol';
 import { Button, Checkbox } from '@whip/ui';
 import { Check } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -14,11 +14,14 @@ import { layout } from './styles';
 // list, tick what you want, and they become Whip's own (trusted) servers. The
 // daemon reads files only; nothing here dials or launches a server.
 
+/** One row of the daemon's answer; the generated contract inlines it. */
+export type MCPImportCandidate = NonNullable<MCPImportCandidatesResult['candidates']>[number];
+
 export function candidatesQueryKey(runtimeId: string | undefined, cwd = '') { return ['mcp-import-candidates', runtimeId, cwd] as const; }
 
-/** Older daemons have neither operation; callers hide the screen entirely. */
+/** Older daemons have neither operation; the Welcome offer stays hidden and Settings explains. */
 export function importSupported(client: WhipClient) {
-  return client.supports('rpc', 'mcp.import.candidates') && client.supports('rpc', 'mcp.import.apply');
+  return typeof client.supports === 'function' && client.supports('rpc', 'mcp.import.candidates') && client.supports('rpc', 'mcp.import.apply');
 }
 
 export function useMCPImportCandidates(client: WhipClient, { enabled, cwd = '' }: { enabled: boolean; cwd?: string }) {
@@ -35,7 +38,7 @@ export function useMCPImportCandidates(client: WhipClient, { enabled, cwd = '' }
 
 /** A host is offered the screen once: when it has something importable and has not answered yet. */
 export function shouldOffer(data: MCPImportCandidatesResult | undefined) {
-  return !!data && !data.offered && data.candidates.some(candidate => candidate.state === 'importable');
+  return !!data && !data.offered && (data.candidates ?? []).some(candidate => candidate.state === 'importable');
 }
 
 /** Everything that is not already in Whip first, A→Z; the already-native servers last, A→Z. */
@@ -67,7 +70,7 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
   client: WhipClient; hostName: string; cwd?: string; onDone?: (result: MCPImportApplyResult | undefined) => void;
 }) {
   const runtime = useRuntime();
-  const { query, runtimeId } = useMCPImportCandidates(client, { enabled: true, cwd });
+  const { query, runtimeId, supported } = useMCPImportCandidates(client, { enabled: true, cwd });
   // Ticks the person changed; everything else follows the row's default.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [included, setIncluded] = useState<Record<string, true>>({});
@@ -88,6 +91,7 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
       onDone?.(result);
     } catch (value) { setError(value); } finally { setBusy(false); }
   }
+  if (!supported) return <p role="status" {...stylex.props(layout.muted)}>{hostName} runs an older daemon without MCP import. Update whipcode there, or run <code>whip mcp import</code> on that machine.</p>;
   if (query.isPending) return <p role="status" {...stylex.props(layout.muted)}>Looking for MCP servers on {hostName}…</p>;
   if (query.error) return <ErrorNotice type="resource" owner={`${runtimeId}:mcp-import`} title="Could not read the other agents' configuration" error={query.error} />;
   if (!data) return null;

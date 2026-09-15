@@ -123,7 +123,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
           {section === 'appearance' && <AppearanceSettings />}
           {section === 'general' && <GeneralSettings />}
           {section === 'providers' && host?.client && <ProvidersSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
-          {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
+          {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} hostName={host.name} />}
           {section === 'execution' && host?.client && <AgentsSettings key={`agents:${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'connections' && <ConnectionsSettings />}
           {section === 'about' && <AboutSettings />}

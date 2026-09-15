@@ -4,13 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
 import type { WhipClient } from '@whip/sdk';
 import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/protocol';
-import { Button, Input, Select, Switch } from '@whip/ui';
+import { Button, Dialog, Input, Select, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { CatalogModelPicker, catalogModels, effortLabel, modelEfforts, useProviderCatalog } from '../model-selection';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 import { useSettingsEdits } from './unsaved';
+import { MCPImportScreen } from '../mcp-import';
 
 type Category = 'providers' | 'execution';
 const providerFields = ['default_model', 'default_provider', 'default_effort'] as const;
@@ -37,11 +38,11 @@ export function configurationPatch(category: Category, value: Values, revision: 
   };
 }
 
-export function ExecutionSettings({ client, enabled = client.getSnapshot().state === 'connected' }: { client: WhipClient; enabled?: boolean }) {
-  return <ConfigurationSettings client={client} enabled={enabled} category="execution" />;
+export function ExecutionSettings({ client, enabled = client.getSnapshot().state === 'connected', hostName }: { client: WhipClient; enabled?: boolean; hostName?: string }) {
+  return <ConfigurationSettings client={client} enabled={enabled} category="execution" hostName={hostName} />;
 }
 
-export function ConfigurationSettings({ client, enabled, category, defaultProvider }: { client: WhipClient; enabled: boolean; category: Category; defaultProvider?: string }) {
+export function ConfigurationSettings({ client, enabled, category, defaultProvider, hostName }: { client: WhipClient; enabled: boolean; category: Category; defaultProvider?: string; hostName?: string }) {
   const runtimeId = client.getSnapshot().info?.runtime_id;
   const configuration = useQuery({
     queryKey: ['runtime-configuration', runtimeId],
@@ -54,18 +55,19 @@ export function ConfigurationSettings({ client, enabled, category, defaultProvid
   return <>
     {configuration.isPending && enabled && !current && <p role="status">Loading host defaults…</p>}
     {configuration.error && enabled && <ErrorNotice type="resource" owner={`${runtimeId}:configuration`} title="Could not load host defaults" error={configuration.error} />}
-    {current && <ConfigurationForm key={`${runtimeId}:${category}`} client={client} config={current} enabled={enabled} category={category} defaultProvider={defaultProvider} />}
+    {current && <ConfigurationForm key={`${runtimeId}:${category}`} client={client} config={current} enabled={enabled} category={category} defaultProvider={defaultProvider} hostName={hostName} />}
   </>;
 }
 
-function ConfigurationForm({ client, config, enabled, category, defaultProvider }: {
-  client: WhipClient; config: RuntimeConfiguration; enabled: boolean; category: Category; defaultProvider?: string;
+function ConfigurationForm({ client, config, enabled, category, defaultProvider, hostName = 'this host' }: {
+  client: WhipClient; config: RuntimeConfiguration; enabled: boolean; category: Category; defaultProvider?: string; hostName?: string;
 }) {
   const runtime = useRuntime();
   const [base, setBase] = useState(config);
   const [error, setError] = useState('');
   const [errorType, setErrorType] = useState<'validation' | 'action'>('action');
   const [notice, setNotice] = useState('');
+  const [importing, setImporting] = useState(false);
   const request = useRef<AbortController | null>(null);
   const saved = useRef(false);
   useEffect(() => () => { request.current?.abort(); request.current = null; }, [client]);
@@ -123,7 +125,7 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
         value={Number.isNaN(field.state.value) ? '' : field.state.value} onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.valueAsNumber)} />
     </SettingRow>}
   </form.Field>;
-  return <form {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
+  return <><form {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
     {category === 'providers' ? <SettingsGroup title="Defaults for new work">
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
         <CatalogModelPicker label="Default model" settings model={model} provider={provider} catalog={catalog.data?.result}
@@ -169,6 +171,9 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
         <form.Field name="import_codex">{field => <SettingRow id="import_codex" label="Import Codex configuration" description="Use MCP configuration from Codex on this execution host.">
           <Switch aria-label="Import Codex configuration" checked={field.state.value} disabled={!enabled || submitting} onCheckedChange={field.handleChange} />
         </SettingRow>}</form.Field>
+        <SettingRow id="mcp_import" label="Servers from other agents" description="Pick MCP servers configured for Codex, Claude, or OpenCode on this execution host and add them to Whip's own configuration, where they run without per-call approval.">
+          <Button type="button" xstyle={settingsSection.control} disabled={!enabled} onClick={() => setImporting(true)}>Import servers…</Button>
+        </SettingRow>
       </SettingsGroup>
     </>}
     <p {...stylex.props(layout.muted)}>These defaults belong to the selected execution host and are shared with its other clients.</p>
@@ -179,5 +184,12 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
     {error && <ErrorNotice type={errorType} owner={`configuration:${category}`} title={errorType === 'action' ? 'Could not save host defaults' : undefined} error={error} />}
     {notice && <p role="status">{notice}</p>}
     <div {...stylex.props(layout.row)}><Button type="submit" disabled={!enabled || submitting || !dirty} loading={submitting}>Save host defaults</Button></div>
-  </form>;
+  </form>
+  <Dialog open={importing} onOpenChange={setImporting} title="Bring your MCP servers into Whip">
+    {importing && <MCPImportScreen client={client} hostName={hostName} onDone={result => {
+      setImporting(false);
+      const count = result?.imported?.length ?? 0;
+      if (result) setNotice(count ? `Imported ${count} MCP ${count === 1 ? 'server' : 'servers'} into Whip's configuration on ${hostName}.` : 'No MCP servers were imported.');
+    }} />}
+  </Dialog></>;
 }
