@@ -1,0 +1,1360 @@
+{
+  "arms": {
+    "candidate": {
+      "accounting_complete": 6,
+      "agent_median_seconds": 139.53663393750003,
+      "agent_p95_seconds": 495.53609532485,
+      "agent_time_count": 8,
+      "cache_read_ratio": 0.6226104682208253,
+      "cancelled": 0,
+      "cost_usd": null,
+      "effective_cost_per_pass_usd": null,
+      "evidence_complete": 8,
+      "evidence_incomplete": 0,
+      "failed": 1,
+      "graded": 8,
+      "graded_pass_rate": 0.875,
+      "known_cost_usd": "17.970639",
+      "passed": 7,
+      "planned": 8,
+      "provider_errors": 0,
+      "repetitions": {
+        "1": {
+          "accounting_complete": 6,
+          "agent_median_seconds": 139.53663393750003,
+          "agent_p95_seconds": 495.53609532485,
+          "agent_time_count": 8,
+          "cache_read_ratio": 0.6226104682208253,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 8,
+          "evidence_incomplete": 0,
+          "failed": 1,
+          "graded": 8,
+          "graded_pass_rate": 0.875,
+          "known_cost_usd": "17.970639",
+          "passed": 7,
+          "planned": 8,
+          "provider_errors": 0,
+          "started": 8,
+          "success_median_seconds": 114.25391297800002,
+          "success_time_count": 7,
+          "termination_sources": {
+            "none": 8
+          },
+          "tokens": {
+            "cache_tokens": 4982218,
+            "input_tokens": 8002143,
+            "model_calls": 269,
+            "output_tokens": 95061,
+            "unknown_cost_calls": 2,
+            "unknown_usage_calls": 2
+          },
+          "ungraded": 0,
+          "verified_success_rate": 0.875
+        }
+      },
+      "started": 8,
+      "success_median_seconds": 114.25391297800002,
+      "success_time_count": 7,
+      "suites": {
+        "datacurve": {
+          "accounting_complete": 1,
+          "agent_median_seconds": 486.0111279455,
+          "agent_p95_seconds": 514.5860300835501,
+          "agent_time_count": 2,
+          "cache_read_ratio": 0.667370388284682,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 2,
+          "evidence_incomplete": 0,
+          "failed": 1,
+          "graded": 2,
+          "graded_pass_rate": 0.5,
+          "known_cost_usd": "13.328746",
+          "passed": 1,
+          "planned": 2,
+          "provider_errors": 0,
+          "started": 2,
+          "success_median_seconds": 517.7610192100001,
+          "success_time_count": 1,
+          "termination_sources": {
+            "none": 2
+          },
+          "tokens": {
+            "cache_tokens": 4437303,
+            "input_tokens": 6648936,
+            "model_calls": 162,
+            "output_tokens": 61313,
+            "unknown_cost_calls": 1,
+            "unknown_usage_calls": 1
+          },
+          "ungraded": 0,
+          "verified_success_rate": 0.5
+        },
+        "terminal-bench": {
+          "accounting_complete": 5,
+          "agent_median_seconds": 72.567139318,
+          "agent_p95_seconds": 234.02512401950003,
+          "agent_time_count": 6,
+          "cache_read_ratio": 0.40268414218962806,
+          "cancelled": 0,
+          "cost_usd": null,
+          "effective_cost_per_pass_usd": null,
+          "evidence_complete": 6,
+          "evidence_incomplete": 0,
+          "failed": 0,
+          "graded": 6,
+          "graded_pass_rate": 1.0,
+          "known_cost_usd": "4.641893",
+          "passed": 6,
+          "planned": 6,
+          "provider_errors": 0,
+          "started": 6,
+          "success_median_seconds": 72.567139318,
+          "success_time_count": 6,
+          "termination_sources": {
+            "none": 6
+          },
+          "tokens": {
+            "cache_tokens": 544915,
+            "input_tokens": 1353207,
+            "model_calls": 107,
+            "output_tokens": 33748,
+            "unknown_cost_calls": 1,
+            "unknown_usage_calls": 1
+          },
+          "ungraded": 0,
+          "verified_success_rate": 1.0
+        }
+      },
+      "termination_sources": {
+        "none": 8
+      },
+      "tokens": {
+        "cache_tokens": 4982218,
+        "input_tokens": 8002143,
+        "model_calls": 269,
+        "output_tokens": 95061,
+        "unknown_cost_calls": 2,
+        "unknown_usage_calls": 2
+      },
+      "ungraded": 0,
+      "verified_success_rate": 0.875
+    }
+  },
+  "cloud": {
+    "request": {
+      "bundle_sha256": "d2047db444aa4d8a50edfe48d9388a8ef959491a2411038853882944fc3c3432",
+      "controller_source_sha256": "e04f888d08f75ccaa63d8e82be7340929184ee54c33369184961e1b56b9f0918",
+      "created_at": "2026-09-15T00:04:39.225012Z",
+      "planned": 8,
+      "run_id": "modal-smoke-20260914-s2",
+      "settings": {
+        "app": "whip-eval",
+        "environment": "whipcode",
+        "jobs": 8,
+        "max_jobs": 90,
+        "shapes": {
+          "harbor": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          },
+          "pier": {
+            "memory_mb": 24576,
+            "min_free_disk_mb": 100000,
+            "physical_cpus": 6
+          }
+        },
+        "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3"
+      }
+    },
+    "status": {
+      "concurrency": {
+        "peak_active_trials": 8
+      },
+      "finished_at": "2026-09-15T00:15:42.933205Z",
+      "planned": 8,
+      "recorded": 8,
+      "run_id": "modal-smoke-20260914-s2",
+      "status": "completed",
+      "unproven_vm_exits": 0
+    }
+  },
+  "comparison_key": "4d492b4d0aa660eea01c86c8b278e7e90cdaf152d80e66c26327a029e7855d0c",
+  "comparisons": [],
+  "finished_at": "2026-09-15T00:16:19.903703Z",
+  "manifest_sha256": "2b2a3b0fecd3a87b01a796b63a18e1e5e47f7c406b9f682f8bca03f38c3f28cf",
+  "methodology_comparable": false,
+  "profile": "smoke",
+  "profile_version": 1,
+  "run_id": "modal-smoke-20260914-s2",
+  "schema_version": 1,
+  "status": "complete",
+  "status_detail": {
+    "cancelled_trials": 0,
+    "evidence_incomplete": 0,
+    "provider_errors": 0,
+    "ungraded": 0
+  },
+  "trials": [
+    {
+      "accounting_complete": true,
+      "agent_seconds": 164.819354897,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/cli.ndjson": "1584906c996ea407c7e56a3016794e707176ec791246eff50039061cdffc97be",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/content-export.json": "3c59df6830876ca6b061dc3a976fc180790195c3c2dea92d2742df447135c836",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/identity.json": "682f73b904e8410a5c43ed0ccee6bd4bb9d8bdb2f24351aa71b12e66441b8de3",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/metrics.json": "dc69230c97448d4bc9cdc97c2c8c6b17915a757e2175443f4b631f34c3d10585",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/outcome.json": "eac0069dda111267692a5693db4497cddffc2111b6f37a8301b9f9df51576479",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/sessions.db": "5a02da3aea7cb46f772cc11b803def72f51f9950a212bdb9a34758d6a3d19443",
+          "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/agent/whip/state.json": "d5ba2d7ef689dd72899533903ed07fbc512f15a693d66a62c4f829a7bea6d97e"
+        },
+        "native_result": "attempts/t0001/artifacts/jobs/t0001/f5a3276c1894ee4a99311ec962484184__TdsaL4q/result.json",
+        "native_result_sha256": "8ee52940052efe17c4f19c9415d06e60ec01862ae3999af0b15d038ac55286d4"
+      },
+      "cache_tokens": 298510,
+      "calls_by_purpose": {
+        "turn": 44
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 1987710
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 92540
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 146082
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 7
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 672844
+        }
+      ],
+      "cost_sources": {
+        "estimated": 44
+      },
+      "cost_usd": "1.987710",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 1.9876905000000002,
+        "peak_input_tokens": 29896,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 20.35,
+        "sampled_peak_container_rss_bytes": 348340224,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0001",
+      "input_tokens": 663463,
+      "known_cost_usd": "1.987710",
+      "model_calls": 44,
+      "native_cleanup_complete": true,
+      "output_tokens": 9381,
+      "phase_seconds": {
+        "agent_execution": 165.459104,
+        "agent_setup": 15.378202,
+        "cleanup": 0.13810487499998203,
+        "environment_setup": 1.262436,
+        "verifier": 2.833567
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/code-from-image",
+      "termination_source": null,
+      "trial_seconds": 200.863524037,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": 257.093713727,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/cli.ndjson": "95680d23df66f10ae9b5f2e068b96c8b559b74e4113829ce889fd57860ea0765",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/content-export.json": "fb4dad7e90472587a9b3cecd95d441683cfbf9cbded4a74c37faa5a44ca82893",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/identity.json": "7041895fc46adc409bc0b90a17fd67a62400a88eb9326f61bf57be0259083187",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/metrics.json": "a470b201d020d557f9a9a091ccd79c9c85a3a8c8ce101f0474db0efe5053ce5d",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/outcome.json": "bfb55e69306416e9ef20e383dd3e4cb52f26749c2b5f3c8f221a521f62ed8651",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/sessions.db": "c26e8ffeb91fdf4c9f3c9bb27e9aa4df6c9c2dd67f72c14064b7f1de2f57bd67",
+          "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/whip/state.json": "a46aeeff27d980af01f7d3b27d91c3bda9e7ab07c8e581b02d7ae226ce76ebdb"
+        },
+        "native_result": "attempts/t0002/artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/result.json",
+        "native_result_sha256": "174d4ffe41f8a1afbd70145f385b02f4f6fb7b19e4401a9509bf6b074a960d5c"
+      },
+      "cache_tokens": 231045,
+      "calls_by_purpose": {
+        "turn": 36
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 5931072,
+          "used_value": 1615873
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 157418
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 269440,
+          "used_value": 536677
+        }
+      ],
+      "cost_sources": {
+        "estimated": 35,
+        "unknown": 1
+      },
+      "cost_usd": null,
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 1.6158622499999995,
+        "peak_input_tokens": 25261,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 93.81,
+        "sampled_peak_container_rss_bytes": 790413312,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 1
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0002",
+      "input_tokens": 529091,
+      "known_cost_usd": "1.615873",
+      "model_calls": 36,
+      "native_cleanup_complete": true,
+      "output_tokens": 7586,
+      "partial_observation": {
+        "event_cursor": 3528,
+        "not_final": true,
+        "observed_cache_tokens": 231045,
+        "observed_input_tokens": 529091,
+        "observed_output_tokens": 7586,
+        "path": "artifacts/jobs/t0002/d0cd45c10ff602d9ce44cad038b58042__DV9BGJg/agent/metrics.interim.json"
+      },
+      "phase_seconds": {
+        "agent_execution": 257.531034,
+        "agent_setup": 8.528716,
+        "cleanup": 0.14133781799995404,
+        "environment_setup": 1.832602,
+        "verifier": 3.643923
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/build-cython-ext",
+      "termination_source": null,
+      "trial_seconds": 287.936142948,
+      "unknown_cost_calls": 1,
+      "unknown_usage_calls": 1
+    },
+    {
+      "accounting_complete": false,
+      "agent_seconds": 517.7610192100001,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/cli.ndjson": "4a30f69abc9620300cb63063e8ecc591b906f9c353ca4d8e051ea9c5f675d382",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/content-export.json": "506f1a4500b4f1246a0e003948eaac9e854671cc8a8769afc58c218e8932a9a6",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/identity.json": "4262717e4a49bb461d970dfe7fa9a9abe6af70e17203782509cb0be381896452",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/metrics.json": "68d9ef82ba74281aec76a1a708ee21569236c18c29560230987c0a753be4646f",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/outcome.json": "5778af5dfbe1342e5559bf3ffbce8ac1fa414aa8f65005ba7645a80e27d57bc2",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/sessions.db": "a76b95f78a70cb076bb2e18ca29b809fc6ee1123fce0daa3d11641cec0f42e33",
+          "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/whip/state.json": "cae581244fc83021840ccf542c894210b87254039755936d7b2f16a3a2259b32"
+        },
+        "native_result": "attempts/t0003/artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/result.json",
+        "native_result_sha256": "a6a6ce71834ab14117003cc0f9e8d2224ed0ea60b678513289ffda8a3ea3c053"
+      },
+      "cache_tokens": 2917481,
+      "calls_by_purpose": {
+        "turn": 94
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 5981711,
+          "used_value": 6920846
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 111940
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 458947
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 3
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 280693,
+          "used_value": 4030518
+        }
+      ],
+      "cost_sources": {
+        "estimated": 93,
+        "unknown": 1
+      },
+      "cost_usd": null,
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 6.920806950000001,
+        "peak_input_tokens": 70620,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 105.27,
+        "sampled_peak_container_rss_bytes": 448598016,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 1
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0003",
+      "input_tokens": 3997225,
+      "known_cost_usd": "6.920846",
+      "model_calls": 94,
+      "native_cleanup_complete": true,
+      "output_tokens": 33293,
+      "partial_observation": {
+        "event_cursor": 21191,
+        "not_final": true,
+        "observed_cache_tokens": 2917481,
+        "observed_input_tokens": 3997225,
+        "observed_output_tokens": 33293,
+        "path": "artifacts/jobs/t0003/a899b881c0b6ad2644287c212b1f30b2__LZwQxdT/agent/metrics.interim.json"
+      },
+      "phase_seconds": {
+        "agent_execution": 519.35373,
+        "agent_setup": 0.69973,
+        "cleanup": 2.2369025959999362,
+        "environment_setup": 11.779495,
+        "verifier": 20.660563
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": true,
+      "task_id": "datacurve/httpx-multipart-response-parsing",
+      "termination_source": null,
+      "trial_seconds": 572.190189276,
+      "unknown_cost_calls": 1,
+      "unknown_usage_calls": 1
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 22.099586071,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/cli.ndjson": "30030444c1aae75a0b68ab5ca287419069e2f5fb2229d0e248f9ab8c8c89eb14",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/content-export.json": "2abdc0f62934958ed09bb9acf3c014915c71b00a6c8e8d462037dcd4ede2e12c",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/identity.json": "8cd60789f408cee9ba7f134289e662d3191f324aedfbe2db3ea8a1d1509d02ad",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/metrics.json": "2d41237b9f6b904925df6417baf6aca515188f5ef384f8dd183ec420a35b68a1",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/outcome.json": "3390b80755a0ad8e3fdc5840c0e595b251d80f4c7107a55811fcf98bb5a16630",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/sessions.db": "f8707ae6750d060d11043223105be34c42ae07a1f7bc42a3bd8a4af7c40e934d",
+          "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/agent/whip/state.json": "ee042a047f9226d8e5faa9a46b049fef56e6c1b80bd5018b57cc9c5dfaf55584"
+        },
+        "native_result": "attempts/t0004/artifacts/jobs/t0004/8b3c2227cdd940fd23971ad32da277d4__RYzWBSS/result.json",
+        "native_result_sha256": "2e699484dfb82aa9b4a39e43f05e9214ad947511f31b1f113003beddcf5ba39f"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 4
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 113027
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 18959
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 19901
+        }
+      ],
+      "cost_sources": {
+        "estimated": 4
+      },
+      "cost_usd": "0.113027",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 0.1130265,
+        "peak_input_tokens": 5431,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 2.24,
+        "sampled_peak_container_rss_bytes": 213340160,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0004",
+      "input_tokens": 18597,
+      "known_cost_usd": "0.113027",
+      "model_calls": 4,
+      "native_cleanup_complete": true,
+      "output_tokens": 1304,
+      "phase_seconds": {
+        "agent_execution": 22.669415,
+        "agent_setup": 10.613909,
+        "cleanup": 0.14086141800000007,
+        "environment_setup": 1.356848,
+        "verifier": 3.19958
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/openssl-selfsigned-cert",
+      "termination_source": null,
+      "trial_seconds": 54.182832218,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 30.880365658,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/cli.ndjson": "da89dc16c8e19a09fdc2d018b502e18bffa546d6513d624bb145c96c0e7cfbeb",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/content-export.json": "02106a415b12b04e905d5b64ce2054e2107a1efd024161d060029c74f39b52f3",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/identity.json": "303891a34954202b165125c491f8572c460b6300347c704864f5e6c2975d8ca3",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/metrics.json": "f6f9b88e2471e1e86b54cacb88365dfeab65b95d261ae55a0eac0a60500fc78f",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/outcome.json": "2a25e76b869556e31ea95c7a3dbadd521e5ed45023e27392a125d2be06e4b729",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/sessions.db": "daf9c7a0bad2f760bfec4392b0caef07ada1c3611812cec07ead690262b63ec7",
+          "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/agent/whip/state.json": "6ad92f90b38b86a840f888891bdcaab4d119c51c6d3c68d2d0bbf9e0bd633361"
+        },
+        "native_result": "attempts/t0005/artifacts/jobs/t0005/c092fe2539a9180081ed2b697003ac51__V5tQjKk/result.json",
+        "native_result_sha256": "c594ea95afebaf3211433a693264e3b5bde03e3f828b78466aa3a732afc21b1f"
+      },
+      "cache_tokens": 11124,
+      "calls_by_purpose": {
+        "turn": 9
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 255493
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 27868
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 59119
+        }
+      ],
+      "cost_sources": {
+        "estimated": 9
+      },
+      "cost_usd": "0.255493",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 0.2554893,
+        "peak_input_tokens": 8340,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 2.94,
+        "sampled_peak_container_rss_bytes": 193781760,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0005",
+      "input_tokens": 57202,
+      "known_cost_usd": "0.255493",
+      "model_calls": 9,
+      "native_cleanup_complete": true,
+      "output_tokens": 1917,
+      "phase_seconds": {
+        "agent_execution": 31.266684,
+        "agent_setup": 10.29315,
+        "cleanup": 0.1395618970000072,
+        "environment_setup": 1.380873,
+        "verifier": 4.879311
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/db-wal-recovery",
+      "termination_source": null,
+      "trial_seconds": 63.987148604999994,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 114.25391297800002,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/cli.ndjson": "fe9101417bbe67848ab699dd77b3f5db3081a02b6727e09924f2fdc69fa3d024",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/content-export.json": "a78e6a565265c8d0a8863392aef9e8cd441cbe3b042dae50b48810c4fe455070",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/identity.json": "fb828887516532aa98e0c35d487e0a5a037e9b276834320cc5a3f108fb92e31f",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/metrics.json": "a5ab6882535903f40aadcdf3e414c3384c65fa22303f16abadd02a8b7654b081",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/outcome.json": "d2e562b672b07f1e702fe1334fcd068a7e4a957965a3cfe8974dd4f467a3c3aa",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/sessions.db": "09f267039a9a2a621758c992a0ec9462a6857f52542b6356a84f98cc15bbf1f4",
+          "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/agent/whip/state.json": "bd5039e40944e23e249a0052a41c341e89b08153570f1d796faf21545310f78b"
+        },
+        "native_result": "attempts/t0006/artifacts/jobs/t0006/835301a8c522904fb5e71431f3b0bf23__YKkLCZr/result.json",
+        "native_result_sha256": "8d9afc4db8f247a834ff0c4ec367ae2aca090023a00beb9ccae0267bb2ce2935"
+      },
+      "cache_tokens": 0,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 499457
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 111140
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 62170
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.499457",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 0.49945500000000004,
+        "peak_input_tokens": 10880,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 10.69,
+        "sampled_peak_container_rss_bytes": 226230272,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0006",
+      "input_tokens": 49965,
+      "known_cost_usd": "0.499457",
+      "model_calls": 7,
+      "native_cleanup_complete": true,
+      "output_tokens": 12205,
+      "phase_seconds": {
+        "agent_execution": 114.772504,
+        "agent_setup": 13.574649,
+        "cleanup": 0.1392035949999979,
+        "environment_setup": 1.204864,
+        "verifier": 4.674135
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/regex-log",
+      "termination_source": null,
+      "trial_seconds": 150.641845813,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 454.26123668099996,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/cli.ndjson": "5442f1055013bfd731267d581c08dc684da0ad771f3fd74a4bbe645f627fa8f3",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/content-export.json": "bb492610fa341a321e57809254e3eee1d7d67f2a491387ada482542e4f095161",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/identity.json": "58c53302d70b6f8a2d65c234ef8b2ade7ecec1d1aec3ca208c25ea129288be50",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/metrics.json": "e571f894db0bf1be7d317a142f95a78b06bdc7643855d89392c45541824cb01e",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/outcome.json": "f7afe0b1423f162155174fcad606a5d787f8770c4482c44636de0016a22fd05a",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/sessions.db": "ce9209d911153b6729289d0da96222efe7f5d540aaf7615aeac3887ec3c258ff",
+          "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/agent/whip/state.json": "8bb8f106670915ed368d59c7682d7e108ef635d54340644ebf439e76beea6766"
+        },
+        "native_result": "attempts/t0007/artifacts/jobs/t0007/6af0e829153dad2c71a0206842b45d0d__Tdj9prB/result.json",
+        "native_result_sha256": "206ad2fbddc51129c187e4e8f69bbd554316ca8344489c43aa967362986155d4"
+      },
+      "cache_tokens": 1519822,
+      "calls_by_purpose": {
+        "turn": 68
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 6407900
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 22458
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 389864
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 2
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 2679731
+        }
+      ],
+      "cost_sources": {
+        "estimated": 68
+      },
+      "cost_usd": "6.407900",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 6.4078703999999975,
+        "peak_input_tokens": 68390,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 103.9,
+        "sampled_peak_container_rss_bytes": 539590656,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "failed",
+      "id": "t0007",
+      "input_tokens": 2651711,
+      "known_cost_usd": "6.407900",
+      "model_calls": 68,
+      "native_cleanup_complete": true,
+      "output_tokens": 28020,
+      "phase_seconds": {
+        "agent_execution": 455.636604,
+        "agent_setup": 0.714944,
+        "cleanup": 2.2334873469999366,
+        "environment_setup": 22.193315,
+        "verifier": 31.24401
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "pier",
+      "started": true,
+      "success": false,
+      "task_id": "datacurve/anko-typed-variable-bindings",
+      "termination_source": null,
+      "trial_seconds": 530.35483291,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    },
+    {
+      "accounting_complete": true,
+      "agent_seconds": 28.311081047000002,
+      "artifacts": {
+        "evidence_files": {
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/cli.ndjson": "bbc63cfc40ef4c855bfd4d9e11081b8ae4e087c6202fb3ac63bc07e6c9625514",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/cli.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/configuration.json": "d3dd6d49fc5e682ff322610c31982723db16a4c43ee0be1d30dc10ce924e3ec9",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/content-export.json": "ed81b4b3b81167ce7b621cc3ea3421cd03a702e49d14b43d19aae93de0c3d060",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/identity.json": "104d90bafc7688d77274ba3e21ead8ef3ab0820a51bbf0b28e91b9783682c401",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/metrics.json": "4ace2d7caa80ad5ffa54da6645bb3edd9c804f1e503959985b230ce738f51809",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/outcome.json": "9baaf800a40f07a8645c4a41f5d85cadfa54e88d71abe4480cb7ece6c3b0d37f",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/provider-catalog.json": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/sessions.db": "2351537eb638a9b69dfe260302689862efe3f43b7b23fd9b39e39486dd0e69fe",
+          "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/agent/whip/state.json": "56907e6adf425254a1bd0dfd8b8dec24a63bf50be5a5eba2d7cfee54c85d4297"
+        },
+        "native_result": "attempts/t0008/artifacts/jobs/t0008/00571e02d092d265bae75646dc9e3da8__K9Zc9dp/result.json",
+        "native_result_sha256": "8a577060219c80163a99d414d3e5f3dd1b268494bb5b0df7aeb214fae3eb4cc9"
+      },
+      "cache_tokens": 4236,
+      "calls_by_purpose": {
+        "turn": 7
+      },
+      "candidate_id": "candidate",
+      "cleanup_complete": true,
+      "controls": [
+        {
+          "agent_id": "",
+          "kind": "active_children",
+          "limit_value": 8,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "active_operations",
+          "limit_value": 64,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "concurrent_child_turns",
+          "limit_value": 4,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "cost",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 170333
+        },
+        {
+          "agent_id": "",
+          "kind": "depth",
+          "limit_value": 2,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "durable_bytes",
+          "limit_value": 1073741824,
+          "uncertain_value": 0,
+          "used_value": 144
+        },
+        {
+          "agent_id": "",
+          "kind": "elapsed",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 18058
+        },
+        {
+          "agent_id": "",
+          "kind": "record_count",
+          "limit_value": 100000,
+          "uncertain_value": 0,
+          "used_value": 1
+        },
+        {
+          "agent_id": "",
+          "kind": "schedules_subscriptions",
+          "limit_value": 1000,
+          "uncertain_value": 0,
+          "used_value": 0
+        },
+        {
+          "agent_id": "",
+          "kind": "tokens",
+          "limit_value": null,
+          "uncertain_value": 0,
+          "used_value": 36244
+        }
+      ],
+      "cost_sources": {
+        "estimated": 7
+      },
+      "cost_usd": "0.170333",
+      "definition_sha256": "b72de1a8602759db8c83ec75edc221c85fbd196cbe54c41d1a760885b12b439c",
+      "diagnostics": {
+        "agent_count": 1,
+        "normalized_cost_usd": 0.1703322,
+        "peak_input_tokens": 6017,
+        "reported_cost_calls": 0,
+        "reported_cost_usd": 0.0,
+        "sampled_container_cpu_seconds": 6.3,
+        "sampled_peak_container_rss_bytes": 345542656,
+        "turn_count": 1,
+        "unknown_normalized_cost_calls": 0
+      },
+      "error_codes": [],
+      "evidence_complete": true,
+      "execution_status": "completed",
+      "grader_status": "passed",
+      "id": "t0008",
+      "input_tokens": 34889,
+      "known_cost_usd": "0.170333",
+      "model_calls": 7,
+      "native_cleanup_complete": true,
+      "output_tokens": 1355,
+      "phase_seconds": {
+        "agent_execution": 28.955736,
+        "agent_setup": 10.791624,
+        "cleanup": 0.15971988000001147,
+        "environment_setup": 1.215849,
+        "verifier": 3.166456
+      },
+      "provider_status_coverage": "unavailable",
+      "provider_statuses": null,
+      "repetition": 1,
+      "runner": "harbor",
+      "started": true,
+      "success": true,
+      "task_id": "terminal-bench/kv-store-grpc",
+      "termination_source": null,
+      "trial_seconds": 60.60054391600001,
+      "unknown_cost_calls": 0,
+      "unknown_usage_calls": 0
+    }
+  ],
+  "wall_seconds": null
+}
