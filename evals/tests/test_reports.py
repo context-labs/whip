@@ -201,6 +201,20 @@ class ReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             compare_trials([control, control], [fast_failure])
 
+    def test_span_counts_come_from_the_copied_database(self):
+        trial, raw, agent = evidence_fixture(self.root)
+        row = normalize_trial(trial, raw, self.root)
+        self.assertEqual((row['diagnostics']['span_count'], row['diagnostics']['open_span_count']), (None, None))
+        with sqlite3.connect(agent / 'sessions.db') as db:
+            db.executescript("""
+              CREATE TABLE spans(root_id, id, trace_id, parent_id, agent_id, turn_id, kind, name, start_ns, end_ns, status, attrs, links, updated_seq);
+              INSERT INTO spans VALUES('root','s1','t1','', 'root','turn','agent','turn',1,5,'ok','{}','[]',1);
+              INSERT INTO spans VALUES('root','s2','t1','s1','root','turn','llm','chat',2,4,'ok','{}','[]',2);
+              INSERT INTO spans VALUES('root','s3','t1','s1','root','turn','tool','cell',3,0,'running','{}','[]',3);
+            """)
+        row = normalize_trial(trial, raw, self.root)
+        self.assertEqual((row['diagnostics']['span_count'], row['diagnostics']['open_span_count']), (3, 1))
+
     def test_status_words_and_detail(self):
         trial, raw, _ = evidence_fixture(self.root)
         row = normalize_trial(trial, raw, self.root)

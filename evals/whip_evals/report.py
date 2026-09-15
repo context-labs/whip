@@ -5,6 +5,7 @@ from decimal import Decimal
 from datetime import datetime
 import io
 import json
+import sqlite3
 import math
 from pathlib import Path
 import random
@@ -78,6 +79,20 @@ def phase_duration(timing):
         return elapsed if number(elapsed) else None
     except (TypeError, ValueError):
         return None
+
+
+def span_counts(database):
+    """Trace spans captured in the copied session database (schema 19+)."""
+    if database is None:
+        return {"span_count": None, "open_span_count": None}
+    try:
+        with sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spans'").fetchone():
+                return {"span_count": None, "open_span_count": None}
+            total, open_spans = db.execute("SELECT count(*), coalesce(sum(end_ns=0), 0) FROM spans").fetchone()
+        return {"span_count": total, "open_span_count": open_spans}
+    except sqlite3.Error:
+        return {"span_count": None, "open_span_count": None}
 
 
 def normalize_trial(trial, raw, artifact_root):
@@ -178,6 +193,7 @@ def normalize_trial(trial, raw, artifact_root):
         "peak_input_tokens", "sampled_peak_container_rss_bytes", "sampled_container_cpu_seconds",
         "reported_cost_usd", "reported_cost_calls", "normalized_cost_usd", "unknown_normalized_cost_calls")}
     row["diagnostics"].update(agent_count=len(state.get("agents", [])), turn_count=len(state.get("turns", [])))
+    row["diagnostics"].update(span_counts(paths["sessions.db"]))
     row["definition_sha256"] = value_hash([a.get("definition") for a in state.get("agents", [])]) if state else None
     row["controls"] = [{key: budget.get(key) for key in ("agent_id", "kind", "limit_value", "used_value", "uncertain_value")}
                        for budget in state.get("budgets", [])]

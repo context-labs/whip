@@ -240,6 +240,23 @@ crash may leave only the manifest and private evidence.
 Bulk evidence lives in ignored `evals/artifacts/<run-id>/`: native runner output,
 verifier logs and patches, transcripts/events, SQLite snapshots, call accounting,
 content bodies, and contracts. Ignored `evals/cache/`
+
+Each trial's `agent/whip/sessions.db` is a full online backup of the trial's
+whip database taken after the daemon was frozen, so it carries the session
+trace (`spans` table, schema 19 and later) alongside turns, model calls,
+operations and transcripts. `result.json` reports `diagnostics.span_count` and
+`diagnostics.open_span_count` per trial. To analyse a trial with the OTLP
+tooling, point a scratch whip home at the copy and export it:
+
+```sh
+mkdir -p /tmp/trial-home/runtime-v2 && cp <artifact-root>/.../agent/whip/sessions.db /tmp/trial-home/runtime-v2/
+echo '{}' > /tmp/trial-home/config.json
+WHIP_HOME=/tmp/trial-home whip sessions export <root-id> -o trial.otlp.json
+WHIP_HOME=/tmp/trial-home whip daemon stop
+```
+
+The root id is the single row of the copy's `sessions` table; the exporter
+reads only tables inside the database, so nothing else is needed.
 retains exact source archives, binaries, ripgrep and prepared task bundles.
 Small reports and baseline pointers are eligible for Git; nothing is auto-committed.
 Retain accepted evidence **and its build cache** indefinitely. There is no automatic
