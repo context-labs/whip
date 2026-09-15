@@ -54,7 +54,7 @@ class PoolTests(unittest.TestCase):
         self.assertIsNone(results['0']['cost_usd'])
         self.assertEqual(results['0']['unknown_cost_calls'], 1)
 
-    def test_cleanup_failure_halts_new_dispatch(self):
+    def test_unproven_cleanup_keeps_its_resources_reserved(self):
         started = []
         def worker(trial, cancelled):
             started.append(trial['id'])
@@ -62,7 +62,8 @@ class PoolTests(unittest.TestCase):
         results = run_pool(self.trials(3), dict(cpus=2, memory_mb=8, storage_mb=20), 32, worker)
         self.assertEqual(started, ['0'])
         self.assertFalse(results['1']['started'])
-        self.assertTrue(results['1']['cancelled'])
+        self.assertEqual(results['1']['error_code'], 'dispatch_stopped')
+        self.assertFalse(results['1']['cancelled'])  # nobody cancelled; the capacity never came back
 
     def test_callback_exception_cancels_active_workers_before_shutdown(self):
         event = threading.Event()

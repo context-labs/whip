@@ -87,7 +87,9 @@ def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, 
             cancelled.set()  # Signal workers before executor shutdown waits for them.
             raise
     for trial in pending:
-        results[trial["id"]] = {"started": False, "cancelled": True,
+        # Never dispatched: because the run was cancelled, or because resources
+        # reserved by an unproven cleanup never came back.
+        results[trial["id"]] = {"started": False, "cancelled": cancelled.is_set(),
                                 "cleanup": {"complete": True}, "error_code": "dispatch_stopped"}
     return results
 
@@ -187,14 +189,6 @@ AGENT_SETUP_SECONDS = DEPENDENCY_SETUP_SECONDS * DEPENDENCY_SETUP_TRIES + 120
 RUNNER_GUARD_SECONDS = 60
 
 
-def native_agent_timeout(path):
-    task = tomllib.loads((Path(path) / "task.toml").read_text())
-    timeout = task["agent"]["timeout_sec"]
-    if not math.isfinite(timeout) or timeout <= 0 or int(timeout) != timeout:
-        raise ValueError("native agent timeout must be positive integral seconds")
-    return int(timeout)
-
-
 def timing_envelope(path, runner, timeout):
     task = tomllib.loads((Path(path) / "task.toml").read_text())
     if task.get("steps"):
@@ -236,7 +230,7 @@ def cleanup_owned_containers(job_dir, runner):
 
     Both the runner-created random project identity and the exact host log
     mount must agree. Never remove images, networks, volumes or other projects.
-    A failed ownership check/timeout is recorded and dispatch remains halted.
+    A failed ownership check/timeout is recorded; the trial's resources stay reserved.
     """
     from importlib import import_module
     from types import SimpleNamespace
@@ -257,7 +251,7 @@ def cleanup_owned_containers(job_dir, runner):
         if len(configs) != 1:
             raise ValueError("expected one runner-owned trial config")
         config_path = configs[0]
-        config = json.loads(config_path.read_text())
+        config = read_json(config_path)
         trial_dir = config_path.parent.resolve()
         if config.get("trial_name") != trial_dir.name or Path(config["trials_dir"]).resolve() != job_dir:
             raise ValueError("runner config does not belong to this job directory")

@@ -6,8 +6,6 @@ planning, host effects, child sessions and recovery remain in the Whip daemon.
 
 import asyncio
 from dataclasses import replace
-import hashlib
-import json
 import os
 from pathlib import Path
 import shlex
@@ -17,18 +15,21 @@ from harbor.agents.base import BaseAgent as HarborBaseAgent
 from pier.agents.base import BaseAgent as PierBaseAgent
 from pier.models.agent.network import NetworkAllowlist
 from pier.environments.docker.docker import DockerEnvironment
-from .common import write_json, MODEL, PROVIDER_MODEL
+from .common import file_hash, read_json, write_json, MODEL, PROVIDER_MODEL
 from .observe import final_accounting_complete
 
 
 OBSERVER_GRACE_SECONDS = 45
 CLEANUP_TIMEOUT_SECONDS = 240
-PROBE_INTERVAL_SECONDS = 2
 # Dependency bootstrap (apt/pip inside the task container) precedes any model
 # call, so retrying it is not pass-chasing. The runner's own setup budget is
 # widened to cover every try (see execution.AGENT_SETUP_SECONDS).
 DEPENDENCY_SETUP_SECONDS = 600
 DEPENDENCY_SETUP_TRIES = 3
+
+
+def flag(value):
+    return value is True or str(value).lower() == "true"
 
 
 def clear_accounting(context):
@@ -69,7 +70,7 @@ class PierDockerEnvironment(DockerEnvironment):
             if not self.task_env_config.allow_internet and self.network_allowlist.domains:
                 raise RuntimeError("Pier did not generate the required inference proxy")
             return
-        compose = json.loads(path.read_text())
+        compose = read_json(path)
         proxy = compose["services"]["pier-egress-proxy"]
         proxy.setdefault("ulimits", {})["nofile"] = {"soft": 65536, "hard": 65536}
         write_json(path, compose)
@@ -92,16 +93,14 @@ class WhipAdapter:
             raise ValueError("unknown execution engine")
         self.engine = engine
         self.binary = Path(binary or os.environ["WHIP_EVAL_BINARY"]).resolve()
-        self.binary_digest = hashlib.sha256(self.binary.read_bytes()).hexdigest()
+        self.binary_digest = file_hash(self.binary)
         self.ripgrep = self.binary.with_name("rg-linux-amd64")
         self.timeout = int(timeout)
         self.max_cost = float(max_cost)
         self.max_tokens = int(max_tokens)
         self.max_turns = int(max_turns)
         self.max_output = int(max_output)
-        self.commit = commit is True or str(commit).lower() == "true"
-        self.fixture = fixture is True or str(fixture).lower() == "true"
-        self.native_defaults = native_defaults is True or str(native_defaults).lower() == "true"
+        self.commit, self.fixture, self.native_defaults = flag(commit), flag(fixture), flag(native_defaults)
         self.contract = Path(contract).resolve() if contract else None
         if self.contract and any((self.max_cost, self.max_tokens, self.max_turns, self.max_output)):
             raise ValueError("canonical trials cannot use experimental caps")
@@ -175,7 +174,7 @@ class WhipAdapter:
         await environment.upload_file(Path(__file__).with_name("observe.py"), "/opt/whip/observe.py")
         if self.fixture:
             await environment.upload_file(Path(__file__).with_name("fixture_provider.py"), "/opt/whip/fixture_provider.py")
-        if getattr(self, "contract", None):
+        if self.contract:
             await environment.upload_file(self.contract, "/opt/whip/contract.json")
         result = await environment.exec("chmod 755 /opt/whip/whip && /opt/whip/whip --version", timeout_sec=30)
         if result.return_code != 0:
@@ -215,9 +214,9 @@ class WhipAdapter:
             args.append("--commit")
         if self.fixture:
             args.append("--fixture")
-        if getattr(self, "native_defaults", False):
+        if self.native_defaults:
             args.append("--native-defaults")
-        if getattr(self, "contract", None):
+        if self.contract:
             args.extend(["--contract", "/opt/whip/contract.json"])
         operation = asyncio.create_task(environment.exec(
             shlex.join(args), env=self.process_env(environment, {"INFERENCE_API_KEY": key}), timeout_sec=self.timeout + OBSERVER_GRACE_SECONDS))
@@ -225,26 +224,8 @@ class WhipAdapter:
         evidence_errors = []
         evidence = self.evidence_dir()
         clock = asyncio.get_running_loop().time
-        started = clock()
-        probes = {"samples": 0, "last_sample_elapsed_seconds": None}
         cleanup_truncated = False
         try:
-            while not operation.done():
-                await asyncio.wait({operation}, timeout=PROBE_INTERVAL_SECONDS)
-                if operation.done():
-                    break
-                # Interim samples come straight from the bind-mounted evidence
-                # directory; they never establish finality.
-                interim = evidence / "metrics.json"
-                if interim.is_file():
-                    try:
-                        sample = json.loads(interim.read_text())
-                    except ValueError:
-                        continue  # torn read of an atomic replace in flight
-                    self.update_context(context, sample)
-                    write_json(self.logs_dir / "metrics.interim.json", sample)
-                    probes["samples"] += 1
-                    probes["last_sample_elapsed_seconds"] = clock() - started
             result = await operation
             observer_exit_code = result.return_code
             (self.logs_dir / "observer.stdout").write_text(result.stdout or "")
@@ -252,11 +233,9 @@ class WhipAdapter:
             if observer_exit_code != 0:
                 raise RuntimeError(f"Whip observer exited with code {observer_exit_code}")
         finally:
-            # Cancellation during cleanup must not leave interim usage looking
-            # final. Raw partial metrics remain available under metadata.whip.
+            # Nothing counts until the observer's final files are read below.
             clear_accounting(context)
-            context.metadata = {**(context.metadata or {}), "whip_accounting_complete": False,
-                                "whip_metrics_probes": probes}
+            context.metadata = {**(context.metadata or {}), "whip_accounting_complete": False}
             cleanup_started = clock()
             try:
                 async with asyncio.timeout(CLEANUP_TIMEOUT_SECONDS):
@@ -287,7 +266,7 @@ class WhipAdapter:
                         evidence_errors.append(name + ": missing")
                         continue
                     try:
-                        value = json.loads(path.read_text())
+                        value = read_json(path)
                         if name == "metrics.json":
                             self.update_context(context, value)
                         else:

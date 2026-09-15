@@ -24,7 +24,7 @@ def parser():
     run.add_argument("--dry-run", action="store_true", help="expand workload only; no Docker, builds, network, or model calls")
     modal = sub.add_parser("modal", help="detached Modal campaigns; never promotes the native baseline")
     actions = modal.add_subparsers(dest="modal_action", required=True)
-    submit = actions.add_parser("submit", help="freeze and submit one qualified, detached campaign")
+    submit = actions.add_parser("submit", help="freeze and submit one detached campaign")
     submit.add_argument("profile", choices=["smoke", "medium", "full"])
     submit.add_argument("--engines", default="quickjs")
     submit.add_argument("--ref")
@@ -36,12 +36,9 @@ def parser():
     submit.add_argument("--run-id")
     submit.add_argument("--allow-model-calls", action="store_true")
     submit.add_argument("--dry-run", action="store_true")
-    for name in ("status", "logs", "fetch", "cancel", "prune"):
+    for name in ("status", "fetch", "cancel", "prune"):
         action = actions.add_parser(name)
         action.add_argument("run_id")
-        if name == "logs":
-            action.add_argument("--trial")
-            action.add_argument("--tail-bytes", type=int, default=8192)
         if name == "fetch":
             action.add_argument("--keep", action="store_true", help="leave Modal-side run data in place after fetching")
         if name == "prune":
@@ -75,8 +72,6 @@ def main(argv=None):
                 value = modal_cli.submit(args)
             elif args.modal_action == "status":
                 value = modal_cli.status(args.run_id)
-            elif args.modal_action == "logs":
-                value = modal_cli.logs(args.run_id, args.trial, tail_bytes=args.tail_bytes)
             elif args.modal_action == "fetch":
                 value = modal_cli.fetch(args.run_id, keep=args.keep)
             elif args.modal_action == "prune":

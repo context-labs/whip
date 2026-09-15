@@ -35,6 +35,7 @@ class EvidenceReadTests(unittest.IsolatedAsyncioTestCase):
         self.adapter.timeout, self.adapter.max_cost, self.adapter.max_tokens = 10, 0, 0
         self.adapter.max_turns, self.adapter.max_output = 0, 0
         self.adapter.commit, self.adapter.fixture = False, True
+        self.adapter.contract, self.adapter.native_defaults = None, True
         self.adapter.logger = MagicMock()
 
     def environment(self, *, exit_code=0, evidence=True):
@@ -169,7 +170,7 @@ class ContractTests(unittest.TestCase):
                 selected = {**model, 'reasoning_efforts': efforts}
                 response = io.BytesIO(json.dumps({'data': [selected]}).encode())
                 with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
-                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response) as urlopen:
+                     patch('whip_evals.observe.urllib.request.urlopen', return_value=response) as urlopen:
                     if 'high' in efforts:
                         frozen = catalog(protocol)
                         self.assertEqual(frozen, {k: v for k, v in selected.items() if k != 'provider_extension'})
@@ -196,7 +197,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 response = io.BytesIO(json.dumps({'data': data}).encode())
                 with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
-                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response):
+                     patch('whip_evals.observe.urllib.request.urlopen', return_value=response):
                     frozen = catalog(protocol)
                 self.assertEqual(frozen['id'], pin)
                 self.assertEqual(frozen.get('listed_id'), listed)
@@ -206,7 +207,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(ids=[m['id'] for m in data]):
                 response = io.BytesIO(json.dumps({'data': data}).encode())
                 with patch.dict('os.environ', {'INFERENCE_API_KEY': 'offline-fixture'}), \
-                     patch('whip_evals.prepare.urllib.request.urlopen', return_value=response), \
+                     patch('whip_evals.observe.urllib.request.urlopen', return_value=response), \
                      self.assertRaisesRegex(ValueError, 'pinned model/effort is not available'):
                     catalog(protocol)
 

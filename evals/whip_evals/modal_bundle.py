@@ -18,6 +18,13 @@ MODULES = ("__init__.py", "common.py", "adapter.py", "observe.py", "execution.py
            "report.py", "modal_bundle.py", "prepare.py", "prepare_ripgrep.py", "tasks.py")
 CLOUD_MODULES = ("modal_cloud.py", "modal_worker.py")
 SPEC_FILES = ("profiles.json", "protocol.json", "references.json", "tasks.lock.json")
+# The deployed coordinator must run the controller source the bundle was frozen
+# with; modal_cloud.coordinate compares this digest before any dispatch.
+CONTROLLER_MODULES = ("modal_cloud.py", "common.py", "execution.py")
+
+
+def controller_revision(directory=Path(__file__).parent):
+    return value_hash({name: file_hash(Path(directory) / name) for name in CONTROLLER_MODULES})
 
 
 def _name(name):
@@ -56,14 +63,11 @@ def create_bundle(payload, archive, *, paths):
         with tarfile.open(temporary, "w", format=tarfile.USTAR_FORMAT) as output:
             for name in names:
                 path = _regular(payload, name)
-                mode = stat.S_IMODE(path.stat().st_mode)
-                if mode & ~0o777:
-                    raise ValueError("special file permissions are not permitted")
                 info = tarfile.TarInfo(name)
-                info.size, info.mode = path.stat().st_size, mode
+                info.size, info.mode = path.stat().st_size, stat.S_IMODE(path.stat().st_mode)
                 with path.open("rb") as stream:
                     output.addfile(info, stream)
-                inventory["files"][name] = {"sha256": file_hash(path), "size": info.size, "mode": mode}
+                inventory["files"][name] = file_hash(path)
         verify_bundle(temporary, inventory)
         os.link(temporary, archive)  # Never replace a previously published bundle.
     finally:
@@ -71,88 +75,30 @@ def create_bundle(payload, archive, *, paths):
     return inventory
 
 
-def _verify(archive, inventory):
-    if inventory.get("schema_version") != 1 or not inventory.get("files"):
-        raise ValueError("invalid bundle inventory")
-    expected = inventory["files"]
-    for name, metadata in expected.items():
-        _name(name)
-        if (set(metadata) != {"sha256", "size", "mode"}
-                or type(metadata["size"]) is not int or metadata["size"] < 0
-                or type(metadata["mode"]) is not int or not 0 <= metadata["mode"] <= 0o777):
-            raise ValueError("invalid bundle file metadata")
-    seen = set()
-    for member in archive:
-        name = _name(member.name)
-        if not member.isfile() or name in seen or name not in expected:
-            raise ValueError("unexpected or nonregular bundle member")
-        metadata = expected[name]
-        if member.size != metadata["size"] or member.mode != metadata["mode"]:
-            raise ValueError("bundle file metadata changed")
-        with archive.extractfile(member) as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if digest != metadata["sha256"]:
-            raise ValueError("bundle file hash changed")
-        seen.add(name)
-    if seen != set(expected):
-        raise ValueError("bundle file inventory differs")
-
-
-def _inventory(source, expected):
-    if isinstance(expected, dict):
-        return expected
-    if not isinstance(expected, str) or len(expected) != 64:
-        raise ValueError("expected a trusted bundle SHA-256")
-    source.fileobj.seek(0)
-    if hashlib.file_digest(source.fileobj, "sha256").hexdigest() != expected:
-        raise ValueError("bundle archive hash changed")
-    source.fileobj.seek(source.offset)
+def _members(source):
+    """Regular members with safe names, each hashed once; duplicates are rejected."""
     files = {}
     for member in source.getmembers():
         name = _name(member.name)
-        if name in files or not member.isfile() or not 0 <= member.mode <= 0o777:
+        if name in files or not member.isfile():
             raise ValueError("unexpected or nonregular bundle member")
         with source.extractfile(member) as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        files[name] = {"sha256": digest, "size": member.size, "mode": member.mode}
-    return {"schema_version": 1, "files": files}
+            files[name] = hashlib.file_digest(stream, "sha256").hexdigest()
+    return files
 
 
-def verify_bundle(archive, expected_sha256):
-    """Verify against a trusted archive hash (or an explicit file inventory)."""
+def verify_bundle(archive, expected):
+    """Verify against a trusted archive SHA-256, or against a {name: sha256} inventory."""
     with tarfile.open(archive, "r:") as source:
-        inventory = _inventory(source, expected_sha256)
-        _verify(source, inventory)
-    return inventory
-
-
-def extract_bundle(archive, destination, expected_sha256):
-    """Validate before writing; publish into a new directory, never merge trees."""
-    destination = Path(destination)
-    if destination.exists() or destination.is_symlink():
-        raise FileExistsError(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=".extract-", dir=destination.parent))
-    try:
-        # Keep the same descriptor for validation and extraction (no pathname swap).
-        with tarfile.open(archive, "r:") as source:
-            inventory = _inventory(source, expected_sha256)
-            _verify(source, inventory)
-            for member in source.getmembers():
-                path = temporary / member.name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with source.extractfile(member) as incoming, path.open("xb") as outgoing:
-                    shutil.copyfileobj(incoming, outgoing)
-                path.chmod(member.mode)
-                if file_hash(path) != inventory["files"][member.name]["sha256"]:
-                    raise ValueError("bundle changed during extraction")
-        if destination.exists() or destination.is_symlink():
-            raise FileExistsError(destination)
-        temporary.rename(destination)
-    finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-    return destination
+        if isinstance(expected, str):
+            if len(expected) != 64 or file_hash(archive) != expected:
+                raise ValueError("bundle archive hash changed")
+            return {"schema_version": 1, "files": _members(source)}
+        if expected.get("schema_version") != 1 or not expected.get("files"):
+            raise ValueError("invalid bundle inventory")
+        if _members(source) != expected["files"]:
+            raise ValueError("bundle file inventory differs")
+        return expected
 
 
 def plan_campaign(args, *, evals=EVALS):
@@ -165,7 +111,7 @@ def plan_campaign(args, *, evals=EVALS):
     native = copy.copy(args)
     native.promote = False
     native.against = getattr(args, "against", None)
-    native.jobs = min(args.jobs, 32)
+    native.jobs = min(args.jobs, 32)  # the native planner's own cap; the cloud cap is applied below
     planned = plan_run(native, evals=evals)
     planned.update(jobs=args.jobs, backend="modal-docker", promote=False)
     return planned
@@ -183,7 +129,6 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
     from .prepare import build_candidate, catalog, configuration, contract
     from .run import cost_estimate
     from .tasks import load_spec, prepare_tasks
-    from .tasks import file_inventory
 
     evals, repo = Path(evals).resolve(), Path(repo).resolve()
     planned = plan_campaign(args, evals=evals)
@@ -195,10 +140,8 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
     protocol["execution"] = {"backend": "modal-docker", "worker_root": str(REMOTE_EVALS),
                              "automatic_task_retries": 0, "image_policy": "original-pinned-task-images",
                              "promotion_allowed": False}
-    settings = getattr(args, "execution_settings", None)
+    settings = getattr(args, "execution_settings", None)  # validated by submit
     if settings is not None:
-        from .modal_cloud import validate_settings
-        settings = validate_settings(settings)
         if settings["jobs"] != args.jobs:
             raise ValueError("cloud settings concurrency differs from campaign")
         protocol["execution"].update(copy.deepcopy(settings))
@@ -219,12 +162,9 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
     paths = []
 
     def stage(source, relative):
+        # Sources are our own repository files; create_bundle hashes every one.
         relative = _name("evals/" + relative)
-        source = Path(source)
-        _regular(Path(source.anchor), source.relative_to(source.anchor).as_posix())
-        if stat.S_IMODE(source.stat().st_mode) & ~0o777:
-            raise ValueError("special file permissions are not permitted")
-        target = payload / relative
+        source, target = Path(source), payload / _name("evals/" + relative[len("evals/"):])
         if relative in paths:
             if file_hash(target) != file_hash(source):
                 raise ValueError("conflicting frozen input paths")
@@ -267,31 +207,17 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
             for name in (binary.name, "rg-linux-amd64", "build.json"):
                 source = binary.with_name(name)
                 stage(source, source.relative_to(evals).as_posix())
-            if (file_hash(staged / candidate["binary_path"]) != candidate["binary_sha256"]
-                    or file_hash((staged / candidate["binary_path"]).with_name("rg-linux-amd64"))
-                    != candidate["build"]["ripgrep_sha256"]):
-                raise ValueError("captured build changed while staging")
             relative = f"artifacts/{run_id}/contracts/{candidate['id']}.json"
             stage_json(relative, contract(candidate, protocol, model))
             contracts[candidate["id"]] = REMOTE_EVALS / relative
         for value in prepared.values():
-            root = Path(value["path"])
-            for path in sorted(root.rglob("*")):
+            for path in sorted(Path(value["path"]).rglob("*")):
                 if path.is_symlink() or not (path.is_dir() or path.is_file()):
                     raise ValueError("nonregular frozen task input")
                 if path.is_file():
                     stage(path, path.relative_to(evals).as_posix())
-            frozen = staged / root.relative_to(evals)
-            captured = {p.relative_to(frozen).as_posix(): (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
-                        for p in frozen.rglob("*") if p.is_file()}
-            if value_hash(file_inventory(captured)) != value["sha256"]:
-                raise ValueError("frozen task changed while staging")
-        for name in MODULES:
+        for name in (*MODULES, *CLOUD_MODULES):
             stage(Path(__file__).with_name(name), "whip_evals/" + name)
-        for name in CLOUD_MODULES:
-            stage(Path(__file__).with_name(name), "whip_evals/" + name)
-        for name in ("pyproject.toml", "uv.lock"):
-            stage(evals / name, name)
         for name in SPEC_FILES:
             stage(evals / "frontier" / name, "frontier/" + name)
         trials = schedule(tasks, candidates, planned["repetitions"], args.seed)
@@ -307,15 +233,14 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
         comparison = {"protocol_sha256": value_hash(protocol), "task_lock_sha256": value_hash(lock),
             "provider_catalog_sha256": value_hash(model), "environment": protocol["execution"],
             "requested_jobs": args.jobs, "resource_policy": protocol["headroom"],
-            "controller_source_sha256": value_hash({name: file_hash(staged / "whip_evals" / name)
-                for name in ("modal_cloud.py", "common.py", "execution.py")}),
+            "controller_source_sha256": controller_revision(staged / "whip_evals"),
             "measurement_code": {name: file_hash(staged / "whip_evals" / name) for name in (*MODULES, "modal_worker.py")}}
         manifest = {"schema_version": 1, "run_id": run_id, "created_at": utc_now(),
             "profile": planned["profile"], "profile_version": planned["profile_version"],
             "task_ids": planned["task_ids"], "repetitions": planned["repetitions"], "seed": args.seed,
             "track": protocol["track"], "protocol": protocol, "promotion_policy": protocol["promotion"],
             "promote": False, "label": args.label, "candidates": candidates, "schedule": trials,
-            "baseline_at_launch": pointer, "host": {"backend": "modal-docker", "qualified": False},
+            "baseline_at_launch": pointer, "host": {"backend": "modal-docker"},
             "capacity": None, "jobs": args.jobs, "cost_estimate": cost_estimate(previous, pointer, planned),
             "external_references": read_json(evals / "frontier" / "references.json"),
             "comparison": comparison, "comparison_key": value_hash(comparison), "catalog": model,
@@ -325,12 +250,12 @@ def prepare_campaign(args, *, evals=EVALS, repo=REPO):
             "resolved_tasks": {key: {section: value["resolved_native"][section] for section in ("agent", "environment", "verifier")}
                                for key, value in prepared.items()},
             "artifact_root": f"artifacts/{run_id}", "uv_lock_sha256": file_hash(evals / "uv.lock")}
+        # The worker reads the manifest and the per-trial schedule from the bundle;
+        # submit uploads the same two files beside it for the coordinator.
         stage_json(f"reports/{run_id}/manifest.json", manifest)
-        stage_json(f"artifacts/{run_id}/manifest.json", manifest)
-        stage_json(f"artifacts/{run_id}/inputs.json", inputs)
         stage_json(f"artifacts/{run_id}/schedule.json", inputs)
         write_json(temporary / "manifest.json", manifest, exclusive=True)
-        write_json(temporary / "inputs.json", inputs, exclusive=True)
+        write_json(temporary / "schedule.json", inputs, exclusive=True)
         inventory = create_bundle(payload, temporary / "bundle.tar", paths=paths)
         inventory.update(sha256=file_hash(temporary / "bundle.tar"), run_id=run_id)
         write_json(temporary / "bundle.json", inventory, exclusive=True)

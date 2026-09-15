@@ -8,7 +8,6 @@ The runner supplies a fresh WHIP_HOME and retains the daemon until verification.
 
 import argparse
 import datetime
-from decimal import Decimal
 import errno
 import fcntl
 import hashlib
@@ -120,7 +119,7 @@ def snapshot(database, after=0):
         mail = rows(db, "SELECT id,recipient_agent_id,delivery,status,available_at FROM agent_messages WHERE root_id=? AND status='pending'", (root_id,))
         latest = {turn["agent_id"]: turn for turn in turns}
         terminal_agents = {a["id"] for a in agents if a["status"] in ("stopped", "deleted", "failed", "cancelled")}
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        now = utc_stamp()
         runnable_mail = [m for m in mail if m["delivery"] != "next_turn" and m["recipient_agent_id"] not in terminal_agents
                          and (not m["available_at"] or m["available_at"] <= now)
                          and not (m["recipient_agent_id"] == root_id
@@ -129,45 +128,28 @@ def snapshot(database, after=0):
         pending_calls = [c for c in calls if c["status"] == "running"]
         events = rows(db, "SELECT * FROM events WHERE root_id=? AND seq>? ORDER BY seq", (root_id, after))
         budgets = rows(db, "SELECT * FROM budgets WHERE root_id=?", (root_id,))
-        # Match session.transcriptSource: root history lives in messages;
-        # descendants use transcript_messages. Preserve per-agent raw sequence.
-        transcripts = rows(db, """SELECT session_id AS root_id,session_id AS agent_id,seq,role,content
-            FROM messages WHERE session_id=?
-            UNION ALL
-            SELECT root_id,agent_id,seq,role,content FROM transcript_messages
-            WHERE root_id=? AND agent_id<>?
-            ORDER BY agent_id,seq""", (root_id, root_id, root_id))
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        checkpoints = rows(db, "SELECT root_id,agent_id,envelope,bytes,updated_at FROM agent_checkpoints WHERE root_id=?", (root_id,)) if "agent_checkpoints" in tables else []
-        schedules = rows(db, "SELECT * FROM schedules WHERE session_id=?", (root_id,)) if "schedules" in tables else []
-        operations = rows(db, "SELECT * FROM operations WHERE root_id=? AND status IN ('queued','running','waiting')", (root_id,)) if "operations" in tables else []
-        permissions = rows(db, "SELECT * FROM permission_requests WHERE root_id=? AND status='pending'", (root_id,)) if "permission_requests" in tables else []
+        count = lambda query: db.execute(query, (root_id,)).fetchone()[0]
+        operations = count("SELECT count(*) FROM operations WHERE root_id=? AND status IN ('queued','running','waiting')") if "operations" in tables else 0
+        permissions = count("SELECT count(*) FROM permission_requests WHERE root_id=? AND status='pending'") if "permission_requests" in tables else 0
         # Retained future schedules and deliberately deferred mail do not prevent
-        # task finality. Record them; the container is removed after verification.
+        # task finality. Transcripts, checkpoints and schedules live in the
+        # database backup taken at finality; the state file carries only what
+        # the report and the finality rules read.
         pending = {"active_turns": len(active_turns), "queued_or_running_inputs": len(inbox),
-                   "active_operations": len(operations), "pending_permissions": len(permissions),
+                   "active_operations": operations, "pending_permissions": permissions,
                    "runnable_mail": len(runnable_mail), "pending_model_calls": len(pending_calls)}
-        return {"root": root, "agents": agents, "turns": turns, "calls": calls,
-                "budgets": budgets, "transcripts": transcripts, "checkpoints": checkpoints,
-                "schedules": schedules, "pending_mail": mail,
-                "active_operations": operations, "pending_permissions": permissions,
-                "deferred_or_blocked_mail": len(mail) - len(runnable_mail),
+        return {"root": root, "agents": agents, "turns": turns, "calls": calls, "budgets": budgets,
                 "pending": pending, "events": events,
                 "settled": bool(turns) and not any(pending.values())}
 
 
 def aggregate(calls):
     totals = {"input_tokens": 0, "output_tokens": 0, "cache_tokens": 0,
-              "reported_cost_usd": 0.0, "normalized_cost_usd": 0.0, "ledger_cost_usd": 0.0,
-              "reported_cost_calls": 0, "unknown_normalized_cost_calls": 0,
+              "reported_cost_usd": 0.0, "ledger_cost_usd": 0.0, "reported_cost_calls": 0,
               "unknown_usage_calls": 0, "unknown_cost_calls": 0, "pending_calls": 0,
               "model_calls": len(calls), "peak_input_tokens": 0}
-    routes = {}
     for call in calls:
-        attempt = call["attempt"]
-        route = (attempt["Provider"], attempt["Model"], attempt["Purpose"])
-        key = "/".join(route)
-        routes[key] = routes.get(key, 0) + 1
         if call["status"] == "running":
             totals["pending_calls"] += 1
         usage = (call.get("result") or {}).get("Usage", {})
@@ -187,18 +169,6 @@ def aggregate(calls):
         if dispatched and call["cost_source"] not in ("reported", "estimated"):
             totals["unknown_cost_calls"] += 1
         totals["ledger_cost_usd"] += call["cost_micros"] / 1_000_000
-        rates = attempt.get("Pricing", {})
-        if call["usage_source"] == "reported" and rates.get("prompt") is not None and rates.get("completion") is not None:
-            cache_rate = rates.get("input_cache_read")
-            if cache_rate is None:
-                cache_rate = rates["prompt"]
-            totals["normalized_cost_usd"] += float(
-                Decimal(str(rates["prompt"])) * (input_tokens - cached)
-                + Decimal(str(cache_rate)) * cached
-                + Decimal(str(rates["completion"])) * output_tokens)
-        elif dispatched:
-            totals["unknown_normalized_cost_calls"] += 1
-    totals["routes"] = routes
     return totals
 
 
@@ -228,6 +198,11 @@ def settled_outcome(state, cli_exit_code):
             "failed_or_interrupted_turns": sum(turn["status"] in unsuccessful for turn in state["turns"])}
 
 
+def stat_fields(process):
+    """Fields of /proc/<pid>/stat after the command name (index 0 is the state)."""
+    return (Path(process) / "stat").read_text().rsplit(")", 1)[1].split()
+
+
 def signal_daemon(home, binary, sig):
     """Signal only the verified daemon in this disposable Linux trial home."""
     with (home / "runtime-v2" / "daemon.lock").open() as lock:
@@ -241,7 +216,7 @@ def signal_daemon(home, binary, sig):
         if pid <= 1:
             raise RuntimeError("invalid trial daemon PID")
         process = Path("/proc") / str(pid)
-        start_time = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+        start_time = stat_fields(process)[19]
         descriptor = None
         method = "pidfd"
         rosetta = False
@@ -277,7 +252,7 @@ def signal_daemon(home, binary, sig):
                 # Docker's amd64 emulation may not implement pidfds. The fresh
                 # owned container, held lock, executable, home, and unchanged
                 # process start time constrain the fallback to this daemon.
-                if (process / "stat").read_text().rsplit(")", 1)[1].split()[19] != start_time:
+                if stat_fields(process)[19] != start_time:
                     raise RuntimeError("trial daemon PID was reused")
                 os.kill(pid, sig)
                 method = "verified-pid"
@@ -292,7 +267,7 @@ def freeze_daemon(home, binary):
     try:
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
-            state = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[0]
+            state = stat_fields(Path("/proc") / str(pid))[0]
             if state == "T":
                 return pid, method
             time.sleep(0.01)
@@ -310,7 +285,7 @@ def process_sample():
     page = os.sysconf("SC_PAGE_SIZE")
     for path in Path("/proc").glob("[0-9]*/stat"):
         try:
-            fields = path.read_text().rsplit(")", 1)[1].split()
+            fields = stat_fields(path.parent)
             identity = path.parent.name + ":" + fields[19]
             cpu[identity] = (int(fields[11]) + int(fields[12])) / ticks
             rss += int(fields[21]) * page
@@ -338,25 +313,36 @@ def write_config(home, engine, max_output, base_url="https://api.inference.net/v
     return configuration
 
 
-def discover_catalog(home, evidence, base_url, key, model_id="kimi-k3"):
+def utc_stamp():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def fetch_models(base_url, key):
+    """The provider's model list; the key travels only in this request header."""
     request = urllib.request.Request(base_url + "/models", headers={
-        "Authorization": "Bearer " + key, "User-Agent": "whip-runtime-benchmark/1.0"})
+        "Authorization": "Bearer " + key, "User-Agent": "whip-evals/0.1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.load(response)
-    models = [m for m in payload["data"] if m["id"] == model_id]
+        return json.load(response)["data"]
+
+
+def catalog_cache(base_url, model):
+    """The models.json entry whip reads for one provider (the shape the binary expects)."""
+    return {"discoveryVersion": 1, "baseUrl": base_url, "fetchedAt": utc_stamp(),
+            "models": [{"id": model["id"], "contextLength": model["context_length"],
+                        "maxCompletionTokens": model["max_completion_tokens"],
+                        "reasoningEfforts": model["reasoning_efforts"], "pricing": model["pricing"],
+                        **({"inputModalities": model["input_modalities"]} if "input_modalities" in model else {})}]}
+
+
+def discover_catalog(home, evidence, base_url, key, model_id="kimi-k3"):
+    models = [m for m in fetch_models(base_url, key) if m["id"] == model_id]
     if len(models) != 1:
         raise ValueError("requested " + model_id + " route unavailable")
     model = models[0]
     atomic_json(evidence / "provider-catalog.json", model)
     if "high" not in model.get("reasoning_efforts", []):
         raise ValueError("provider no longer advertises high effort")
-    atomic_json(home / "models.json", {"inference-net": {
-        "discoveryVersion": 1, "baseUrl": base_url,
-        "fetchedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-        "models": [{"id": model["id"], "contextLength": model["context_length"],
-                    "maxCompletionTokens": model["max_completion_tokens"],
-                    "reasoningEfforts": model["reasoning_efforts"], "pricing": model["pricing"],
-                    **({"inputModalities": model["input_modalities"]} if "input_modalities" in model else {})}]}})
+    atomic_json(home / "models.json", {"inference-net": catalog_cache(base_url, model)})
 
 
 def run(args):
@@ -366,7 +352,7 @@ def run(args):
     base_url = "https://api.inference.net/v1"
     if args.fixture:
         from fixture_provider import start
-        fixture_server, base_url = start(args.engine, qualification="fixture-qualification" in Path(args.instruction).read_text())
+        fixture_server, base_url = start(args.engine)
     contract_path = getattr(args, "contract", None)
     if contract_path:
         contract = json.loads(Path(contract_path).read_text())
@@ -414,6 +400,27 @@ def run(args):
     content_export_complete = False
     final_snapshot = False
     daemon_stopped = False
+    # One read-only connection whose PRAGMA data_version moves only when the
+    # daemon commits: the full snapshot and its two files are refreshed on
+    # change instead of four times a second for the whole trial.
+    gate = None
+    data_version = None
+
+    def export(current):
+        """Publish one snapshot; the database backup at finality is the record."""
+        nonlocal last, cursor
+        last = current
+        for event in last.pop("events"):
+            cursor = event["seq"]
+        metrics = aggregate(last["calls"])
+        metrics.update({"duration_seconds": time.monotonic() - started, "engine": args.engine,
+                        "pending": last["pending"], "event_cursor": cursor,
+                        "sampled_peak_container_rss_bytes": peak_rss,
+                        "sampled_container_cpu_seconds": sum(cpu_seen.values())})
+        atomic_json(evidence / "metrics.json", metrics)
+        atomic_json(evidence / "state.json", last)
+        return metrics
+
     with (evidence / "cli.ndjson").open("w") as stdout, (evidence / "cli.stderr").open("w") as stderr:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, env=env, start_new_session=True)
         try:
@@ -424,43 +431,36 @@ def run(args):
                 peak_rss = max(peak_rss, rss)
                 for pid, seconds in cpu.items():
                     cpu_seen[pid] = max(cpu_seen.get(pid, 0), seconds)
+                exited = process.poll() is not None
                 if database.exists():
-                    current = None
+                    changed = False
                     try:
-                        current = snapshot(database, cursor)
+                        if gate is None:
+                            gate = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5)
+                        version = gate.execute("PRAGMA data_version").fetchone()[0]
+                        if last is None or version != data_version:
+                            export(snapshot(database, cursor))
+                            data_version, changed = version, True
                     except (sqlite3.OperationalError, ValueError):
                         quiet_since = None
-                        if last is None and process.poll() is not None and time.monotonic() - started > 10:
+                        if last is None and exited and time.monotonic() - started > 10:
                             raise
-                    if current:
-                        last = current
-                        previous_cursor = cursor
-                        for event in last.pop("events"):
-                            cursor = event["seq"]
-                        metrics = aggregate(last["calls"])
-                        metrics.update({"duration_seconds": time.monotonic() - started,
-                                        "engine": args.engine, "pending": last["pending"], "event_cursor": cursor,
-                                        "sampled_peak_container_rss_bytes": peak_rss,
-                                        "sampled_container_cpu_seconds": sum(cpu_seen.values())})
-                        atomic_json(evidence / "metrics.json", metrics)
-                        atomic_json(evidence / "state.json", last)
-                        quiet_since = quiet_start(quiet_since, exited=process.poll() is not None,
-                                                  settled=last["settled"], changed=cursor != previous_cursor,
-                                                  at=time.monotonic())
-                        if quiet_since is not None:
-                            if time.monotonic() - quiet_since >= 2:
-                                frozen_pid, daemon_signal_method = freeze_daemon(home, args.binary)
-                                try:
-                                    frozen = snapshot(database, cursor)
-                                    if frozen["settled"] and not frozen["events"]:
-                                        status = settled_outcome(frozen, process.returncode)["status"]
-                                        break
-                                finally:
-                                    if status == "timeout":
-                                        signal_daemon(home, args.binary, signal.SIGCONT)
-                                        frozen_pid = None
-                                quiet_since = None
-                if process.poll() is not None and last is None and time.monotonic() - started > 10:
+                    if last is not None:
+                        quiet_since = quiet_start(quiet_since, exited=exited, settled=last["settled"],
+                                                  changed=changed, at=time.monotonic())
+                        if quiet_since is not None and time.monotonic() - quiet_since >= 2:
+                            frozen_pid, daemon_signal_method = freeze_daemon(home, args.binary)
+                            try:
+                                frozen = snapshot(database, cursor)
+                                if frozen["settled"] and not frozen["events"]:
+                                    status = settled_outcome(frozen, process.returncode)["status"]
+                                    break
+                            finally:
+                                if status == "timeout":
+                                    signal_daemon(home, args.binary, signal.SIGCONT)
+                                    frozen_pid = None
+                            quiet_since = None
+                if exited and last is None and time.monotonic() - started > 10:
                     status = "startup_error"
                     break
                 time.sleep(0.25)
@@ -490,18 +490,11 @@ def run(args):
                         daemon_stopped = True
                 except Exception as error:
                     export_errors.append("daemon stop: " + str(error))
+            if gate is not None:
+                gate.close()
             try:
                 if database.exists():
-                    last = snapshot(database, cursor)
-                    for event in last.pop("events"):
-                        cursor = event["seq"]
-                    atomic_json(evidence / "state.json", last)
-                    metrics = aggregate(last["calls"])
-                    metrics.update({"duration_seconds": time.monotonic() - started, "engine": args.engine,
-                                    "pending": last["pending"], "event_cursor": cursor,
-                                    "sampled_peak_container_rss_bytes": peak_rss,
-                                    "sampled_container_cpu_seconds": sum(cpu_seen.values())})
-                    atomic_json(evidence / "metrics.json", metrics)
+                    export(snapshot(database, cursor))
                     with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as source, sqlite3.connect(evidence / "sessions.db") as destination:
                         source.backup(destination)
                     if frozen_pid is None and not daemon_stopped:
@@ -544,7 +537,7 @@ def main():
     parser.add_argument("--model", default="kimi-k3", help="legacy no-contract route; canonical trials take the model from the contract")
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument("--commit", action="store_true")
-    parser.add_argument("--fixture", action="store_true")
+    parser.add_argument("--fixture", action="store_true", help="doctor integration: the fake provider in fixture_provider.py")
     parser.add_argument("--native-defaults", action="store_true")
     parser.add_argument("--contract", help="frozen canonical config/catalog; no per-trial discovery")
     print(json.dumps(run(parser.parse_args())))

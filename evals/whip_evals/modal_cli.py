@@ -1,5 +1,4 @@
 """Local CLI attachment to the one deployed Modal campaign controller."""
-import json
 import os
 from pathlib import Path
 import shutil
@@ -15,7 +14,7 @@ FETCH_TRIES = 3
 
 
 def submit(args, *, evals=EVALS):
-    from .modal_bundle import plan_campaign, prepare_campaign, verify_bundle
+    from .modal_bundle import plan_campaign, prepare_campaign
     if args.dry_run:
         return plan_campaign(args, evals=evals)
     settings = cloud.load_config()
@@ -28,7 +27,6 @@ def submit(args, *, evals=EVALS):
     prepared = prepare_campaign(args, evals=evals)
     identity = read_json(prepared / "bundle.json")
     digest, run_id = identity["sha256"], identity["run_id"]
-    verify_bundle(prepared / "bundle.tar", digest)
     manifest = read_json(prepared / "manifest.json")
     state, inputs, _ = cloud.resources()
     request = {"run_id": run_id, "bundle_sha256": digest, "settings": settings,
@@ -38,31 +36,34 @@ def submit(args, *, evals=EVALS):
         raise ValueError("run ID already submitted; attach with status, never replay")
     try:
         with inputs.batch_upload() as upload:
-            upload.put_file(prepared / "bundle.tar", f"/{run_id}/bundle.tar")
-            upload.put_file(prepared / "bundle.json", f"/{run_id}/bundle.json")
-            upload.put_file(prepared / "manifest.json", f"/{run_id}/manifest.json")
-            upload.put_file(prepared / "inputs.json", f"/{run_id}/schedule.json")
+            for name in ("bundle.tar", "bundle.json", "manifest.json", "schedule.json"):
+                upload.put_file(prepared / name, f"/{run_id}/{name}")
         call = cloud.sdk().Function.from_name(cloud.APP_NAME, "coordinate", environment_name=cloud.ENVIRONMENT).spawn(
             run_id, digest, settings, manifest["controller_source_sha256"])
         receipt = {**request, "call_id": call.object_id, "status": "submitted"}
-        state.put(run_id + "/submission", receipt)
         write_json(prepared / "submission.json", receipt, exclusive=True)
         return receipt
     except Exception as error:
-        state.put(run_id + "/submission_error", {"error_code": type(error).__name__, "at": utc_now()})
         raise ValueError("submission outcome uncertain; inspect status for this run ID before any new work") from error
+
+
+def request_record(state, run_id):
+    request = state.get(run_id + "/request")
+    if request is None:
+        raise ValueError("unknown cloud run ID")
+    return request
 
 
 def status(run_id):
     run_id = identifier(run_id)
     state, _, _ = cloud.resources()
-    request = state.get(run_id + "/request")
-    if request is None:
+    if state.get(run_id + "/request") is None:
         fetched = state.get(run_id + "/fetched")
         if fetched is None:
             raise ValueError("unknown cloud run ID")
         # A fetched run keeps only this receipt on Modal; the report is local.
         return {"run_id": run_id, "status": "fetched", "fetched": fetched, "attempts": []}
+    request = request_record(state, run_id)
     value = state.get(run_id + "/status") or {"status": "submitted_or_indeterminate"}
     attempts = [dict(record) for key, record in state.items()
                 if isinstance(key, str) and key.startswith(run_id + "/attempt/")]
@@ -75,8 +76,7 @@ def status(run_id):
 def cancel(run_id):
     run_id = identifier(run_id)
     state, _, _ = cloud.resources()
-    if state.get(run_id + "/request") is None:
-        raise ValueError("unknown cloud run ID")
+    request_record(state, run_id)
     state.put(run_id + "/cancel", {"requested_at": utc_now()}, skip_if_exists=True)
     result = status(run_id)
     result.update(status="cancel_requested",
@@ -84,61 +84,12 @@ def cancel(run_id):
     return result
 
 
-def logs(run_id, trial_id=None, *, tail_bytes=8192):
-    """Bounded structured lifecycle logs; raw native logs are retained by fetch."""
-    if not 1 <= tail_bytes <= 1024 * 1024:
-        raise ValueError("log tail must be between 1 and 1048576 bytes")
-    value = status(run_id)
-    events = value["attempts"]
-    if trial_id:
-        events = [event for event in events if event["trial_id"] == identifier(trial_id)]
-    text = "\n".join(json.dumps(event, sort_keys=True) for event in events)
-    data = text.encode()
-    return {"run_id": value["run_id"], "kind": "lifecycle", "text": data[-tail_bytes:].decode(errors="replace"),
-            "truncated": len(data) > tail_bytes, "raw_logs": "fetch retains native runner/agent logs"}
-
-
-def retain_partial(row, directory, attempt):
-    """Retain observed paid work without fabricating a final bill or finality."""
-    from decimal import Decimal
-    from .common import number
-    from .observe import aggregate
-    from .report import money
-    directory = Path(directory)
-    samples = []
-    for path in (directory / "artifacts").rglob("*.json"):
-        if path.name not in ("metrics.interim.json", "metrics.json", "state.json"):
-            continue
-        try:
-            value = read_json(path)
-            if path.name == "state.json":
-                value = aggregate(value["calls"])
-            if number(value.get("ledger_cost_usd")) and value["ledger_cost_usd"] >= 0:
-                samples.append((value.get("event_cursor", 0), value.get("model_calls", 0), value, path))
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-    if samples:
-        # Samples are cumulative, not disjoint bills: retain the greatest known
-        # lower bound, never sum snapshots.
-        _, _, sample, path = max(samples, key=lambda item: (Decimal(str(item[2]["ledger_cost_usd"])), *item[:2]))
-        observed = money(sample["ledger_cost_usd"])
-        if not row.get("accounting_complete") and Decimal(observed) >= Decimal(row["known_cost_usd"]):
-            row["known_cost_usd"] = observed
-            for key in ("model_calls", "unknown_cost_calls", "unknown_usage_calls"):
-                row[key] = sample.get(key)
-            row["partial_observation"] = {"path": path.relative_to(directory).as_posix(),
-                "event_cursor": sample.get("event_cursor"), "not_final": True,
-                "observed_input_tokens": sample.get("input_tokens"),
-                "observed_output_tokens": sample.get("output_tokens"),
-                "observed_cache_tokens": sample.get("cache_tokens")}
-    started = bool(attempt.get("sandbox_id") or samples or (directory / "started.json").exists())
-    if started and not row.get("started"):
-        row.update(started=True, execution_status="interrupted_or_indeterminate",
-                   termination_source="cloud_worker_incomplete")
-    if not row.get("accounting_complete"):
-        row["cost_usd"] = None
+def cloud_fields(row, directory, attempt):
+    """VM facts the native row cannot know: whether the worker started and exited."""
+    if not row["started"] and (attempt.get("sandbox_id") or (directory / "started.json").exists()):
+        row.update(started=True, execution_status="interrupted", termination_source="cloud_worker_incomplete")
     # Native cleanup and VM exit are independent facts; report both.
-    row["native_cleanup_complete"] = row.get("cleanup_complete")
+    row["native_cleanup_complete"] = row["cleanup_complete"]
     row["cleanup_complete"] = attempt.get("cleanup_complete") is True
     return row
 
@@ -149,30 +100,16 @@ def not_found():
     return (FileNotFoundError, cloud.sdk().exception.NotFoundError)
 
 
-def remote_files(evidence, run_id):
-    """Regular files under the run's evidence prefix, relative to it."""
-    try:
-        entries = list(evidence.iterdir(f"/{run_id}", recursive=True))
-    except not_found():
-        return []
-    files = []
-    for entry in entries:
-        if int(entry.type) != 1:
-            continue
-        if not entry.path.startswith((run_id + "/", "/" + run_id + "/")):
-            raise ValueError("unexpected remote evidence path")
-        files.append(entry.path.lstrip("/")[len(run_id) + 1:])
-    return files
-
-
 def collect_files(evidence, run_id, root):
     """Download the run's evidence prefix with the Modal CLI's parallel transfer.
 
     Per-file reads through the SDK ran at about 12 files/s (46 min for a
-    90-attempt campaign); the CLI moved the same data in a few minutes.
+    90-attempt campaign); the CLI moves the same data in a few minutes. Fetch
+    verifies every file each worker's marker lists, so no separate listing.
     """
-    expected = remote_files(evidence, run_id)
-    if not expected:
+    try:
+        next(iter(evidence.iterdir(f"/{run_id}")), None)
+    except not_found():
         return 0
     root = Path(root)
     command = [sys.executable, "-m", "modal", "volume", "get", "--env", cloud.ENVIRONMENT, "--force",
@@ -192,18 +129,14 @@ def collect_files(evidence, run_id, root):
         for child in nested.iterdir():
             shutil.move(str(child), root / child.name)
         nested.rmdir()
-    missing = [name for name in expected if not inside(root, name).is_file()]
-    if missing:
-        raise RuntimeError(f"{len(missing)} evidence files were not downloaded (first: {missing[0]})")
-    return len(expected)
+    return sum(1 for path in root.rglob("*") if path.is_file())
 
 
 def prune(run_id, *, force=False):
     """Delete the run's Modal-side inputs, evidence and state; keep `<run>/fetched`."""
     run_id = identifier(run_id)
     state, inputs, evidence = cloud.resources()
-    if state.get(run_id + "/request") is None:
-        raise ValueError("unknown cloud run ID")
+    request_record(state, run_id)
     current = (state.get(run_id + "/status") or {}).get("status")
     if current not in TERMINAL_STATUSES and not force:
         raise ValueError("run is not finished (" + str(current) + "); cancel it or pass --force")
@@ -214,7 +147,7 @@ def prune(run_id, *, force=False):
             removed[name] = True
         except not_found():
             pass
-    for key in [k for k, _ in state.items() if isinstance(k, str) and k.startswith(run_id + "/") and k != run_id + "/fetched"]:
+    for key in [k for k in state.keys() if isinstance(k, str) and k.startswith(run_id + "/") and k != run_id + "/fetched"]:
         state.pop(key)
         removed["state_keys"] += 1
     return {"run_id": run_id, "status": "pruned", **removed}
@@ -222,48 +155,38 @@ def prune(run_id, *, force=False):
 
 def fetch(run_id, *, evals=EVALS, keep=False):
     """Snapshot all retained evidence into a new fetch directory, then prune Modal."""
-    from .report import build_result, empty_trial, normalize_trial, write_report
+    from .report import build_result, normalize_or_error, write_report
     run_id = identifier(run_id)
     state, inputs, evidence = cloud.resources()
-    request = state.get(run_id + "/request")
-    if request is None:
-        raise ValueError("unknown cloud run ID")
+    request = request_record(state, run_id)
     cloud_status = state.get(run_id + "/status") or {}
+    attempts = {key.rsplit("/", 1)[1]: record for key, record in state.items()
+                if isinstance(key, str) and key.startswith(run_id + "/attempt/")}
     manifest = cloud.read_remote(inputs, f"/{run_id}/manifest.json")
     root = Path(evals) / "artifacts" / run_id / "fetches" / new_id()
     root.mkdir(parents=True, exist_ok=False)
-    rows = []
     retained = collect_files(evidence, run_id, root)
+    rows = []
     for trial in manifest["schedule"]:
         directory = root / "attempts" / trial["id"]
-        artifacts = directory / "artifacts"
-        record = artifacts / "record.json"
-        row = empty_trial(trial)
+        prefix = f"attempts/{trial['id']}/artifacts"
+        record_path = directory / "artifacts" / "record.json"
+        raw = read_json(record_path) if record_path.is_file() else {"started": False, "job_path": f"jobs/{trial['id']}",
+                                                                      "cleanup": {"complete": False}}
+        raw["job_path"] = f"{prefix}/{raw['job_path']}"  # normalize against the fetch root
+        row = normalize_or_error(trial, raw, root)
         marker = directory / "complete.json"
         verified = False
-        if marker.exists():
+        if marker.is_file():
             value = read_json(marker)
             verified = (value.get("run_id"), value.get("trial_id"), value.get("bundle_sha256")) == (run_id, trial["id"], request["bundle_sha256"])
             verified = verified and bool(value.get("files")) and all(
                 inside(directory, path).is_file() and file_hash(inside(directory, path)) == digest
-                for path, digest in value.get("files", {}).items())
-        if record.exists():
-            try:
-                row = normalize_trial(trial, read_json(record), artifacts)
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                row.update(execution_status="export_error", error_codes=[type(error).__name__])
+                for path, digest in value["files"].items())
         if not verified:
             row.update(evidence_complete=False, accounting_complete=False, cost_usd=None)
             row["error_codes"].append("cloud_snapshot_incomplete")
-        attempt = state.get(run_id + "/attempt/" + trial["id"]) or {}
-        row = retain_partial(row, directory, attempt)
-        prefix = f"attempts/{trial['id']}/artifacts/"
-        details = row.get("artifacts", {})
-        if details.get("native_result"):
-            details["native_result"] = prefix + details["native_result"]
-        if details.get("evidence_files"):
-            details["evidence_files"] = {prefix + path: digest for path, digest in details["evidence_files"].items()}
-        rows.append(row)
+        rows.append(cloud_fields(row, directory, attempts.get(trial["id"], {})))
     manifest = {**manifest, "artifact_root": root.relative_to(evals).as_posix()}
     result = build_result(manifest, rows, cancelled=cloud_status.get("status") == "cancelled")
     result["cloud"] = {"request": request, "status": cloud_status}

@@ -77,7 +77,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(row['phase_seconds']['verifier'], 2)
         self.assertEqual(row['phase_seconds']['environment_setup'], 3)
         self.assertIsNone(row['phase_seconds']['agent_setup'])
-        self.assertIsNone(row['provider_statuses'])
+        self.assertNotIn('provider_statuses', row)
 
     def test_native_failures_are_grades_but_missing_boolean_and_fractional_rewards_are_not(self):
         for i, reward in enumerate((0, None, True, .5)):
@@ -169,7 +169,7 @@ class ReportTests(unittest.TestCase):
         cases = [({'status': 'timeout'}, {}, '', 'benchmark_deadline'),
                  ({'status': 'agent_error'}, {}, 'Client.Timeout exceeded', 'whip_request_timeout'),
                  ({}, {'outer_watchdog': True}, '', 'evaluator_watchdog'),
-                 ({}, {'cancelled': True, 'cancellation_source': 'user_cancelled'}, '', 'user_cancelled'),
+                 ({}, {'cancelled': True}, '', 'user_cancelled'),
                  ({'status': 'agent_error'}, {}, 'host request limit', 'whip_guard'),
                  ({'status': 'agent_error'}, {}, 'api error: 502 Bad Gateway', 'provider_error'),
                  ({'status': 'agent_error'}, {}, 'Inference stream timed out: No next token received for 30000ms', 'provider_error'),
@@ -200,6 +200,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(comparison, compare_trials([control], [fast_failure], samples=100))
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             compare_trials([control, control], [fast_failure])
+
+    def test_missing_native_result_keeps_the_observers_last_cost_as_a_lower_bound(self):
+        trial, raw, agent = evidence_fixture(self.root)
+        (agent.parents[1] / 'result.json').unlink()
+        write_json(agent / 'metrics.json', dict(aggregate(read_json(agent / 'state.json')['calls']), ledger_cost_usd=2.5, input_tokens=42))
+        row = normalize_trial(trial, raw, self.root)
+        self.assertIn('missing_result', row['error_codes'])
+        self.assertEqual(row['known_cost_usd'], '2.500000')
+        self.assertIsNone(row['cost_usd'])
+        self.assertEqual(row['partial_observation']['observed_input_tokens'], 42)
+        self.assertFalse(row['accounting_complete'])
+        (agent / 'metrics.json').unlink()
+        self.assertEqual(normalize_trial(trial, raw, self.root)['known_cost_usd'], '0.000000')
 
     def test_span_counts_come_from_the_copied_database(self):
         trial, raw, agent = evidence_fixture(self.root)

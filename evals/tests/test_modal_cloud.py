@@ -41,6 +41,9 @@ class MemoryState:
     def items(self):
         return list(self.values.items())
 
+    def keys(self):
+        return list(self.values)
+
     def pop(self, key):
         return self.values.pop(key)
 
@@ -207,10 +210,11 @@ class ExecuteTests(unittest.TestCase):
         self.assertTrue(result["cleanup"]["complete"])
         self.assertFalse(sandbox.terminated)
 
-    def test_deadline_terminates_vm_and_records_actual_exit(self):
+    def test_controller_failure_mid_flight_terminates_the_vm_and_records_its_exit(self):
         sandbox = FakeSandbox([None])
-        result, _ = self.run_execute(self.campaign(), sandbox, outer_watchdog_seconds=-1500)
-        self.assertEqual(result["cloud"]["state"], "deadline_exceeded")
+        sandbox.set_tags = MagicMock(side_effect=RuntimeError("tag service down"))
+        result, _ = self.run_execute(self.campaign(), sandbox)
+        self.assertEqual(result["cloud"]["state"], "controller_error")
         self.assertTrue(sandbox.terminated)
         self.assertEqual(result["cloud"]["worker_exit_code"], 137)
         self.assertTrue(result["cleanup"]["complete"])
@@ -265,18 +269,16 @@ class CoordinateTests(unittest.TestCase):
                 self.assertEqual(state.get("r/status")["status"], "failed")
 
     def test_completed_and_human_cancelled_status_words(self):
-        def completed(trials, capacity, jobs, worker, *, cancelled, on_result, stats):
+        def completed(trials, capacity, jobs, worker, *, cancelled, stats):
             self.assertEqual(jobs, 1)
-            on_result(trials[0], {"started": True, "cleanup": {"complete": True}})
             return {"t1": {"started": True, "cleanup": {"complete": True}}}
         state = MemoryState({"r/request": self.request()})
         result, _ = self.coordinate(state, completed)
         self.assertEqual(result["status"], "completed")
         self.assertEqual((result["planned"], result["recorded"], result["unproven_vm_exits"]), (1, 1, 0))
-        self.assertEqual(state.get("r/progress/t1")["cleanup_complete"], True)
         self.assertEqual(state.get("r/status")["status"], "completed")
 
-        def cancelled_run(trials, capacity, jobs, worker, *, cancelled, on_result, stats):
+        def cancelled_run(trials, capacity, jobs, worker, *, cancelled, stats):
             cancelled.set()  # a human cancel delivered through the state watcher
             return {"t1": {"started": False, "cancelled": True, "cleanup": {"complete": True}}}
         state = MemoryState({"r/request": self.request()})
@@ -301,10 +303,11 @@ class FetchTests(unittest.TestCase):
         self.request = {"run_id": "r", "bundle_sha256": "a" * 64, "planned": 2, "settings": settings()}
 
     def volumes(self):
+        # The observer's last metrics.json survives a worker that never produced a native result.
         interim = json.dumps({"ledger_cost_usd": 1.5, "model_calls": 3, "unknown_cost_calls": 1,
                               "unknown_usage_calls": 0, "event_cursor": 40, "input_tokens": 500}).encode()
         record = json.dumps({"started": True, "job_path": "jobs/t1", "cleanup": {"complete": True}}).encode()
-        files = {"artifacts/record.json": record, "artifacts/metrics.interim.json": interim,
+        files = {"artifacts/record.json": record, "artifacts/jobs/t1/native__x/agent/whip/metrics.json": interim,
                  "started.json": b"{}"}
         import hashlib
         inventory = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
@@ -317,8 +320,7 @@ class FetchTests(unittest.TestCase):
     def state(self, status="completed"):
         return MemoryState({"r/request": self.request, "r/status": {"status": status},
                             "r/attempt/t1": {"trial_id": "t1", "sandbox_id": "sb-1", "cleanup_complete": True},
-                            "r/attempt/t2": {"trial_id": "t2", "sandbox_id": "sb-2", "cleanup_complete": False},
-                            "r/progress/t1": {"id": "t1"}})
+                            "r/attempt/t2": {"trial_id": "t2", "sandbox_id": "sb-2", "cleanup_complete": False}})
 
     @staticmethod
     def collect(evidence, run_id, root):
@@ -347,6 +349,7 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(first["known_cost_usd"], "1.500000")
         self.assertIsNone(first["cost_usd"])
         self.assertEqual(first["partial_observation"]["observed_input_tokens"], 500)
+        self.assertTrue(first["partial_observation"]["path"].startswith("attempts/t1/artifacts/jobs/t1/"))
         self.assertTrue(first["cleanup_complete"])
         self.assertIn("cloud_snapshot_incomplete", second["error_codes"])
         self.assertEqual(second["termination_source"], "cloud_worker_incomplete")
@@ -389,14 +392,14 @@ class FetchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not finished"):
                 modal_cli.prune("r")
             self.assertTrue(evidence.files)
-            self.assertEqual(modal_cli.prune("r", force=True)["state_keys"], 5)
+            self.assertEqual(modal_cli.prune("r", force=True)["state_keys"], 4)
             # Pruning again (data already gone) is a quiet no-op for the volumes.
             state.put("r/request", self.request)
             state.put("r/status", {"status": "completed"})
             self.assertEqual(modal_cli.prune("r")["inputs"], False)
         self.assertEqual(state.values, {})
 
-    def test_collect_uses_the_cli_transfer_flattens_and_verifies_presence(self):
+    def test_collect_uses_the_cli_transfer_and_flattens(self):
         _, evidence = self.volumes()
         commands = []
         def run(command, **kwargs):
@@ -416,14 +419,6 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(commands[0][-3:], [cloud.EVIDENCE_VOLUME, "/r", str(root)])
         self.assertTrue((root / "attempts/t1/complete.json").is_file())
         self.assertFalse((root / "r").exists())
-        # A transfer that silently drops a file is an error, never a quiet partial snapshot.
-        def drop_one(command, **kwargs):
-            run(command)
-            (Path(command[-1]) / "r/attempts/t1/started.json").unlink()
-            return SimpleNamespace(returncode=0)
-        with patch.object(modal_cli.subprocess, "run", side_effect=drop_one), patch.object(cloud, "sdk", return_value=fake_sdk()), \
-             self.assertRaisesRegex(RuntimeError, "not downloaded"):
-            modal_cli.collect_files(evidence, "r", self.evals / "collected-2")
         failing = subprocess.CalledProcessError(1, "modal", stderr=b"boom")
         with patch.object(modal_cli.subprocess, "run", side_effect=failing), patch.object(modal_cli.time, "sleep"), \
              patch.object(cloud, "sdk", return_value=fake_sdk()), self.assertRaisesRegex(RuntimeError, "boom"):
@@ -452,8 +447,9 @@ class FetchTests(unittest.TestCase):
         self.assertIsNone(parser().parse_args(["modal", "submit", "full", "--allow-model-calls"]).jobs)
         with self.assertRaises(SystemExit):
             parser().parse_args(["modal", "submit", "full", "--settings", "x.json"])
-        with self.assertRaises(SystemExit):
-            parser().parse_args(["modal", "reconcile", "r"])
+        for removed in (["modal", "reconcile", "r"], ["modal", "logs", "r"]):
+            with self.assertRaises(SystemExit):
+                parser().parse_args(removed)
 
 
 class WorkerTests(unittest.TestCase):
@@ -479,10 +475,9 @@ class WorkerTests(unittest.TestCase):
             return {"job_path": str(artifact_root / "jobs/native"), "cleanup": {"complete": True}}
         with ExitStack() as stack:
             for name, options in {
-                "Path": {"side_effect": paths}, "verify_bundle": {"return_value": None},
+                "Path": {"side_effect": paths},
                 "environment": {"return_value": {"os": "linux", "emulated": False, "runner_versions": {}}},
                 "preflight": {"return_value": None}, "execute_job": {"side_effect": execute},
-                "normalize_trial": {"return_value": {"accounting_complete": False}},
             }.items():
                 stack.enter_context(patch.object(modal_worker, name, **options))
             stack.enter_context(patch("whip_evals.tasks.load_spec", return_value=({"tasks": []}, None, None)))
@@ -502,7 +497,8 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(file_hash(attempt / name), digest, name)
             self.assertIn("artifacts/record.json", result["files"])
             self.assertNotIn("complete.json", result["files"])
-            self.assertFalse((attempt / "ready.json").exists())
+            self.assertNotIn("row", result)
+            self.assertFalse((attempt / "normalized.json").exists())
 
     def test_receipt_copy_failure_is_recorded_and_still_publishes_the_marker(self):
         with tempfile.TemporaryDirectory() as temporary:

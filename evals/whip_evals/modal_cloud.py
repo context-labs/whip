@@ -10,7 +10,8 @@ import re
 import threading
 import time
 
-from .common import EVALS, file_hash, identifier, read_json, utc_now, value_hash
+from .common import EVALS, identifier, read_json, utc_now, value_hash
+from .modal_bundle import MAX_JOBS, controller_revision
 
 ENVIRONMENT = "whipcode"
 APP_NAME = "whip-eval"
@@ -23,7 +24,6 @@ POLL_SECONDS = 5
 # Volume commits are asynchronous: a marker written just before VM exit can
 # become readable a little after the exit is observed.
 MARKER_GRACE_SECONDS = 120
-MAX_JOBS = 90
 
 
 def sdk():
@@ -164,31 +164,23 @@ class ModalCampaign:
             record.update(sandbox_id=sandbox.object_id, state="running")
             self.state.put(key, record)
             sandbox.set_tags(worker_tags(self.run_id, trial["id"], self.digest))
-            cancel_sent = False
-            deadline = time.monotonic() + trial["outer_watchdog_seconds"] + 1500
-            while time.monotonic() < deadline:
-                if cancelled.is_set() and not cancel_sent:
+            # Modal ends the VM at the sandbox timeout above; poll until it exits.
+            while (exit_code := sandbox.poll()) is None:
+                if cancelled.is_set() and record["state"] != "cancelling":
                     # The worker owns native cleanup and its final evidence export.
                     sandbox.filesystem.write_text("cancel\n", "/tmp/whip-eval-cancel")
                     record.update(state="cancelling", cancel_sent_at=utc_now())
                     self.state.put(key, record)
-                    cancel_sent = True
-                exit_code = sandbox.poll()
-                if exit_code is not None:
-                    break
                 time.sleep(POLL_SECONDS)
-            if exit_code is None:
-                record["state"] = "deadline_exceeded"
-            else:
-                marker = self.wait_for_marker(trial["id"])
-                record.update(state="completed" if marker else "exited_without_marker",
-                              worker_status=(marker or {}).get("status"), worker_exit_code=exit_code)
+            marker = self.wait_for_marker(trial["id"])
+            record.update(state="completed" if marker else "exited_without_marker",
+                          worker_status=(marker or {}).get("status"))
         except Exception as error:
             record.update(state="controller_error", error_code=type(error).__name__)
         finally:
             if sandbox is not None:
                 try:
-                    if exit_code is None:
+                    if exit_code is None:  # the controller failed mid-flight: end the VM
                         sandbox.terminate()
                         sandbox.wait(raise_on_termination=False)
                         exit_code = sandbox.poll()
@@ -200,11 +192,6 @@ class ModalCampaign:
             self.state.put(key, record)
         return {"started": bool(record["sandbox_id"]), "cleanup": {"complete": record["cleanup_complete"]},
                 "cloud": record}
-
-
-def controller_revision():
-    return value_hash({name: file_hash(Path(__file__).with_name(name))
-                       for name in ("modal_cloud.py", "common.py", "execution.py")})
 
 
 def coordinate(run_id, digest, settings, expected_controller_sha256):
@@ -246,12 +233,8 @@ def coordinate(run_id, digest, settings, expected_controller_sha256):
                   for t in manifest["schedule"]]
         from .execution import run_pool
         capacity = {key: sum(t["resources"][key] for t in trials) for key in ("cpus", "memory_mb", "storage_mb")}
-        def collect(trial, result):
-            state.put(run_id + "/progress/" + trial["id"], {"id": trial["id"],
-                       "finished_at": utc_now(), "started": result.get("started", False),
-                       "cleanup_complete": result.get("cleanup", {}).get("complete", False)})
         outcomes = run_pool(trials, capacity, settings["jobs"], controller.execute,
-                            cancelled=controller.cancelled, on_result=collect, stats=stats)
+                            cancelled=controller.cancelled, stats=stats)
         result = {"run_id": run_id, "status": "cancelled" if controller.cancelled.is_set() else "completed",
                   "finished_at": utc_now(), "planned": len(trials), "recorded": len(outcomes),
                   "unproven_vm_exits": sum(not o.get("cleanup", {}).get("complete") for o in outcomes.values()),

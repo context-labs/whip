@@ -11,8 +11,8 @@ import unittest
 from unittest.mock import patch
 
 from whip_evals.common import EVALS, file_hash, read_json, value_hash, write_json
-from whip_evals.modal_bundle import (create_bundle, extract_bundle, plan_campaign,
-                                    prepare_campaign, verify_bundle)
+from whip_evals.modal_bundle import (CONTROLLER_MODULES, controller_revision, create_bundle,
+                                    plan_campaign, prepare_campaign, verify_bundle)
 from whip_evals.tasks import file_inventory, load_spec
 
 
@@ -41,11 +41,9 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(inventory, other)
         self.assertEqual(set(inventory["files"]), {"evals/input"})
         self.assertEqual(verify_bundle(first, file_hash(first)), inventory)
-        target = extract_bundle(first, self.root / "work", file_hash(first))
-        self.assertEqual((target / "evals/input").read_bytes(), b"frozen input")
-        self.assertEqual((target / "evals/input").stat().st_mode & 0o777, 0o664)
-        with self.assertRaises(FileExistsError):
-            extract_bundle(first, target, inventory)
+        self.assertEqual(inventory["files"]["evals/input"], file_hash(self.input))
+        with tarfile.open(first) as archive:
+            self.assertEqual(archive.getmember("evals/input").mode, 0o664)  # tar keeps the mode itself
         with self.assertRaises(FileExistsError):
             self.bundle()
 
@@ -85,10 +83,8 @@ class BundleTests(unittest.TestCase):
                 info.mode, info.type, info.size = 0o664, kind, len(data)
                 info.linkname = "../../outside" if kind in (tarfile.SYMTYPE, tarfile.LNKTYPE) else ""
                 archive.addfile(info, io.BytesIO(data))
-            target = self.root / f"out-{index}"
             with self.subTest(name=name, kind=kind), self.assertRaises(ValueError):
-                extract_bundle(bad, target, inventory)
-            self.assertFalse(target.exists())
+                verify_bundle(bad, inventory)
             if kind != tarfile.REGTYPE or name != "evals/input" and name != "evals/extra":
                 with self.assertRaises(ValueError):
                     verify_bundle(bad, file_hash(bad))
@@ -186,8 +182,10 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(manifest["jobs"], 90)
             self.assertEqual(len(manifest["schedule"]), 90)
             self.assertFalse(manifest["promote"])
-            inputs = read_json(campaign / "inputs.json")
+            inputs = read_json(campaign / "schedule.json")
             self.assertEqual(set(inputs), {trial["id"] for trial in manifest["schedule"]})
+            self.assertEqual(manifest["controller_source_sha256"], controller_revision())
+            self.assertEqual(CONTROLLER_MODULES, ("modal_cloud.py", "common.py", "execution.py"))
             for trial in manifest["schedule"]:
                 config = inputs[trial["id"]]["config"]
                 self.assertEqual(config["environment"]["type"], "docker")
@@ -202,7 +200,9 @@ class CampaignTests(unittest.TestCase):
             verify_bundle(campaign / "bundle.tar", inventory["sha256"])
             self.assertFalse(any("source.tar" in name or "credentials" in name for name in inventory["files"]))
             self.assertIn("evals/artifacts/offline-modal/schedule.json", inventory["files"])
-            self.assertFalse(any("fixture_provider" in name or "integrity" in name for name in inventory["files"]))
+            self.assertNotIn("evals/artifacts/offline-modal/inputs.json", inventory["files"])
+            self.assertNotIn("evals/artifacts/offline-modal/manifest.json", inventory["files"])
+            self.assertFalse(any("fixture_provider" in name or "integrity" in name or name.endswith("uv.lock") for name in inventory["files"]))
             with self.assertRaises(FileExistsError):
                 prepare_campaign(self.args(), evals=evals, repo=root)
 

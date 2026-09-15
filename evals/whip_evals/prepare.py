@@ -10,10 +10,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import urllib.request
 
 from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json, MODEL
-from .observe import write_config
+from .observe import catalog_cache, fetch_models, write_config
 from .prepare_ripgrep import prepare as prepare_ripgrep
 
 
@@ -129,10 +128,7 @@ def catalog(protocol):
     key = os.environ.get("INFERENCE_API_KEY")
     if not key:
         raise ValueError("INFERENCE_API_KEY is required to run; doctor and dry-run need no key")
-    request = urllib.request.Request(protocol["endpoint"] + "/models", headers={
-        "Authorization": "Bearer " + key, "User-Agent": "whip-evals/0.1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        models = json.load(response)["data"]
+    models = fetch_models(protocol["endpoint"], key)
     pin = protocol["model"]
     selected = [m for m in models if m["id"] == pin]
     if not selected:
@@ -155,12 +151,7 @@ def catalog(protocol):
 def contract(candidate, protocol, model):
     return {"engine": candidate["engine"], "configuration": candidate["configuration"],
             "catalog_model": model, "commit_instruction": protocol["commit_instruction"],
-            "catalog_cache": {protocol["provider"]: {
-                "discoveryVersion": 1, "baseUrl": protocol["endpoint"], "fetchedAt": utc_now(),
-                "models": [{"id": model["id"], "contextLength": model["context_length"],
-                            "maxCompletionTokens": model["max_completion_tokens"],
-                            "reasoningEfforts": model["reasoning_efforts"], "pricing": model["pricing"],
-                            **({"inputModalities": model["input_modalities"]} if "input_modalities" in model else {})}]}}}
+            "catalog_cache": {protocol["provider"]: catalog_cache(protocol["endpoint"], model)}}
 
 
 def pull_images(tasks):

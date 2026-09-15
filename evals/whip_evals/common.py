@@ -53,14 +53,10 @@ def file_hash(path):
 
 
 def tree_files(directory):
-    root = Path(directory)
-    result = {}
-    for path in sorted(root.rglob("*")):
-        if path.is_symlink():
-            raise ValueError("symlinks are not permitted in an evidence/task bundle")
-        if path.is_file():
-            result[path.relative_to(root).as_posix()] = file_hash(path)
-    return result
+    """Relative path -> SHA-256 for every regular file under directory; symlinks are skipped."""
+    directory = Path(directory)
+    return {path.relative_to(directory).as_posix(): file_hash(path)
+            for path in sorted(directory.rglob("*")) if path.is_file() and not path.is_symlink()}
 
 
 def atomic_write(path, data, *, exclusive=False):

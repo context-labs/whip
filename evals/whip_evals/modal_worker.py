@@ -10,20 +10,10 @@ import threading
 from .common import identifier, read_json, tree_files, utc_now, write_json
 from .execution import execute_job
 from .prepare import environment, pull_images
-from .report import normalize_trial
 
 
 WORK = Path("/work")
 EVIDENCE = Path("/evidence")
-
-
-def worker_paths(run_id, trial_id, *, root=EVIDENCE):
-    return Path(root) / identifier(run_id) / "attempts" / identifier(trial_id)
-
-
-def verify_bundle(archive, digest, destination):
-    from .modal_bundle import verify_bundle as verify
-    return verify(archive, digest)
 
 
 def preflight(host, trial, headroom):
@@ -54,10 +44,13 @@ def publish_receipts(receipts, target):
 
 
 def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE):
-    """Never reuse a work directory or a native attempt, even after a crash."""
+    """Never reuse a work directory or a native attempt, even after a crash.
+
+    The launch command already verified the bundle's SHA-256 and extracted it
+    under /work before this process started.
+    """
     run_id, trial_id = identifier(run_id), identifier(trial_id)
-    evidence = Path(evidence).resolve(strict=True)
-    destination = worker_paths(run_id, trial_id, root=evidence)
+    destination = Path(evidence).resolve(strict=True) / run_id / "attempts" / trial_id
     destination.mkdir(parents=True, exist_ok=False)
     write_json(destination / "started.json", {"run_id": run_id, "trial_id": trial_id,
                "bundle_sha256": bundle_sha256, "started_at": utc_now()})
@@ -76,10 +69,8 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
     receipts = Path("/tmp/whip-eval-native") / trial_id
     artifact_root = destination / "artifacts"
     artifact_root.mkdir(exist_ok=False)
-    result = {"run_id": run_id, "trial_id": trial_id, "bundle_sha256": bundle_sha256,
-              "status": "failed", "accounting_complete": False}
+    result = {"run_id": run_id, "trial_id": trial_id, "bundle_sha256": bundle_sha256, "status": "failed"}
     try:
-        verify_bundle(Path("/input") / run_id / "bundle.tar", bundle_sha256, work)
         evals = work / "evals"
         manifest = read_json(evals / "reports" / run_id / "manifest.json")
         trial = next(t for t in manifest["schedule"] if t["id"] == trial_id)
@@ -97,16 +88,10 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
         selected = [t for t in lock["tasks"] if t["id"] == trial["task_id"]]
         if selected:
             pull_images(selected)
-        write_json(destination / "phase.json", {"phase": "native_trial", "at": utc_now()})
         record = execute_job(trial, config, envelope, receipts, cancelled, evals=evals)
-        record["job_path"] = str(Path(record["job_path"]).relative_to(artifact_root))
-        if record.get("cancelled"):
-            record["cancellation_source"] = "user_cancelled"
+        record["job_path"] = Path(record["job_path"]).relative_to(artifact_root).as_posix()
         write_json(artifact_root / "record.json", record)
-        row = normalize_trial(trial, record, artifact_root)
-        write_json(artifact_root / "normalized.json", row)
-        result.update(status="completed", native_cleanup_complete=record["cleanup"]["complete"],
-                      accounting_complete=row["accounting_complete"], row=row)
+        result.update(status="completed", native_cleanup_complete=record["cleanup"]["complete"])
     except Exception as error:
         # Exception text can contain provider credentials or subprocess commands.
         result["error_code"] = type(error).__name__
@@ -120,11 +105,7 @@ def run_worker(run_id, trial_id, bundle_sha256, *, work=WORK, evidence=EVIDENCE)
         except OSError as error:
             result["receipt_error"] = type(error).__name__
         result["finished_at"] = utc_now()
-        try:
-            result["files"] = tree_files(destination)
-        except ValueError:
-            result["files"] = {}
-            result["inventory_error"] = True
+        result["files"] = tree_files(destination)
         # The marker is written last and the VM exits right after. The controller
         # waits for the exit, then reads the marker; fetch verifies the listed hashes.
         write_json(destination / "complete.json", result)

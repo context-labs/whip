@@ -23,7 +23,6 @@ uv run --project evals --locked whip-eval modal submit full --dry-run
 # Live campaign: 30 tasks x 3 repetitions, up to frontier/modal.json max_jobs VMs at once.
 uv run --project evals --locked whip-eval modal submit full --run-id <unique-run-id> --allow-model-calls
 uv run --project evals --locked whip-eval modal status <run-id>
-uv run --project evals --locked whip-eval modal logs <run-id> --trial t0001
 uv run --project evals --locked whip-eval modal cancel <run-id>     # the only thing that cancels a campaign
 uv run --project evals --locked whip-eval modal fetch <run-id>      # report, then prune Modal-side data
 uv run --project evals --locked whip-eval modal fetch <run-id> --keep
@@ -48,8 +47,8 @@ tries before any model call; the runner setup budget covers all three. Every
 try leaves a `setup-*.json` receipt in the trial's agent directory.
 
 **Fetch.** Downloads the run's evidence prefix with `modal volume get` (the CLI's
-parallel transfer; three tries), checks every listed file arrived, verifies every
-hash the marker listed, reads
+parallel transfer; three tries), verifies every hash each worker's marker listed,
+reads
 each trial's native result and the observer's `agent/whip/` files, and writes
 `reports/<run>/fetches/<id>/`. Trials whose marker or hashes are missing are
 `cloud_snapshot_incomplete`; their observed cost is kept as a lower bound.

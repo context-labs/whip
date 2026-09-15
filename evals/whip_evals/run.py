@@ -15,7 +15,7 @@ from .common import (EVALS, REPO, atomic_write, file_hash, identifier, inside, n
 from .execution import execute_job, job_config, run_pool, schedule
 from .prepare import (available_capacity, build_candidate, catalog, configuration,
                       contract, environment, pull_images)
-from .report import build_result, compare_results, empty_trial, money, normalize_trial, write_report
+from .report import build_result, compare_results, empty_trial, money, normalize_or_error, write_report
 from .tasks import load_spec, prepare_tasks
 
 
@@ -180,14 +180,9 @@ def run(args, *, evals=EVALS, repo=REPO):
         write_json(report_dir / "preparation-error.json", {"status": "preparation_failed", "error_code": type(error).__name__, "created_at": utc_now()}, exclusive=True)
         atomic_write(report_dir / "report.md", (f"# Whip evaluation: {run_id}\n\nPreparation failed ({type(error).__name__}). No trials started; no score is asserted.\n").encode(), exclusive=True)
         raise
-    cancelled = threading.Event()
-    user_cancelled = threading.Event()
-    cancellation_source = "controller_cancelled"
+    cancelled = threading.Event()  # set only by a human's SIGINT/SIGTERM
     previous_handlers = {}
     def cancel_from_signal(*_):
-        nonlocal cancellation_source
-        cancellation_source = "user_cancelled"
-        user_cancelled.set()
         cancelled.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -200,18 +195,10 @@ def run(args, *, evals=EVALS, repo=REPO):
 
     def collect(trial, raw):
         value = dict(raw)
-        if value.get("cancelled"):
-            value["cancellation_source"] = cancellation_source
         if value.get("job_path"):
             value["job_path"] = Path(value["job_path"]).relative_to(artifact_root).as_posix()
         raw_records[trial["id"]] = value
-        try:
-            row = normalize_trial(trial, value, artifact_root)
-        except Exception as error:
-            row = empty_trial(trial)
-            row.update(started=value.get("started", False), execution_status="export_error",
-                       termination_source="export_error", error_codes=[type(error).__name__],
-                       cleanup_complete=value.get("cleanup", {}).get("complete"))
+        row = normalize_or_error(trial, value, artifact_root)
         normalized[trial["id"]] = row
         write_json(artifact_root / "trial-records.json", raw_records)
         write_json(report_dir / "progress.json", {"completed": len(normalized), "planned": len(trials), "updated_at": utc_now()})
@@ -225,11 +212,10 @@ def run(args, *, evals=EVALS, repo=REPO):
             if trial["id"] not in normalized:
                 collect(trial, outcomes[trial["id"]])
     finally:
-        cancelled.set()
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
         result = build_result(manifest, list(normalized.values()), wall_seconds=time.monotonic() - started,
-                              cancelled=user_cancelled.is_set())
+                              cancelled=cancelled.is_set())
         result.update(concurrency={"requested": args.jobs, **pool_stats}, preparation_seconds=preparation_seconds)
         if previous:
             result["historical_comparison"] = compare_results(previous[1], result,
@@ -256,12 +242,7 @@ def regenerate(run_id, *, evals=EVALS):
             if path.exists():
                 raw = read_json(path)
                 raw["job_path"] = Path(raw["job_path"]).relative_to(root).as_posix()
-        try:
-            rows.append(normalize_trial(trial, raw, root) if raw else empty_trial(trial))
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            row = empty_trial(trial)
-            row.update(execution_status="export_error", termination_source="export_error", error_codes=[type(error).__name__])
-            rows.append(row)
+        rows.append(normalize_or_error(trial, raw, root) if raw else empty_trial(trial))
     result = build_result(manifest, rows)
     result["analysis_code_sha256"] = file_hash(Path(__file__).with_name("report.py"))
     output = directory / "analyses" / new_id()
