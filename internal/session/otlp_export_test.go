@@ -332,19 +332,25 @@ func TestExportOTLPMapsFailuresLinksAndFallbacks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	child := SpanRecord{ID: TurnSpanID(root, "child", "t-child"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: "child", TurnID: "t-child", Kind: SpanKindAgent, Name: "child", StartNS: base,
-		Attrs: SpanAttrs(map[string]any{"input": "sub task", "output": "gave up", "trigger": "spawn"}), Links: spanLinksJSON([]SpanLink{{TraceID: trace, SpanID: turnSpan}})}
+	child := SpanRecord{
+		ID: TurnSpanID(root, "child", "t-child"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: "child", TurnID: "t-child", Kind: SpanKindAgent, Name: "child", StartNS: base,
+		Attrs: SpanAttrs(map[string]any{"input": "sub task", "output": "gave up", "trigger": "spawn"}), Links: spanLinksJSON([]SpanLink{{TraceID: trace, SpanID: turnSpan}}),
+	}
 	must(store.RecordSpanStart(ctx, child))
 	child.EndNS, child.Status = base+1_000, SpanStatusInterrupted
 	must(store.RecordSpanEnd(ctx, child))
-	call := SpanRecord{ID: ModelCallSpanID(root, "c9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindLLM, Name: "inference-net/kimi-k3-fast", StartNS: base + 2_000,
-		Attrs: SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference-net", "model_call_id": "c9"})}
+	call := SpanRecord{
+		ID: ModelCallSpanID(root, "c9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindLLM, Name: "inference-net/kimi-k3-fast", StartNS: base + 2_000,
+		Attrs: SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference-net", "model_call_id": "c9"}),
+	}
 	must(store.RecordSpanStart(ctx, call))
 	call.EndNS, call.Status = base+3_000, SpanStatusError
 	call.Attrs = SpanAttrs(map[string]any{"prompt_tokens": "7", "completion_tokens": 2, "reasoning_tokens": 1, "error": "provider closed the stream", "usage_source": "reported", "cost_source": "unknown"})
 	must(store.RecordSpanEnd(ctx, call))
-	tool := SpanRecord{ID: ToolSpanID(root, agent, turnID, "tc9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindTool, Name: "rlm_exec", StartNS: base + 4_000,
-		Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "emitting_call_id": "c9", "execution_engine": "quickjs"})}
+	tool := SpanRecord{
+		ID: ToolSpanID(root, agent, turnID, "tc9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindTool, Name: "rlm_exec", StartNS: base + 4_000,
+		Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "emitting_call_id": "c9", "execution_engine": "quickjs"}),
+	}
 	must(store.RecordSpanStart(ctx, tool))
 	tool.EndNS, tool.Status, tool.Attrs = base+5_000, SpanStatusCancelled, SpanAttrs(map[string]any{"error": "cell cancelled"})
 	must(store.RecordSpanEnd(ctx, tool))
@@ -355,8 +361,10 @@ func TestExportOTLPMapsFailuresLinksAndFallbacks(t *testing.T) {
 	// A missing operation row falls back to the host call's own error text.
 	hosts := map[string]string{"op-denied": "denied by policy", "op-text": "plain text result", "op-missing": "operation vanished"}
 	for index, operationID := range []string{"op-denied", "op-text", "op-missing"} {
-		host := SpanRecord{ID: HostSpanID(root, agent, turnID, "tc9", operationID), TraceID: trace, ParentID: tool.ID, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindHost, Name: "host." + operationID, StartNS: base + 4_100 + int64(index),
-			Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "invocation_id": operationID})}
+		host := SpanRecord{
+			ID: HostSpanID(root, agent, turnID, "tc9", operationID), TraceID: trace, ParentID: tool.ID, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindHost, Name: "host." + operationID, StartNS: base + 4_100 + int64(index),
+			Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "invocation_id": operationID}),
+		}
 		must(store.RecordSpanStart(ctx, host))
 		host.EndNS, host.Attrs = base+4_200+int64(index), SpanAttrs(map[string]any{"operation_id": operationID})
 		if operationID == "op-missing" {

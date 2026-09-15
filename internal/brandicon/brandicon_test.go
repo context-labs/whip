@@ -139,8 +139,7 @@ func TestResolveFetchesAConcurrentKeyOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]map[string]string, 16)
 	for i := range results {
-		wg.Add(1)
-		go func() { defer wg.Done(); results[i] = r.Resolve(t.Context(), []string{"slow.example"}) }()
+		wg.Go(func() { results[i] = r.Resolve(t.Context(), []string{"slow.example"}) })
 	}
 	time.Sleep(50 * time.Millisecond)
 	close(release)

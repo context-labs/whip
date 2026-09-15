@@ -116,8 +116,10 @@ func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
 	if err := st.RecordSpanStart(ctx, turn); err != nil {
 		t.Fatal(err)
 	}
-	call := session.SpanRecord{ID: session.ModelCallSpanID(id, "c1"), TraceID: turn.TraceID, ParentID: turn.ID, RootID: id, AgentID: id, TurnID: "t1", Kind: session.SpanKindLLM, Name: "inference/kimi-k3-fast", StartNS: start + 1000,
-		Attrs: session.SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference", "model_call_id": "c1"})}
+	call := session.SpanRecord{
+		ID: session.ModelCallSpanID(id, "c1"), TraceID: turn.TraceID, ParentID: turn.ID, RootID: id, AgentID: id, TurnID: "t1", Kind: session.SpanKindLLM, Name: "inference/kimi-k3-fast", StartNS: start + 1000,
+		Attrs: session.SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference", "model_call_id": "c1"}),
+	}
 	if err := st.RecordSpanStart(ctx, call); err != nil {
 		t.Fatal(err)
 	}

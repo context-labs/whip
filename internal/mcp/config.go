@@ -416,8 +416,9 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 	}
 	// Lowest precedence first, whip's own config last.
 	sources := map[string]string{}
-	var kept []map[string]ServerConfig
-	for _, s := range d.sources(policy) {
+	srcs := d.sources(policy)
+	kept := make([]map[string]ServerConfig, 0, len(srcs)+1)
+	for _, s := range srcs {
 		for name := range s.cfgs {
 			sources[name] = s.label
 		}

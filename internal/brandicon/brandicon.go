@@ -86,15 +86,13 @@ func (r *Resolver) Resolve(ctx context.Context, keys []string) map[string]string
 		if !validKey(key) {
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if src := r.lookup(ctx, key); src != "" {
 				mu.Lock()
 				out[key] = src
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return out
@@ -160,7 +158,7 @@ func (r *Resolver) fetch(ctx context.Context, key string) (src string, definitiv
 	if err != nil {
 		return "", false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest:
 		return "", true
@@ -196,7 +194,7 @@ func validKey(key string) bool {
 		return false
 	}
 	for _, c := range key {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '.' && c != '-' {
 			return false
 		}
 	}
@@ -257,7 +255,7 @@ func (r *Resolver) prune() {
 		}
 	}
 	slices.SortFunc(files, func(a, b aged) int { return a.mod.Compare(b.mod) })
-	for i := 0; i < len(files)-maxFiles; i++ {
+	for i := range len(files) - maxFiles {
 		_ = os.Remove(filepath.Join(r.dir, files[i].name))
 	}
 }
