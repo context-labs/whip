@@ -170,7 +170,21 @@ root prompt (`evals/rlm`).
   imports disabled with a sign-in note (`internal/mcp/opencode.go`,
   `TestParseOpenCode`, `TestLoadMergedOpenCode`).
 - Only native configuration is trusted. `whip mcp import` writes native,
-  trusted entries (`cmd/whip/mcp_import_test.go`). The definition's server
+  trusted entries (`cmd/whip/mcp_import_test.go`). The web and desktop app
+  reach the same state through the import screen: a host that has servers
+  configured for other agents is offered them once on New session (after a
+  provider is ready) and again from Settings › Configuration › Servers from
+  other agents; the list shows every discovered server once with a state
+  (importable, already in Whip, off in its source, excluded by your rules,
+  unsupported sign-in), Import writes the ticked names as native entries and
+  Skip records the answer in `mcpImport.offered`. The daemon reads files only
+  for this and puts no command line, env or header on the wire
+  (`internal/mcp/import.go`, `internal/daemon/mcp_import_service.go`,
+  `packages/app/src/mcp-import.tsx`; `TestCandidatesStatesAndOrder`,
+  `TestApplyWritesNativeEntries`, `TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer`,
+  `packages/app/test/{mcp-import,settings-mcp-import,welcome}.test.tsx`).
+  The CLI shares the core and no longer copies servers a source turned off or
+  ones whip cannot run. The definition's server
   list is applied by one selection step for startup, reload and attachment
   (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
   name outside the list or belonging to a native server becomes a blocked row

@@ -1,10 +1,11 @@
 # MCP import onboarding: pick the servers other agents already have, make them native
 
 Branch: `mcp-import-onboarding` (cut from `compaction-loop-and-ui-cleanup`, worktree like `mcp-contracts`)
-Status: PLANNED — awaiting sign-off. Design frame: Paper board `WHIPCODE`,
-"New session · 14 · Import MCP servers · Done last" (flat list, importable
-servers A→Z, already-native servers A→Z at the bottom). Frames 10–13 are the
-rejected variants and stay on the board for reference.
+Status: SHIPPED on branch `mcp-import-onboarding` (2026-09-15), one commit per
+task; see "Implementation record" at the end. Design frame: Paper board
+`WHIPCODE`, "New session · 14 · Import MCP servers · Done last" (flat list,
+importable servers A→Z, already-native servers A→Z at the bottom). Frames
+10–13 are the rejected variants and stay on the board for reference.
 
 ## Why this matters
 
@@ -381,3 +382,16 @@ Web (vitest, `apps/web/vitest.config.ts`):
    `cmd/whip`; adversarial pass (two clients applying at once, a Codex file
    that changes between candidates and apply, a native name that collides with
    a candidate, a host where every source is unreadable, narrow window).
+
+## Implementation record (2026-09-15)
+
+| Task | Commit subject | Notes |
+| --- | --- | --- |
+| 1 | Add OpenCode as a fourth MCP import source | Reads `config.json`, `opencode.json`, `opencode.jsonc` in OpenCode's order; `oauth` entries import disabled with `mcp.SignInNote`; `internal/mcp` tests isolate OpenCode paths in `TestMain`. |
+| 2 | Share the MCP import core between the CLI and the daemon | `mcp.Candidates` / `mcp.Apply`; `loadSources` refactor. Deviation: the CLI no longer copies servers a source turned off or unsupported ones (it used to copy them as disabled entries). |
+| 3 | Expose MCP import candidates and apply as host-level operations | `rpc:mcp.import.candidates`, `rpc:mcp.import.apply` beside `config.*`; `config.MCPImport.Offered`; `client.mcpImport` in the SDK; `config.Path()` exported for the action bar. |
+| 4 | Add the MCP import screen to the web app | `packages/app/src/mcp-import.tsx`. Monogram tiles only (decision 8); nullable arrays from the generated contract handled in the component. |
+| 5 | Offer the import on New session and from Settings | Welcome shows the screen after the provider is ready, with the host picker under it; Settings › Configuration › "Servers from other agents" opens it in a dialog and reports the count; an older daemon gets one explanatory line instead of the screen. |
+| 6 | Docs, roadmap, gates | `docs/features.md`, `docs/README.md`, `docs/tools.md`, `docs/roadmap.md`, web workflow inventory; `task check`, `go test -race` on the touched packages, full web suite. |
+
+Not done, on purpose: brand icons (decision 8), TUI screen, re-offer on new servers, a Settings switch for the project/OpenCode gates.

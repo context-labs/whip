@@ -186,11 +186,12 @@ root's next turn as vision input through the same path browser and computer
 screenshots use. Children receive the handle only.
 
 Servers explicitly configured in native WHIP configuration are trusted.
-Definitions discovered from the project's `.mcp.json`, the Codex file, or the
-global Claude file retain their provenance and require consent or a saved
-allow rule; `whip mcp import` materializes them into native configuration,
-which is how an imported server becomes trusted. The project file is an
-import source of its own and is off unless enabled. ACP attachments are
+Definitions discovered from the project's `.mcp.json`, the Codex file, the
+global Claude file, or the OpenCode files retain their provenance and require
+consent or a saved allow rule; `whip mcp import` and the app's import screen
+materialize them into native configuration, which is how an imported server
+becomes trusted. The project file is an import source of its own and is off
+unless enabled. ACP attachments are
 additive and untrusted for calls: they join the running manager, an
 attachment outside the agent definition's server list or one that names a
 native server is recorded as blocked instead, and re-attaching a
