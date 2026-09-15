@@ -127,6 +127,11 @@ in
   Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [x] React web implementation with separate UI/app/web source packages, TanStack
   application primitives, Base UI controls and extracted StyleX styles.
+- [x] MCP import screen in the web and desktop app: the servers other agents
+  configured on a host (Codex, Claude, OpenCode, project file) offered once on
+  New session and from Settings, ticked servers written as native trusted
+  entries, no probing before import. See the
+  [MCP import onboarding plan](../.ai-docs/plans/mcp-import-onboarding/README.md).
 - [x] Shared web/desktop startup splash with Whip's wordmark, HALO animations,
   reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed

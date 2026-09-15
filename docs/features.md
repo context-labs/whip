@@ -160,14 +160,31 @@ root prompt (`evals/rlm`).
 
 ## MCP
 
-- Stdio and streamable HTTP servers are discovered from four sources merged
+- Stdio and streamable HTTP servers are discovered from five sources merged
   by name with this precedence: native WHIP configuration, the project's
-  `.mcp.json`, the user's Codex file, the user's global Claude file
-  (`internal/mcp/config.go`, `TestMergePrecedence`). Each import source has
-  its own gate; the project source is off unless enabled because a repository
-  author wrote it (`TestLoadMergedFilteredPolicy`).
+  `.mcp.json`, the user's Codex file, the user's global Claude file, the
+  user's OpenCode files (`internal/mcp/config.go`, `TestMergePrecedence`).
+  Each import source has its own gate; the project source is off unless
+  enabled because a repository author wrote it (`TestLoadMergedFilteredPolicy`).
+  OpenCode's three global files merge in its own order and an `oauth` entry
+  imports disabled with a sign-in note (`internal/mcp/opencode.go`,
+  `TestParseOpenCode`, `TestLoadMergedOpenCode`).
 - Only native configuration is trusted. `whip mcp import` writes native,
-  trusted entries (`cmd/whip/mcp_import_test.go`). The definition's server
+  trusted entries (`cmd/whip/mcp_import_test.go`). The web and desktop app
+  reach the same state through the import screen: a host that has servers
+  configured for other agents is offered them once on New session (after a
+  provider is ready) and again from Settings › Agents & execution › MCP
+  servers; the list shows every discovered server once with a state
+  (importable, already in Whip, off in its source, excluded by your rules,
+  unsupported sign-in), Import writes the ticked names as native entries and
+  Skip records the answer in `mcpImport.offered`. The daemon reads files only
+  for this and puts no command line, env or header on the wire
+  (`internal/mcp/import.go`, `internal/daemon/mcp_import_service.go`,
+  `packages/app/src/mcp-import.tsx`; `TestCandidatesStatesAndOrder`,
+  `TestApplyWritesNativeEntries`, `TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer`,
+  `packages/app/test/{mcp-import,settings-mcp-import,welcome}.test.tsx`).
+  The CLI shares the core and no longer copies servers a source turned off or
+  ones whip cannot run. The definition's server
   list is applied by one selection step for startup, reload and attachment
   (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
   name outside the list or belonging to a native server becomes a blocked row

@@ -37,6 +37,12 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
+		// OpenCode discovery prefers XDG_CONFIG_HOME over HOME; keep it off
+		// the developer's real files too.
+		if err := os.Unsetenv("XDG_CONFIG_HOME"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 		// A test daemon must never discover the developer's inherited keys.
 		names := []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}
 		for _, preset := range config.ProviderPresets() {

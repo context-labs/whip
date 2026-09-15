@@ -1365,6 +1365,39 @@ export interface MCPAttachParams {
   };
 }
 
+export interface MCPImportApplyParams {
+  cwd?: string;
+  names: null | string[];
+}
+
+export interface MCPImportApplyResult {
+  imported: null | string[];
+  skipped?: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportCandidatesParams {
+  cwd?: string;
+}
+
+export interface MCPImportCandidatesResult {
+  candidates:
+    | null
+    | {
+        name: string;
+        source: string;
+        state: string;
+        note?: string;
+        brand_hint?: string;
+      }[];
+  offered: boolean;
+  config_path: string;
+  errors?: {
+    [k: string]: string;
+  };
+}
+
 export interface MCPImportParams {
   source: string;
   enabled: boolean;
@@ -1374,6 +1407,7 @@ export interface MCPImportStatusResult {
   claude: boolean;
   codex: boolean;
   project: boolean;
+  opencode: boolean;
 }
 
 export type MCPListResult =
@@ -2720,6 +2754,7 @@ export interface RuntimeConfiguration {
       }[];
   import_claude: boolean;
   import_codex: boolean;
+  mcp_import_offered: boolean;
   revision: string;
   default_model: string;
   default_provider: string;
@@ -3270,6 +3305,10 @@ export interface ContractTypes {
   LifecycleEvent: LifecycleEvent;
   ListParams: ListParams;
   MCPAttachParams: MCPAttachParams;
+  MCPImportApplyParams: MCPImportApplyParams;
+  MCPImportApplyResult: MCPImportApplyResult;
+  MCPImportCandidatesParams: MCPImportCandidatesParams;
+  MCPImportCandidatesResult: MCPImportCandidatesResult;
   MCPImportParams: MCPImportParams;
   MCPImportStatusResult: MCPImportStatusResult;
   MCPListResult: MCPListResult;
@@ -3493,6 +3532,8 @@ export interface RpcMethods {
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
   "mailbox.list": { params: MailboxPageParams; result: MailboxPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mcp.import.apply": { params: MCPImportApplyParams; result: MCPImportApplyResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult; execution: "query"; permission: "host-configuration"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
   "provider.create": { params: ProviderCreateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };

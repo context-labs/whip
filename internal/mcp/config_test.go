@@ -184,7 +184,8 @@ func TestMergePrecedence(t *testing.T) {
 	codex := map[string]ServerConfig{"a": {Command: []string{"codex-a"}}, "c": {Command: []string{"codex-c"}}}
 	claude := map[string]ServerConfig{"a": {Command: []string{"claude-a"}}, "c": {Command: []string{"claude-c"}}, "d": {Command: []string{"claude-d"}}}
 	global := map[string]ServerConfig{"a": {Command: []string{"global-a"}}, "d": {Command: []string{"global-d"}}, "e": {Command: []string{"global-e"}}}
-	m := Merge(whip, claude, codex, global)
+	opencode := map[string]ServerConfig{"a": {Command: []string{"oc-a"}}, "e": {Command: []string{"oc-e"}}, "f": {Command: []string{"oc-f"}}}
+	m := Merge(opencode, global, codex, claude, whip)
 	if m["a"].Command[0] != "whip-a" {
 		t.Error("whip config must win over the project file and the user's imports")
 	}
@@ -195,7 +196,10 @@ func TestMergePrecedence(t *testing.T) {
 		t.Error("project .mcp.json must win over global ~/.claude.json")
 	}
 	if m["e"].Command[0] != "global-e" {
-		t.Error("global-only entry should survive")
+		t.Error("global ~/.claude.json must win over the opencode file")
+	}
+	if m["f"].Command[0] != "oc-f" {
+		t.Error("opencode-only entry should survive")
 	}
 	if !m["b"].Disabled() {
 		t.Error("whip-only entry should survive with enabled=false")
@@ -206,7 +210,7 @@ func TestMergePrecedence(t *testing.T) {
 // precedence rather than gating (the project file is off by default).
 func everySource() ImportPolicy {
 	on := ImportSourcePolicy{Enabled: true}
-	return ImportPolicy{Claude: on, Codex: on, Project: on}
+	return ImportPolicy{Claude: on, Codex: on, Project: on, Opencode: on}
 }
 
 func TestLoadMergedDiscovery(t *testing.T) {

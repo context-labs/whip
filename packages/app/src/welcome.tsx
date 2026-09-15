@@ -22,6 +22,7 @@ import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
 import { SessionInfoBar } from './session-info-bar';
 import { definitionOptions, useDefinitions } from './definitions';
+import { MCPImportScreen, shouldOffer, useMCPImportCandidates } from './mcp-import';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
   const runtime = useRuntime();
@@ -142,9 +143,17 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
   const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
   const setupVisible = knownReady === false || showProviders;
-  return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : 'What do you want to work on?'}</h1>
+  // Once a provider works, a host that has MCP servers configured for other
+  // agents gets one offer to bring them in. config.get says whether this host
+  // has answered, so an answered host never reads the other agents' files again.
+  const offerable = connected && ready && !setupVisible && configuration.data?.mcp_import_offered === false;
+  const offer = useMCPImportCandidates(client, { enabled: offerable, cwd });
+  const offerVisible = offerable && shouldOffer(offer.query.data);
+  return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : offerVisible ? 'Bring your MCP servers into Whip' : 'What do you want to work on?'}</h1>
   <div ref={panel} {...stylex.props(styles.content)}>
-    {!setupVisible && <><form onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
+    {offerVisible && <><MCPImportScreen client={client} hostName={host.name} cwd={cwd} onDone={focusComposer} />
+      <div {...stylex.props(styles.toolbar)}>{hostControl}</div></>}
+    {!setupVisible && !offerVisible && <><form onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
       <Textarea ref={input} autoFocus={focused} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
         value={draft} disabled={busy} maxLength={256 * 1024} onChange={event => { try { runtime.setDraft(key, event.target.value); } catch (error) { setError(errorMessage(error)); } }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} />

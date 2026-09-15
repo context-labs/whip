@@ -9,6 +9,7 @@ import { RuntimeContext, useSessionTabs } from '../src/context';
 import { Welcome } from '../src/welcome';
 import type { HostConnection } from '../src/hosts';
 import { welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
+import { fakeMCPImport, supportsImport, twoServers } from './mcp-import-fake';
 
 const runtimes: AppRuntime[] = [];
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
@@ -244,4 +245,42 @@ it('keeps the draft and reports the error when the first send fails before accep
   await screen.findByText('Host refused the session');
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Try this');
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ kind: 'new' });
+});
+
+// A host that has MCP servers configured for other agents gets one offer
+// before the composer; answering it returns the composer.
+function withMCPImport(f: ReturnType<typeof fixture>, offered = false) {
+  const mcpImport = fakeMCPImport(twoServers(offered));
+  Object.assign(f.raw, { supports: supportsImport, mcpImport });
+  f.runtime.queries.setQueryData(['runtime-configuration', 'host'], (old: object | undefined) => ({ ...old, mcp_import_offered: offered }));
+  return mcpImport;
+}
+
+it('offers the MCP import once a provider is ready and returns the composer after Skip', async () => {
+  const f = fixture(); const mcpImport = withMCPImport(f); f.render();
+  await screen.findByRole('heading', { name: 'Bring your MCP servers into Whip' });
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.getByRole('checkbox', { name: 'Import paper' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Execution host' })).toBeTruthy();
+  expect(mcpImport.candidates).toHaveBeenCalledWith({ cwd: '/project/whip' }, expect.anything());
+  fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+  await screen.findByRole('textbox', { name: 'Your first message' });
+  expect(mcpImport.apply).toHaveBeenCalledExactlyOnceWith({ cwd: '/project/whip', names: [] });
+  expect(screen.getByRole('heading', { name: 'What do you want to work on?' })).toBeTruthy();
+});
+
+it('does not offer the import before a provider is ready, after it was answered, or on a daemon without it', async () => {
+  const notReady = fixture(false, false); const pending = withMCPImport(notReady); notReady.render();
+  await screen.findByRole('region', { name: 'Provider setup' });
+  expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
+  expect(pending.candidates).not.toHaveBeenCalled();
+  notReady.runtime.dispose();
+  const answered = fixture(); const done = withMCPImport(answered, true); answered.render();
+  await screen.findByRole('textbox', { name: 'Your first message' });
+  expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
+  expect(done.candidates).not.toHaveBeenCalled();
+  answered.runtime.dispose();
+  const older = fixture(); const unsupported = withMCPImport(older); Object.assign(older.raw, { supports: () => false }); older.render();
+  await screen.findByRole('textbox', { name: 'Your first message' });
+  expect(unsupported.candidates).not.toHaveBeenCalled();
 });

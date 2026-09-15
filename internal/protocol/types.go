@@ -342,18 +342,21 @@ type RuntimeConfiguration struct {
 	// Discovery reports the catalog outcome of provider.key.set; configuration reads omit it.
 	Discovery *ProviderDiscovery `json:"discovery,omitempty"`
 	// Presence identifies support even when no remote hosts have been saved.
-	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
-	ImportClaude    bool                 `json:"import_claude"`
-	ImportCodex     bool                 `json:"import_codex"`
-	Revision        string               `json:"revision"`
-	DefaultModel    string               `json:"default_model"`
-	DefaultProvider string               `json:"default_provider"`
-	DefaultEffort   string               `json:"default_effort"`
-	CompactModel    string               `json:"compact_model"`
-	CompactProvider string               `json:"compact_provider"`
-	CompactPercent  int                  `json:"compact_percent"`
-	GoalMaxRounds   int                  `json:"goal_max_rounds"`
-	MaxRetries      int                  `json:"max_retries"`
+	RemoteHosts  *[]config.RemoteHost `json:"remote_hosts,omitempty"`
+	ImportClaude bool                 `json:"import_claude"`
+	ImportCodex  bool                 `json:"import_codex"`
+	// MCPImportOffered is true once the host's MCP import offer was answered;
+	// the New session screen reads it before asking for candidates.
+	MCPImportOffered bool   `json:"mcp_import_offered"`
+	Revision         string `json:"revision"`
+	DefaultModel     string `json:"default_model"`
+	DefaultProvider  string `json:"default_provider"`
+	DefaultEffort    string `json:"default_effort"`
+	CompactModel     string `json:"compact_model"`
+	CompactProvider  string `json:"compact_provider"`
+	CompactPercent   int    `json:"compact_percent"`
+	GoalMaxRounds    int    `json:"goal_max_rounds"`
+	MaxRetries       int    `json:"max_retries"`
 }
 
 type ConfigurationUpdate struct {

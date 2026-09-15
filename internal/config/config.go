@@ -267,6 +267,12 @@ type MCPImport struct {
 	Claude  *MCPImportSource `json:"claude,omitempty"`
 	Codex   *MCPImportSource `json:"codex,omitempty"`
 	Project *MCPImportSource `json:"project,omitempty"`
+	// Opencode is the user's ~/.config/opencode files; on unless disabled,
+	// like the other user-owned sources.
+	Opencode *MCPImportSource `json:"opencode,omitempty"`
+	// Offered records that the import screen was shown on this host and
+	// answered (imported or skipped); the app does not offer again by itself.
+	Offered bool `json:"offered,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when
@@ -308,6 +314,10 @@ func Dir() (string, error) {
 	dir := buildinfo.Home(home)
 	return dir, os.MkdirAll(dir, 0o700)
 }
+
+// Path is the config file location (~/.whip/config.json, or under WHIP_HOME),
+// for surfaces that tell the person where a write went.
+func Path() (string, error) { return path() }
 
 func path() (string, error) {
 	dir, err := Dir()
@@ -356,7 +366,7 @@ func loadUnlocked() (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := parseJSONC(data, &cfg); err != nil {
+	if err := ParseJSONC(data, &cfg); err != nil {
 		logf("config.load", "PARSE FAILURE %s: %v (%d bytes)", p, err, len(data))
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
@@ -372,7 +382,7 @@ func loadUnlocked() (*Config, error) {
 		logf("config.load", "CLOBBERED/EMPTY config detected (%d bytes on disk), attempting recovery", len(data))
 		if bak, err := os.ReadFile(p + ".bak"); err == nil {
 			var restored Config
-			if parseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
+			if ParseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
 				logf("config.load", "restored from .bak (%s)", restored.fingerprint())
 				if len(restored.MCPServers) == 0 && len(cfg.MCPServers) > 0 {
 					restored.MCPServers = cfg.MCPServers // keep the user's servers
@@ -457,7 +467,7 @@ func (c *Config) saveUnlocked() error {
 	if len(c.Providers) == 0 && len(c.Models) == 0 {
 		if existing, err := os.ReadFile(p); err == nil {
 			var cur Config
-			if parseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
+			if ParseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
 				logf("config.save", "REFUSED empty overwrite of healthy config (disk had providers=%d models=%d)", len(cur.Providers), len(cur.Models))
 				return fmt.Errorf("refusing to overwrite %s: existing config has providers/models but the value being saved is empty", p)
 			}
@@ -470,7 +480,7 @@ func (c *Config) saveUnlocked() error {
 	// log the before/after fingerprint so a bad write is attributable
 	if existing, err := os.ReadFile(p); err == nil && len(existing) > 0 {
 		var cur Config
-		if parseJSONC(existing, &cur) == nil {
+		if ParseJSONC(existing, &cur) == nil {
 			logf("config.save", "before=(%s) after=(%s)", cur.fingerprint(), c.fingerprint())
 		} else {
 			logf("config.save", "before=(unparseable, %d bytes) after=(%s)", len(existing), c.fingerprint())

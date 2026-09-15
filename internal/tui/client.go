@@ -1757,6 +1757,8 @@ func (m *model) openThinMCPPalette() {
 		{"Disable Codex imports", "/mcp import codex off"},
 		{"Enable project .mcp.json imports", "/mcp import project on"},
 		{"Disable project .mcp.json imports", "/mcp import project off"},
+		{"Enable OpenCode imports", "/mcp import opencode on"},
+		{"Disable OpenCode imports", "/mcp import opencode off"},
 	}
 	commands = append(commands, mcpPaletteRows(m.mcpInventory)...)
 	m.openCommandSubpalette("MCP", commands)

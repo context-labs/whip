@@ -116,7 +116,7 @@ in `~/.inf/config.json` by the `inf` CLI.
 ## MCP
 
 whip connects to MCP servers and exposes them through `mcp.list_servers`,
-`mcp.list_tools`, and `mcp.call` inside Starlark. Four sources feed one merged
+`mcp.list_tools`, and `mcp.call` inside Starlark. Five sources feed one merged
 set; on a name conflict the earlier source in this list wins:
 
 - **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only
@@ -128,10 +128,20 @@ set; on a name conflict the earlier source in this list wins:
   session start; tool consent is not a process sandbox.
 - **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
 - **claude**: `mcpServers` in `~/.claude.json` (on by default).
+- **opencode**: the `mcp` block in `~/.config/opencode/{config,opencode}.json[c]`
+  (on by default; `local` entries become stdio, `remote` become HTTP,
+  `{env:NAME}` placeholders become `${NAME}` references, `{file:…}` stays as
+  written, and an entry with `oauth` imports disabled with a "needs a
+  sign-in" note because whip has no browser sign-in for MCP servers).
 
 Each import source takes `enabled`, `only` and `exclude`. Servers a source
 gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
-copies imported servers into the native block, where they become trusted.
+copies imported servers into the native block, where they become trusted. The
+web and desktop app offer the same import as a screen: once per host on New
+session when other agents have servers configured there, and any time from
+Settings › Agents & execution › MCP servers. Tick what you want and
+Import writes it into the native block; Skip sets `mcpImport.offered` so the
+offer does not come back on its own.
 
 ```json
 {

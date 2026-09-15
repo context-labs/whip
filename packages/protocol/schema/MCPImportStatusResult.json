@@ -9,6 +9,9 @@
     },
     "project": {
       "type": "boolean"
+    },
+    "opencode": {
+      "type": "boolean"
     }
   },
   "$id": "https://whip.dev/protocol/v6/MCPImportStatusResult",
@@ -17,7 +20,8 @@
   "required": [
     "claude",
     "codex",
-    "project"
+    "project",
+    "opencode"
   ],
   "additionalProperties": false
 }

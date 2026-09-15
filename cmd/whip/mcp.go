@@ -263,11 +263,13 @@ func mcpTarget(c mcp.ServerConfig) string {
 	return strings.Join(c.Command, " ")
 }
 
-// mcpImportCLI materializes imported (claude/codex/project) servers into
-// whip's own config — mcp-polish item 6. Imported means: admitted by the
-// mcpImport policy and not already in whip's config (idempotent; existing
-// whip entries are never touched). --dry-run prints the JSONC fragment
-// instead of writing.
+// mcpImportCLI materializes imported (claude/codex/project/opencode) servers
+// into whip's own config — mcp-polish item 6. Imported means: importable as
+// discovered (not turned off in its source, not one whip cannot run), admitted
+// by the mcpImport policy, and not already in whip's config (idempotent;
+// existing whip entries are never touched). --dry-run prints the JSONC
+// fragment instead of writing. The web import screen shares mcp.Candidates
+// and mcp.Apply with this command.
 //
 // Materialized entries are written without import provenance and are
 // therefore trusted like hand-written ones: the native config file is the
@@ -288,20 +290,20 @@ func mcpImportCLI(args []string) error {
 		return err
 	}
 	wd, _ := os.Getwd()
-	disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-	for src, e := range disc.Errs {
+	policy := mcp.ImportPolicyFrom(cfg.MCPImport)
+	cands, errs := mcp.Candidates(wd, mcp.FromConfigMap(cfg.MCPServers), policy)
+	for src, e := range errs {
 		fmt.Fprintf(os.Stderr, "mcp: %s: %s (its servers were not imported)\n", src, e)
 	}
-	add := map[string]config.MCPServer{}
-	for name, sc := range disc.Merged {
-		if _, owned := cfg.MCPServers[name]; owned {
-			continue // already whip's own — importing is a no-op
+	var names []string // already sorted: Candidates returns them by name
+	for _, c := range cands {
+		if c.State == mcp.CandidateImportable && !c.Gated {
+			names = append(names, c.Name)
 		}
-		add[name] = config.MCPServer{
-			Command: sc.Command, Env: sc.Env, Cwd: sc.Cwd,
-			URL: sc.URL, Headers: sc.Headers, Enabled: sc.Enabled,
-			Note: sc.Note, StartupTimeout: sc.StartupTimeout, ToolTimeout: sc.ToolTimeout,
-		}
+	}
+	add, _, err := mcp.Apply(cfg, cands, names)
+	if err != nil {
+		return err
 	}
 	if len(add) == 0 {
 		fmt.Println("nothing to import — all servers are already in whip's config (or blocked by mcpImport)")
@@ -316,18 +318,9 @@ func mcpImportCLI(args []string) error {
 		fmt.Printf(buildinfo.Text("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n"), len(add), body)
 		return nil
 	}
-	if cfg.MCPServers == nil {
-		cfg.MCPServers = map[string]config.MCPServer{}
-	}
-	names := make([]string, 0, len(add))
-	for name, entry := range add {
-		cfg.MCPServers[name] = entry
-		names = append(names, name)
-	}
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	sort.Strings(names)
 	fmt.Printf(buildinfo.Text("imported %d mcp server(s) into ~/.whip/config.json: %s\n"), len(names), strings.Join(names, ", "))
 	fmt.Println(buildinfo.Text("they are now native: trusted like hand-written entries, no per-call consent"))
 	return nil

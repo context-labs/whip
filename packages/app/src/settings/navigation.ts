@@ -42,6 +42,7 @@ export const settingEntries: readonly SettingEntry[] = [
   { id: 'max_retries', section: 'execution', label: 'Maximum retries', keywords: 'agent errors execution' },
   { id: 'import_claude', section: 'execution', label: 'Import Claude configuration', keywords: 'integration' },
   { id: 'import_codex', section: 'execution', label: 'Import Codex configuration', keywords: 'integration' },
+  { id: 'mcp_import', section: 'execution', label: 'Servers from other agents', keywords: 'mcp import codex claude opencode integration' },
   { id: 'agents', section: 'execution', label: 'Custom agents', keywords: 'agent definition persona rules modules capabilities register new' },
   { id: 'hosts', section: 'connections', label: 'Servers', keywords: 'execution hosts connections server remote ssh url tailscale test connection' },
   { id: 'updates', section: 'about', label: 'Application updates', keywords: 'version install restart release', desktopOnly: true },

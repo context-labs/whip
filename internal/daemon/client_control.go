@@ -1272,7 +1272,7 @@ func (s *Session) clientMCPImport(ctx context.Context, operation, sourceName str
 		return marshalClientOutput(importStatus(cfg.MCPImport), nil)
 	}
 	if importSourceSlot(&config.MCPImport{}, sourceName) == nil {
-		return "", errors.New("mcp import requires claude|codex|project and on|off")
+		return "", errors.New("mcp import requires claude|codex|project|opencode and on|off")
 	}
 	cfg, _, err = config.UpdateVersioned("", func(cfg *config.Config) error {
 		if cfg.MCPImport == nil {
@@ -1306,20 +1306,24 @@ func importSourceSlot(value *config.MCPImport, source string) **config.MCPImport
 		return &value.Codex
 	case "project":
 		return &value.Project
+	case "opencode":
+		return &value.Opencode
 	}
 	return nil
 }
 
 func importStatus(value *config.MCPImport) protocol.MCPImportStatusResult {
 	return protocol.MCPImportStatusResult{
-		Claude:  importState(value, "claude") == "on",
-		Codex:   importState(value, "codex") == "on",
-		Project: importState(value, "project") == "on",
+		Claude:   importState(value, "claude") == "on",
+		Codex:    importState(value, "codex") == "on",
+		Project:  importState(value, "project") == "on",
+		Opencode: importState(value, "opencode") == "on",
 	}
 }
 
-// importState mirrors mcp.ImportPolicyFrom: the user's claude and codex files
-// are on unless disabled; the repository's project file is off unless enabled.
+// importState mirrors mcp.ImportPolicyFrom: the user's claude, codex and
+// opencode files are on unless disabled; the repository's project file is off
+// unless enabled.
 func importState(value *config.MCPImport, source string) string {
 	var setting *config.MCPImportSource
 	if value != nil {

@@ -4,9 +4,10 @@
 // whip's own tools.
 //
 // Configuration is backwards compatible with claude-style (.mcp.json project
-// files) and codex-style (~/.codex/config.toml [mcp_servers]) formats; both
-// are normalized into ServerConfig and merged with whip's own "mcp" block in
-// ~/.whip/config.json, which always wins on name conflicts.
+// files), codex-style (~/.codex/config.toml [mcp_servers]) and OpenCode
+// (~/.config/opencode/opencode.json "mcp") formats; all are normalized into
+// ServerConfig and merged with whip's own "mcp" block in ~/.whip/config.json,
+// which always wins on name conflicts.
 package mcp
 
 import (
@@ -167,29 +168,31 @@ func ParseToolName(name string) (srvKey, tool string, ok bool) {
 	return srvKey, tool, true
 }
 
-// Merge combines server configs by name, lowest precedence first: the global
-// claude config (~/.claude.json), then the project .mcp.json, then codex, and
-// whip's own config always wins whole-entry. No field-level merging —
-// predictable, and matches how claude/codex treat their own scopes (more
-// specific scope beats more general, user-scoped whip beats every import).
-func Merge(whip, project, codex, claudeGlobal map[string]ServerConfig) map[string]ServerConfig {
-	out := make(map[string]ServerConfig, len(whip)+len(project)+len(codex)+len(claudeGlobal))
-	maps.Copy(out, claudeGlobal)
-	maps.Copy(out, codex)
-	maps.Copy(out, project) // the project author knows its servers: above the user's imported files
-	maps.Copy(out, whip)
+// Merge combines server configs by name; a later argument wins whole-entry.
+// Callers pass sources lowest precedence first: the user's OpenCode config,
+// the global claude config (~/.claude.json), codex, the project .mcp.json
+// (the project author knows its servers: above the user's imported files),
+// and whip's own config last. No field-level merging — predictable, and
+// matches how claude/codex treat their own scopes.
+func Merge(lowestFirst ...map[string]ServerConfig) map[string]ServerConfig {
+	out := map[string]ServerConfig{}
+	for _, src := range lowestFirst {
+		maps.Copy(out, src)
+	}
 	return out
 }
 
 // ImportPolicy selects which imported (non-whip) server definitions whip
 // picks up: Claude is the user's ~/.claude.json, Codex the user's
 // ~/.codex/config.toml, Project the repository's .mcp.json in the session
-// cwd. The zero value imports nothing; ImportPolicyFrom converts the
-// config-file block (user sources on by default, project off).
+// cwd, Opencode the user's ~/.config/opencode files. The zero value imports
+// nothing; ImportPolicyFrom converts the config-file block (user sources on
+// by default, project off).
 type ImportPolicy struct {
-	Claude  ImportSourcePolicy
-	Codex   ImportSourcePolicy
-	Project ImportSourcePolicy
+	Claude   ImportSourcePolicy
+	Codex    ImportSourcePolicy
+	Project  ImportSourcePolicy
+	Opencode ImportSourcePolicy
 }
 
 // ImportSourcePolicy gates one import source. Enabled=false drops the source
@@ -229,23 +232,23 @@ func ImportPolicyFrom(imp *config.MCPImport) ImportPolicy {
 		return p
 	}
 	if imp == nil {
-		return ImportPolicy{Claude: convert(nil, true), Codex: convert(nil, true), Project: convert(nil, false)}
+		imp = &config.MCPImport{}
 	}
-	return ImportPolicy{Claude: convert(imp.Claude, true), Codex: convert(imp.Codex, true), Project: convert(imp.Project, false)}
+	return ImportPolicy{
+		Claude:   convert(imp.Claude, true),
+		Codex:    convert(imp.Codex, true),
+		Project:  convert(imp.Project, false),
+		Opencode: convert(imp.Opencode, true),
+	}
 }
 
 // Admits reports whether a server name passes the source's gate.
-func (p ImportSourcePolicy) Admits(name string) bool {
-	if !p.Enabled {
-		return false
-	}
-	if p.Exclude[name] {
-		return false // denylist wins over allowlist
-	}
-	if len(p.Only) > 0 && !p.Only[name] {
-		return false
-	}
-	return true
+func (p ImportSourcePolicy) Admits(name string) bool { return p.Enabled && !p.listed(name) }
+
+// listed reports whether an only/exclude list names the server, independent
+// of the source's enabled gate: the denylist wins over the allowlist.
+func (p ImportSourcePolicy) listed(name string) bool {
+	return p.Exclude[name] || len(p.Only) > 0 && !p.Only[name]
 }
 
 // Filtered is the discovery result when an ImportPolicy is applied: Merged is
@@ -297,6 +300,8 @@ func SourceLabel(path string) string {
 		return "codex config"
 	case path == ClaudeGlobalPath():
 		return "~/.claude.json"
+	case slices.Contains(OpenCodePaths(), path):
+		return "opencode config"
 	case filepath.Base(path) == ".mcp.json":
 		return ".mcp.json"
 	}
@@ -313,29 +318,72 @@ func setSource(src map[string]ServerConfig, path, origin string) {
 	}
 }
 
+// discovered holds every import source's entries before any policy or
+// precedence is applied, each stamped with its file and origin. It is the
+// shared input of LoadMergedFiltered (what the manager connects to) and
+// Candidates (what the import screen offers).
+type discovered struct {
+	claudeGlobal, project, codex, opencode map[string]ServerConfig
+	errs                                   map[string]error
+}
+
+// source is one import file set: its policy name, the label /mcp shows, its
+// gate, and its entries.
+type source struct {
+	name, label string
+	policy      ImportSourcePolicy
+	cfgs        map[string]ServerConfig
+}
+
+// sources lists the import sources lowest precedence first, the one order
+// LoadMergedFiltered and Candidates both resolve name conflicts by.
+func (d discovered) sources(policy ImportPolicy) []source {
+	return []source{
+		{"opencode", "opencode", policy.Opencode, d.opencode},
+		{"claude", "~/.claude.json", policy.Claude, d.claudeGlobal},
+		{"codex", "codex", policy.Codex, d.codex},
+		{"project", ".mcp.json", policy.Project, d.project},
+	}
+}
+
+// loadSources reads the import files. A missing file is not an error; any
+// other read or parse failure is reported per path and never aborts the rest.
+func loadSources(cwd string) discovered {
+	d := discovered{errs: map[string]error{}}
+	claudeGlobalPath := ClaudeGlobalPath()
+	var err error
+	d.claudeGlobal, err = LoadClaude(claudeGlobalPath)
+	if err != nil && !os.IsNotExist(err) {
+		d.errs[claudeGlobalPath] = err
+	}
+	// No cwd means no project: a relative ".mcp.json" would resolve against
+	// the daemon's own working directory and offer a repository's file as
+	// the host's.
+	projectPath := ""
+	if cwd != "" {
+		projectPath = filepath.Join(cwd, ".mcp.json")
+		d.project, err = LoadClaude(projectPath)
+		if err != nil && !os.IsNotExist(err) {
+			d.errs[projectPath] = err
+		}
+	}
+	codexPath := CodexPath()
+	d.codex, err = LoadCodex(codexPath)
+	if err != nil && !os.IsNotExist(err) {
+		d.errs[codexPath] = err
+	}
+	setSource(d.claudeGlobal, claudeGlobalPath, "claude")
+	setSource(d.project, projectPath, "claude")
+	setSource(d.codex, codexPath, "codex")
+	d.opencode = loadOpenCodeAll(d.errs) // stamps its own per-file sources
+	return d
+}
+
 // LoadMergedFiltered discovers server configs like LoadMerged, then applies
 // the import policy: filtered-out claude/codex entries land in Blocked as
 // disabled+noted copies. whipCfg entries always pass through.
 func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy ImportPolicy) Filtered {
-	errs := map[string]error{}
-	claudeGlobalPath := ClaudeGlobalPath()
-	claudeGlobal, err := LoadClaude(claudeGlobalPath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[claudeGlobalPath] = err
-	}
-	claudePath := filepath.Join(cwd, ".mcp.json")
-	claude, err := LoadClaude(claudePath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[claudePath] = err
-	}
-	codexPath := CodexPath()
-	codex, err := LoadCodex(codexPath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[codexPath] = err
-	}
-	setSource(claudeGlobal, claudeGlobalPath, "claude")
-	setSource(claude, claudePath, "claude")
-	setSource(codex, codexPath, "codex")
+	d := loadSources(cwd)
 	whipCfg = maps.Clone(whipCfg)
 	for name, cfg := range whipCfg {
 		cfg = cloneConfig(cfg)
@@ -366,29 +414,24 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 		}
 		return kept
 	}
-	claudeGlobalKept := split(claudeGlobal, policy.Claude, "claude")
-	projectKept := split(claude, policy.Project, "project")
-	codexKept := split(codex, policy.Codex, "codex")
-	// Precedence, lowest first: the user's global claude file, the user's
-	// codex file, the repository's .mcp.json, whip's own config.
-	sources := make(map[string]string, len(whipCfg)+len(codex)+len(claude)+len(claudeGlobal))
-	for name := range claudeGlobal {
-		sources[name] = "~/.claude.json"
-	}
-	for name := range codex {
-		sources[name] = "codex"
-	}
-	for name := range claude {
-		sources[name] = ".mcp.json"
+	// Lowest precedence first, whip's own config last.
+	sources := map[string]string{}
+	var kept []map[string]ServerConfig
+	for _, s := range d.sources(policy) {
+		for name := range s.cfgs {
+			sources[name] = s.label
+		}
+		kept = append(kept, split(s.cfgs, s.policy, s.name))
 	}
 	for name := range whipCfg {
 		sources[name] = "whip"
 	}
-	merged := Merge(whipCfg, projectKept, codexKept, claudeGlobalKept)
-	for name, cfg := range merged {
+	merged := Merge(append(kept, whipCfg)...)
+	claudeGlobalPath := ClaudeGlobalPath()
+	for name, cfg := range merged { // the winner may be a lower source when a higher one was blocked
 		delete(blocked, name)
 		switch cfg.Origin {
-		case "whip", "codex":
+		case "whip", "codex", "opencode":
 			sources[name] = cfg.Origin
 		case "claude":
 			if cfg.Source == claudeGlobalPath {
@@ -398,12 +441,7 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 			}
 		}
 	}
-	return Filtered{
-		Merged:  merged,
-		Blocked: blocked,
-		Sources: sources,
-		Errs:    errs,
-	}
+	return Filtered{Merged: merged, Blocked: blocked, Sources: sources, Errs: d.errs}
 }
 
 // LoadMerged discovers MCP server configs from all supported sources and
@@ -430,11 +468,8 @@ var ClaudeGlobalPath = defaultClaudeGlobalPath
 // the source of any server from the config's "mcp" block. Best-effort: ""
 // when the home dir isn't resolvable.
 func whipConfigPath() string {
-	dir, err := config.Dir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "config.json")
+	path, _ := config.Path()
+	return path
 }
 
 // FromConfigMap converts whip's config-file MCP block (identical field
