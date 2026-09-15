@@ -8,7 +8,7 @@ import {
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
-import { Host, Permissions, Providers, Configuration } from './services.js';
+import { Host, Permissions, Providers, Configuration, MCPImport } from './services.js';
 import { Agents } from './agents.js';
 import { Terminals } from './terminals.js';
 import { Session, Sessions } from './session.js';
@@ -68,6 +68,7 @@ export class WhipClient {
   readonly sessions: Sessions;
   readonly providers: Providers;
   readonly configuration: Configuration;
+  readonly mcpImport: MCPImport;
   readonly permissions: Permissions;
   readonly host: Host;
   readonly agents: Agents;
@@ -125,6 +126,7 @@ export class WhipClient {
     this.sessions = new Sessions(this);
     this.providers = new Providers(this);
     this.configuration = new Configuration(this);
+    this.mcpImport = new MCPImport(this);
     this.permissions = new Permissions(this);
     this.host = new Host(this);
     this.agents = new Agents(this);

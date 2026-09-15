@@ -180,6 +180,10 @@ func brandHint(cfg ServerConfig) string {
 	return ""
 }
 
+// SkipUnknown is Apply's reason for a name that no source defines; callers
+// that treat it as a validation error can tell it from a legitimate skip.
+const SkipUnknown = "not a discovered server"
+
 // Apply copies the named candidates into cfg.MCPServers as native entries:
 // import provenance dropped (so they load trusted, like `whip mcp import` has
 // always written them) and Enabled cleared, because choosing a server is the
@@ -197,7 +201,7 @@ func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[str
 		_, owned := cfg.MCPServers[name]
 		switch {
 		case !ok:
-			skipped[name] = "not a discovered server"
+			skipped[name] = SkipUnknown
 			continue
 		case owned || c.State == CandidateNative:
 			skipped[name] = "already in Whip"

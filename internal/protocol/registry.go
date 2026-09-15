@@ -150,6 +150,8 @@ var rpcOperations = []Operation{
 	rpc[PermissionDecisionParams, PermissionDecisionResult]("permission.decide", Ephemeral, "trusted-client-decision", false),
 	rpc[Empty, RuntimeConfiguration]("config.get", Query, "none", false),
 	rpc[ConfigurationUpdate, RuntimeConfiguration]("config.update", Ephemeral, "configuration-revision", false),
+	rpc[MCPImportCandidatesParams, MCPImportCandidatesResult]("mcp.import.candidates", Query, "host-configuration", false),
+	rpc[MCPImportApplyParams, MCPImportApplyResult]("mcp.import.apply", Ephemeral, "host-configuration", false),
 	rpc[ProviderKeySetup, RuntimeConfiguration]("provider.key.set", Ephemeral, "configuration-revision", true),
 	rpc[ProviderLoginBeginParams, ProviderLoginStatus]("provider.login.begin", Ephemeral, "host-configuration", false),
 	rpc[ProviderLoginParams, ProviderLoginStatus]("provider.login.status", Query, "none", false),

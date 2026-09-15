@@ -1,4 +1,4 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';
@@ -68,6 +68,14 @@ export class Configuration {
   constructor(private readonly client: WhipClient) {}
   get(options: CallOptions = {}) { return this.client.call('config.get', {}, options); }
   update(patch: ConfigurationUpdate, options: CallOptions = {}) { return this.client.call('config.update', patch, options); }
+}
+/** MCP servers other agents configured on the execution host, and the import that makes them native. */
+export class MCPImport {
+  constructor(private readonly client: WhipClient) {}
+  /** Reads config files only: nothing is dialed or launched, and no candidate carries a secret. */
+  candidates(params: MCPImportCandidatesParams = {}, options: CallOptions = {}) { return this.client.call('mcp.import.candidates', params, options); }
+  /** Copies the named candidates into the host's native configuration; an empty list only records that the offer was seen. */
+  apply(params: MCPImportApplyParams, options: CallOptions = {}) { return this.client.call('mcp.import.apply', params, options); }
 }
 export class Providers {
   constructor(private readonly client: WhipClient) {}

@@ -270,6 +270,9 @@ type MCPImport struct {
 	// Opencode is the user's ~/.config/opencode files; on unless disabled,
 	// like the other user-owned sources.
 	Opencode *MCPImportSource `json:"opencode,omitempty"`
+	// Offered records that the import screen was shown on this host and
+	// answered (imported or skipped); the app does not offer again by itself.
+	Offered bool `json:"offered,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when
@@ -311,6 +314,10 @@ func Dir() (string, error) {
 	dir := buildinfo.Home(home)
 	return dir, os.MkdirAll(dir, 0o700)
 }
+
+// Path is the config file location (~/.whip/config.json, or under WHIP_HOME),
+// for surfaces that tell the person where a write went.
+func Path() (string, error) { return path() }
 
 func path() (string, error) {
 	dir, err := Dir()

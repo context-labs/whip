@@ -214,6 +214,22 @@ export const manifest = {
       "result_type": "MailboxInspection"
     },
     {
+      "name": "mcp.import.apply",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-configuration",
+      "params_type": "MCPImportApplyParams",
+      "result_type": "MCPImportApplyResult"
+    },
+    {
+      "name": "mcp.import.candidates",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "MCPImportCandidatesParams",
+      "result_type": "MCPImportCandidatesResult"
+    },
+    {
       "name": "operation.invoke",
       "surface": "rpc",
       "execution": "ephemeral",

@@ -483,6 +483,31 @@
     }
   },
   {
+    "type": "MCPImportApplyParams",
+    "value": {
+      "names": []
+    }
+  },
+  {
+    "type": "MCPImportApplyResult",
+    "value": {
+      "imported": [],
+      "offered": false
+    }
+  },
+  {
+    "type": "MCPImportCandidatesParams",
+    "value": {}
+  },
+  {
+    "type": "MCPImportCandidatesResult",
+    "value": {
+      "candidates": [],
+      "offered": false,
+      "config_path": ""
+    }
+  },
+  {
     "type": "QueryParams",
     "value": {
       "operation": ""

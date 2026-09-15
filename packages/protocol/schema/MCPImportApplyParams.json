@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "cwd": {
+      "type": "string"
+    },
+    "names": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/MCPImportApplyParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPImportApplyParams",
+  "required": [
+    "names"
+  ],
+  "additionalProperties": false
+}
