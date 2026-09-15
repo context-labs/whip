@@ -38,11 +38,12 @@ export function Integrations(props: InspectorProps) {
   );
 }
 type MCPAction = 'reconnect' | 'enable' | 'disable';
-type MCPImportSource = 'claude' | 'codex' | 'project';
+type MCPImportSource = 'claude' | 'codex' | 'project' | 'opencode';
 const importSources: ReadonlyArray<{ source: MCPImportSource; label: string }> = [
   { source: 'claude', label: 'Claude user file (~/.claude.json)' },
   { source: 'codex', label: 'Codex config (~/.codex/config.toml)' },
   { source: 'project', label: 'Project .mcp.json (repository-authored, off by default)' },
+  { source: 'opencode', label: 'OpenCode config (~/.config/opencode/opencode.json)' },
 ];
 // Controls follow what the daemon can honor for a row in its current state.
 // Blocked and unreadable rows are not live servers and get none.

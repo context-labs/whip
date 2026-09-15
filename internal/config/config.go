@@ -267,6 +267,9 @@ type MCPImport struct {
 	Claude  *MCPImportSource `json:"claude,omitempty"`
 	Codex   *MCPImportSource `json:"codex,omitempty"`
 	Project *MCPImportSource `json:"project,omitempty"`
+	// Opencode is the user's ~/.config/opencode files; on unless disabled,
+	// like the other user-owned sources.
+	Opencode *MCPImportSource `json:"opencode,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when

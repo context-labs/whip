@@ -1374,6 +1374,7 @@ export interface MCPImportStatusResult {
   claude: boolean;
   codex: boolean;
   project: boolean;
+  opencode: boolean;
 }
 
 export type MCPListResult =

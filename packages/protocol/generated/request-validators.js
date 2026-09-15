@@ -25207,7 +25207,7 @@ return errors === 0;
 }
 
 export const MCPImportStatusResult = validate83;
-const schema84 = {"type":"object","properties":{"claude":{"type":"boolean"},"codex":{"type":"boolean"},"project":{"type":"boolean"}},"$id":"https://whip.dev/protocol/v6/MCPImportStatusResult","$schema":"http://json-schema.org/draft-07/schema#","title":"MCPImportStatusResult","required":["claude","codex","project"],"additionalProperties":false};
+const schema84 = {"type":"object","properties":{"claude":{"type":"boolean"},"codex":{"type":"boolean"},"project":{"type":"boolean"},"opencode":{"type":"boolean"}},"$id":"https://whip.dev/protocol/v6/MCPImportStatusResult","$schema":"http://json-schema.org/draft-07/schema#","title":"MCPImportStatusResult","required":["claude","codex","project","opencode"],"additionalProperties":false};
 
 function validate83(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v6/MCPImportStatusResult" */;
@@ -25244,9 +25244,8 @@ vErrors.push(err2);
 }
 errors++;
 }
-for(const key0 in data){
-if(!(((key0 === "claude") || (key0 === "codex")) || (key0 === "project"))){
-const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(data.opencode === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "opencode"},message:"must have required property '"+"opencode"+"'"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -25255,10 +25254,9 @@ vErrors.push(err3);
 }
 errors++;
 }
-}
-if(data.claude !== undefined){
-if(typeof data.claude !== "boolean"){
-const err4 = {instancePath:instancePath+"/claude",schemaPath:"#/properties/claude/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+for(const key0 in data){
+if(!((((key0 === "claude") || (key0 === "codex")) || (key0 === "project")) || (key0 === "opencode"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
 }
@@ -25268,9 +25266,9 @@ vErrors.push(err4);
 errors++;
 }
 }
-if(data.codex !== undefined){
-if(typeof data.codex !== "boolean"){
-const err5 = {instancePath:instancePath+"/codex",schemaPath:"#/properties/codex/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(data.claude !== undefined){
+if(typeof data.claude !== "boolean"){
+const err5 = {instancePath:instancePath+"/claude",schemaPath:"#/properties/claude/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
 if(vErrors === null){
 vErrors = [err5];
 }
@@ -25280,9 +25278,9 @@ vErrors.push(err5);
 errors++;
 }
 }
-if(data.project !== undefined){
-if(typeof data.project !== "boolean"){
-const err6 = {instancePath:instancePath+"/project",schemaPath:"#/properties/project/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(data.codex !== undefined){
+if(typeof data.codex !== "boolean"){
+const err6 = {instancePath:instancePath+"/codex",schemaPath:"#/properties/codex/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
 if(vErrors === null){
 vErrors = [err6];
 }
@@ -25292,14 +25290,38 @@ vErrors.push(err6);
 errors++;
 }
 }
-}
-else {
-const err7 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.project !== undefined){
+if(typeof data.project !== "boolean"){
+const err7 = {instancePath:instancePath+"/project",schemaPath:"#/properties/project/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
 if(vErrors === null){
 vErrors = [err7];
 }
 else {
 vErrors.push(err7);
+}
+errors++;
+}
+}
+if(data.opencode !== undefined){
+if(typeof data.opencode !== "boolean"){
+const err8 = {instancePath:instancePath+"/opencode",schemaPath:"#/properties/opencode/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+}
+else {
+const err9 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
 }
 errors++;
 }

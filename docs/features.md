@@ -160,12 +160,15 @@ root prompt (`evals/rlm`).
 
 ## MCP
 
-- Stdio and streamable HTTP servers are discovered from four sources merged
+- Stdio and streamable HTTP servers are discovered from five sources merged
   by name with this precedence: native WHIP configuration, the project's
-  `.mcp.json`, the user's Codex file, the user's global Claude file
-  (`internal/mcp/config.go`, `TestMergePrecedence`). Each import source has
-  its own gate; the project source is off unless enabled because a repository
-  author wrote it (`TestLoadMergedFilteredPolicy`).
+  `.mcp.json`, the user's Codex file, the user's global Claude file, the
+  user's OpenCode files (`internal/mcp/config.go`, `TestMergePrecedence`).
+  Each import source has its own gate; the project source is off unless
+  enabled because a repository author wrote it (`TestLoadMergedFilteredPolicy`).
+  OpenCode's three global files merge in its own order and an `oauth` entry
+  imports disabled with a sign-in note (`internal/mcp/opencode.go`,
+  `TestParseOpenCode`, `TestLoadMergedOpenCode`).
 - Only native configuration is trusted. `whip mcp import` writes native,
   trusted entries (`cmd/whip/mcp_import_test.go`). The definition's server
   list is applied by one selection step for startup, reload and attachment

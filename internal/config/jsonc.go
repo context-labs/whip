@@ -129,6 +129,11 @@ func parseJSONC(data []byte, v any) error {
 	return json.Unmarshal(bytes.TrimSpace(stripped), v)
 }
 
+// ParseJSONC decodes a JSONC document (comments and trailing commas allowed)
+// into v. Other agents write JSONC too (OpenCode's opencode.jsonc), so MCP
+// discovery shares the one parser instead of growing a second.
+func ParseJSONC(data []byte, v any) error { return parseJSONC(data, v) }
+
 // ReadJSON reads a small JSON file from the loopy dir into v. Missing file
 // is an error the caller treats as "empty" — these are optional state files.
 func ReadJSON(name string, v any) error {
