@@ -3364,6 +3364,7 @@ export interface EventPayloadTypes {
   "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
   "stream.cell.host.started": StreamEvent | ContentEventPayload;
+  "stream.discard": StreamEvent | ContentEventPayload;
   "stream.hook.decision": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;

@@ -335,11 +335,21 @@ func TestInputEstimateCannotWrapOrDoubleCountTextParts(t *testing.T) {
 	}
 }
 
-func TestStreamNeverRetriesPartialOutputWithNilCallbacks(t *testing.T) {
+// Output is tracked even with nil callbacks: a stream that fails after any
+// delta is regenerated within the regeneration budget (not the larger
+// pre-token budget), and every attempt is settled.
+func TestStreamRegeneratesPartialOutputWithinBudgetWithNilCallbacks(t *testing.T) {
 	noSleep(t)
 	for _, delta := range []string{`{"content":"partial"}`, `{"reasoning_content":"thinking"}`, `{"tool_calls":[{"index":0,"function":{"arguments":"{"}}]}`} {
 		t.Run(delta, func(t *testing.T) {
 			calls := 0
+			var settled []ModelAttemptResult
+			budget := attemptBudgetFunc(func(_ context.Context, attempt ModelAttempt) (ModelPermit, error) {
+				return ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: attempt.Timeout, Settle: func(result ModelAttemptResult) error {
+					settled = append(settled, result)
+					return nil
+				}}, nil
+			})
 			client := New("https://provider.example", "secret")
 			client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) {
 				calls++
@@ -347,9 +357,14 @@ func TestStreamNeverRetriesPartialOutputWithNilCallbacks(t *testing.T) {
 				response.Body = io.NopCloser(io.MultiReader(strings.NewReader(`data: {"choices":[{"delta":`+delta+`}]}`+"\n\n"), accountingBrokenReader{}))
 				return response, nil
 			})
-			_, _, err := client.Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
-			if err == nil || calls != 1 {
-				t.Fatalf("partial output replayed: calls=%d err=%v", calls, err)
+			_, _, err := client.Stream(context.Background(), Request{Model: "m", MaxTokens: 10, Accounting: &CallAccounting{Budget: budget}}, nil, nil, nil)
+			if err == nil || calls != 1+DefaultRegenerations || len(settled) != calls {
+				t.Fatalf("calls=%d settled=%d err=%v", calls, len(settled), err)
+			}
+			for _, result := range settled {
+				if !result.Dispatched || !result.Failed {
+					t.Fatalf("every attempt must settle as dispatched and failed: %+v", result)
+				}
 			}
 		})
 	}

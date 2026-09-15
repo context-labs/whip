@@ -321,12 +321,17 @@ func TestRetryRespectsCancellation(t *testing.T) {
 	}
 }
 
-// A provider that rejects or stalls the stream before any delta (Inference.net
-// reports a 30 s no-token gateway stall as an SSE error chunk) gets exactly one
-// repeat; the same failure after a delta, or twice in a row, surfaces unchanged.
-func TestStreamRepeatsPreTokenProviderErrorOnce(t *testing.T) {
+// Provider failures delivered inside a 200 stream are classified by wording.
+// Inference.net's 30 s no-token gateway stall reads as transient: before any
+// delta it is retried within the attempt budget, after a delta the partial is
+// discarded and the message regenerated within the regeneration budget.
+// Unclassified wording before a delta is repeated exactly once; a permanent
+// message is never repeated.
+func TestStreamClassifiesProviderErrorChunks(t *testing.T) {
 	noSleep(t)
 	stall := "data: {\"error\":{\"message\":\"Inference stream timed out: No next token received for 30000ms\"}}\n\n"
+	odd := "data: {\"error\":{\"message\":\"boom\"}}\n\n"
+	quota := "data: {\"error\":{\"message\":\"insufficient quota for this model\"}}\n\n"
 	ok := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
 	partial := "data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n" + stall
 	cases := []struct {
@@ -338,8 +343,12 @@ func TestStreamRepeatsPreTokenProviderErrorOnce(t *testing.T) {
 	}{
 		{"stall then success", []string{stall, ok}, 2, "", "ok"},
 		{"closed before any delta then success", []string{"", ok}, 2, "", "ok"},
-		{"two stalls", []string{stall, stall, ok}, 2, "No next token", ""},
-		{"stall after a delta", []string{partial, ok}, 1, "No next token", "par"},
+		{"three stalls then success", []string{stall, stall, stall, ok}, 4, "", "ok"},
+		{"stall after a delta is regenerated", []string{partial, ok}, 2, "", "ok"},
+		{"stalls after deltas exhaust the regeneration budget", []string{partial, partial, partial, ok}, 1 + DefaultRegenerations, "No next token", "par"},
+		{"unclassified wording is repeated once", []string{odd, odd, ok}, 2, "boom", ""},
+		{"permanent wording is never repeated", []string{quota, ok}, 1, "insufficient quota", ""},
+		{"permanent wording after a delta is never regenerated", []string{"data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n" + quota, ok}, 1, "insufficient quota", "par"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

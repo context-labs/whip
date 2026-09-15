@@ -157,7 +157,7 @@ type Config struct {
 	CollapsePaste      *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
 	GoalMaxRounds      int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
 	RLM                RLMConfig           `json:"rlm,omitzero"`
-	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network/stall) before the first delta; 0 = llm.DefaultMaxAttempts, 1 = no retries. A stream that fails after its first delta is regenerated at most llm.DefaultRegenerations times regardless.
 	Providers          map[string]Provider `json:"providers"`
 	ProviderKeySources ProviderKeySources  `json:"providerKeySources,omitzero"`
 	DisabledProviders  []string            `json:"disabledProviders,omitempty"`

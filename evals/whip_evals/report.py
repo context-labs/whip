@@ -42,7 +42,8 @@ def empty_trial(trial):
 
 PROVIDER_ERROR_TOKENS = ("api error:", "stream timed out", "no next token", "without a completion marker",
                          "invalid stream chunk", "429", "502", "503", "504", "520", "rate limit",
-                         "connection reset", "unexpected eof", "context deadline exceeded")
+                         "connection reset", "unexpected eof", "context deadline exceeded",
+                         "provider stream stalled", "per-attempt ceiling")
 REQUIRED_EVIDENCE = ("state.json", "metrics.json", "outcome.json", "sessions.db", "identity.json",
                      "content-export.json", "configuration.json", "provider-catalog.json", "cli.ndjson", "cli.stderr")
 

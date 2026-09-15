@@ -137,6 +137,16 @@ export function timelineRows(
       activityBoundary = event.seq;
       liveCalls.clear();
     }
+    if (event.kind === 'stream.discard') {
+      // The stream failed after output and the message is being regenerated:
+      // this turn's live text, reasoning and pending tool rows are gone.
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i];
+        if (row.live && row.turnId === payload.turn_id && (row.role === 'assistant' || row.role === 'reasoning' || row.role === 'tool')) rows.splice(i, 1);
+      }
+      liveCalls.clear();
+      continue;
+    }
     if (event.kind === 'stream.text' || event.kind === 'stream.reasoning') {
       if (!payload.text?.trim()) continue;
       rows.push({

@@ -106,15 +106,38 @@ func TestSlowHealthyStreamIsNotStalled(t *testing.T) {
 	}
 }
 
-// Until regeneration lands, a stall after the first delta surfaces as a typed
-// stall error with the partial preserved, and is not repeated.
-func TestStallAfterDeltaSurfacesTypedError(t *testing.T) {
+// A stall after the first delta discards the partial and regenerates the
+// message; the retry event says what was thrown away. Once the regeneration
+// budget is spent the partial is preserved and the typed stall surfaces.
+func TestStallAfterDeltaIsRegenerated(t *testing.T) {
 	noSleep(t)
 	server, calls := stallServer(t, deltaThenSilence, good)
 	client := New(server.URL, "test-key")
 	client.StallTimeout = 50 * time.Millisecond
-	msg, _, err := client.Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
-	if _, ok := errors.AsType[stallError](err); !ok || msg.Content != "partial" || calls.Load() != 1 {
+	var streamed string
+	var retried []RetryEvent
+	client.OnRetry = func(event RetryEvent) { retried = append(retried, event) }
+	msg, _, err := client.Stream(context.Background(), Request{Model: "m"}, func(s string) { streamed += s }, nil, nil)
+	if err != nil || msg.Content != "ok" || calls.Load() != 2 || len(retried) != 1 {
+		t.Fatalf("content=%q calls=%d retries=%d err=%v", msg.Content, calls.Load(), len(retried), err)
+	}
+	event := retried[0]
+	if !event.Regenerating || event.Discarded != len("partial") || event.Regeneration != 1 || event.Regenerations != DefaultRegenerations {
+		t.Fatalf("retry event %+v", event)
+	}
+	if _, ok := errors.AsType[stallError](event.Err); !ok {
+		t.Fatalf("retry cause %v, want a stall", event.Err)
+	}
+	if streamed != "partialok" {
+		t.Fatalf("streamed %q; the UI is told to discard through the retry event", streamed)
+	}
+
+	server, calls = stallServer(t, deltaThenSilence)
+	client = New(server.URL, "test-key")
+	client.StallTimeout = 50 * time.Millisecond
+	client.Regenerations = 1
+	msg, _, err = client.Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
+	if _, ok := errors.AsType[stallError](err); !ok || msg.Content != "partial" || calls.Load() != 2 {
 		t.Fatalf("content=%q calls=%d err=%v", msg.Content, calls.Load(), err)
 	}
 }

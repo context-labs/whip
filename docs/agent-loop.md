@@ -34,6 +34,22 @@ fraction of the model window. A provider context-limit error may trigger one
 reactive compaction and retry. Compaction summaries and raw-history cutoffs
 are committed with the root turn.
 
+A single provider call failing does not fail the turn. A stream that sends
+nothing for the stall timeout (120 s on OpenAI-compatible chat streams, 300 s
+on the OpenAI Responses and ChatGPT subscription streams, which can stay silent
+while a reasoning model thinks) is cancelled and retried, as is an attempt that
+hits the ten-minute per-attempt ceiling; only the caller's own deadline or
+cancel ends a call outright. Transport errors, 429 and 5xx responses (with
+`Retry-After` honoured up to a minute), and provider error chunks whose wording
+reads as transient are retried with backoff, up to `maxRetries` attempts before
+the first delta. After the first delta the partial answer cannot be resumed:
+within a budget of two regenerations the client discards it, tells clients
+through `stream.discard` and a notice, and requests the whole message again.
+Permanent failures (authentication, quota, invalid request, context limit) are
+never repeated. When every attempt fails, the last partial is kept in the
+transcript as `[response interrupted]` and the turn fails. Each attempt is
+admitted and settled separately in model accounting.
+
 A fold keeps the system prompt, one running summary, and a token-budgeted
 tail of recent whole turns. When the newest turn alone exceeds the tail
 budget, as a long tool-heavy turn does, the tail boundary moves inside that

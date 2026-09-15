@@ -75,6 +75,7 @@ type (
 
 type (
 	noticeMsg  string    // dim one-liner appended to the transcript
+	discardMsg struct{}  // the provider stream failed after output; the message is being regenerated
 	usageMsg   llm.Usage // one request's token usage
 	quitArmMsg struct{}  // the idle ctrl+c arm window expired
 	thinkMsg   string    // streamed reasoning tokens

@@ -620,6 +620,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		message = toolOutputMsg{id: event.ID, text: event.Text}
 	case "stream.tool.completed":
 		message = toolEndMsg{id: event.ID, name: event.Name, result: event.Result}
+	case "stream.discard":
+		message = discardMsg{}
 	case "stream.notice":
 		message = noticeMsg(event.Text)
 	case "stream.usage":

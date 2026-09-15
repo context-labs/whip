@@ -1135,6 +1135,7 @@ export const manifest = {
     "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
     "stream.cell.host.started": "StreamEvent",
+    "stream.discard": "StreamEvent",
     "stream.hook.decision": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",

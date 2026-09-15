@@ -390,6 +390,10 @@ type Client struct {
 	// AttemptCeiling bounds one attempt end to end. 0 uses defaultCallTimeout.
 	// Hitting it is a retryable failure; the stall deadline does the real work.
 	AttemptCeiling time.Duration
+	// Regenerations caps how many times a stream that failed after its first
+	// delta is requested again from scratch. 0 uses DefaultRegenerations.
+	// Each regeneration re-bills the prompt and discards the partial output.
+	Regenerations int
 	// OnRetry, when set, is invoked before each retry of a transient request
 	// failure. Optional — nil means silent retries.
 	OnRetry func(RetryEvent)
@@ -540,6 +544,19 @@ func IsPermanentRequestError(err error) bool {
 // exported so the UI can show "attempt N/M".
 const DefaultMaxAttempts = 8
 
+// DefaultRegenerations is the budget for repeating a request whose stream
+// failed after it had started producing output. opencode and pi both
+// regenerate in that case; the budget is small because every regeneration
+// re-bills the prompt.
+const DefaultRegenerations = 2
+
+func (c *Client) regenerations() int {
+	if c.Regenerations > 0 {
+		return c.Regenerations
+	}
+	return DefaultRegenerations
+}
+
 // RetryEvent describes one failed attempt that is about to be retried. It is
 // passed to the Client.OnRetry hook so the UI can show "retrying in Ns"
 // instead of looking hung.
@@ -548,6 +565,13 @@ type RetryEvent struct {
 	Max     int           // total attempts the client will make (initial + retries)
 	Delay   time.Duration // how long the client will sleep before retrying
 	Err     error         // the transient error that caused the retry
+	// Regenerating reports that the failed attempt had already streamed output
+	// which the client is discarding; Discarded counts the streamed characters
+	// and Regeneration is this regeneration's number out of the budget.
+	Regenerating  bool
+	Discarded     int
+	Regeneration  int
+	Regenerations int
 }
 
 // retryableStatus reports whether an HTTP status is worth retrying: rate
@@ -564,10 +588,10 @@ type nonRetryable struct{ err error }
 func (n nonRetryable) Error() string { return n.err.Error() }
 func (n nonRetryable) Unwrap() error { return n.err }
 
-// preTokenError wraps a provider-reported stream failure (an SSE error chunk
-// such as a gateway idle timeout, or a stream that closed without a completion
-// marker) that arrived before any delta. Nothing was generated, so the request
-// is repeated exactly once; the same failure after a delta stays nonRetryable.
+// preTokenError wraps a provider failure whose wording classify() does not
+// recognise and that arrived before any delta. Nothing was generated, so the
+// request is repeated exactly once; the same wording after a delta is not
+// regenerated (see providerError).
 type preTokenError struct{ err error }
 
 func (p preTokenError) Error() string { return p.err.Error() }
@@ -735,13 +759,14 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // chunk (stream_options:include_usage).
 //
 // Transient failures (transport errors, 429, 5xx, a stream that stalls for
-// the stall timeout, an attempt that hits its ceiling) are retried with
-// backoff — but only until the first text, reasoning, or tool-call delta is
-// received. After that point a retry would regenerate a partially received
-// response, so the error is surfaced instead. A retry regenerates the whole
-// assistant message server-side; nothing in the request messages is mutated
-// by a failed attempt. Each attempt may incur usage and is settled
-// independently. Only the caller's context bounds the call as a whole.
+// the stall timeout, an attempt that hits its ceiling, a provider error chunk
+// that reads as transient) are retried with backoff. Before the first text,
+// reasoning, or tool-call delta the budget is MaxRetries attempts; after it
+// the partial output is discarded and the request is regenerated at most
+// Regenerations times, with OnRetry told what was thrown away. Nothing in the
+// request messages is mutated by a failed attempt. Each attempt may incur
+// usage and is settled independently. Only the caller's context bounds the
+// call as a whole.
 func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	req.Stream = true
 	req.StreamOptions = &struct {
@@ -754,22 +779,27 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 	logicalID := logicalCallID()
 	var total Usage
 	authRetried := false
+	regenerated := 0
 	for attempt := 1; ; attempt++ {
 		emitted := false
+		discarded := 0
 		wrapText := func(s string) {
 			emitted = true
+			discarded += len(s)
 			if onText != nil {
 				onText(s)
 			}
 		}
 		wrapThink := func(s string) {
 			emitted = true
+			discarded += len(s)
 			if onThink != nil {
 				onThink(s)
 			}
 		}
 		wrapTool := func(id, name, args string) {
 			emitted = true
+			discarded += len(args)
 			if onToolCall != nil && id != "" {
 				onToolCall(id, name, args)
 			}
@@ -788,20 +818,32 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 			}
 			continue
 		}
-		if err == nil || emitted || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
+		if err == nil || IsAccountingError(err) || !retryable(err) {
 			return msg, total, err
 		}
-		if _, ok := errors.AsType[preTokenError](err); ok && attempt >= 2 {
-			return msg, total, err // one repeat for a provider that failed before generating
+		event := RetryEvent{Attempt: attempt, Max: c.attempts(), Err: err}
+		if emitted {
+			// The partial answer cannot be resumed; within the budget it is
+			// discarded and the whole message is generated again.
+			if regenerated >= c.regenerations() {
+				return msg, total, err
+			}
+			regenerated++
+			event.Regenerating, event.Discarded = true, discarded
+			event.Regeneration, event.Regenerations = regenerated, c.regenerations()
+		} else if attempt >= c.attempts() {
+			return msg, total, err
+		} else if _, ok := errors.AsType[preTokenError](err); ok && attempt >= 2 {
+			return msg, total, err // one repeat for an unclassified provider failure before generating
 		}
-		delay := backoff(attempt)
+		event.Delay = backoff(attempt)
 		if rejection, ok := errors.AsType[*HTTPError](err); ok {
-			delay = max(delay, rejection.RetryAfter)
+			event.Delay = max(event.Delay, rejection.RetryAfter)
 		}
 		if c.OnRetry != nil {
-			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
+			c.OnRetry(event)
 		}
-		if err := sleep(ctx, delay); err != nil {
+		if err := sleep(ctx, event.Delay); err != nil {
 			return msg, total, err
 		}
 	}
@@ -911,22 +953,15 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 			return msg, usage, nonRetryable{err}
 		}
 		if ch.Error != nil {
-			err := fmt.Errorf("api error: %s", ch.Error.Message)
-			if emitted {
-				return msg, usage, nonRetryable{err}
-			}
-			return msg, usage, preTokenError{err}
+			return msg, usage, providerError(ch.Error.Message, emitted)
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return msg, usage, err
 	}
 	if finish == "" && !done {
-		err := errors.New("model stream ended without a completion marker")
-		if emitted {
-			return msg, usage, nonRetryable{err}
-		}
-		return msg, usage, preTokenError{err}
+		// A proxy or gateway closed the connection mid-stream: transient.
+		return msg, usage, errors.New("model stream ended without a completion marker")
 	}
 	// Never execute tool calls from a max_tokens-truncated response: the
 	// streamed JSON arguments may be silently incomplete.
@@ -1038,7 +1073,7 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 		return text, usage, nonRetryable{err}
 	}
 	if out.Error != nil {
-		return text, usage, nonRetryable{fmt.Errorf("api error: %s", out.Error.Message)}
+		return text, usage, providerError(out.Error.Message, text != "")
 	}
 	if len(out.Choices) == 0 {
 		return "", usage, nonRetryable{errors.New("no choices in completion response")}
@@ -1059,7 +1094,7 @@ func httpRequest(ctx context.Context, baseURL string, body []byte) (*http.Reques
 
 func responseError(response *http.Response) (Usage, error) {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	httpErr := &HTTPError{Status: response.Status, Body: strings.TrimSpace(string(body))}
+	httpErr := &HTTPError{Status: response.Status, Body: strings.TrimSpace(string(body)), RetryAfter: retryAfter(response)}
 	var payload struct {
 		Usage json.RawMessage `json:"usage"`
 	}
@@ -1075,6 +1110,23 @@ func responseError(response *http.Response) (Usage, error) {
 
 // decodeUsage validates token usage and a provider charge independently. A bad
 // field cannot erase the usable half of the accounting or the model's response.
+// retryAfter reads a Retry-After header (seconds or HTTP date), capped at one
+// minute: a provider asking for a longer wait is treated as an ordinary
+// backoff, as pi does.
+func retryAfter(response *http.Response) time.Duration {
+	value := response.Header.Get("Retry-After")
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(min(seconds, 60)) * time.Second
+	}
+	if reset, err := http.ParseTime(value); err == nil {
+		return min(max(time.Until(reset), 0), time.Minute)
+	}
+	return 0
+}
+
 func decodeUsage(data json.RawMessage) (Usage, error) {
 	if len(data) == 0 || string(data) == "null" {
 		return Usage{}, nil

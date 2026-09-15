@@ -145,6 +145,15 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
 		events.OnRetry = func(event llm.RetryEvent) {
+			if event.Regenerating {
+				// The stream failed after output; the client discards the partial
+				// and generates the whole message again. Clients drop the shown
+				// partial on stream.discard; the notice says what happened.
+				emit("stream.discard", StreamEvent{Text: fmt.Sprint(event.Discarded), TurnID: turnID})
+				emit("stream.notice", StreamEvent{Text: fmt.Sprintf("response interrupted after %d characters (%v); regenerating in %s (%d of %d)",
+					event.Discarded, event.Err, event.Delay, event.Regeneration, event.Regenerations)})
+				return
+			}
 			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
 		}
 		events.OnUsage = func(usage llm.Usage) {

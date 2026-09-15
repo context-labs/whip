@@ -631,11 +631,20 @@ func (node *AgentSession) run() {
 
 // scheduleRetryWake re-wakes this node after an exponential backoff
 // (2s, 4s, ... capped at 64s) if it still has queued work.
+// maxChildRetryWakes bounds how long a child keeps re-waking on a failing
+// provider: six wakes is about ten minutes at the 64 s cap. Its queued input
+// stays queued, so the next explicit wake (new mail, a parent nudge) resumes
+// it; the parent already has the completion notice with the last error.
+const maxChildRetryWakes = 6
+
 func (node *AgentSession) scheduleRetryWake() {
 	node.mu.Lock()
 	node.failures++
 	attempt := node.failures
 	node.mu.Unlock()
+	if attempt > maxChildRetryWakes {
+		return
+	}
 	delay := time.Duration(1<<min(attempt, 6)) * time.Second
 	time.AfterFunc(delay, func() {
 		if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {

@@ -235,7 +235,12 @@ root prompt (`evals/rlm`).
 
 ## Provider loop and models
 
-- OpenAI-compatible streaming with retry events and usage accounting.
+- OpenAI-compatible streaming with retry events and usage accounting. Stall
+  detection (120 s chat, 300 s Responses and subscription), a retryable
+  ten-minute per-attempt ceiling, text classification of provider error chunks,
+  `Retry-After`, and regeneration of a stream that failed after its first delta
+  (two per call, announced through `stream.discard` and a notice). See
+  [agent-loop.md](agent-loop.md).
 - Model-to-provider routing, live catalog discovery, context/output limits,
   reasoning effort, vision flags, sampling parameters, and pricing.
 - `models.call` and `models.batch` provide stateless analysis without creating

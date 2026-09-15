@@ -173,6 +173,8 @@ class ReportTests(unittest.TestCase):
                  ({'status': 'agent_error'}, {}, 'host request limit', 'whip_guard'),
                  ({'status': 'agent_error'}, {}, 'api error: 502 Bad Gateway', 'provider_error'),
                  ({'status': 'agent_error'}, {}, 'Inference stream timed out: No next token received for 30000ms', 'provider_error'),
+                 ({'status': 'agent_error'}, {}, 'provider stream stalled: no data for 2m0s', 'provider_error'),
+                 ({'status': 'agent_error'}, {}, 'model call exceeded the 10m0s per-attempt ceiling', 'provider_error'),
                  ({'status': 'agent_error'}, {}, 'engine raised TypeError', 'agent_error')]
         for outcome, raw, diagnostic, expected in cases:
             self.assertEqual(termination(outcome, raw, diagnostic), expected)
