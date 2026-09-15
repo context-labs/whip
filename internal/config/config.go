@@ -170,6 +170,10 @@ type Config struct {
 	// (claude-style .mcp.json, codex-style ~/.codex/config.toml). nil imports
 	// both sources, preserving the pre-gating behavior.
 	MCPImport *MCPImport `json:"mcpImport,omitempty"`
+	// BrandIcons lets the import screen ask DuckDuckGo's icon endpoint for the
+	// logo of an MCP server the app has no bundled mark for, by registrable
+	// domain. nil is on; false keeps every lookup on this machine.
+	BrandIcons *bool `json:"brandIcons,omitempty"`
 	// LSPServers is whip's own LSP server block (whip-native shape; see
 	// internal/lsp.FromConfigMap for the merge semantics). Entries extend or
 	// disable the built-in registry (gopls).

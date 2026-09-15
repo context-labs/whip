@@ -23,6 +23,9 @@
           },
           "brand_hint": {
             "type": "string"
+          },
+          "brand_key": {
+            "type": "string"
           }
         },
         "required": [

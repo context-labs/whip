@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
 	"github.com/context-labs/whip/internal/llm"
@@ -57,6 +58,8 @@ type ProviderService struct {
 	generation    string
 	mu            sync.Mutex
 	flows         map[string]*providerLoginFlow
+	iconsOnce     sync.Once
+	icons         *brandicon.Resolver // created by the first mcp.brand.icons call
 	wg            sync.WaitGroup
 	login         func(context.Context, func(string, string)) (providerLoginIdentity, error)
 	projects      func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error)
@@ -163,7 +166,8 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 		DefaultExecutionEngine: c.RLM.Engine(),
 		RemoteHosts:            &hosts,
 		ImportClaude:           claude, ImportCodex: codex, MCPImportOffered: c.MCPImport != nil && c.MCPImport.Offered,
-		Revision: revision, DefaultModel: c.DefaultModel,
+		BrandIcons: c.BrandIcons == nil || *c.BrandIcons,
+		Revision:   revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
 		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries,
@@ -227,6 +231,10 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			}
 		}
 
+		if p.BrandIcons != nil {
+			enabled := *p.BrandIcons
+			c.BrandIcons = &enabled
+		}
 		if p.CompactPercent != nil && (*p.CompactPercent < 0 || *p.CompactPercent > 100) {
 			return errors.New("invalid compaction percentage")
 		}

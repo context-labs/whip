@@ -189,6 +189,22 @@ root prompt (`evals/rlm`).
   (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
   name outside the list or belonging to a native server becomes a blocked row
   (`TestMCPAttachmentIsAdditiveAndBounded`).
+- Rows on that screen carry a logo. The app bundles 199 marks keyed by
+  registrable domain (`packages/app/src/assets/mcp-brands.json`, the MCP
+  vendors in Executor's catalogue, built by `scripts/mcp-brands.mjs`); the
+  daemon derives that key from the server URL (`brandKey`,
+  `internal/mcp/import.go`, `TestBrandKey`) and, for domains the bundle
+  lacks, `mcp.brand.icons` asks DuckDuckGo's icon endpoint once per domain
+  and caches the answer under `~/.whip/icons` with a byte cap, a sniffed
+  type allowlist, no redirects and no credentials (`internal/brandicon`,
+  `TestResolveCachesHitsAndMisses`, `TestResolveRefusesWhatIsNotASmallRasterImage`,
+  `TestResolveFetchesAConcurrentKeyOnce`). `brandIcons: false` in the host
+  config, or the "Server logos" switch under Settings › Agents & execution ›
+  MCP servers, keeps every lookup on the host
+  (`TestMCPBrandIconsHonourTheHostSwitch`). Anything unresolved shows a
+  tinted monogram (`packages/app/src/mcp-brand.tsx`,
+  `packages/app/test/mcp-brand.test.tsx`). Local hosts, IP literals and
+  tailnet names never leave the machine.
 - Root and child kernels use `mcp.list_servers/list_tools/call`.
 - Status rows distinguish `blocked` (policy-filtered or refused at attach) and
   `unreadable` (a discovery source that failed to parse) from live servers;
