@@ -57,7 +57,7 @@ try {
   const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
   await hosts.getByRole('textbox', { name: /Server name/ }).fill('Smoke URL');
   await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(remote.info.endpoint);
-  await hosts.getByRole('button', { name: 'Add server', exact: true }).click();
+  await hosts.getByRole('button', { name: 'Connect', exact: true }).click();
   await hosts.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${remote.info.root_id}"]`).first();
