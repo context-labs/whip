@@ -15,12 +15,6 @@
           "source": {
             "type": "string"
           },
-          "source_path": {
-            "type": "string"
-          },
-          "transport": {
-            "type": "string"
-          },
           "state": {
             "type": "string"
           },
@@ -34,8 +28,6 @@
         "required": [
           "name",
           "source",
-          "source_path",
-          "transport",
           "state"
         ],
         "additionalProperties": false

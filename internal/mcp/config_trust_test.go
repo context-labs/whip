@@ -51,7 +51,7 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	if attached.Trusted || attached.Origin != "attachment" || attached.Source != "client attachment" {
 		t.Fatalf("attachment acquired trust: %+v", attached)
 	}
-	merged := Merge(map[string]ServerConfig{"native": native}, map[string]ServerConfig{"native": attached}, nil, nil, nil)
+	merged := Merge(map[string]ServerConfig{"native": attached}, map[string]ServerConfig{"native": native})
 	if !merged["native"].Trusted || merged["native"].Origin != "whip" {
 		t.Fatal("attachment shadowed rediscovered native config")
 	}

@@ -19,6 +19,11 @@ type claudeFile struct {
 	MCPServers map[string]claudeServer `json:"mcpServers"`
 }
 
+// SSENote marks a claude entry on the legacy sse transport, which whip does
+// not ship; discovery turns it off with this note and the import screen reads
+// it as unsupported.
+const SSENote = "claude sse transport is legacy and unsupported — switch the server to streamable http (type: \"http\")"
+
 type claudeServer struct {
 	Type    string            `json:"type"`
 	Command string            `json:"command"`
@@ -57,7 +62,7 @@ func ParseClaude(data []byte) (map[string]ServerConfig, error) {
 		case "sse":
 			disabled := false
 			c.Enabled = &disabled
-			c.Note = "claude sse transport is legacy and unsupported — switch the server to streamable http (type: \"http\")"
+			c.Note = SSENote
 		case "http", "streamable-http", "":
 			// "" infers from command/url above; both are our native shapes.
 		case "stdio":

@@ -10,13 +10,11 @@ type MCPImportCandidatesParams struct {
 // It carries what a row needs and nothing that could leak a secret: no
 // command line, environment or headers.
 type MCPImportCandidate struct {
-	Name       string `json:"name"`
-	Source     string `json:"source"` // codex | claude | project | opencode
-	SourcePath string `json:"source_path"`
-	Transport  string `json:"transport"` // stdio | http
-	State      string `json:"state"`     // importable | native | disabled | excluded | unsupported
-	Note       string `json:"note,omitempty"`
-	BrandHint  string `json:"brand_hint,omitempty"`
+	Name      string `json:"name"`
+	Source    string `json:"source"` // codex | claude | project | opencode
+	State     string `json:"state"`  // importable | native | disabled | excluded | unsupported
+	Note      string `json:"note,omitempty"`
+	BrandHint string `json:"brand_hint,omitempty"`
 }
 
 type MCPImportCandidatesResult struct {

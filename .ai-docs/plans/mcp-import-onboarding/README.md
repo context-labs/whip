@@ -162,9 +162,9 @@ type CandidateState string // "importable" | "native" | "disabled" | "excluded" 
 // Candidate is one server discovered outside native configuration, with
 // enough to render a row and nothing that could leak a secret.
 type Candidate struct {
-    Name, Source, SourcePath string // Source: codex|claude|project|opencode
-    Transport string                // stdio|http
+    Name, Source string // Source: codex|claude|project|opencode
     State     CandidateState
+    Gated     bool                  // the source's gate is off (the CLI skips it; the screen still offers it)
     Note      string                // the source's own reason, when it gave one
     BrandHint string                // URL host, or the command's package/binary name
     config    ServerConfig          // full entry, used by Apply only
@@ -176,7 +176,7 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 
 // Apply copies the named candidates into cfg.MCPServers as native entries
 // (Origin/Source dropped, Enabled cleared) and reports what it skipped.
-func Apply(cfg *config.Config, cands []Candidate, names []string) (added []string, skipped map[string]string)
+func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[string]config.MCPServer, skipped map[string]string, err error)
 ```
 
 - State rules: name in `native` → `native`; `policy.<source>.Exclude[name]` or
@@ -212,7 +212,7 @@ these sit beside `configuration.get/update`, not among the session-scoped
 ```go
 type MCPImportCandidatesParams struct{ CWD string `json:"cwd,omitempty"` } // project source only when given
 type MCPImportCandidate struct {
-    Name, Source, SourcePath, Transport, State, Note, BrandHint string
+    Name, Source, State, Note, BrandHint string
 }
 type MCPImportCandidatesResult struct {
     Candidates []MCPImportCandidate `json:"candidates"`
@@ -286,10 +286,11 @@ type MCPImportApplyResult struct {
   `onDone` returns to the composer. Gate on
   `client.supports('mcp.import.candidates')` so an older daemon shows nothing
   new.
-- **Settings › Configuration** (`settings/configuration.tsx:165`): in the
-  "Configuration imports" group add a row "Servers from other agents" with an
-  "Import…" button that opens the screen in a `Dialog` for the selected host
-  (no `cwd`, so no project source). Works regardless of `offered`.
+- **Settings › Agents & execution** (`settings/mcp-import.tsx`): its own
+  "MCP servers" group with a row "Servers from other agents" and an
+  "Import servers…" button that opens the screen in a `Dialog` for the
+  selected host (no `cwd`, so no project source). Works regardless of
+  `offered`; the host-defaults form is untouched.
 
 ### Concurrency and safety notes
 
@@ -347,7 +348,7 @@ Web (vitest, `apps/web/vitest.config.ts`):
 - `welcome.test.tsx`: screen appears only when `offered` is false, at least
   one importable candidate exists and the provider is ready; disappears after
   apply; hidden when the daemon lacks the operation.
-- `settings-configuration.test.tsx`: the Import row opens the dialog for the
+- `settings-mcp-import.test.tsx`: the Import row opens the dialog for the
   selected host.
 - `inspector.test.tsx`: the Host integrations list shows the OpenCode source.
 
@@ -422,3 +423,34 @@ Not done, on purpose: brand icons (decision 8), TUI screen, re-offer on new serv
   (`internal/rlm`) fails under CPU contention and passes alone;
   `TestSessionsExportCLIWritesAndPushesTheSessionTrace` (`cmd/whip`) fails on
   the base branch too.
+
+### Simplify pass (2026-09-15)
+
+Four review lanes (reuse, simplification, efficiency, altitude) over the PR;
+applied in one commit, "Simplify the MCP import after review".
+
+- **Go.** `Merge` is variadic, lowest precedence first, and both callers use
+  it (the ad-hoc five-argument shape is gone). Discovery is one `discovered`
+  value with a `sources(policy)` table that `Candidates` and
+  `LoadMergedFiltered` both walk; `ImportSourcePolicy.Admits`/`listed`
+  replace three copies of the only/exclude test. `Candidate` lost
+  `SourcePath` and `Transport` (nothing rendered them) and gained `Gated`, so
+  the CLI filters instead of re-deriving the gate; `Apply` returns the added
+  entries and an error for an unknown name, so the CLI's dry-run and the
+  daemon share one path. `config.ParseJSONC` is the definition, not a shim.
+  `MCPImportOffered` rides on `config.get`, so a New session tab on an
+  answered host never calls `mcp.import.candidates` again.
+- **Web.** The Settings entry is a sibling `MCPImportSettings` component
+  instead of a prop threaded through the host-defaults form; `included` is
+  folded into `overrides`; source names are one table and the list joins with
+  `Intl.ListFormat`; shared layout styles replace four local copies; the
+  post-apply invalidation marks other cwd variants stale without refetching.
+  Tests share one fake (`test/mcp-import-fake.ts`).
+- **Skipped.** `brand_hint` stays on the wire: it is the hook for the icon
+  work (decision 8). A shared name-validation helper between CLI and daemon
+  was not worth a package. `TestSessionsExportCLIWritesAndPushesTheSessionTrace`
+  fails on the base branch too and is unrelated.
+- **Follow-up.** The four-source fan-out (`claudeGlobal`, `project`, `codex`,
+  `opencode` fields plus `sources()`) would collapse further into a
+  `[]source` table in `internal/mcp/sources.go` with per-source `paths` and
+  `parse` funcs, so a fifth agent is one row. Left for a PR of its own.

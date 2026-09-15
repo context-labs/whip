@@ -2,10 +2,9 @@ package daemon
 
 import (
 	"errors"
-	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
-	"strings"
+	"slices"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
@@ -34,8 +33,7 @@ func (s *ProviderService) MCPImportCandidates(p protocol.MCPImportCandidatesPara
 	result.ConfigPath, _ = config.Path()
 	for _, c := range cands {
 		result.Candidates = append(result.Candidates, protocol.MCPImportCandidate{
-			Name: c.Name, Source: c.Source, SourcePath: c.SourcePath, Transport: c.Transport,
-			State: string(c.State), Note: c.Note, BrandHint: c.BrandHint,
+			Name: c.Name, Source: c.Source, State: string(c.State), Note: c.Note, BrandHint: c.BrandHint,
 		})
 	}
 	if len(errs) > 0 {
@@ -48,7 +46,7 @@ func (s *ProviderService) MCPImportCandidates(p protocol.MCPImportCandidatesPara
 }
 
 // MCPImportApply copies the named candidates into the host's native mcp block
-// and records that the offer was answered. Names that no source defines fail
+// and records that the offer was answered. A name no source defines fails
 // the whole call before anything is written; names that cannot be imported
 // (already native, unsupported) come back in Skipped.
 func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (protocol.MCPImportApplyResult, error) {
@@ -58,30 +56,19 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 	if len(p.Names) > 256 {
 		return protocol.MCPImportApplyResult{}, errors.New("too many server names")
 	}
-	for _, name := range p.Names {
-		if name == "" || len(name) > 256 || strings.ContainsAny(name, "\x00\r\n") {
-			return protocol.MCPImportApplyResult{}, errors.New("invalid server name")
-		}
-	}
 	var result protocol.MCPImportApplyResult
 	// A second Skip or an apply with nothing new leaves the file alone.
 	_, _, err := config.UpdateVersionedIfChanged("", func(cfg *config.Config) error {
 		cands, _ := mcp.Candidates(p.CWD, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		added, skipped := mcp.Apply(cfg, cands, p.Names)
-		for name, reason := range skipped {
-			if reason == mcp.SkipUnknown {
-				return fmt.Errorf("%s is not a discovered MCP server", name)
-			}
+		added, skipped, err := mcp.Apply(cfg, cands, p.Names)
+		if err != nil {
+			return err
 		}
 		if cfg.MCPImport == nil {
 			cfg.MCPImport = &config.MCPImport{}
 		}
 		cfg.MCPImport.Offered = true
-		result = protocol.MCPImportApplyResult{Imported: make([]string, 0, len(added))}
-		for name := range added {
-			result.Imported = append(result.Imported, name)
-		}
-		sort.Strings(result.Imported)
+		result = protocol.MCPImportApplyResult{Imported: slices.Sorted(maps.Keys(added))}
 		if len(skipped) > 0 {
 			result.Skipped = skipped
 		}

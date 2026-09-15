@@ -1,9 +1,8 @@
 package mcp
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +37,7 @@ type opencodeServer struct {
 	URL         string            `json:"url"`
 	Headers     map[string]string `json:"headers"`
 	Enabled     *bool             `json:"enabled"`
-	OAuth       json.RawMessage   `json:"oauth"`
+	OAuth       any               `json:"oauth"` // absent/null → nil, false → opted out, an object → OAuth
 }
 
 // ParseOpenCode normalizes an OpenCode config document into server configs.
@@ -63,7 +62,7 @@ func ParseOpenCode(data []byte) (map[string]ServerConfig, error) {
 		default:
 			c.Note = fmt.Sprintf("unknown opencode transport type %q — assumed from command/url fields", s.Type)
 		}
-		if oauthConfigured(s.OAuth) {
+		if s.OAuth != nil && s.OAuth != false {
 			off := false
 			c.Enabled = &off
 			c.Note = SignInNote
@@ -88,13 +87,6 @@ func opencodeReferences(values map[string]string) map[string]string {
 		out[key] = opencodeEnvRef.ReplaceAllString(value, "${$1}")
 	}
 	return out
-}
-
-// oauthConfigured reports whether an opencode entry opted into OAuth: any
-// value other than absent, null or false.
-func oauthConfigured(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("false")) && !bytes.Equal(trimmed, []byte("null"))
 }
 
 // LoadOpenCode reads and parses one OpenCode config file. A missing file is
@@ -144,9 +136,7 @@ func loadOpenCodeAll(errs map[string]error) map[string]ServerConfig {
 			continue
 		}
 		setSource(entries, path, "opencode")
-		for name, cfg := range entries {
-			out[name] = cfg
-		}
+		maps.Copy(out, entries)
 	}
 	return out
 }

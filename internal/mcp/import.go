@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"fmt"
+	"maps"
 	"net/url"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/context-labs/whip/internal/config"
@@ -34,58 +36,34 @@ const (
 // enough to render a row and nothing that could leak a secret: no command
 // line, env or headers cross this type's exported surface.
 type Candidate struct {
-	Name       string
-	Source     string // codex | claude | project | opencode
-	SourcePath string
-	Transport  string // stdio | http
-	State      CandidateState
-	Note       string // the source's own reason, when it gave one
-	BrandHint  string // URL host, or the command's package/binary name
-	config     ServerConfig
+	Name      string
+	Source    string // codex | claude | project | opencode
+	State     CandidateState
+	Gated     bool   // the source's enabled gate is off: the screen ignores that, the CLI honours it
+	Note      string // the source's own reason, when it gave one
+	BrandHint string // URL host, or the command's package/binary name
+	config    ServerConfig
 }
 
 // Candidates lists every discovered server once, resolved by the same source
 // precedence as Merge (project over codex over claude over opencode), sorted
-// by name. The per-source enabled gates are ignored on purpose: the import
-// screen is the explicit path, and a gate only decides what runs untrusted
-// at session start. Explicit only/exclude lists are honoured as
-// CandidateExcluded. errs names sources that could not be read.
+// by name. The per-source enabled gates only set Gated: the import screen is
+// the explicit path, and a gate decides what runs untrusted at session start.
+// Explicit only/exclude lists are honoured as CandidateExcluded. errs names
+// sources that could not be read.
 func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy) ([]Candidate, map[string]error) {
 	d := loadSources(cwd)
-	type origin struct {
-		source string
-		policy ImportSourcePolicy
-		cfgs   map[string]ServerConfig
-	}
-	// Lowest precedence first so a later source overwrites an earlier one.
-	origins := []origin{
-		{"opencode", policy.Opencode, d.opencode},
-		{"claude", policy.Claude, d.claudeGlobal},
-		{"codex", policy.Codex, d.codex},
-		{"project", policy.Project, d.project},
-	}
 	byName := map[string]Candidate{}
-	for _, o := range origins {
-		for name, cfg := range o.cfgs {
-			c := Candidate{
-				Name:       name,
-				Source:     o.source,
-				SourcePath: cfg.Source,
-				Transport:  "stdio",
-				Note:       cfg.Note,
-				BrandHint:  brandHint(cfg),
-				config:     cfg,
-			}
-			if cfg.Remote() {
-				c.Transport = "http"
-			}
+	for _, s := range d.sources(policy) { // lowest precedence first: a later source overwrites
+		for name, cfg := range s.cfgs {
+			c := Candidate{Name: name, Source: s.name, Gated: !s.policy.Enabled, Note: cfg.Note, BrandHint: brandHint(cfg), config: cfg}
 			_, owned := native[name]
 			switch {
 			case owned:
 				c.State = CandidateNative
 			case unsupported(cfg):
 				c.State = CandidateUnsupported
-			case o.policy.listed(name):
+			case s.policy.listed(name):
 				c.State = CandidateExcluded
 			case cfg.Disabled():
 				c.State = CandidateDisabled
@@ -95,47 +73,15 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 			byName[name] = c
 		}
 	}
-	out := make([]Candidate, 0, len(byName))
-	for _, c := range byName {
-		out = append(out, c)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, d.errs
+	return slices.SortedFunc(maps.Values(byName), func(a, b Candidate) int { return strings.Compare(a.Name, b.Name) }), d.errs
 }
 
 // unsupported reports whether discovery turned the server off because whip
-// cannot run it: an OAuth sign-in (SignInNote) or the legacy sse transport.
-// A plain enabled:false in the source is a choice, not a limitation.
-//
-// ponytail: the sse case matches the note's wording in claude.go; a third
-// unsupported kind should get a constant like SignInNote instead of a word.
+// cannot run it: an OAuth sign-in or the legacy sse transport, each marked by
+// its parser with a known note. A plain enabled:false in the source is a
+// choice, not a limitation.
 func unsupported(cfg ServerConfig) bool {
-	return cfg.Disabled() && (cfg.Note == SignInNote || strings.Contains(cfg.Note, "unsupported"))
-}
-
-// listed reports whether an only/exclude list names the server, independent
-// of the source's enabled gate.
-func (p ImportSourcePolicy) listed(name string) bool {
-	if p.Exclude[name] {
-		return true
-	}
-	return len(p.Only) > 0 && !p.Only[name]
-}
-
-// For returns the policy of a named source; unknown names get the zero
-// policy, which admits nothing.
-func (p ImportPolicy) For(source string) ImportSourcePolicy {
-	switch source {
-	case "claude":
-		return p.Claude
-	case "codex":
-		return p.Codex
-	case "project":
-		return p.Project
-	case "opencode":
-		return p.Opencode
-	}
-	return ImportSourcePolicy{}
+	return cfg.Disabled() && (cfg.Note == SignInNote || cfg.Note == SSENote)
 }
 
 // launcherTokens are argv words that name a runner rather than the server.
@@ -177,32 +123,30 @@ func brandHint(cfg ServerConfig) string {
 	return ""
 }
 
-// SkipUnknown is Apply's reason for a name that no source defines; callers
-// that treat it as a validation error can tell it from a legitimate skip.
-const SkipUnknown = "not a discovered server"
-
 // Apply copies the named candidates into cfg.MCPServers as native entries:
 // import provenance dropped (so they load trusted, like `whip mcp import` has
 // always written them) and Enabled cleared, because choosing a server is the
-// decision to run it even when its source had it off. Names that are not
-// candidates, already native, or unsupported are reported in skipped with a
-// reason and never written. Returns the entries it added.
-func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[string]config.MCPServer, skipped map[string]string) {
-	added, skipped = map[string]config.MCPServer{}, map[string]string{}
+// decision to run it even when its source had it off. A name no source
+// defines is an error before anything is written; names already native or
+// unsupported come back in skipped with a reason. Returns the entries added.
+func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[string]config.MCPServer, skipped map[string]string, err error) {
 	byName := make(map[string]Candidate, len(cands))
 	for _, c := range cands {
 		byName[c.Name] = c
 	}
 	for _, name := range names {
+		if _, ok := byName[name]; !ok {
+			return nil, nil, fmt.Errorf("%s is not a discovered MCP server", name)
+		}
+	}
+	added, skipped = map[string]config.MCPServer{}, map[string]string{}
+	for _, name := range names {
 		if _, done := added[name]; done {
 			continue // the same name twice is one import
 		}
-		c, ok := byName[name]
+		c := byName[name]
 		_, owned := cfg.MCPServers[name]
 		switch {
-		case !ok:
-			skipped[name] = SkipUnknown
-			continue
 		case owned || c.State == CandidateNative:
 			skipped[name] = "already in Whip"
 			continue
@@ -221,5 +165,5 @@ func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[str
 		cfg.MCPServers[name] = entry
 		added[name] = entry
 	}
-	return added, skipped
+	return added, skipped, nil
 }

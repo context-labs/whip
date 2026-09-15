@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -30,17 +31,17 @@ func TestParseOpenCode(t *testing.T) {
 		t.Fatalf("parsed %d servers, want 7: %v", len(got), got)
 	}
 	gsc := got["gsc"]
-	if !slicesEqual(gsc.Command, []string{"npx", "-y", "mcp-server-gsc"}) || gsc.Env["GOOGLE_APPLICATION_CREDENTIALS"] != "$GSC_CREDS" || gsc.Disabled() {
+	if !slices.Equal(gsc.Command, []string{"npx", "-y", "mcp-server-gsc"}) || gsc.Env["GOOGLE_APPLICATION_CREDENTIALS"] != "$GSC_CREDS" || gsc.Disabled() {
 		t.Errorf("local entry mis-parsed: %+v", gsc)
 	}
 	if gsc.StartupTimeout != 0 {
 		t.Errorf("opencode timeout must be ignored, got %d", gsc.StartupTimeout)
 	}
-	if a := got["ahrefs"]; !a.Remote() || a.Headers["Authorization"] != "Bearer ${AHREFS_TOKEN}" || a.Disabled() {
-		t.Errorf("remote entry mis-parsed or {env:} not rewritten to a whip reference: %+v", a)
-	}
 	if gsc.Env["KEYFILE"] != "{file:~/gsc.json}" {
 		t.Errorf("{file:} has no whip equivalent and must stay as written, got %q", gsc.Env["KEYFILE"])
+	}
+	if a := got["ahrefs"]; !a.Remote() || a.Headers["Authorization"] != "Bearer ${AHREFS_TOKEN}" || a.Disabled() {
+		t.Errorf("remote entry mis-parsed or {env:} not rewritten to a whip reference: %+v", a)
 	}
 	for _, name := range []string{"figma", "linear"} {
 		if s := got[name]; !s.Disabled() || s.Note != SignInNote {
@@ -61,18 +62,6 @@ func TestParseOpenCode(t *testing.T) {
 	}
 }
 
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // TestLoadMergedOpenCode covers the fourth source end to end: OpenCode's
 // three files merge in its own order, the source sits below every other
 // import, a broken file is one unreadable-source row, and the gate blocks
@@ -83,26 +72,11 @@ func TestLoadMergedOpenCode(t *testing.T) {
 	if err := os.MkdirAll(ocDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	write := func(name, body string) string {
-		t.Helper()
-		path := filepath.Join(ocDir, name)
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	first := write("config.json", `{"mcp": {"shared": {"type": "local", "command": ["first"]}, "only-first": {"type": "local", "command": ["one"]}}}`)
-	second := write("opencode.json", `{"mcp": {"shared": {"type": "local", "command": ["second"]}, "dup": {"type": "local", "command": ["oc-dup"]}}}`)
+	first := writeFile(t, ocDir, "config.json", `{"mcp": {"shared": {"type": "local", "command": ["first"]}, "only-first": {"type": "local", "command": ["one"]}}}`)
+	second := writeFile(t, ocDir, "opencode.json", `{"mcp": {"shared": {"type": "local", "command": ["second"]}, "dup": {"type": "local", "command": ["oc-dup"]}}}`)
 	third := filepath.Join(ocDir, "opencode.jsonc") // absent
-	codexFile := filepath.Join(dir, "codex.toml")
-	if err := os.WriteFile(codexFile, []byte("[mcp_servers.dup]\ncommand = \"codex-dup\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	origOC, origC, origG := OpenCodePaths, CodexPath, ClaudeGlobalPath
-	OpenCodePaths = func() []string { return []string{first, second, third} }
-	CodexPath = func() string { return codexFile }
-	ClaudeGlobalPath = func() string { return filepath.Join(dir, "absent-claude.json") }
-	t.Cleanup(func() { OpenCodePaths, CodexPath, ClaudeGlobalPath = origOC, origC, origG })
+	codexFile := writeFile(t, dir, "codex.toml", "[mcp_servers.dup]\ncommand = \"codex-dup\"\n")
+	stubSources(t, codexFile, filepath.Join(dir, "absent-claude.json"), first, second, third)
 
 	f := LoadMergedFiltered(dir, nil, everySource())
 	if len(f.Errs) != 0 {
@@ -139,7 +113,7 @@ func TestLoadMergedOpenCode(t *testing.T) {
 	}
 
 	// A broken file is one unreadable-source error; the other file still loads.
-	write("opencode.jsonc", `{broken`)
+	writeFile(t, ocDir, "opencode.jsonc", `{broken`)
 	f = LoadMergedFiltered(dir, nil, everySource())
 	if _, ok := f.Errs[third]; !ok {
 		t.Errorf("expected a parse error for %s, got %v", third, f.Errs)

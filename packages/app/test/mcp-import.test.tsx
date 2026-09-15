@@ -3,18 +3,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { WhipClient } from '@whip/sdk';
-import type { MCPImportApplyParams, MCPImportCandidatesResult } from '@whip/protocol';
-import type { ReactNode } from 'react';
+import type { MCPImportCandidatesResult } from '@whip/protocol';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
-import { MCPImportScreen, caveat, shouldOffer, sortCandidates, type MCPImportCandidate } from '../src/mcp-import';
+import { MCPImportScreen, caveat, shouldOffer, sortCandidates } from '../src/mcp-import';
+import { candidate, fakeMCPImport, supportsImport } from './mcp-import-fake';
 
 const disabled = (element: Element) => element.matches('[aria-disabled="true"], [data-disabled], :disabled');
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
 
-const candidate = (name: string, state: MCPImportCandidate['state'], source = 'codex', extra: Partial<MCPImportCandidate> = {}): MCPImportCandidate =>
-  ({ name, source, source_path: `/home/u/${source}`, transport: 'http', state, ...extra });
 const found: MCPImportCandidatesResult = {
   offered: false, config_path: '/home/u/.whipcode/config.json',
   candidates: [
@@ -24,31 +22,23 @@ const found: MCPImportCandidatesResult = {
   ],
 };
 
-function fixture(data: MCPImportCandidatesResult = found, operations = ['mcp.import.candidates', 'mcp.import.apply']) {
+function fixture(data: MCPImportCandidatesResult = found) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  // The fake host remembers the answer the way the daemon does, so a refetch
-  // after apply reports offered: true.
-  let server = data;
-  const candidates = vi.fn(async () => server);
-  const apply = vi.fn(async (params: MCPImportApplyParams) => { server = { ...server, offered: true }; return { imported: params.names, offered: true }; });
-  const client = {
-    getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }),
-    supports: (_surface: string, name: string) => operations.includes(name),
-    mcpImport: { candidates, apply },
-  } as unknown as WhipClient;
+  const mcpImport = fakeMCPImport(data);
+  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), supports: supportsImport, mcpImport } as unknown as WhipClient;
   const runtime = { queries, report: vi.fn(), getSnapshot: () => ({ commands: [] }), subscribe: () => () => {} } as unknown as AppRuntime;
   const onDone = vi.fn();
-  function wrapper(children: ReactNode) {
-    return <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
-  }
-  return { candidates, apply, onDone, queries, render: (cwd = '') => render(wrapper(<MCPImportScreen client={client} hostName="Local" cwd={cwd} onDone={onDone} />)) };
+  const rendered = (cwd = '') => render(<RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>
+    <MCPImportScreen client={client} hostName="Local" cwd={cwd} onDone={onDone} />
+  </QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>);
+  return { ...mcpImport, onDone, queries, render: rendered };
 }
 
 it('orders importable servers first and already-native servers last, each A to Z', () => {
-  expect(sortCandidates(found.candidates).map(c => c.name)).toEqual(['computer-use', 'exa', 'figma', 'node_repl', 'paper', 'ahrefs', 'executor']);
+  expect(sortCandidates(found.candidates ?? []).map(c => c.name)).toEqual(['computer-use', 'exa', 'figma', 'node_repl', 'paper', 'ahrefs', 'executor']);
   expect(shouldOffer(found)).toBe(true);
   expect(shouldOffer({ ...found, offered: true })).toBe(false);
-  expect(shouldOffer({ ...found, candidates: found.candidates.filter(c => c.state !== 'importable') })).toBe(false);
+  expect(shouldOffer({ ...found, candidates: (found.candidates ?? []).filter(c => c.state !== 'importable') })).toBe(false);
   expect(caveat(candidate('x', 'disabled'), false)).toBe('Off in Codex');
   expect(caveat(candidate('x', 'excluded'), true)).toBe('');
 });
@@ -82,12 +72,13 @@ it('imports exactly the ticked names, including an excluded server after Include
   fireEvent.click(screen.getByRole('button', { name: 'Include' }));
   const nodeRepl = screen.getByRole('checkbox', { name: 'Import node_repl' });
   expect(disabled(nodeRepl)).toBe(false);
+  expect(nodeRepl.getAttribute('aria-checked')).toBe('false');
   fireEvent.click(nodeRepl);
   expect(screen.getByRole('button', { name: 'Import 3 servers' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Import 3 servers' }));
-  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: ['computer-use', 'node_repl', 'paper'], offered: true }));
+  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: ['computer-use', 'node_repl', 'paper'], skipped: {} }));
   expect(f.apply).toHaveBeenCalledExactlyOnceWith({ cwd: '/repo', names: ['computer-use', 'node_repl', 'paper'] });
-  expect(f.candidates).toHaveBeenCalledWith({ cwd: '/repo' }, expect.anything());
+  expect(f.candidates).toHaveBeenCalledExactlyOnceWith({ cwd: '/repo' }, expect.anything());
   expect((f.queries.getQueryData(['mcp-import-candidates', 'host-a', '/repo']) as MCPImportCandidatesResult).offered).toBe(true);
 });
 
@@ -97,7 +88,7 @@ it('skips with an empty list and disables Import when nothing is ticked', async 
   fireEvent.click(screen.getByRole('checkbox', { name: 'Import exa' }));
   expect(disabled(screen.getByRole('button', { name: 'Import 0 servers' }))).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: [], offered: true }));
+  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: [], skipped: {} }));
   expect(f.apply).toHaveBeenCalledExactlyOnceWith({ names: [] });
 });
 

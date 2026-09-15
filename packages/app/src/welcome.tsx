@@ -144,10 +144,11 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
   const setupVisible = knownReady === false || showProviders;
   // Once a provider works, a host that has MCP servers configured for other
-  // agents gets one offer to bring them in; answering it (or an older daemon)
-  // returns the composer. The daemon reads files only for this.
-  const offer = useMCPImportCandidates(client, { enabled: connected && ready && !setupVisible, cwd });
-  const offerVisible = !setupVisible && ready && shouldOffer(offer.query.data);
+  // agents gets one offer to bring them in. config.get says whether this host
+  // has answered, so an answered host never reads the other agents' files again.
+  const offerable = connected && ready && !setupVisible && configuration.data?.mcp_import_offered === false;
+  const offer = useMCPImportCandidates(client, { enabled: offerable, cwd });
+  const offerVisible = offerable && shouldOffer(offer.query.data);
   return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : offerVisible ? 'Bring your MCP servers into Whip' : 'What do you want to work on?'}</h1>
   <div ref={panel} {...stylex.props(styles.content)}>
     {offerVisible && <><MCPImportScreen client={client} hostName={host.name} cwd={cwd} onDone={focusComposer} />

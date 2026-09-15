@@ -74,6 +74,9 @@
     "import_codex": {
       "type": "boolean"
     },
+    "mcp_import_offered": {
+      "type": "boolean"
+    },
     "revision": {
       "type": "string"
     },
@@ -109,6 +112,7 @@
     "default_execution_engine",
     "import_claude",
     "import_codex",
+    "mcp_import_offered",
     "revision",
     "default_model",
     "default_provider",

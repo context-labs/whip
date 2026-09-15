@@ -9,6 +9,7 @@ import { RuntimeContext, useSessionTabs } from '../src/context';
 import { Welcome } from '../src/welcome';
 import type { HostConnection } from '../src/hosts';
 import { welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
+import { fakeMCPImport, supportsImport, twoServers } from './mcp-import-fake';
 
 const runtimes: AppRuntime[] = [];
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
@@ -249,15 +250,9 @@ it('keeps the draft and reports the error when the first send fails before accep
 // A host that has MCP servers configured for other agents gets one offer
 // before the composer; answering it returns the composer.
 function withMCPImport(f: ReturnType<typeof fixture>, offered = false) {
-  let server = { offered, config_path: '/home/u/.whipcode/config.json', candidates: [
-    { name: 'paper', source: 'codex', source_path: '/home/u/.codex/config.toml', transport: 'http', state: 'importable' },
-    { name: 'ahrefs', source: 'codex', source_path: '/home/u/.codex/config.toml', transport: 'http', state: 'native' },
-  ] };
-  const mcpImport = {
-    candidates: vi.fn(async () => server),
-    apply: vi.fn(async ({ names }: { names: string[] }) => { server = { ...server, offered: true }; return { imported: names, offered: true }; }),
-  };
-  Object.assign(f.raw, { supports: (_surface: string, name: string) => name.startsWith('mcp.import'), mcpImport });
+  const mcpImport = fakeMCPImport(twoServers(offered));
+  Object.assign(f.raw, { supports: supportsImport, mcpImport });
+  f.runtime.queries.setQueryData(['runtime-configuration', 'host'], (old: object | undefined) => ({ ...old, mcp_import_offered: offered }));
   return mcpImport;
 }
 
@@ -280,9 +275,10 @@ it('does not offer the import before a provider is ready, after it was answered,
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
   expect(pending.candidates).not.toHaveBeenCalled();
   notReady.runtime.dispose();
-  const answered = fixture(); withMCPImport(answered, true); answered.render();
+  const answered = fixture(); const done = withMCPImport(answered, true); answered.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
+  expect(done.candidates).not.toHaveBeenCalled();
   answered.runtime.dispose();
   const older = fixture(); const unsupported = withMCPImport(older); Object.assign(older.raw, { supports: () => false }); older.render();
   await screen.findByRole('textbox', { name: 'Your first message' });

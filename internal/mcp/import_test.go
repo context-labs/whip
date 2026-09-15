@@ -2,8 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,15 +15,7 @@ import (
 func importFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	write := func(name, body string) string {
-		t.Helper()
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	codex := write("codex.toml", `
+	codex := writeFile(t, dir, "codex.toml", `
 [mcp_servers.paper]
 url = "http://127.0.0.1:29979/mcp"
 [mcp_servers.node_repl]
@@ -41,23 +32,27 @@ url = "https://api.ahrefs.com/mcp/mcp"
 [mcp_servers.ahrefs.http_headers]
 Authorization = "secret-token"
 `)
-	claude := write("claude.json", `{"mcpServers": {
+	claude := writeFile(t, dir, "claude.json", `{"mcpServers": {
 		"exa": {"type": "http", "url": "https://mcp.exa.ai/mcp"},
 		"legacy": {"type": "sse", "url": "https://old.example.com/sse"},
 		"playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest", "--browser", "chrome"]}
 	}}`)
-	opencode := write("opencode.json", `{"mcp": {
+	opencode := writeFile(t, dir, "opencode.json", `{"mcp": {
 		"figma": {"type": "remote", "url": "https://mcp.figma.com/mcp", "oauth": {}},
 		"paper": {"type": "local", "command": ["paper-from-opencode"]},
 		"oc-only": {"type": "local", "command": ["uvx", "analytics-mcp"], "environment": {"GOOGLE_APPLICATION_CREDENTIALS": "$CREDS"}}
 	}}`)
-	write(".mcp.json", `{"mcpServers": {"proj": {"command": "proj-srv"}}}`)
-	origOC, origC, origG := OpenCodePaths, CodexPath, ClaudeGlobalPath
-	OpenCodePaths = func() []string { return []string{opencode} }
-	CodexPath = func() string { return codex }
-	ClaudeGlobalPath = func() string { return claude }
-	t.Cleanup(func() { OpenCodePaths, CodexPath, ClaudeGlobalPath = origOC, origC, origG })
+	writeFile(t, dir, ".mcp.json", `{"mcpServers": {"proj": {"command": "proj-srv"}}}`)
+	stubSources(t, codex, claude, opencode)
 	return dir
+}
+
+func at(cands []Candidate, name string) Candidate {
+	i := slices.IndexFunc(cands, func(c Candidate) bool { return c.Name == name })
+	if i < 0 {
+		return Candidate{}
+	}
+	return cands[i]
 }
 
 func TestCandidatesStatesAndOrder(t *testing.T) {
@@ -98,22 +93,12 @@ func TestCandidatesStatesAndOrder(t *testing.T) {
 			t.Errorf("unexpected candidate %+v", c)
 			continue
 		}
-		if c.State != w.state || c.Source != w.source || c.BrandHint != w.hint {
-			t.Errorf("%s = state %s source %s hint %q, want %s %s %q", c.Name, c.State, c.Source, c.BrandHint, w.state, w.source, w.hint)
-		}
-		if c.SourcePath == "" {
-			t.Errorf("%s has no source path", c.Name)
-		}
-		if (c.Transport == "http") != c.config.Remote() {
-			t.Errorf("%s transport %q disagrees with its config", c.Name, c.Transport)
+		if c.State != w.state || c.Source != w.source || c.BrandHint != w.hint || c.Gated {
+			t.Errorf("%s = state %s source %s hint %q gated %t, want %s %s %q ungated", c.Name, c.State, c.Source, c.BrandHint, c.Gated, w.state, w.source, w.hint)
 		}
 	}
-	if cands[byName(cands, "figma")].Note != SignInNote {
-		t.Error("an oauth entry keeps the sign-in note as its reason")
-	}
-	// The shared name resolved to codex, and its opencode copy is gone.
-	if p := cands[byName(cands, "paper")]; p.SourcePath != CodexPath() {
-		t.Errorf("paper should come from codex, got %q", p.SourcePath)
+	if at(cands, "figma").Note != SignInNote || at(cands, "legacy").Note != SSENote {
+		t.Error("unsupported entries keep their parser's note as the reason")
 	}
 	// Nothing exported on a candidate carries a secret.
 	blob, _ := json.Marshal(cands)
@@ -121,32 +106,20 @@ func TestCandidatesStatesAndOrder(t *testing.T) {
 		t.Fatalf("a candidate leaked a header or env value: %s", blob)
 	}
 
-	// Gates are ignored: a source that is off still offers its servers.
+	// A gate that is off still offers its servers, marked gated for the CLI.
 	off := policy
 	off.Codex.Enabled = false
 	cands, _ = Candidates(dir, native, off)
-	if c := cands[byName(cands, "chrome")]; c.State != CandidateImportable {
-		t.Errorf("a disabled gate must not hide candidates, got %s", c.State)
+	if c := at(cands, "chrome"); c.State != CandidateImportable || !c.Gated {
+		t.Errorf("a disabled gate must not hide candidates, got %+v", c)
 	}
 	// An only-list excludes everything it does not name.
 	only := policy
 	only.Codex.Only = map[string]bool{"paper": true}
 	cands, _ = Candidates(dir, native, only)
-	if c := cands[byName(cands, "chrome")]; c.State != CandidateExcluded {
-		t.Errorf("a name outside the only list is excluded, got %s", c.State)
+	if at(cands, "chrome").State != CandidateExcluded || at(cands, "paper").State != CandidateImportable {
+		t.Errorf("only-list handling wrong: chrome=%s paper=%s", at(cands, "chrome").State, at(cands, "paper").State)
 	}
-	if c := cands[byName(cands, "paper")]; c.State != CandidateImportable {
-		t.Errorf("the only-listed name stays importable, got %s", c.State)
-	}
-}
-
-func byName(cands []Candidate, name string) int {
-	for i, c := range cands {
-		if c.Name == name {
-			return i
-		}
-	}
-	return -1
 }
 
 func TestApplyWritesNativeEntries(t *testing.T) {
@@ -157,7 +130,13 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 	cands, _ := Candidates(dir, native, policy)
 
 	cfg := &config.Config{MCPServers: map[string]config.MCPServer{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}}}
-	added, skipped := Apply(cfg, cands, []string{"chrome", "computer-use", "node_repl", "ahrefs", "figma", "ghost"})
+	if _, _, err := Apply(cfg, cands, []string{"chrome", "ghost"}); err == nil || !strings.Contains(err.Error(), "ghost") || len(cfg.MCPServers) != 1 {
+		t.Fatalf("an unknown name must fail before anything is written, got err=%v config=%v", err, cfg.MCPServers)
+	}
+	added, skipped, err := Apply(cfg, cands, []string{"chrome", "computer-use", "node_repl", "ahrefs", "figma"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"chrome", "computer-use", "node_repl"} {
 		entry, ok := added[name]
 		if !ok {
@@ -177,20 +156,20 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 	if added["chrome"].Command[1] != "-y" || added["computer-use"].Command[0] != "./Codex Computer Use.app/Contents/MacOS/SkyComputerUseClient" {
 		t.Errorf("commands must be copied whole: %+v", added)
 	}
-	if skipped["ahrefs"] != "already in Whip" || skipped["figma"] != SignInNote || skipped["ghost"] != "not a discovered server" {
+	if skipped["ahrefs"] != "already in Whip" || skipped["figma"] != SignInNote {
 		t.Errorf("skip reasons wrong: %v", skipped)
 	}
 	if len(cfg.MCPServers) != 4 {
 		t.Errorf("config should hold the native entry plus three imports, got %v", cfg.MCPServers)
 	}
 	// A second apply with the same names changes nothing.
-	added, skipped = Apply(cfg, cands, []string{"chrome", "computer-use", "node_repl"})
+	added, skipped, _ = Apply(cfg, cands, []string{"chrome", "computer-use", "node_repl"})
 	if len(added) != 0 || len(skipped) != 3 || len(cfg.MCPServers) != 4 {
 		t.Errorf("apply must be idempotent, got added=%v skipped=%v", added, skipped)
 	}
 	// Apply into an empty config allocates the block; a repeated name is one import.
 	empty := &config.Config{}
-	if added, skipped := Apply(empty, cands, []string{"exa", "exa"}); len(added) != 1 || len(skipped) != 0 || empty.MCPServers["exa"].URL != "https://mcp.exa.ai/mcp" {
+	if added, skipped, _ := Apply(empty, cands, []string{"exa", "exa"}); len(added) != 1 || len(skipped) != 0 || empty.MCPServers["exa"].URL != "https://mcp.exa.ai/mcp" {
 		t.Errorf("apply into an empty config failed: added=%v skipped=%v %+v", added, skipped, empty.MCPServers)
 	}
 }
@@ -205,7 +184,7 @@ func TestCandidatesWithoutCWDIgnoreTheProcessDirectory(t *testing.T) {
 	if len(errs) != 0 {
 		t.Fatalf("unexpected discovery errors: %v", errs)
 	}
-	if byName(cands, "proj") >= 0 {
+	if at(cands, "proj").Name != "" {
 		t.Fatal("a relative .mcp.json must not be read when no cwd is given")
 	}
 	if f := LoadMergedFiltered("", nil, everySource()); f.Merged["proj"].Command != nil {

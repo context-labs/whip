@@ -173,8 +173,8 @@ root prompt (`evals/rlm`).
   trusted entries (`cmd/whip/mcp_import_test.go`). The web and desktop app
   reach the same state through the import screen: a host that has servers
   configured for other agents is offered them once on New session (after a
-  provider is ready) and again from Settings › Configuration › Servers from
-  other agents; the list shows every discovered server once with a state
+  provider is ready) and again from Settings › Agents & execution › MCP
+  servers; the list shows every discovered server once with a state
   (importable, already in Whip, off in its source, excluded by your rules,
   unsupported sign-in), Import writes the ticked names as native entries and
   Skip records the answer in `mcpImport.offered`. The daemon reads files only

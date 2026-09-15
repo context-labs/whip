@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -297,13 +295,16 @@ func mcpImportCLI(args []string) error {
 	for src, e := range errs {
 		fmt.Fprintf(os.Stderr, "mcp: %s: %s (its servers were not imported)\n", src, e)
 	}
-	var names []string
+	var names []string // already sorted: Candidates returns them by name
 	for _, c := range cands {
-		if c.State == mcp.CandidateImportable && policy.For(c.Source).Admits(c.Name) {
+		if c.State == mcp.CandidateImportable && !c.Gated {
 			names = append(names, c.Name)
 		}
 	}
-	add, _ := mcp.Apply(cfg, cands, names)
+	add, _, err := mcp.Apply(cfg, cands, names)
+	if err != nil {
+		return err
+	}
 	if len(add) == 0 {
 		fmt.Println("nothing to import — all servers are already in whip's config (or blocked by mcpImport)")
 		return nil
@@ -320,7 +321,6 @@ func mcpImportCLI(args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	names = slices.Sorted(maps.Keys(add))
 	fmt.Printf(buildinfo.Text("imported %d mcp server(s) into ~/.whip/config.json: %s\n"), len(names), strings.Join(names, ", "))
 	fmt.Println(buildinfo.Text("they are now native: trusted like hand-written entries, no per-call consent"))
 	return nil

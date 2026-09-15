@@ -139,7 +139,7 @@ gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
 copies imported servers into the native block, where they become trusted. The
 web and desktop app offer the same import as a screen: once per host on New
 session when other agents have servers configured there, and any time from
-Settings › Configuration › Servers from other agents. Tick what you want and
+Settings › Agents & execution › MCP servers. Tick what you want and
 Import writes it into the native block; Skip sets `mcpImport.offered` so the
 offer does not come back on its own.
 

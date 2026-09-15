@@ -185,7 +185,7 @@ func TestMergePrecedence(t *testing.T) {
 	claude := map[string]ServerConfig{"a": {Command: []string{"claude-a"}}, "c": {Command: []string{"claude-c"}}, "d": {Command: []string{"claude-d"}}}
 	global := map[string]ServerConfig{"a": {Command: []string{"global-a"}}, "d": {Command: []string{"global-d"}}, "e": {Command: []string{"global-e"}}}
 	opencode := map[string]ServerConfig{"a": {Command: []string{"oc-a"}}, "e": {Command: []string{"oc-e"}}, "f": {Command: []string{"oc-f"}}}
-	m := Merge(whip, claude, codex, global, opencode)
+	m := Merge(opencode, global, codex, claude, whip)
 	if m["a"].Command[0] != "whip-a" {
 		t.Error("whip config must win over the project file and the user's imports")
 	}

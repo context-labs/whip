@@ -57,6 +57,7 @@
       "default_execution_engine": "",
       "import_claude": false,
       "import_codex": false,
+      "mcp_import_offered": false,
       "revision": "",
       "default_model": "",
       "default_provider": "",

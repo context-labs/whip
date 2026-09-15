@@ -1387,8 +1387,6 @@ export interface MCPImportCandidatesResult {
     | {
         name: string;
         source: string;
-        source_path: string;
-        transport: string;
         state: string;
         note?: string;
         brand_hint?: string;
@@ -2756,6 +2754,7 @@ export interface RuntimeConfiguration {
       }[];
   import_claude: boolean;
   import_codex: boolean;
+  mcp_import_offered: boolean;
   revision: string;
   default_model: string;
   default_provider: string;

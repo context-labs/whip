@@ -43,7 +43,7 @@ func TestParseJSONCEdgeCases(t *testing.T) {
 			var v struct {
 				A string `json:"a"`
 			}
-			if err := parseJSONC([]byte(c.src), &v); err != nil {
+			if err := ParseJSONC([]byte(c.src), &v); err != nil {
 				t.Fatalf("parse %s: %v", c.src, err)
 			}
 			if v.A != c.want {
@@ -64,7 +64,7 @@ func TestParseJSONCEdgeCases(t *testing.T) {
 	for name, src := range bad {
 		t.Run(name, func(t *testing.T) {
 			var v map[string]any
-			if err := parseJSONC([]byte(src), &v); err == nil {
+			if err := ParseJSONC([]byte(src), &v); err == nil {
 				t.Fatalf("%s should be an error", name)
 			}
 		})
