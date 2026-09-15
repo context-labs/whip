@@ -325,30 +325,49 @@ func setSource(src map[string]ServerConfig, path, origin string) {
 	}
 }
 
+// discovered holds every import source's entries before any policy or
+// precedence is applied, each stamped with its file and origin. It is the
+// shared input of LoadMergedFiltered (what the manager connects to) and
+// Candidates (what the import screen offers).
+type discovered struct {
+	claudeGlobal, project, codex, opencode map[string]ServerConfig
+	claudeGlobalPath                       string
+	errs                                   map[string]error
+}
+
+// loadSources reads the import files. A missing file is not an error; any
+// other read or parse failure is reported per path and never aborts the rest.
+func loadSources(cwd string) discovered {
+	d := discovered{errs: map[string]error{}, claudeGlobalPath: ClaudeGlobalPath()}
+	var err error
+	d.claudeGlobal, err = LoadClaude(d.claudeGlobalPath)
+	if err != nil && !os.IsNotExist(err) {
+		d.errs[d.claudeGlobalPath] = err
+	}
+	projectPath := filepath.Join(cwd, ".mcp.json")
+	d.project, err = LoadClaude(projectPath)
+	if err != nil && !os.IsNotExist(err) {
+		d.errs[projectPath] = err
+	}
+	codexPath := CodexPath()
+	d.codex, err = LoadCodex(codexPath)
+	if err != nil && !os.IsNotExist(err) {
+		d.errs[codexPath] = err
+	}
+	setSource(d.claudeGlobal, d.claudeGlobalPath, "claude")
+	setSource(d.project, projectPath, "claude")
+	setSource(d.codex, codexPath, "codex")
+	d.opencode = loadOpenCodeAll(d.errs) // stamps its own per-file sources
+	return d
+}
+
 // LoadMergedFiltered discovers server configs like LoadMerged, then applies
 // the import policy: filtered-out claude/codex entries land in Blocked as
 // disabled+noted copies. whipCfg entries always pass through.
 func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy ImportPolicy) Filtered {
-	errs := map[string]error{}
-	claudeGlobalPath := ClaudeGlobalPath()
-	claudeGlobal, err := LoadClaude(claudeGlobalPath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[claudeGlobalPath] = err
-	}
-	claudePath := filepath.Join(cwd, ".mcp.json")
-	claude, err := LoadClaude(claudePath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[claudePath] = err
-	}
-	codexPath := CodexPath()
-	codex, err := LoadCodex(codexPath)
-	if err != nil && !os.IsNotExist(err) {
-		errs[codexPath] = err
-	}
-	setSource(claudeGlobal, claudeGlobalPath, "claude")
-	setSource(claude, claudePath, "claude")
-	setSource(codex, codexPath, "codex")
-	opencode := loadOpenCodeAll(errs) // stamps its own per-file sources
+	d := loadSources(cwd)
+	errs, claudeGlobalPath := d.errs, d.claudeGlobalPath
+	claudeGlobal, claude, codex, opencode := d.claudeGlobal, d.project, d.codex, d.opencode
 	whipCfg = maps.Clone(whipCfg)
 	for name, cfg := range whipCfg {
 		cfg = cloneConfig(cfg)
