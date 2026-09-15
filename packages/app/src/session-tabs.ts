@@ -2,10 +2,11 @@ import { isInspectorSection, type InspectorSection } from './navigation';
 import type { AppStorage } from './platform';
 
 export interface SessionLocation { agent?: string; panel?: InspectorSection }
-export interface SessionSearch extends SessionLocation { view?: 'repl' }
+export type SessionViewKind = 'chat' | 'repl' | 'trace';
+export interface SessionSearch extends SessionLocation { view?: 'repl' | 'trace' }
 export interface SessionBackedTab {
   readonly id: string;
-  readonly kind: 'chat' | 'repl';
+  readonly kind: SessionViewKind;
   readonly runtimeId: string;
   readonly rootId: string;
   readonly titleHint: string;
@@ -37,7 +38,12 @@ export interface TerminalTab {
 }
 export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab;
 /** Chat and REPL descriptors carry session identity; New Chat and terminal descriptors do not. */
-export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl';
+export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl' || tab.kind === 'trace';
+/** The route search value for a non-chat view; chat omits `view`. */
+export const viewSearch = (kind: SessionViewKind): SessionSearch['view'] => kind === 'chat' ? undefined : kind;
+export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl' || view === 'trace' ? view : 'chat';
+/** Tab title suffix for a non-chat view. */
+export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
 export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
 export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
@@ -83,11 +89,11 @@ const location = (value: unknown): Readonly<SessionLocation> => Object.freeze(ob
   ...(isInspectorSection(value.panel) ? { panel: value.panel } : {}),
 } : {});
 export function validateSessionSearch(search: Record<string, unknown>): SessionSearch {
-  return { ...location(search), ...(search.view === 'repl' ? { view: 'repl' } : {}) };
+  return { ...location(search), ...(search.view === 'repl' || search.view === 'trace' ? { view: search.view } : {}) };
 }
 /** Mode has one persisted owner; route search is derived from the descriptor. */
 export function sessionSearch(tab?: { kind: SessionTab['kind']; location?: Readonly<SessionLocation> }): SessionSearch {
-  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' ? { view: 'repl' } : {}) };
+  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' || tab?.kind === 'trace' ? { view: tab.kind } : {}) };
 }
 const newId = () => crypto.randomUUID();
 export function sessionPanes(node: SessionLayout): readonly SessionPane[] {
@@ -174,7 +180,7 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
   }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
-  if (kind !== 'chat' && kind !== 'repl') return;
+  if (kind !== 'chat' && kind !== 'repl' && kind !== 'trace') return;
   runtimeId ??= identity(value.runtimeId) ? value.runtimeId : undefined;
   if (!runtimeId) return;
   return { id: legacy ? value.rootId : value.id as string, kind, runtimeId, rootId: value.rootId, titleHint: title(value.titleHint), location: location(value.location) };
@@ -468,11 +474,11 @@ export class SessionTabs {
     const existing = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId);
     // An expired history entry must never borrow and convert another open view.
     const id = existing?.id ?? (viewId
-      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: search.view === 'repl' ? 'repl' : 'chat', runtimeId, rootId, titleHint: '', location: location(search) })
+      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: kindFromSearch(search.view), runtimeId, rootId, titleHint: '', location: location(search) })
       : this.open(runtimeId, rootId));
     const workspace = this.workspace();
     const pane = sessionViewPane(workspace, id)!;
-    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: kindFromSearch(search.view), location: location(search) } : t) } : p) });
     return id;
   }
   updateLocation(viewId: string, search: SessionLocation) {

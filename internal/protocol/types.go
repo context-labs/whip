@@ -12,7 +12,7 @@ import (
 
 const (
 	Major = 6
-	Minor = 6
+	Minor = 7
 )
 
 type ErrorData struct {
@@ -123,6 +123,7 @@ type StreamEvent struct {
 	AgentID      string                   `json:"agent_id,omitempty"`
 	TurnID       string                   `json:"turn_id,omitempty"`
 	InvocationID string                   `json:"invocation_id,omitempty"`
+	OperationID  string                   `json:"operation_id,omitempty"` // the operations row a host call became, when it went through the dispatcher
 	HostStatus   string                   `json:"host_status,omitempty"`
 	ID           string                   `json:"id,omitempty"`
 	Name         string                   `json:"name,omitempty"`

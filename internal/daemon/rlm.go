@@ -142,14 +142,15 @@ func (s *Session) RejectTurnInput(ctx context.Context, agentID, turnID string, s
 // SubmitAgentInput enqueues explicit work for a descendant on a caller's
 // behalf: kind "steer" joins a running turn at its next boundary, "submit"
 // waits for its own turn. The caller pays the durable-bytes budget.
-func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, kind, text, source string) (int64, error) {
+func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, kind, text, source string, cause sessionstore.SpanLink) (int64, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
 		var sequence sessionstore.InboxSequence
 		err := s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(text)), func() error {
 			var err error
 			sequence, err = s.store.EnqueueInbox(actorCtx, sessionstore.InboxEnqueue{
 				RootID: s.meta.ID, AgentID: agentID, Kind: kind,
-				Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: source},
+				Payload:      sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: source},
+				ParentSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 			})
 			return err
 		})

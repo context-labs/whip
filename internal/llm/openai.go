@@ -60,6 +60,10 @@ type Message struct {
 	// RewoundFrom notes that this message replaced an earlier clipped one
 	// (rewind + resubmit). Internal only — never sent to the provider.
 	RewoundFrom string `json:"rewound_from,omitempty"`
+	// CallID is the durable model-call identity of the attempt that produced
+	// an assistant message, so its trace span can name the exact transcript
+	// row it wrote. Internal only — never sent to the provider.
+	CallID string `json:"call_id,omitempty"`
 }
 
 // ContentPart is one element of a multimodal user message: either text or an
@@ -246,6 +250,7 @@ func stripAuthored(msgs []Message) []Message {
 		out[i].Usage = nil
 		out[i].Model = ""
 		out[i].RewoundFrom = ""
+		out[i].CallID = ""
 		for j := range out[i].ToolCalls {
 			out[i].ToolCalls[j].DurationMs = 0
 			out[i].ToolCalls[j].ExitCode = 0

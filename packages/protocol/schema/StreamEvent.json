@@ -162,6 +162,9 @@
     "invocation_id": {
       "type": "string"
     },
+    "operation_id": {
+      "type": "string"
+    },
     "host_status": {
       "type": "string"
     },

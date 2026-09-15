@@ -157,7 +157,7 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.ExecContext(t.Context(), `DROP TRIGGER session_engine_immutable;
+	if _, err := store.db.ExecContext(t.Context(), dropTraceSchema+`DROP TRIGGER session_engine_immutable;
  DROP TABLE agent_checkpoints;
  DROP TABLE definitions;
  ALTER TABLE agents DROP COLUMN definition;

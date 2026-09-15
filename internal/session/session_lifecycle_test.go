@@ -209,7 +209,7 @@ func lifecycleRows(t *testing.T, store *Store, rootID string) map[string]int {
 		"agents", "turns", "inbox", "agent_messages", "transcript_messages", "agent_state", "agent_scratch",
 		"blackboard", "blackboard_history", "subscriptions", "capabilities", "budgets", "events", "content_grants",
 		"commands", "operations", "leases", "permission_requests", "permission_rules", "usage_charges",
-		"messages", "schedules", "compactions", "snapshots", "sessions",
+		"messages", "schedules", "compactions", "snapshots", "sessions", "spans",
 	} {
 		key := "root_id"
 		switch table {

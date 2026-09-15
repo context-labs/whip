@@ -65,6 +65,7 @@ func (s *Session) AskUser(ctx context.Context, agentID string, questions []sessi
 		return nil, err
 	}
 	registry.mu.Unlock()
+	s.questionSpanStart(agentID, id, event.Question)
 	select {
 	case <-waiter.done:
 		return waiter.results, nil
@@ -78,6 +79,7 @@ func (s *Session) AskUser(ctx context.Context, agentID string, questions []sessi
 			_ = s.emitQuestionEvent(context.WithoutCancel(ctx), "question.closed", sessionstore.LifecycleEvent{
 				AgentID: agentID, QuestionID: id, Error: ctx.Err().Error(),
 			})
+			s.questionSpanEnd(agentID, id, ctx.Err().Error(), true)
 		}
 		registry.mu.Unlock()
 		return nil, ctx.Err()
@@ -131,6 +133,7 @@ func (s *Session) answerQuestion(ctx context.Context, id string, params protocol
 	waiter.results = results
 	close(waiter.done)
 	registry.mu.Unlock()
+	s.questionSpanEnd(waiter.event.AgentID, id, strings.Join(results[0].Answer, ", "), false)
 	for _, result := range results {
 		if !result.Dismissed {
 			return "answered", nil

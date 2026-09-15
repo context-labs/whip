@@ -141,7 +141,8 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 						if kernel.host == nil {
 							out.err = errors.New("RLM host is not bound")
 						} else {
-							out.value, out.err = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
+							callCtx := tools.WithOperationObserver(WithHostCall(ctx, call), func(id string) { out.call.OperationID = id })
+							out.value, out.err = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 						}
 					}
 					out.call.Duration = time.Since(start)

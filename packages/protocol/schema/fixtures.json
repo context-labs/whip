@@ -867,6 +867,40 @@
     }
   },
   {
+    "type": "TraceExportParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "TraceExportResult",
+    "value": {
+      "content": {
+        "reference_id": "",
+        "digest": "",
+        "size": "0"
+      },
+      "spans": 0,
+      "traces": 0
+    }
+  },
+  {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "SpanPage",
+    "value": {
+      "root_id": "",
+      "spans": [],
+      "next_seq": "0",
+      "has_more": false,
+      "server_time_ns": "0"
+    }
+  },
+  {
     "type": "UploadBeginParams",
     "value": {
       "upload_id": "",

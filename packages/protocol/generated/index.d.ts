@@ -199,6 +199,7 @@ export interface AgentTranscriptResult {
             };
             model?: string;
             rewound_from?: string;
+            call_id?: string;
           };
           body?: null | {
             inline?: unknown;
@@ -303,6 +304,7 @@ export interface BoundedTranscriptPage {
           };
           model?: string;
           rewound_from?: string;
+          call_id?: string;
         };
         body?: null | {
           inline?: unknown;
@@ -568,6 +570,7 @@ export interface ContentEventPayload {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -2422,6 +2425,7 @@ export interface RootSnapshot {
         };
         model?: string;
         rewound_from?: string;
+        call_id?: string;
       }[];
   presentation:
     | null
@@ -2873,6 +2877,48 @@ export interface SnapshotParams {
   root_id: string;
 }
 
+export interface SpanPage {
+  root_id: string;
+  spans:
+    | null
+    | {
+        id: string;
+        trace_id: string;
+        parent_id?: string;
+        root_id: string;
+        agent_id: string;
+        turn_id?: string;
+        kind: string;
+        name: string;
+        status: string;
+        start_ns: string;
+        end_ns: string;
+        attrs?: unknown;
+        links?: unknown;
+        updated_seq: string;
+      }[];
+  next_seq: string;
+  has_more: boolean;
+  server_time_ns: string;
+}
+
+export interface SpanRecord {
+  id: string;
+  trace_id: string;
+  parent_id?: string;
+  root_id: string;
+  agent_id: string;
+  turn_id?: string;
+  kind: string;
+  name: string;
+  status: string;
+  start_ns: string;
+  end_ns: string;
+  attrs?: unknown;
+  links?: unknown;
+  updated_seq: string;
+}
+
 export interface StreamEvent {
   accounting?: null | {
     root_id: string;
@@ -2907,6 +2953,7 @@ export interface StreamEvent {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -3099,6 +3146,32 @@ export type ToolSchemaResult =
       };
     }[];
 
+export interface TraceExportParams {
+  root_id: string;
+  trace_id?: string;
+}
+
+export interface TraceExportResult {
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  inline?: unknown;
+  spans: number;
+  traces: number;
+}
+
+export interface TracePageParams {
+  root_id: string;
+  trace_id?: string;
+  after_seq?: string;
+  limit?: number;
+  roots_only?: boolean;
+}
+
 export interface UnsubscribeParams {
   subscription_id: string;
 }
@@ -3270,6 +3343,8 @@ export interface ContractTypes {
   SessionUpdateEvent: SessionUpdateEvent;
   ShellParams: ShellParams;
   SnapshotParams: SnapshotParams;
+  SpanPage: SpanPage;
+  SpanRecord: SpanRecord;
   StreamEvent: StreamEvent;
   SubmitPayload: SubmitPayload;
   SubscribeParams: SubscribeParams;
@@ -3297,6 +3372,9 @@ export interface ContractTypes {
   ToolProgressParams: ToolProgressParams;
   ToolResultParams: ToolResultParams;
   ToolSchemaResult: ToolSchemaResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
   UnsubscribeParams: UnsubscribeParams;
   UploadBeginParams: UploadBeginParams;
   UploadChunkParams: UploadChunkParams;
@@ -3358,6 +3436,8 @@ export interface EventPayloadTypes {
   "session.permission_mode.updated": SessionUpdateEvent | ContentEventPayload;
   "session.reload.failed": LifecycleEvent | ContentEventPayload;
   "session.title.updated": SessionUpdateEvent | ContentEventPayload;
+  "span.ended": SpanRecord | ContentEventPayload;
+  "span.started": SpanRecord | ContentEventPayload;
   "state.private.append": LifecycleEvent | ContentEventPayload;
   "state.private.cas": LifecycleEvent | ContentEventPayload;
   "state.private.set": LifecycleEvent | ContentEventPayload;
@@ -3448,6 +3528,8 @@ export interface RpcMethods {
   "terminal.write": { params: TerminalWriteParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: true };
   "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "trace.page": { params: TracePageParams; result: SpanPage; execution: "query"; permission: "root-association"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
   "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
   "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };

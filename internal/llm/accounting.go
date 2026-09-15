@@ -264,6 +264,39 @@ func (p Pricing) ReserveCost(inputTokens, outputTokens int64) (int64, error) {
 	return micros(cost)
 }
 
+// CostBreakdown is the rate-based split of one call's cost in microUSD:
+// non-cached prompt tokens at the prompt rate, cached tokens at the cache-read
+// rate, completion tokens at the completion rate. Known is false when the
+// route has no rates or the provider reported no usage; the split is then
+// zero and the provider's total, when present, stands alone.
+type CostBreakdown struct {
+	Input, CacheRead, Output int64
+	Known                    bool
+}
+
+func (p Pricing) CostBreakdown(u Usage) (CostBreakdown, error) {
+	input, output, cache, known := p.ratesExact()
+	if !known || !u.HasUsage() {
+		return CostBreakdown{}, nil
+	}
+	promptRate := new(big.Rat).Mul(input, big.NewRat(int64(u.PromptTokens-u.Cached()), 1))
+	cacheRate := new(big.Rat).Mul(cache, big.NewRat(int64(u.Cached()), 1))
+	completionRate := new(big.Rat).Mul(output, big.NewRat(int64(u.CompletionTokens), 1))
+	var split CostBreakdown
+	var err error
+	if split.Input, err = micros(promptRate); err != nil {
+		return CostBreakdown{}, err
+	}
+	if split.CacheRead, err = micros(cacheRate); err != nil {
+		return CostBreakdown{}, err
+	}
+	if split.Output, err = micros(completionRate); err != nil {
+		return CostBreakdown{}, err
+	}
+	split.Known = true
+	return split, nil
+}
+
 // ActualCost prefers the provider's charge, including an explicit zero. Token
 // pricing is only a fallback, and cached/reasoning tokens are never added twice.
 func (p Pricing) ActualCost(u Usage) (int64, bool, error) {
@@ -444,6 +477,9 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 	message, usage, err := invoke(attemptCtx, body)
 	elapsed := time.Since(started)
 	cancel()
+	// The durable attempt identity rides on the produced message so its trace
+	// span can point at the exact transcript row.
+	message.CallID = permit.ID
 	return message, usage, settle(ModelAttemptResult{Usage: usage, Dispatched: true, Elapsed: elapsed, Failed: err != nil}, err)
 }
 
