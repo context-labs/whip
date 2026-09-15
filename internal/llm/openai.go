@@ -164,6 +164,7 @@ type messageWire struct {
 	Usage        *Usage               `json:"usage,omitempty"`
 	Model        string               `json:"model,omitempty"`
 	RewoundFrom  string               `json:"rewound_from,omitempty"`
+	CallID       string               `json:"call_id,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
@@ -173,7 +174,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		Continuation: m.Continuation,
 		Role:         m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
 		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
-		Model: m.Model, RewoundFrom: m.RewoundFrom,
+		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID,
 	}
 	if len(m.Parts) > 0 {
 		parts := m.Parts
@@ -198,7 +199,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	*m = Message{}
 	m.Continuation = raw.Continuation
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
-	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom
+	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom, m.CallID = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom, raw.CallID
 	if len(raw.Content) == 0 {
 		return nil
 	}

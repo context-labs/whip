@@ -122,8 +122,8 @@ type turnJournal struct {
 	TraceID string
 	// LastModelCallID is the attempt that most recently settled, so the tool
 	// calls it emitted can name it.
-	LastModelCallID string
-	BaseSeq         int
+	LastModelCallID   string
+	BaseSeq           int
 	HookNotices       []string        // ephemeral lines a hook raised this turn
 	Output            json.RawMessage // the final message validated against the definition's output contract
 	Messages          []llm.Message

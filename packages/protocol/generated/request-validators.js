@@ -58426,7 +58426,7 @@ return errors === 0;
 }
 
 export const TraceExportResult = validate184;
-const schema185 = {"type":"object","properties":{"content":{"type":"object","properties":{"reference_id":{"type":"string"},"digest":{"type":"string"},"size":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","format":"int64"},"media_type":{"type":"string"},"source":{"type":"string"}},"required":["reference_id","digest","size"],"additionalProperties":false},"inline":true,"spans":{"type":"integer"},"traces":{"type":"integer"}},"$id":"https://whip.dev/protocol/v6/TraceExportResult","$schema":"http://json-schema.org/draft-07/schema#","title":"TraceExportResult","required":["content","spans","traces"],"additionalProperties":false};
+const schema185 = {"type":"object","properties":{"content":{"type":"object","properties":{"reference_id":{"type":"string"},"digest":{"type":"string"},"size":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","format":"int64"},"media_type":{"type":"string"},"source":{"type":"string"}},"required":["reference_id","digest","size"],"additionalProperties":false},"spans":{"type":"integer"},"traces":{"type":"integer"}},"$id":"https://whip.dev/protocol/v6/TraceExportResult","$schema":"http://json-schema.org/draft-07/schema#","title":"TraceExportResult","required":["content","spans","traces"],"additionalProperties":false};
 
 function validate184(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v6/TraceExportResult" */;
@@ -58464,7 +58464,7 @@ vErrors.push(err2);
 errors++;
 }
 for(const key0 in data){
-if(!((((key0 === "content") || (key0 === "inline")) || (key0 === "spans")) || (key0 === "traces"))){
+if(!(((key0 === "content") || (key0 === "spans")) || (key0 === "traces"))){
 const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err3];

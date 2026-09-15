@@ -3159,7 +3159,6 @@ export interface TraceExportResult {
     media_type?: string;
     source?: string;
   };
-  inline?: unknown;
   spans: number;
   traces: number;
 }

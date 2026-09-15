@@ -103,8 +103,8 @@ the trace of the host call that queued its input (`parent_span_id`/`span_trace_i
 on inbox rows and mailbox messages), with further digest messages as `links`.
 `trace.export` renders a session (or one trace) as an OTLP/JSON
 `ExportTraceServiceRequest` carrying OTel GenAI and OpenInference attributes,
-returned inline when small or as a root-scoped content reference; `whip sessions
-export <root> [-trace id] [-o file|-] [-push URL]` wraps it. Every stored stamp is
+returned as a root-scoped content reference; `whip sessions export <root>
+[-trace id] [-o file|-] [-push URL]` wraps it. Every stored stamp is
 now RFC 3339 with a fixed nine-digit fraction; `stream.cell.host` gains
 `operation_id` when the call was admitted through the dispatcher.
 

@@ -68,7 +68,8 @@ func (c *Client) TracePage(ctx context.Context, params protocol.TracePageParams)
 }
 
 // traceExport renders the OTLP/JSON export and parks it in the root's content
-// store, so any client fetches it through the existing bounded content reads.
+// store as a reference, so any client fetches it through the existing bounded
+// content reads regardless of size.
 func (s *Server) traceExport(ctx context.Context, params protocol.TraceExportParams) (protocol.TraceExportResult, error) {
 	data, summary, err := s.daemon.store.ExportOTLP(ctx, params.RootID, session.ExportOptions{TraceID: params.TraceID, ServiceVersion: s.options.BuildID})
 	if err != nil {
@@ -79,13 +80,10 @@ func (s *Server) traceExport(ctx context.Context, params protocol.TraceExportPar
 	if err != nil {
 		return protocol.TraceExportResult{}, err
 	}
-	result := protocol.TraceExportResult{Spans: summary.Spans, Traces: summary.Traces}
-	if value.ReferenceID == "" {
-		result.Inline = data
-	} else {
-		result.Content = ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source}
-	}
-	return result, nil
+	return protocol.TraceExportResult{
+		Spans: summary.Spans, Traces: summary.Traces,
+		Content: ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source},
+	}, nil
 }
 
 // TraceExport renders a session as OTLP/JSON; see protocol.TraceExportParams.

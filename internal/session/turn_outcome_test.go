@@ -223,8 +223,9 @@ func TestTurnOutcomeCountsModelCallsAndCompactions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.insertActorEventTx(t.Context(), tx, root, kind, actorEvent{AgentID: child, Status: "running",
-			ModelCall: &ModelCallEvent{ID: kind + purpose, Purpose: purpose}}, now()); err != nil {
+		if _, err := store.insertActorEventTx(t.Context(), tx, root, kind, actorEvent{
+			AgentID: child, Status: "running", ModelCall: &ModelCallEvent{ID: kind + purpose, Purpose: purpose},
+		}, now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

@@ -102,7 +102,8 @@ try {
       for (const [provider, symbol] of Object.entries({ 'inference-net': 'inference', openrouter: 'openrouter', 'openai-codex': 'openai', anthropic: 'anthropic', google: 'google', deepseek: 'deepseek', mistral: 'mistral', xai: 'xai' })) {
         await page.goto(`${origin}/?provider=${provider}&theme=dark`);
         const logo = page.getByRole('button', { name: 'Model', exact: true }).locator('svg').first();
-        await expect(logo.locator('use')).toHaveAttribute('href', new RegExp(`#${symbol}$`));
+        // OpenRouter swaps in a dark-theme symbol (provider-logo.tsx); the others have one glyph.
+        await expect(logo.locator('use')).toHaveAttribute('href', new RegExp(`#${symbol}(-dark)?$`));
         await expect.poll(() => logo.evaluate(node => node.getBBox().width)).toBeGreaterThan(0);
         assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
       }

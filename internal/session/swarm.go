@@ -313,20 +313,8 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 			return 0, err
 		}
 	}
-	subtreeRows, err := tx.QueryContext(ctx, subtreeCTE+`SELECT id FROM subtree`, rootID, targetAgentID, rootID)
+	subtreeAgents, err := subtreeAgentIDsTx(ctx, tx, rootID, targetAgentID)
 	if err != nil {
-		return 0, err
-	}
-	var subtreeAgents []string
-	for subtreeRows.Next() {
-		var id string
-		if err := subtreeRows.Scan(&id); err != nil {
-			_ = subtreeRows.Close()
-			return 0, err
-		}
-		subtreeAgents = append(subtreeAgents, id)
-	}
-	if err := errors.Join(subtreeRows.Err(), subtreeRows.Close()); err != nil {
 		return 0, err
 	}
 	if err := s.interruptOpenSpansTx(ctx, tx, rootID, subtreeAgents, stamp); err != nil {
@@ -497,4 +485,22 @@ func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID strin
 
 func isTerminalAgentStatus(status string) bool {
 	return status == "failed" || status == "stopped" || status == "cancelled" || status == "interrupted" || status == "deleted" || status == "succeeded"
+}
+
+// subtreeAgentIDsTx lists an agent and every descendant.
+func subtreeAgentIDsTx(ctx context.Context, tx *sql.Tx, rootID, targetAgentID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, subtreeCTE+`SELECT id FROM subtree`, rootID, targetAgentID, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

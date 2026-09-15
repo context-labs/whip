@@ -128,7 +128,7 @@ func (t *connectionHTTPTransport) roundTripStream(request *http.Request, finish 
 	}
 	results := make(chan result, 1)
 	go func() {
-		response, err := t.base.RoundTrip(request)
+		response, err := t.base.RoundTrip(request) //nolint:bodyclose // the caller owns and closes the returned response
 		results <- result{response, err}
 	}()
 	grace := time.NewTimer(streamHeaderGrace)

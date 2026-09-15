@@ -69,13 +69,12 @@ type TraceExportParams struct {
 	TraceID string `json:"trace_id,omitempty"`
 }
 
-// TraceExportResult hands back the export: inline when it is small, otherwise
-// as a root-scoped content reference read through content.read.
+// TraceExportResult hands back the export as a root-scoped content reference
+// read through content.read, with the counts it contains.
 type TraceExportResult struct {
-	Content ContentHandle   `json:"content"`
-	Inline  json.RawMessage `json:"inline,omitempty"`
-	Spans   int             `json:"spans"`
-	Traces  int             `json:"traces"`
+	Content ContentHandle `json:"content"`
+	Spans   int           `json:"spans"`
+	Traces  int           `json:"traces"`
 }
 
 type HistoryPageParams struct {

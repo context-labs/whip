@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -114,9 +115,7 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	}
 	llmSpan := func(callID string, start int64, extra map[string]any) SpanRecord {
 		attrs := map[string]any{"model": "kimi-k3-fast", "provider": "inference-net", "purpose": "turn", "model_call_id": callID, "logical_id": "L-" + callID, "attempt": 1}
-		for key, value := range extra {
-			attrs[key] = value
-		}
+		maps.Copy(attrs, extra)
 		return SpanRecord{ID: ModelCallSpanID(root, callID), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindLLM, Name: "inference-net/kimi-k3-fast", StartNS: start, Attrs: SpanAttrs(attrs)}
 	}
 	// First call: priced from catalog rates, emits a cell that reads a file.
@@ -143,8 +142,14 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	must(store.RecordSpanEnd(context.Background(), second))
 	// Third call is still running when the export happens.
 	must(store.RecordSpanStart(context.Background(), llmSpan("c3", base+7_000_000, nil)))
+	// A permission wait sits under the turn as a CHAIN span with its prompt.
+	wait := SpanRecord{ID: WaitSpanID(root, "perm-1"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindWait, Name: "permission: bash", StartNS: base + 3_200_000, Attrs: SpanAttrs(map[string]any{"permission_id": "perm-1", "operation": "bash", "command": "rm -rf build", "input": "bash rm -rf build"})}
+	must(store.RecordSpanStart(context.Background(), wait))
+	wait.EndNS, wait.Status, wait.Attrs = base+3_300_000, SpanStatusOK, SpanAttrs(map[string]any{"decision": "approved", "principal": "human", "output": "approved"})
+	must(store.RecordSpanEnd(context.Background(), wait))
 
-	insertTranscriptRow(t, store, root, 1, map[string]any{"role": "user", "content": "fix it"})
+	// A multimodal user message flattens to text with a placeholder per image part.
+	insertTranscriptRow(t, store, root, 1, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "fix it"}, {"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,AAAA"}}}})
 	insertTranscriptRow(t, store, root, 2, map[string]any{"role": "assistant", "content": "", "call_id": "c1", "tool_calls": []map[string]any{{"id": "tc1", "type": "function", "function": map[string]any{"name": "rlm_exec", "arguments": `{"code":"print(files.read(\"README.md\"))"}`}}}})
 	insertTranscriptRow(t, store, root, 3, map[string]any{"role": "tool", "tool_call_id": "tc1", "name": "rlm_exec", "content": "# Whip"})
 	insertTranscriptRow(t, store, root, 4, map[string]any{"role": "assistant", "content": "Done.", "call_id": "c2"})
@@ -161,7 +166,7 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if summary.Spans != 6 || summary.Traces != 1 {
+	if summary.Spans != 7 || summary.Traces != 1 {
 		t.Fatalf("summary=%+v", summary)
 	}
 	spans := decodeExport(t, data)
@@ -189,6 +194,15 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	if input, _ := turn.attr("input.value"); input != "fix it" {
 		t.Fatalf("turn input=%q", input)
 	}
+	waitOut := byID[WaitSpanID(root, "perm-1")]
+	if kind, _ := waitOut.attr("openinference.span.kind"); kind != "CHAIN" || waitOut.ParentSpanID != turnSpan {
+		t.Fatalf("wait span=%+v", waitOut)
+	}
+	for key, want := range map[string]string{"whip.wait.operation": "bash", "whip.wait.decision": "approved", "input.value": "bash rm -rf build", "output.value": "approved"} {
+		if got, _ := waitOut.attr(key); got != want {
+			t.Fatalf("wait %s=%q want %q", key, got, want)
+		}
+	}
 	if output, _ := turn.attr("output.value"); output != "Done." {
 		t.Fatalf("turn output=%q", output)
 	}
@@ -203,7 +217,7 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 		"gen_ai.usage.input_tokens": "12", "gen_ai.usage.output_tokens": "3",
 		"llm.cost.total": "0.00004", "llm.cost.prompt_details.input": "0.00001", "llm.cost.prompt_details.cache_read": "0.000005", "llm.cost.completion_details.output": "0.000025",
 		"whip.cost.source": "estimated", "whip.cost.split_source": "estimated",
-		"llm.input_messages.0.message.role": "user", "llm.input_messages.0.message.content": "fix it",
+		"llm.input_messages.0.message.role": "user", "llm.input_messages.0.message.content": "fix it[image_url]",
 		"llm.output_messages.0.message.role": "assistant", "llm.output_messages.0.message.tool_calls.0.tool_call.id": "tc1",
 		"llm.output_messages.0.message.tool_calls.0.tool_call.function.name": "rlm_exec",
 		"tool_call.id": "tc1", "whip.input.delta": "true",
@@ -277,7 +291,7 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	// A single-trace export selects only that trace; splitting keeps each
 	// batch a complete request.
 	single, single_summary, err := store.ExportOTLP(context.Background(), root, ExportOptions{TraceID: trace})
-	if err != nil || single_summary.Spans != 6 {
+	if err != nil || single_summary.Spans != 7 {
 		t.Fatalf("single trace export summary=%+v err=%v", single_summary, err)
 	}
 	if _, _, err := store.ExportOTLP(context.Background(), root, ExportOptions{TraceID: "nope"}); err != nil {
@@ -296,7 +310,131 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 		}
 		seen += len(batchSpans)
 	}
-	if seen != 6 {
+	if seen != 7 {
 		t.Fatalf("split lost spans: %d", seen)
+	}
+}
+
+// A failed child turn, a tool that errored before it produced output, host
+// operations whose results are an error or plain text, and a transcript row
+// that no longer decodes must all still export: the failure lands on the
+// span status and the export never aborts over one bad row.
+func TestExportOTLPMapsFailuresLinksAndFallbacks(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	turnID, _ := startRootTurnForTest(t, store, root, agent, "fix it")
+	trace := TraceIDForTurn(turnID)
+	turnSpan := TurnSpanID(root, agent, turnID)
+	base := time.Now().UnixNano()
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	child := SpanRecord{ID: TurnSpanID(root, "child", "t-child"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: "child", TurnID: "t-child", Kind: SpanKindAgent, Name: "child", StartNS: base,
+		Attrs: SpanAttrs(map[string]any{"input": "sub task", "output": "gave up", "trigger": "spawn"}), Links: spanLinksJSON([]SpanLink{{TraceID: trace, SpanID: turnSpan}})}
+	must(store.RecordSpanStart(ctx, child))
+	child.EndNS, child.Status = base+1_000, SpanStatusInterrupted
+	must(store.RecordSpanEnd(ctx, child))
+	call := SpanRecord{ID: ModelCallSpanID(root, "c9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindLLM, Name: "inference-net/kimi-k3-fast", StartNS: base + 2_000,
+		Attrs: SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference-net", "model_call_id": "c9"})}
+	must(store.RecordSpanStart(ctx, call))
+	call.EndNS, call.Status = base+3_000, SpanStatusError
+	call.Attrs = SpanAttrs(map[string]any{"prompt_tokens": "7", "completion_tokens": 2, "reasoning_tokens": 1, "error": "provider closed the stream", "usage_source": "reported", "cost_source": "unknown"})
+	must(store.RecordSpanEnd(ctx, call))
+	tool := SpanRecord{ID: ToolSpanID(root, agent, turnID, "tc9"), TraceID: trace, ParentID: turnSpan, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindTool, Name: "rlm_exec", StartNS: base + 4_000,
+		Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "emitting_call_id": "c9", "execution_engine": "quickjs"})}
+	must(store.RecordSpanStart(ctx, tool))
+	tool.EndNS, tool.Status, tool.Attrs = base+5_000, SpanStatusCancelled, SpanAttrs(map[string]any{"error": "cell cancelled"})
+	must(store.RecordSpanEnd(ctx, tool))
+	exec(t, store, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,result_inline,created_at,updated_at) VALUES(?,?,?,'failed',?,?,?,?)`,
+		"op-denied", root, agent, `{"request":{"operation":"bash","arguments":{"command":"rm -rf build"}}}`, `{"output":"","error":"denied by policy"}`, now(), now())
+	exec(t, store, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,result_inline,created_at,updated_at) VALUES(?,?,?,'succeeded',?,?,?,?)`,
+		"op-text", root, agent, `not an admission`, `plain text result`, now(), now())
+	// A missing operation row falls back to the host call's own error text.
+	hosts := map[string]string{"op-denied": "denied by policy", "op-text": "plain text result", "op-missing": "operation vanished"}
+	for index, operationID := range []string{"op-denied", "op-text", "op-missing"} {
+		host := SpanRecord{ID: HostSpanID(root, agent, turnID, "tc9", operationID), TraceID: trace, ParentID: tool.ID, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindHost, Name: "host." + operationID, StartNS: base + 4_100 + int64(index),
+			Attrs: SpanAttrs(map[string]any{"tool_call_id": "tc9", "invocation_id": operationID})}
+		must(store.RecordSpanStart(ctx, host))
+		host.EndNS, host.Attrs = base+4_200+int64(index), SpanAttrs(map[string]any{"operation_id": operationID})
+		if operationID == "op-missing" {
+			host.Status, host.Attrs = SpanStatusError, SpanAttrs(map[string]any{"operation_id": operationID, "error": "operation vanished"})
+		}
+		must(store.RecordSpanEnd(ctx, host))
+	}
+	// The root transcript has one row that is not JSON at all; the export keeps
+	// going without message bodies rather than failing the whole document.
+	exec(t, store, `INSERT INTO messages(session_id,seq,role,content) VALUES(?,?,?,?)`, root, 1, "user", "{not json")
+
+	data, summary, err := store.ExportOTLP(ctx, root, ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Spans != 7 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	byID := map[string]exportedSpan{}
+	for _, span := range decodeExport(t, data) {
+		byID[span.SpanID] = span
+	}
+	childOut := byID[child.ID]
+	if childOut.Status.Code != otlpStatusError || childOut.Status.Message != SpanStatusInterrupted {
+		t.Fatalf("interrupted turn status=%+v", childOut.Status)
+	}
+	if input, _ := childOut.attr("input.value"); input != "sub task" {
+		t.Fatalf("child input=%q", input)
+	}
+	if output, _ := childOut.attr("output.value"); output != "gave up" {
+		t.Fatalf("child output=%q", output)
+	}
+	if !strings.Contains(string(data), `"links":[{"traceId":"`+trace+`","spanId":"`+turnSpan+`"}]`) {
+		t.Fatalf("child links missing from %s", data)
+	}
+	callOut := byID[call.ID]
+	if callOut.Status.Message != "provider closed the stream" {
+		t.Fatalf("llm status=%+v", callOut.Status)
+	}
+	if prompt, _ := callOut.attr("llm.token_count.prompt"); prompt != "7" {
+		t.Fatalf("string token count not parsed: %q", prompt)
+	}
+	if reasoning, _ := callOut.attr("llm.token_count.completion_details.reasoning"); reasoning != "1" {
+		t.Fatalf("reasoning tokens=%q", reasoning)
+	}
+	toolOut := byID[tool.ID]
+	if toolOut.Status.Message != "cell cancelled" {
+		t.Fatalf("tool status=%+v", toolOut.Status)
+	}
+	if engine, _ := toolOut.attr("whip.execution_engine"); engine != "quickjs" {
+		t.Fatalf("tool engine=%q", engine)
+	}
+	for operationID, want := range hosts {
+		got, _ := byID[HostSpanID(root, agent, turnID, "tc9", operationID)].attr("output.value")
+		if got != want {
+			t.Fatalf("host %s output=%q want %q", operationID, got, want)
+		}
+	}
+	if _, ok := byID[turnSpan].attr("output.value"); ok {
+		t.Fatal("a turn whose transcript does not decode must not invent an output")
+	}
+}
+
+func TestExportOTLPAndSplitRejectBadInputs(t *testing.T) {
+	if _, err := SplitOTLP([]byte("nope"), 10); err == nil {
+		t.Fatal("malformed export must not split")
+	}
+	if _, err := SplitOTLP([]byte(`{"resourceSpans":[]}`), 10); err == nil {
+		t.Fatal("an export without the single resource/scope must not split")
+	}
+	store, root, _ := newSwarmFixture(t)
+	if _, _, err := store.ExportOTLP(context.Background(), "", ExportOptions{}); err == nil {
+		t.Fatal("export without a root must fail")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ExportOTLP(context.Background(), root, ExportOptions{}); err == nil {
+		t.Fatal("export on a closed store must fail")
 	}
 }

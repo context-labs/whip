@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -494,9 +495,9 @@ func (s *Store) endTurnSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, 
 	if errorText != "" {
 		attrs["error"] = SpanExcerpt(errorText)
 	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			attrs["output"] = SpanExcerpt(messages[i].Content)
+	for _, message := range slices.Backward(messages) {
+		if message.Role == "assistant" && message.Content != "" {
+			attrs["output"] = SpanExcerpt(message.Content)
 			break
 		}
 	}

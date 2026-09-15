@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
@@ -69,7 +70,7 @@ func TestStampsAreFixedWidthNanosecondsThatParseAndOrder(t *testing.T) {
 	}
 	earlier := formatStamp(time.Date(2026, 9, 14, 12, 0, 0, 500_000_000, time.UTC))
 	later := formatStamp(time.Date(2026, 9, 14, 12, 0, 0, 500_000_001, time.UTC))
-	if !(earlier < later) {
+	if earlier >= later {
 		t.Fatalf("stamps do not order as text: %q vs %q", earlier, later)
 	}
 }
@@ -263,5 +264,102 @@ func TestPermissionWaitIsASpanUnderTheTurn(t *testing.T) {
 	wait = spansByID(t, store, root, trace)[WaitSpanID(root, ticket.PermissionID)]
 	if wait.EndNS == 0 || wait.Status != SpanStatusOK || spanAttrs(t, wait)["decision"] != "denied" {
 		t.Fatalf("wait span not closed by the decision: %+v", wait)
+	}
+}
+
+func TestSpanRecordsRejectIncompleteOrInvertedSpans(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	turnID, _ := startRootTurnForTest(t, store, root, agent, "validate")
+	trace := TraceIDForTurn(turnID)
+	base := SpanRecord{ID: "abc", TraceID: trace, RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindTool, Name: "bash", StartNS: 10}
+	for name, broken := range map[string]func(SpanRecord) SpanRecord{
+		"no id":       func(r SpanRecord) SpanRecord { r.ID = ""; return r },
+		"no trace":    func(r SpanRecord) SpanRecord { r.TraceID = ""; return r },
+		"no start":    func(r SpanRecord) SpanRecord { r.StartNS = 0; return r },
+		"no name":     func(r SpanRecord) SpanRecord { r.Name = ""; return r },
+		"ends before": func(r SpanRecord) SpanRecord { r.EndNS = 5; return r },
+	} {
+		record := broken(base)
+		var err error
+		if name == "ends before" {
+			err = store.RecordSpanEnd(context.Background(), record)
+		} else {
+			err = store.RecordSpanStart(context.Background(), record)
+		}
+		if err == nil {
+			t.Fatalf("%s: expected a validation error", name)
+		}
+	}
+	// A missing turn yields the derived identity, never an error.
+	spanID, traceID, err := store.TurnSpan(context.Background(), root, agent, "never-started")
+	if err != nil || spanID != TurnSpanID(root, agent, "never-started") || traceID != TraceIDForTurn("never-started") {
+		t.Fatalf("turn span fallback=%s %s %v", spanID, traceID, err)
+	}
+	for status, want := range map[string]string{"succeeded": SpanStatusOK, "failed": SpanStatusError, "cancelled": SpanStatusCancelled, "interrupted": SpanStatusInterrupted, "weird": SpanStatusError} {
+		if got := spanStatusForTurn(status); got != want {
+			t.Fatalf("spanStatusForTurn(%s)=%s", status, got)
+		}
+	}
+	if excerpt := SpanExcerpt(strings.Repeat("é", SpanExcerptLimit)); !strings.HasSuffix(excerpt, "…") || len(excerpt) > SpanExcerptLimit+len("…") {
+		t.Fatalf("excerpt did not cut on a rune boundary: %d bytes", len(excerpt))
+	}
+	if _, err := store.PageSpans(context.Background(), "", "", 0, 0, false); err == nil {
+		t.Fatal("paging without a root must fail")
+	}
+	if _, err := store.SpansForTrace(context.Background(), "", ""); err == nil {
+		t.Fatal("reading a trace without a root must fail")
+	}
+}
+
+func TestSpanHelpersFilterTracesAndSurfaceStoreErrors(t *testing.T) {
+	if got := SpanExcerpt(strings.Repeat("é", SpanExcerptLimit)); !utf8.ValidString(got) || !strings.HasSuffix(got, "…") {
+		t.Fatalf("excerpt must cut on a rune boundary: %q", got[len(got)-6:])
+	}
+	if got := string(SpanAttrs(map[string]any{"nil": nil, "empty": "", "zero": int64(0)})); got != "{}" {
+		t.Fatalf("empty values must be dropped: %s", got)
+	}
+	store, root, agent := newSwarmFixture(t)
+	ctx := context.Background()
+	turnID, _ := startRootTurnForTest(t, store, root, agent, "first")
+	other := SpanRecord{ID: TurnSpanID(root, agent, "t-other"), TraceID: TraceIDForTurn("t-other"), RootID: root, AgentID: agent, TurnID: "t-other", Kind: SpanKindAgent, Name: "root", StartNS: time.Now().UnixNano()}
+	if err := store.RecordSpanStart(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	spans, err := store.SpansForTrace(ctx, root, other.TraceID)
+	if err != nil || len(spans) != 1 || spans[0].ID != other.ID {
+		t.Fatalf("trace filter: %d spans, err=%v", len(spans), err)
+	}
+	if all, err := store.SpansForTrace(ctx, root, ""); err != nil || len(all) != 2 {
+		t.Fatalf("unfiltered read: %d spans, err=%v", len(all), err)
+	}
+	if _, err := store.SpansForTrace(ctx, "", ""); err == nil {
+		t.Fatal("a trace read needs a root")
+	}
+	// A turn that has not started yet still has deterministic ids, so callers
+	// can parent onto it before its span row exists.
+	if spanID, traceID, err := store.TurnSpan(ctx, root, agent, "never-started"); err != nil || spanID != TurnSpanID(root, agent, "never-started") || traceID != TraceIDForTurn("never-started") {
+		t.Fatalf("unknown turn ids: %q %q %v", spanID, traceID, err)
+	}
+	if spanID, _, err := store.TurnSpan(ctx, root, agent, turnID); err != nil || spanID != TurnSpanID(root, agent, turnID) {
+		t.Fatalf("turn span lookup: %q %v", spanID, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordSpanStart(ctx, other); err == nil {
+		t.Fatal("span start on a closed store must fail")
+	}
+	other.EndNS = other.StartNS + 1
+	if err := store.RecordSpanEnd(ctx, other); err == nil {
+		t.Fatal("span end on a closed store must fail")
+	}
+	if _, err := store.PageSpans(ctx, root, "", 0, 10, false); err == nil {
+		t.Fatal("paging a closed store must fail")
+	}
+	if _, err := store.SpansForTrace(ctx, root, ""); err == nil {
+		t.Fatal("reading a closed store must fail")
+	}
+	if _, _, err := store.TurnSpan(ctx, root, agent, turnID); err == nil {
+		t.Fatal("turn lookup on a closed store must fail")
 	}
 }

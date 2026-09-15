@@ -29,7 +29,6 @@
       ],
       "additionalProperties": false
     },
-    "inline": true,
     "spans": {
       "type": "integer"
     },

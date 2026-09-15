@@ -37,10 +37,22 @@ func sessionsExportCLI(args []string) error {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]"))
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		return err
+	// The standard parser stops at the first positional argument; accept flags
+	// on either side of the root id by re-parsing after each positional.
+	root := ""
+	for {
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		if root != "" {
+			fs.Usage()
+			return fmt.Errorf("unexpected argument %q", fs.Arg(0))
+		}
+		root, args = fs.Arg(0), fs.Args()[1:]
 	}
-	root := fs.Arg(0)
 	if root == "" {
 		fs.Usage()
 		return errors.New("a session (root) id is required")
@@ -53,9 +65,7 @@ func sessionsExportCLI(args []string) error {
 		return err
 	}
 	defer func() { _ = connection.Close() }()
-	caller, ok := connection.(interface {
-		Call(context.Context, string, any, any) error
-	})
+	caller, ok := connection.(rpcCaller)
 	if !ok {
 		return errors.New("this daemon connection cannot issue trace queries")
 	}
@@ -63,12 +73,9 @@ func sessionsExportCLI(args []string) error {
 	if err := caller.Call(ctx, "trace.export", protocol.TraceExportParams{RootID: root, TraceID: *trace}, &result); err != nil {
 		return err
 	}
-	data := []byte(result.Inline)
-	if len(data) == 0 {
-		data, err = readExportContent(ctx, caller, root, result.Content)
-		if err != nil {
-			return err
-		}
+	data, err := readExportContent(ctx, caller, root, result.Content)
+	if err != nil {
+		return err
 	}
 	if *push != "" {
 		return pushOTLP(ctx, *push, *token, data, result)
@@ -81,16 +88,20 @@ func sessionsExportCLI(args []string) error {
 		_, err := os.Stdout.Write(data)
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Exports carry prompts and tool output; keep them private to the user.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "exported %d spans across %d traces to %s\n", result.Spans, result.Traces, path)
 	return nil
 }
 
-func readExportContent(ctx context.Context, caller interface {
-	Call(context.Context, string, any, any) error
-}, root string, handle daemon.ContentHandle) ([]byte, error) {
+// rpcCaller is the raw JSON-RPC surface the export needs from a daemon connection.
+type rpcCaller interface {
+	Call(ctx context.Context, method string, params, result any) error
+}
+
+func readExportContent(ctx context.Context, caller rpcCaller, root string, handle daemon.ContentHandle) ([]byte, error) {
 	if handle.ReferenceID == "" {
 		return nil, errors.New("the daemon returned an empty export")
 	}
@@ -112,7 +123,11 @@ func readExportContent(ctx context.Context, caller interface {
 // pushOTLP posts the export as gzip OTLP/JSON, split so every request stays
 // under the endpoint's body cap.
 func pushOTLP(ctx context.Context, endpoint, token string, data []byte, result protocol.TraceExportResult) error {
-	batches, err := session.SplitOTLP(data, otlpPushBatchBytes)
+	return pushOTLPWithBatchSize(ctx, endpoint, token, data, result, otlpPushBatchBytes)
+}
+
+func pushOTLPWithBatchSize(ctx context.Context, endpoint, token string, data []byte, result protocol.TraceExportResult, batchBytes int) error {
+	batches, err := session.SplitOTLP(data, batchBytes)
 	if err != nil {
 		return err
 	}

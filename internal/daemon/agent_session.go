@@ -165,7 +165,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 				// The stream failed after output; the client discards the partial
 				// and generates the whole message again. Clients drop the shown
 				// partial on stream.discard; the notice says what happened.
-				emit("stream.discard", StreamEvent{Text: fmt.Sprint(event.Discarded), TurnID: turnID})
+				emit("stream.discard", StreamEvent{Text: strconv.Itoa(event.Discarded), TurnID: turnID})
 				emit("stream.notice", StreamEvent{Text: fmt.Sprintf("response interrupted after %d characters (%v); regenerating in %s (%d of %d)",
 					event.Discarded, event.Err, event.Delay, event.Regeneration, event.Regenerations)})
 				return

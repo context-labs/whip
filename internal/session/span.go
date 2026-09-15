@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 	"unicode/utf8"
 )
@@ -94,13 +95,17 @@ func TraceIDForTurn(turnID string) string { return spanHash(16, "whip-trace", tu
 func TurnSpanID(rootID, agentID, turnID string) string {
 	return spanHash(8, SpanKindAgent, rootID, agentID, turnID)
 }
+
 func ModelCallSpanID(rootID, callID string) string { return spanHash(8, SpanKindLLM, rootID, callID) }
+
 func ToolSpanID(rootID, agentID, turnID, toolCallID string) string {
 	return spanHash(8, SpanKindTool, rootID, agentID, turnID, toolCallID)
 }
+
 func HostSpanID(rootID, agentID, turnID, toolCallID, invocationID string) string {
 	return spanHash(8, SpanKindHost, rootID, agentID, turnID, toolCallID, invocationID)
 }
+
 func WaitSpanID(rootID, waitID string) string { return spanHash(8, SpanKindWait, rootID, waitID) }
 
 // SpanExcerpt bounds a body for span attrs on a rune boundary.
@@ -266,30 +271,8 @@ func (s *Store) endSpanTx(ctx context.Context, tx *sql.Tx, record SpanRecord, st
 // agents, as interrupted. Recovery and subtree stops call it so a crashed or
 // stopped turn never leaves a span drawn to now forever.
 func (s *Store) interruptOpenSpansTx(ctx context.Context, tx *sql.Tx, rootID string, agentIDs []string, stamp string) error {
-	query := `SELECT id FROM spans WHERE end_ns=0`
-	var args []any
-	if rootID != "" {
-		query += ` AND root_id=?`
-		args = append(args, rootID)
-	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	ids, err := openSpanIDsTx(ctx, tx, rootID)
 	if err != nil {
-		return err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
 		return err
 	}
 	endNS := time.Now().UnixNano()
@@ -298,7 +281,7 @@ func (s *Store) interruptOpenSpansTx(ctx context.Context, tx *sql.Tx, rootID str
 		if err != nil {
 			return err
 		}
-		if len(agentIDs) > 0 && !containsString(agentIDs, record.AgentID) {
+		if len(agentIDs) > 0 && !slices.Contains(agentIDs, record.AgentID) {
 			continue
 		}
 		record.EndNS, record.Status = endNS, SpanStatusInterrupted
@@ -310,13 +293,28 @@ func (s *Store) interruptOpenSpansTx(ctx context.Context, tx *sql.Tx, rootID str
 	return nil
 }
 
-func containsString(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
+// openSpanIDsTx lists the open spans of one root, or of every root.
+func openSpanIDsTx(ctx context.Context, tx *sql.Tx, rootID string) ([]string, error) {
+	query := `SELECT id FROM spans WHERE end_ns=0`
+	var args []any
+	if rootID != "" {
+		query += ` AND root_id=?`
+		args = append(args, rootID)
 	}
-	return false
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (s *Store) emitSpanEventTx(ctx context.Context, tx *sql.Tx, rootID, spanID, kind string, seq int64, stamp string) error {

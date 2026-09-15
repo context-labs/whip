@@ -550,7 +550,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 					if errors.Is(cerr, errNoHistory) {
 						// The provider rejected the request and nothing is
 						// left to fold: the floor alone overflows the window.
-						return "", fmt.Errorf("%w: %v", ErrCompactionExhausted, err)
+						return "", fmt.Errorf("%w: %w", ErrCompactionExhausted, err)
 					}
 					return "", cerr
 				}

@@ -395,7 +395,9 @@ func (e *otlpExporter) assignDeltas(spans []SpanRecord) {
 		if err != nil || transcript == nil {
 			continue
 		}
-		sort.Slice(calls, func(i, j int) bool { return calls[i].StartNS < calls[j].StartNS || calls[i].StartNS == calls[j].StartNS && calls[i].ID < calls[j].ID })
+		sort.Slice(calls, func(i, j int) bool {
+			return calls[i].StartNS < calls[j].StartNS || calls[i].StartNS == calls[j].StartNS && calls[i].ID < calls[j].ID
+		})
 		previous := -1 // index of the last assistant row already attributed
 		for _, call := range calls {
 			attrs := decodeAttrs(call.Attrs)
@@ -461,7 +463,7 @@ func (e *otlpExporter) span(record SpanRecord) (otlpSpan, error) {
 		var links []SpanLink
 		if json.Unmarshal(record.Links, &links) == nil {
 			for _, link := range links {
-				out.Links = append(out.Links, otlpLink{TraceID: link.TraceID, SpanID: link.SpanID})
+				out.Links = append(out.Links, otlpLink(link))
 			}
 		}
 	}
@@ -561,6 +563,9 @@ func (e *otlpExporter) turnOutput(turn SpanRecord) string {
 		if index, ok := transcript.byCallID[callID]; ok && transcript.rows[index].Content != "" {
 			return transcript.rows[index].Content
 		}
+	}
+	if rows.Err() != nil {
+		return ""
 	}
 	return ""
 }
