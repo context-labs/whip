@@ -619,6 +619,12 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 		}, stamp); err != nil {
 			return capability.Ticket{}, err
 		}
+		if err := s.startWaitSpanTx(ctx, tx, admission.Request.RootID, admission.Request.AgentID, ticket.PermissionID, "permission: "+admission.Request.Operation, map[string]any{
+			"permission_id": ticket.PermissionID, "operation_id": admission.Request.OperationID, "operation": admission.Request.Operation,
+			"command": SpanExcerpt(command), "rule": rule, "path": admission.CanonicalPath,
+		}, stamp); err != nil {
+			return capability.Ticket{}, err
+		}
 	} else {
 		if err := insertCapabilityLease(ctx, tx, ticket.LeaseID, admission, stamp); err != nil {
 			return capability.Ticket{}, err
@@ -689,7 +695,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, err
 	}
 	if !sameCapabilityAdmission(stored, admission) || rootID != stored.Request.RootID || agentID != stored.Request.AgentID || operationID != stored.Request.OperationID {
-		if err := terminalizePermission(ctx, tx, stored, permissionID, string(capability.StatusDenied), decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
+		if err := s.terminalizePermission(ctx, tx, stored, permissionID, string(capability.StatusDenied), decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -699,7 +705,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 	}
 	admission = stored
 	if !decision.Allow {
-		if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
+		if err := s.terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -728,6 +734,9 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status=?,updated_at=? WHERE id=? AND status='pending'`, permissionStatusValue("approved", decision.PrincipalID), stamp, permissionID); err != nil {
+		return capability.Ticket{}, err
+	}
+	if err := s.endWaitSpanTx(ctx, tx, rootID, permissionID, "approved", decision.PrincipalID, stamp); err != nil {
 		return capability.Ticket{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -967,7 +976,7 @@ func (s *Store) commitDeniedAdmission(ctx context.Context, tx *sql.Tx, prepared 
 	return fmt.Errorf("%w: %w", capability.ErrDenied, denial)
 }
 
-func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID, status, principal, reason string) error {
+func (s *Store) terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID, status, principal, reason string) error {
 	stamp := now()
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status=?,updated_at=? WHERE id=? AND status='pending'`,
 		permissionStatusValue(status, principal), stamp, permissionID); err != nil {
@@ -977,11 +986,54 @@ func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability
 		status, []byte(reason), stamp, admission.Request.OperationID); err != nil {
 		return err
 	}
+	if err := s.endWaitSpanTx(ctx, tx, admission.Request.RootID, permissionID, status, principal, stamp); err != nil {
+		return err
+	}
 	return releaseCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations)
 }
 
+// startWaitSpanTx opens a wait span under the agent's running turn. Waits on
+// a human are the idle stretches a timeline must show, so they are spans like
+// everything else, not gaps.
+func (s *Store) startWaitSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, waitID, name string, attrs map[string]any, stamp string) error {
+	var turnID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM turns WHERE root_id=? AND agent_id=? AND status='running'`, rootID, agentID).Scan(&turnID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if turnID == "" {
+		return nil // a wait outside any turn has no trace to join
+	}
+	parent := TurnSpanID(rootID, agentID, turnID)
+	traceID := TraceIDForTurn(turnID)
+	_ = tx.QueryRowContext(ctx, `SELECT trace_id FROM spans WHERE id=?`, parent).Scan(&traceID)
+	return s.startSpanTx(ctx, tx, SpanRecord{
+		ID: WaitSpanID(rootID, waitID), TraceID: traceID, ParentID: parent, RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindWait, Name: name, Status: SpanStatusRunning, StartNS: time.Now().UnixNano(), Attrs: SpanAttrs(attrs),
+	}, stamp)
+}
+
+// endWaitSpanTx closes a wait span with the decision that ended it. A wait
+// that never opened (no running turn) has nothing to close.
+func (s *Store) endWaitSpanTx(ctx context.Context, tx *sql.Tx, rootID, waitID, decision, principal, stamp string) error {
+	id := WaitSpanID(rootID, waitID)
+	record, err := readSpanTx(ctx, tx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status := SpanStatusOK
+	if decision == "interrupted" {
+		status = SpanStatusInterrupted
+	}
+	record.EndNS, record.Status = time.Now().UnixNano(), status
+	record.Attrs = SpanAttrs(map[string]any{"decision": decision, "principal": principal})
+	return s.endSpanTx(ctx, tx, record, stamp)
+}
+
 func (s *Store) denyStalePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID string, decision capability.Decision, denial error) error {
-	if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, denial.Error()); err != nil {
+	if err := s.terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, denial.Error()); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

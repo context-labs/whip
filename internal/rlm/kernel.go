@@ -361,6 +361,24 @@ type HostCall struct {
 	Summary   string
 	Duration  time.Duration
 	Err       string
+	// OperationID is the durable operations row this call was admitted as,
+	// when it went through the capability dispatcher; empty otherwise.
+	OperationID string
+}
+
+type hostCallKey struct{}
+
+// WithHostCall tags the context a host call runs under with the call's
+// identity, so host handlers that queue work for other agents can name the
+// span that caused it.
+func WithHostCall(ctx context.Context, call HostCall) context.Context {
+	return context.WithValue(ctx, hostCallKey{}, call)
+}
+
+// HostCallFromContext returns the identity WithHostCall attached, if any.
+func HostCallFromContext(ctx context.Context) (HostCall, bool) {
+	call, ok := ctx.Value(hostCallKey{}).(HostCall)
+	return call, ok
 }
 
 type ScratchReport struct {
@@ -589,7 +607,10 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
-				value, callErr = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
+				// The host runs synchronously on this goroutine, so the observer
+				// can write the admitted operation id straight onto the call.
+				callCtx := tools.WithOperationObserver(WithHostCall(ctx, call), func(id string) { call.OperationID = id })
+				value, callErr = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 			}
 			if kernel.onHostCall != nil {
 				call.Duration = time.Since(callStarted)

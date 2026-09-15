@@ -18,6 +18,10 @@ type AgentTurnStart struct {
 	TurnID  string
 	Trigger string // "inbox" or "mailbox"
 	Items   []InboxItem
+	// SpanID and TraceID identify the turn's span so the turn's model calls,
+	// cells and host calls can parent under it without another read.
+	SpanID  string
+	TraceID string
 }
 
 // AgentTurnCommit settles one agent turn. DeliveredMessages are the mailbox
@@ -124,6 +128,29 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 	if err != nil {
 		return AgentTurnStart{}, err
 	}
+	// The turn joins the trace of whatever caused it (Decision 3): the host
+	// call that queued its input, or the sender of the first message in its
+	// digest, with the other messages as links. Nothing known starts a trace.
+	var parent SpanLink
+	var links []SpanLink
+	if start.Trigger == "inbox" && inboxSeq > 0 {
+		parent.SpanID, parent.TraceID, err = inboxCauseTx(ctx, tx, rootID, agentID, inboxSeq)
+		if err != nil {
+			return AgentTurnStart{}, err
+		}
+	} else if start.Trigger == "mailbox" {
+		causes, err := mailboxCausesTx(ctx, tx, rootID, agentID, stamp)
+		if err != nil {
+			return AgentTurnStart{}, err
+		}
+		if len(causes) > 0 {
+			parent, links = causes[0], causes[1:]
+		}
+	}
+	start.SpanID, start.TraceID, err = s.startTurnSpanTx(ctx, tx, rootID, agentID, turnID, start.Trigger, inboxSeq, parent, links, stamp)
+	if err != nil {
+		return AgentTurnStart{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return AgentTurnStart{}, err
 	}
@@ -167,6 +194,9 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 		return errors.New("agent turn is not running")
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=? WHERE root_id=? AND id=? AND status='running'`, stamp, rootID, agentID); err != nil {
+		return err
+	}
+	if err := s.endTurnSpanTx(ctx, tx, rootID, agentID, commit.TurnID, status, commit.Error, commit.Messages, stamp); err != nil {
 		return err
 	}
 	seen := make(map[int64]struct{}, len(commit.AcknowledgedInbox))

@@ -360,7 +360,7 @@ func TestLifecycleChildPayloadFailureSettlesClaimAndAcceptsNextInput(t *testing.
 		t.Fatal("invalid child input reached the model")
 	}
 	runtime.setRunTurnHook(nil)
-	if _, err := root.SubmitAgentInput(t.Context(), root.AgentID(), id, "submit", "valid child input", "test"); err != nil {
+	if _, err := root.SubmitAgentInput(t.Context(), root.AgentID(), id, "submit", "valid child input", "test", sessionstore.SpanLink{}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)

@@ -73,10 +73,35 @@ func TestV2ActualAgentEventsMatchSchemas(t *testing.T) {
 			}
 		}
 	}
-	for _, kind := range []string{"stream.usage", "stream.text", "turn.started", "turn.succeeded"} {
+	for _, kind := range []string{"stream.usage", "stream.text", "turn.started", "turn.succeeded", "span.started", "span.ended"} {
 		if !seen[kind] {
 			t.Fatalf("missing actual event %s", kind)
 		}
+	}
+	// The turn left a durable trace: a closed agent span and, under it, the
+	// model call with the usage the provider reported.
+	page, err := store.PageSpans(t.Context(), root.ID(), "", 0, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var turn, call *session.SpanRecord
+	for i := range page.Spans {
+		switch page.Spans[i].Kind {
+		case session.SpanKindAgent:
+			turn = &page.Spans[i]
+		case session.SpanKindLLM:
+			call = &page.Spans[i]
+		}
+	}
+	if turn == nil || turn.EndNS == 0 || turn.Status != session.SpanStatusOK || turn.ParentID != "" {
+		t.Fatalf("turn span=%+v", turn)
+	}
+	if call == nil || call.ParentID != turn.ID || call.TraceID != turn.TraceID || call.EndNS < call.StartNS || call.StartNS < turn.StartNS {
+		t.Fatalf("model call span=%+v under turn %+v", call, turn)
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(call.Attrs, &attrs); err != nil || attrs["prompt_tokens"] != float64(12) || attrs["completion_tokens"] != float64(3) || attrs["model_call_id"] == "" {
+		t.Fatalf("model call span attrs=%s err=%v", call.Attrs, err)
 	}
 }
 

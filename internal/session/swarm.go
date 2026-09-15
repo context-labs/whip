@@ -30,6 +30,10 @@ type AgentAdmission struct {
 	Prompt       RuntimePayload
 	Budgets      []BudgetLimit
 	Capabilities []CapabilityDelegation
+	// ParentSpanID and SpanTraceID name the agents.spawn host call, so the
+	// child's first turn parents under it in the trace.
+	ParentSpanID string
+	SpanTraceID  string
 }
 
 type AgentRelatives struct {
@@ -174,6 +178,7 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 	if len(admission.Prompt.Data) > 0 {
 		if _, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
 			RootID: admission.RootID, AgentID: admission.ChildAgentID, Kind: "submit", Payload: admission.Prompt,
+			ParentSpanID: admission.ParentSpanID, SpanTraceID: admission.SpanTraceID,
 		}, prompt, "agent.prompt.queued", actorEvent{AgentID: admission.ChildAgentID, Status: "queued"}); err != nil {
 			return 0, err
 		}
@@ -307,6 +312,25 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 		if err := interrupt(query, stamp, rootID); err != nil {
 			return 0, err
 		}
+	}
+	subtreeRows, err := tx.QueryContext(ctx, subtreeCTE+`SELECT id FROM subtree`, rootID, targetAgentID, rootID)
+	if err != nil {
+		return 0, err
+	}
+	var subtreeAgents []string
+	for subtreeRows.Next() {
+		var id string
+		if err := subtreeRows.Scan(&id); err != nil {
+			_ = subtreeRows.Close()
+			return 0, err
+		}
+		subtreeAgents = append(subtreeAgents, id)
+	}
+	if err := errors.Join(subtreeRows.Err(), subtreeRows.Close()); err != nil {
+		return 0, err
+	}
+	if err := s.interruptOpenSpansTx(ctx, tx, rootID, subtreeAgents, stamp); err != nil {
+		return 0, err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return 0, err

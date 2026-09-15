@@ -556,6 +556,7 @@ update their source, boundary tests, and this table together.
 | --- | --- | --- |
 | SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/sdk/src/state.ts) |
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
+| SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
 | Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
@@ -763,6 +764,37 @@ through live observation and history replay. Checkpoint notices do not change a
 completed cell into a failed execution.
 
 Code and scoped large-body reads use existing UI/SDK limits and copy controls.
+
+### Session trace viewer
+
+The third session view kind, `trace` (`?view=trace`), shows one trace as an
+execution tree beside a waterfall, with a detail pane for the selected span. A
+trace is one root turn and everything it caused, including child turns; the
+toolbar's picker lists the session's traces newest first and offers the whole
+session. **Open trace** sits beside **Open REPL** in the info bar, tab context
+menu and picker, and uses the same `openSessionView` helper.
+
+The SDK owns the data. `SessionView.loadTrace()` pages the daemon's durable
+spans (`trace.page`) into bounded `state.trace` evidence and live `span.started`
+/ `span.ended` events upsert by id, so the root span appears the moment a turn is
+admitted and no snapshot refresh is needed per span. `traceSpans(state, traceId)`
+and `traceRoots(state)` are the only reads; the app adds selection, expansion,
+zoom and a 500 ms clock while any span is open. Timing is server-measured
+(nanosecond stamps taken on the daemon goroutine that saw the boundary) and open
+spans grow against the daemon's clock through the page's `server_time_ns`, so
+the view shows real historical durations, unlike the REPL's client-observed
+timer. Pure layout and roll-up math lives in `trace-math.ts`, ported from the
+HALO viewer: tree building, depth-first rows, domain and view clamping, ticks,
+roll-ups over descendants, display names. Header totals are sums over the
+loaded spans and are flagged when the evidence is truncated; cost only counts
+spans whose price Whip knew.
+
+The tree and waterfall are two columns of one virtualized row list at 28 px, so
+they never scroll apart. The detail pane shows Overview (duration, start and end
+offsets, cost rolled up for agent spans, tokens, model, children, agent, status)
+and Raw (the span JSON), with the bounded input/output/error excerpts the daemon
+kept in span attrs; full bodies are in the export. Export from the CLI:
+`whip sessions export <root> [-o file] [-push URL]`.
 
 ## Data fetching and synchronization
 

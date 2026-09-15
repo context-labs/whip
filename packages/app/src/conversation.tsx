@@ -28,6 +28,7 @@ import {
 import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
+import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
 import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
@@ -39,7 +40,7 @@ import { admittedText, isChatInput } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
-import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab, type SessionViewKind } from './session-tabs';
 
 const loadingStyles = stylex.create({
   overlay: {
@@ -112,7 +113,7 @@ export function SessionContent({
   viewId,
   summaryCwd,
 }: {
-  kind: 'chat' | 'repl';
+  kind: SessionViewKind;
   view: SessionView;
   expectedRuntimeId: string;
   agentId: string;
@@ -278,7 +279,8 @@ export function SessionContent({
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
             search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
         } : undefined}
-        onRepl={kind === 'chat' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); } : undefined}
+        onRepl={kind !== 'repl' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); } : undefined}
+        onTrace={kind !== 'trace' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace'); } : undefined}
         onDetails={() => setPanel('agents')} onPrepare={actions.prepare}
         actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
         activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}
@@ -286,7 +288,8 @@ export function SessionContent({
       {connection.state === 'connected' && (state.error || history?.error) && <ErrorNotice type="session"
         owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
         action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
-      {kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
+      {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
+      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
         <Timeline
           active={!!activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}

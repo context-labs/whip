@@ -1,18 +1,19 @@
 import type { ReactNode } from 'react';
 import { Button, IconButton, Menu, Tooltip, type MenuItem } from '@whip/ui';
-import { ChevronDown, Code2, MoreHorizontal, PanelRight } from 'lucide-react';
+import { ChartGantt, ChevronDown, Code2, MoreHorizontal, PanelRight } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
-export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onDetails, actions = [], onPrepare, pending = false }: {
+export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onTrace, onDetails, actions = [], onPrepare, pending = false }: {
   host: string;
   cwd?: string;
   agentName?: string;
-  kind: 'chat' | 'repl' | 'new';
+  kind: 'chat' | 'repl' | 'trace' | 'new';
   activity?: ReactNode;
   onAgents?(): void;
   onRoot?(): void;
   onRepl?(): void;
+  onTrace?(): void;
   onDetails?(): void;
   actions?: readonly MenuItem[];
   onPrepare?(open: boolean): void;
@@ -24,6 +25,7 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
   const identity = [host, cwd || missingProject].filter(Boolean).join(' / ');
   const menu: MenuItem[] = [
     ...(onRepl ? [{ id: 'repl', label: 'Open REPL', onSelect: onRepl }] : []),
+    ...(onTrace ? [{ id: 'trace', label: 'Open trace', onSelect: onTrace }] : []),
     ...(onDetails ? [{ id: 'details', label: 'Session details', onSelect: onDetails }] : []),
     ...(onRoot ? [{ id: 'root', label: 'Root conversation', onSelect: onRoot }] : []),
     ...actions,
@@ -42,8 +44,12 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
       <div {...stylex.props(styles.activity)}>{activity ?? (kind === 'new' ? <span>Not started</span> : null)}</div>
       <div {...stylex.props(styles.actions)}>
         {kind === 'repl' && <span {...stylex.props(styles.mode)}><Code2 size={14} />REPL</span>}
+        {kind === 'trace' && <span {...stylex.props(styles.mode)}><ChartGantt size={14} />Trace</span>}
         {onRepl && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Open REPL in a new tab">
           <IconButton variant="ghost" size="sm" label="Open REPL" onClick={onRepl}><Code2 size={16} /></IconButton>
+        </Tooltip></span>}
+        {onTrace && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Open trace in a new tab">
+          <IconButton variant="ghost" size="sm" label="Open trace" onClick={onTrace}><ChartGantt size={16} /></IconButton>
         </Tooltip></span>}
         {onDetails && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Session details">
           <IconButton variant="ghost" size="sm" label="Session details" onClick={onDetails}><PanelRight size={16} /></IconButton>

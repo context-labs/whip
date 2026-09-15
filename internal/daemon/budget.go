@@ -38,6 +38,9 @@ func (s *Session) BeginModelAttempt(ctx context.Context, attempt llm.ModelAttemp
 }
 
 func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	// The span starts when the attempt asks for admission, before the actor
+	// round trip, so admission latency is inside the call's bar.
+	startedAt := time.Now()
 	// Check at admission for roots, descendants, helpers, compaction and retries.
 	// An attempt already admitted keeps its immutable route and may finish.
 	if s.providers != nil {
@@ -60,9 +63,12 @@ func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, at
 		return llm.ModelPermit{}, err
 	}
 	s.publishModelAccounting(ctx)
+	s.modelCallSpanStart(agentID, reservation.ID, attempt, startedAt)
 	return llm.ModelPermit{
 		ID: reservation.ID, MaxTokens: reservation.MaxTokens, Timeout: reservation.Timeout,
-		Settle: func(result llm.ModelAttemptResult) error {
+		Settle: func(result llm.ModelAttemptResult) (settleErr error) {
+			var settled sessionstore.ModelCallSettlement
+			defer func() { s.modelCallSpanEnd(agentID, reservation.ID, attempt, settled, result, settleErr) }()
 			s.accountingMu.Lock()
 			defer s.accountingMu.Unlock()
 			// Repair the first retained result before considering another
@@ -77,7 +83,8 @@ func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, at
 			// lifetime also avoids routing settlement through a stopping actor.
 			settleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			settled, err := s.store.SettleModelCall(settleCtx, s.meta.ID, reservation.ID, result)
+			var err error
+			settled, err = s.store.SettleModelCall(settleCtx, s.meta.ID, reservation.ID, result)
 			if err != nil {
 				if errors.Is(err, sessionstore.ErrModelCallConflict) {
 					return err

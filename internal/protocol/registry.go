@@ -52,6 +52,32 @@ type SubscriptionFailure struct {
 	Error          *RPCError `json:"error"`
 }
 
+// TracePageParams reads a root's spans written after a cursor. TraceID narrows
+// to one trace; RootsOnly lists the turn spans that start traces.
+type TracePageParams struct {
+	RootID    string `json:"root_id"`
+	TraceID   string `json:"trace_id,omitempty"`
+	AfterSeq  int64  `json:"after_seq,omitempty,string"`
+	Limit     int    `json:"limit,omitempty"`
+	RootsOnly bool   `json:"roots_only,omitempty"`
+}
+
+// TraceExportParams renders a session's spans as OTLP/JSON. An empty TraceID
+// exports every trace of the session.
+type TraceExportParams struct {
+	RootID  string `json:"root_id"`
+	TraceID string `json:"trace_id,omitempty"`
+}
+
+// TraceExportResult hands back the export: inline when it is small, otherwise
+// as a root-scoped content reference read through content.read.
+type TraceExportResult struct {
+	Content ContentHandle   `json:"content"`
+	Inline  json.RawMessage `json:"inline,omitempty"`
+	Spans   int             `json:"spans"`
+	Traces  int             `json:"traces"`
+}
+
 type HistoryPageParams struct {
 	RootID     string `json:"root_id"`
 	AgentID    string `json:"agent_id"`
@@ -116,6 +142,8 @@ var rpcOperations = []Operation{
 	rpc[ReplayParams, ReplayResult]("events.replay", Query, "root-association", false),
 	rpc[SnapshotParams, session.RootSnapshot]("root.snapshot", Query, "root-association", false),
 	rpc[HistoryPageParams, session.BoundedTranscriptPage]("history.page", Query, "root-agent-association", false),
+	rpc[TracePageParams, session.SpanPage]("trace.page", Query, "root-association", false),
+	rpc[TraceExportParams, TraceExportResult]("trace.export", Query, "root-association", false),
 	rpc[ProviderValidateParams, ProviderValidateResult]("provider.validate", Ephemeral, "host-configuration", true),
 	rpc[UploadBeginParams, Accepted]("upload.begin", Ephemeral, "content-grant", false),
 	rpc[UploadChunkParams, Accepted]("upload.chunk", Ephemeral, "connection-upload", false),

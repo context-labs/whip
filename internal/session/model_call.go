@@ -24,8 +24,22 @@ type ModelCallReservation struct {
 	Timeout   time.Duration
 }
 
+// ModelCallSettlement reports what one attempt settled to, so the caller can
+// describe the call (its span, its notice) without re-pricing or re-reading.
 type ModelCallSettlement struct {
-	Exhausted bool
+	Exhausted           bool
+	Status              string
+	UsageSource         string
+	CostSource          string
+	PromptTokens        int
+	CompletionTokens    int
+	CachedTokens        int
+	ReasoningTokens     int
+	CostMicros          int64
+	CostInputMicros     int64
+	CostCacheReadMicros int64
+	CostOutputMicros    int64
+	ElapsedMillis       int64
 }
 
 // ModelCallEvent describes one attempt admission or accounting outcome.
@@ -76,6 +90,28 @@ type storedModelCall struct {
 	Result                      []byte
 	Exhausted                   bool
 	Contributions               map[BudgetKind]modelContribution
+	UsageSource, CostSource     string
+	CostMicros, ElapsedMillis   int64
+	Split                       llm.CostBreakdown
+}
+
+// settlement rebuilds the settlement a stored attempt reported, so a repeated
+// settlement of the same result answers exactly like the first.
+func (call storedModelCall) settlement() ModelCallSettlement {
+	settled := ModelCallSettlement{
+		Exhausted: call.Exhausted, Status: call.Status, UsageSource: call.UsageSource, CostSource: call.CostSource,
+		CostMicros: call.CostMicros, ElapsedMillis: call.ElapsedMillis,
+		CostInputMicros: call.Split.Input, CostCacheReadMicros: call.Split.CacheRead, CostOutputMicros: call.Split.Output,
+	}
+	var result llm.ModelAttemptResult
+	if json.Unmarshal(call.Result, &result) == nil && result.Dispatched {
+		usage := validModelUsage(result.Usage)
+		settled.PromptTokens, settled.CompletionTokens, settled.CachedTokens = usage.PromptTokens, usage.CompletionTokens, usage.Cached()
+		if usage.CompletionTokensDetails != nil {
+			settled.ReasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+		}
+	}
+	return settled
 }
 
 // modelContribution is the amount this call placed in each budget. Unknown
@@ -290,7 +326,7 @@ func (s *Store) SettleModelCall(ctx context.Context, rootID, callID string, resu
 	}
 	if call.Status != "running" && call.Status != "interrupted" {
 		if bytes.Equal(encoded, call.Result) {
-			return ModelCallSettlement{Exhausted: call.Exhausted}, tx.Commit()
+			return call.settlement(), tx.Commit()
 		}
 		return ModelCallSettlement{}, ErrModelCallConflict
 	}
@@ -313,10 +349,12 @@ func (s *Store) SettleModelCall(ctx context.Context, rootID, callID string, resu
 func loadModelCallTx(ctx context.Context, tx *sql.Tx, rootID, callID string) (storedModelCall, error) {
 	var call storedModelCall
 	var attempt, reservations, contributions []byte
-	err := tx.QueryRowContext(ctx, `SELECT id,root_id,agent_id,status,attempt,max_tokens,timeout_nanos,reservations,result,exhausted,contributions
+	err := tx.QueryRowContext(ctx, `SELECT id,root_id,agent_id,status,attempt,max_tokens,timeout_nanos,reservations,result,exhausted,contributions,
+		usage_source,cost_source,cost_micros,elapsed_millis,cost_input_micros,cost_cache_read_micros,cost_output_micros
 		FROM model_calls WHERE root_id=? AND id=?`, rootID, callID).Scan(&call.ID, &call.RootID, &call.AgentID, &call.Status,
 		&attempt, &call.Reservation.MaxTokens, &call.Reservation.Timeout, &reservations, &call.Result, &call.Exhausted,
-		&contributions)
+		&contributions, &call.UsageSource, &call.CostSource, &call.CostMicros, &call.ElapsedMillis,
+		&call.Split.Input, &call.Split.CacheRead, &call.Split.Output)
 	if err != nil {
 		return storedModelCall{}, err
 	}
@@ -340,8 +378,10 @@ func (s *Store) settleModelCallTx(ctx context.Context, tx *sql.Tx, call storedMo
 		allowances[reservation.Kind] = reservation.Amount
 	}
 	usageSource, costSource := "none", "none"
+	var split llm.CostBreakdown
 	if result.Dispatched {
 		usage := validModelUsage(result.Usage)
+		split, _ = call.Attempt.Pricing.CostBreakdown(usage)
 		usageSource = "estimated"
 		contributions[BudgetTokens] = modelContribution{Uncertain: allowances[BudgetTokens], Incomplete: true}
 		if usage.HasUsage() {
@@ -429,9 +469,21 @@ func (s *Store) settleModelCallTx(ctx context.Context, tx *sql.Tx, call storedMo
 		return ModelCallSettlement{}, err
 	}
 	tokens, cost, elapsed := contributions[BudgetTokens].Used, contributions[BudgetCost].Used, contributions[BudgetElapsed].Used
-	if _, err := tx.ExecContext(ctx, `UPDATE model_calls SET status=?,result=?,usage_source=?,cost_source=?,tokens=?,cost_micros=?,elapsed_millis=?,contributions=?,exhausted=?,updated_at=?
-  WHERE root_id=? AND id=? AND status=?`, status, encoded, usageSource, costSource, tokens, cost, elapsed, storedContributions, settled.Exhausted, stamp, call.RootID, call.ID, call.Status); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE model_calls SET status=?,result=?,usage_source=?,cost_source=?,tokens=?,cost_micros=?,elapsed_millis=?,contributions=?,exhausted=?,updated_at=?,
+  cost_input_micros=?,cost_cache_read_micros=?,cost_output_micros=?
+  WHERE root_id=? AND id=? AND status=?`, status, encoded, usageSource, costSource, tokens, cost, elapsed, storedContributions, settled.Exhausted, stamp,
+		split.Input, split.CacheRead, split.Output, call.RootID, call.ID, call.Status); err != nil {
 		return ModelCallSettlement{}, err
+	}
+	settled.Status, settled.UsageSource, settled.CostSource = status, usageSource, costSource
+	settled.CostMicros, settled.ElapsedMillis = cost, elapsed
+	settled.CostInputMicros, settled.CostCacheReadMicros, settled.CostOutputMicros = split.Input, split.CacheRead, split.Output
+	if result.Dispatched {
+		usage := validModelUsage(result.Usage)
+		settled.PromptTokens, settled.CompletionTokens, settled.CachedTokens = usage.PromptTokens, usage.CompletionTokens, usage.Cached()
+		if usage.CompletionTokensDetails != nil {
+			settled.ReasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+		}
 	}
 	eventKind := "model.call.settled"
 	if call.Status == "interrupted" {

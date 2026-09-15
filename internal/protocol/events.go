@@ -42,6 +42,11 @@ func EventPayloads() map[string]reflect.Type {
 	} {
 		result[kind] = reflect.TypeFor[session.LifecycleEvent]()
 	}
+	// Trace spans: the full record on both edges, so a client can render a
+	// span the moment it starts and merge the settlement by id when it ends.
+	for _, kind := range []string{"span.started", "span.ended"} {
+		result[kind] = reflect.TypeFor[session.SpanRecord]()
+	}
 	return result
 }
 

@@ -170,7 +170,15 @@ func (s *Store) SetUsage(id string, in, cached, out int) error {
 
 func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
 
-func now() string { return time.Now().UTC().Format(time.RFC3339) }
+// stampLayout is RFC 3339 with a fixed nine-digit fraction: stored stamps
+// keep nanoseconds, sort lexicographically as text, and still parse with
+// time.RFC3339. Every stamp that is stored or compared in SQL goes through
+// formatStamp so no two columns disagree on width.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+func formatStamp(value time.Time) string { return value.UTC().Format(stampLayout) }
+
+func now() string { return formatStamp(time.Now()) }
 
 // Create inserts a new session and returns its id.
 func (s *Store) Create(kind SessionKind, cwd, model, provider string) (string, error) {
@@ -486,6 +494,7 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM transcript_messages WHERE root_id=?`,
 		`DELETE FROM inbox WHERE root_id=?`,
 		`DELETE FROM turns WHERE root_id=?`,
+		`DELETE FROM spans WHERE root_id=?`,
 		`DELETE FROM content_grants WHERE root_id=?`,
 		`DELETE FROM events WHERE root_id=?`,
 		`DELETE FROM commands WHERE root_id=?`,
@@ -771,7 +780,7 @@ func (s *Store) AddSchedule(sessionID, schedule, prompt string, anchor time.Time
 	var id int
 	err := s.db.QueryRowContext(context.Background(), `INSERT INTO schedules (session_id, id, schedule, prompt, anchor, created_at)
 		SELECT ?, COALESCE(MAX(id),0)+1, ?, ?, ?, ? FROM schedules WHERE session_id=? RETURNING id`,
-		sessionID, schedule, prompt, anchor.UTC().Format(time.RFC3339), now(), sessionID).Scan(&id)
+		sessionID, schedule, prompt, formatStamp(anchor), now(), sessionID).Scan(&id)
 	return id, err
 }
 
@@ -813,7 +822,7 @@ func (s *Store) SchedulesContext(ctx context.Context, sessionID string) ([]Sched
 // never fires again).
 func (s *Store) MarkFired(sessionID string, id int, at time.Time) error {
 	_, err := s.db.ExecContext(context.Background(), `UPDATE schedules SET last_fire=? WHERE session_id=? AND id=?`,
-		at.UTC().Format(time.RFC3339), sessionID, id)
+		formatStamp(at), sessionID, id)
 	return err
 }
 

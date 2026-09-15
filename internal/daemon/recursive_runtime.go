@@ -93,6 +93,7 @@ type AgentSession struct {
 	failures          int // consecutive failed turns; drives the re-wake backoff
 	cancel            context.CancelFunc
 	turn              turnJournal
+	spanStarts        map[string]int64 // open tool/host span starts by span id, for their ends
 	emit              func(string, StreamEvent)
 	interactive       *daemonInteractiveRunner
 	prompt            rlm.PromptSnapshot
@@ -180,11 +181,13 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 }
 
 func (node *AgentSession) emitHostStart(call rlm.HostCall) {
+	node.hostSpanStart(call)
 	node.emitHostEvent("stream.cell.host.started", call)
 }
 
 // The existing kind remains completion-only for older clients.
 func (node *AgentSession) emitHostCall(call rlm.HostCall) {
+	node.hostSpanEnd(call)
 	node.emitHostEvent("stream.cell.host", call)
 }
 
@@ -198,7 +201,7 @@ func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 	node.mu.Unlock()
 	event := StreamEvent{
 		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
-		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err,
+		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err, OperationID: call.OperationID,
 	}
 	if kind == "stream.cell.host" {
 		event.Text = call.Duration.Round(time.Millisecond).String()
@@ -1265,11 +1268,12 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	child.SetModelCallBudget(agentModelBudget{node: node})
 	child.TransformInput = node.host.focusInput
 	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
+	cause := parent.hostSpanLink(ctx)
 	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
 		ParentAgentID: parent.id, ChildAgentID: id, Name: name, Definition: childName,
 		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir, Report: report,
 		Prompt:       sessionstore.RuntimePayload{Data: []byte(task), MediaType: "text/plain", Source: "initial agent prompt"},
-		Capabilities: delegations, Budgets: budgets,
+		Capabilities: delegations, Budgets: budgets, ParentSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 	}); err != nil {
 		node.close(true)
 		return nil, err
@@ -1382,7 +1386,7 @@ func (runtime *RecursiveRuntime) submit(ctx context.Context, caller *AgentSessio
 	if !slices.ContainsFunc(relatives.Children, func(child sessionstore.RuntimeAgent) bool { return child.ID == id }) {
 		return nil, sessionstore.ErrAgentAccess
 	}
-	seq, err := caller.root.SubmitAgentInput(ctx, caller.id, id, kind, text, "parent follow-up")
+	seq, err := caller.root.SubmitAgentInput(ctx, caller.id, id, kind, text, "parent follow-up", caller.hostSpanLink(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1557,8 +1561,10 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		body, _ := stringArgument(arguments, "body")
 		evidence, _ := stringArgument(arguments, "evidence_handle")
 		delivery, _ := stringArgument(arguments, "delivery")
+		cause := node.hostSpanLink(ctx)
 		message, err := node.root.SendMailboxMessage(ctx, node.id, recipient, sessionstore.MailboxSend{
 			Subject: subject, Body: body, EvidenceReferenceID: evidence, Delivery: delivery,
+			SenderSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 		})
 		return map[string]any{
 			"id": message.ID, "recipient": recipient, "delivery": message.Delivery, "status": message.Status, "created_at": message.CreatedAt,

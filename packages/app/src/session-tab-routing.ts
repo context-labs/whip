@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab } from './session-tabs';
+import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -49,7 +49,7 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
 }
 
 /** Explicit view opening creates an adjacent REPL; URL observation only selects it. */
-export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: 'chat' | 'repl') {
+export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: SessionViewKind) {
   try {
     const tab = runtime.tabs.openRelated(sourceId, kind);
     await navigate(tabDestination(tab));

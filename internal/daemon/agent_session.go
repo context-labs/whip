@@ -67,13 +67,19 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			return "", fmt.Errorf("%w: %w", sessionstore.ErrInvalidInput, err)
 		}
 	}
-	var turnID string
+	var turnID, spanID, traceID string
 	var baseSeq int
 	if session.root != nil {
 		var err error
 		turnID, err = session.root.store.RunningTurnID(ctx, session.root.ID(), session.id)
 		if err != nil {
 			return "", err
+		}
+		if turnID != "" {
+			spanID, traceID, err = session.root.store.TurnSpan(ctx, session.root.ID(), session.id, turnID)
+			if err != nil {
+				return "", err
+			}
 		}
 		bounds, err := session.root.store.TranscriptBounds(ctx, session.root.ID(), session.id)
 		if err != nil {
@@ -83,6 +89,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	}
 	session.mu.Lock()
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
+	session.turn.SpanID, session.turn.TraceID, session.turn.LastModelCallID = spanID, traceID, ""
 	session.mu.Unlock()
 	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices}
 	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
@@ -128,20 +135,29 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	if contribution := session.turnStart(ctx, input); contribution != "" {
 		events.EphemeralSystem = strings.TrimSpace(events.EphemeralSystem + "\n" + contribution)
 	}
-	if emit := session.emit; emit != nil {
+	// Tool spans are recorded whether or not a client is streaming; the
+	// stream events ride alongside when one is.
+	emit := session.emit
+	events.OnToolStart = func(id, name, args string) {
+		session.toolSpanStart(id, name, args)
+		if emit != nil {
+			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+		}
+	}
+	events.OnToolEnd = func(id, name, result string) {
+		session.toolSpanEnd(id, name, result)
+		if emit != nil {
+			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID})
+		}
+	}
+	if emit != nil {
 		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
 		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }
 		events.OnToolCall = func(id, name, args string) {
 			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
 		}
-		events.OnToolStart = func(id, name, args string) {
-			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
-		}
 		events.OnToolOutput = func(id, text string) {
 			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID})
-		}
-		events.OnToolEnd = func(id, name, result string) {
-			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID})
 		}
 		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
 		events.OnRetry = func(event llm.RetryEvent) {
