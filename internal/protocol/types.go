@@ -347,16 +347,19 @@ type RuntimeConfiguration struct {
 	ImportCodex  bool                 `json:"import_codex"`
 	// MCPImportOffered is true once the host's MCP import offer was answered;
 	// the New session screen reads it before asking for candidates.
-	MCPImportOffered bool   `json:"mcp_import_offered"`
-	Revision         string `json:"revision"`
-	DefaultModel     string `json:"default_model"`
-	DefaultProvider  string `json:"default_provider"`
-	DefaultEffort    string `json:"default_effort"`
-	CompactModel     string `json:"compact_model"`
-	CompactProvider  string `json:"compact_provider"`
-	CompactPercent   int    `json:"compact_percent"`
-	GoalMaxRounds    int    `json:"goal_max_rounds"`
-	MaxRetries       int    `json:"max_retries"`
+	MCPImportOffered bool `json:"mcp_import_offered"`
+	// BrandIcons is false when the host must not ask DuckDuckGo for MCP server
+	// logos it has no bundled mark for.
+	BrandIcons      bool   `json:"brand_icons"`
+	Revision        string `json:"revision"`
+	DefaultModel    string `json:"default_model"`
+	DefaultProvider string `json:"default_provider"`
+	DefaultEffort   string `json:"default_effort"`
+	CompactModel    string `json:"compact_model"`
+	CompactProvider string `json:"compact_provider"`
+	CompactPercent  int    `json:"compact_percent"`
+	GoalMaxRounds   int    `json:"goal_max_rounds"`
+	MaxRetries      int    `json:"max_retries"`
 }
 
 type ConfigurationUpdate struct {
@@ -365,6 +368,7 @@ type ConfigurationUpdate struct {
 	RemoteHosts            *[]config.RemoteHost `json:"remote_hosts,omitempty"`
 	ImportClaude           *bool                `json:"import_claude,omitempty"`
 	ImportCodex            *bool                `json:"import_codex,omitempty"`
+	BrandIcons             *bool                `json:"brand_icons,omitempty"`
 	Revision               string               `json:"revision"`
 	DefaultModel           *string              `json:"default_model,omitempty"`
 	DefaultProvider        *string              `json:"default_provider,omitempty"`

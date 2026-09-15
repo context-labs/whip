@@ -7,7 +7,7 @@ import type { MCPImportCandidatesResult } from '@whip/protocol';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { MCPImportScreen, caveat, shouldOffer, sortCandidates } from '../src/mcp-import';
-import { candidate, fakeMCPImport, supportsImport } from './mcp-import-fake';
+import { candidate, fakeMCPImport, supportsImport, tinyPNG } from './mcp-import-fake';
 
 const disabled = (element: Element) => element.matches('[aria-disabled="true"], [data-disabled], :disabled');
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
@@ -16,15 +16,15 @@ afterEach(() => vi.unstubAllGlobals());
 const found: MCPImportCandidatesResult = {
   offered: false, config_path: '/home/u/.whipcode/config.json',
   candidates: [
-    candidate('paper', 'importable'), candidate('ahrefs', 'native'), candidate('node_repl', 'excluded'),
-    candidate('computer-use', 'disabled'), candidate('exa', 'importable', 'claude'),
-    candidate('figma', 'unsupported', 'opencode', { note: "needs a sign-in Whip can't do yet" }), candidate('executor', 'native'),
+    candidate('paper', 'importable'), candidate('ahrefs', 'native', 'codex', { brand_key: 'ahrefs.com' }), candidate('node_repl', 'excluded'),
+    candidate('computer-use', 'disabled'), candidate('exa', 'importable', 'claude', { brand_key: 'exa.example' }),
+    candidate('figma', 'unsupported', 'opencode', { note: "needs a sign-in Whip can't do yet", brand_key: 'figma.com' }), candidate('executor', 'native'),
   ],
 };
 
 function fixture(data: MCPImportCandidatesResult = found) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const mcpImport = fakeMCPImport(data);
+  const mcpImport = fakeMCPImport(data, { 'exa.example': tinyPNG });
   const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), supports: supportsImport, mcpImport } as unknown as WhipClient;
   const runtime = { queries, report: vi.fn(), getSnapshot: () => ({ commands: [] }), subscribe: () => () => {} } as unknown as AppRuntime;
   const onDone = vi.fn();
@@ -63,6 +63,19 @@ it('checks importable servers by default, leaves off and excluded ones unchecked
   expect(screen.getByText(/2 selected · saved to Whip's configuration on Local/)).toBeTruthy();
   expect(screen.getByText('/home/u/.whipcode/config.json')).toBeTruthy();
   expect(f.candidates).toHaveBeenCalledWith({}, expect.anything());
+});
+
+it('draws bundled marks at once, asks the daemon only for the rest, and keeps monograms for servers with no domain', async () => {
+  const f = fixture(); f.render();
+  const list = await screen.findByRole('list', { name: 'Discovered MCP servers' });
+  const row = (name: string) => within(list).getAllByRole('listitem').find(item => item.textContent?.includes(name))!;
+  // figma.com and ahrefs.com ship in the bundle, exa.example does not, paper has no domain.
+  await waitFor(() => expect(f.brandIcons).toHaveBeenCalledExactlyOnceWith({ keys: ['exa.example'] }, expect.anything()));
+  await waitFor(() => expect(row('exa').querySelector('img')?.getAttribute('src')).toBe(tinyPNG));
+  expect(row('figma').querySelector('img')?.getAttribute('src')).toMatch(/^data:image\//);
+  expect(row('ahrefs').querySelector('img')?.getAttribute('src')).toMatch(/^data:image\//);
+  expect(row('paper').querySelector('img')).toBeNull();
+  expect(row('paper').textContent?.startsWith('P')).toBe(true);
 });
 
 it('imports exactly the ticked names, including an excluded server after Include', async () => {

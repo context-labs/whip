@@ -14,6 +14,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:config.update` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
 | `rpc:mcp.import.candidates` | Web | New session offer and Settings → Configuration → Servers from other agents: the MCP servers other agents configured on the host, read from files only. |
 | `rpc:mcp.import.apply` | Web | Import or Skip on that screen: writes the chosen servers into the host's native mcp block and records the answer. |
+| `rpc:mcp.brand.icons` | Web | Logos on that screen for servers the bundled marks do not cover: the daemon asks DuckDuckGo by registrable domain, caches per host, and returns data URIs; off with `brandIcons: false`. |
 | `rpc:content.read` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |

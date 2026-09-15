@@ -214,6 +214,14 @@ export const manifest = {
       "result_type": "MailboxInspection"
     },
     {
+      "name": "mcp.brand.icons",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "MCPBrandIconsParams",
+      "result_type": "MCPBrandIconsResult"
+    },
+    {
       "name": "mcp.import.apply",
       "surface": "rpc",
       "execution": "ephemeral",

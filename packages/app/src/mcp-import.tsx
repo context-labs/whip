@@ -8,6 +8,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { ErrorNotice } from './error-feedback';
+import { MCPBrandIcon, useBrandIcons, useBrandMarks } from './mcp-brand';
 import { layout } from './styles';
 
 // The import screen: the servers other agents configured on a host, one flat
@@ -79,6 +80,10 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
   const [error, setError] = useState<unknown>();
   const data = query.data;
   const rows = sortCandidates(data?.candidates ?? []);
+  // Bundled marks first; the daemon is asked only for domains the bundle lacks, once the bundle has loaded.
+  const marks = useBrandMarks();
+  const icons = useBrandIcons(client, marks ? rows.map(row => row.brand_key).filter((key): key is string => !!key && !marks[key]) : []);
+  const mark = (candidate: MCPImportCandidate) => candidate.brand_key ? marks?.[candidate.brand_key] ?? icons?.[candidate.brand_key] : undefined;
   const included = (candidate: MCPImportCandidate) => candidate.name in overrides;
   const selectable = (candidate: MCPImportCandidate) =>
     candidate.state === 'importable' || candidate.state === 'disabled' || (candidate.state === 'excluded' && included(candidate));
@@ -110,7 +115,7 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
           ? <Check size={14} aria-label={`${candidate.name} is already in Whip`} {...stylex.props(styles.nativeMark)} />
           : <Checkbox aria-label={`Import ${candidate.name}`} checked={checked(candidate)} disabled={busy || !selectable(candidate)}
             onCheckedChange={value => tick(candidate.name, !!value)} />}</span>
-        <span aria-hidden {...stylex.props(styles.tile)}>{candidate.name.slice(0, 1).toUpperCase()}</span>
+        <MCPBrandIcon name={candidate.name} src={mark(candidate)} quiet={candidate.state === 'native' || candidate.state === 'unsupported'} />
         <span {...stylex.props(styles.name, (candidate.state === 'native' || candidate.state === 'unsupported') && styles.quiet)}>{candidate.name}</span>
         <span {...stylex.props(styles.caveat)}>
           {caveat(candidate, included(candidate))}
@@ -146,11 +151,6 @@ const styles = stylex.create({
   },
   slot: { display: 'inline-flex', width: 16, justifyContent: 'center', flexShrink: 0 },
   nativeMark: { color: surface.secondaryText },
-  tile: {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, flexShrink: 0,
-    borderRadius: scale.radiusSmall, backgroundColor: colors.element, color: surface.secondaryText,
-    fontSize: typography.size11, fontWeight: 600, lineHeight: 1,
-  },
   name: { flex: 1, minWidth: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   quiet: { color: surface.secondaryText, fontWeight: 400 },
   caveat: { display: 'inline-flex', alignItems: 'center', flexShrink: 0, fontSize: typography.size12, color: surface.secondaryText, whiteSpace: 'nowrap' },

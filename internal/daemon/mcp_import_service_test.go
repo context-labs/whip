@@ -1,11 +1,18 @@
 package daemon
 
 import (
+	"bytes"
+	"image"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
@@ -116,6 +123,47 @@ func TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer(t *testing.T) {
 	}
 	if snapshot, err := service.ReadConfiguration(); err != nil || !snapshot.MCPImportOffered {
 		t.Errorf("config.get must report the answered offer, got %+v %v", snapshot.MCPImportOffered, err)
+	}
+}
+
+func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
+	service, _ := mcpImportFixture(t)
+	var hits atomic.Int32
+	var img bytes.Buffer
+	if err := png.Encode(&img, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); _, _ = w.Write(img.Bytes()) }))
+	t.Cleanup(srv.Close)
+	old := brandicon.Endpoint
+	brandicon.Endpoint = srv.URL + "/%s.ico"
+	t.Cleanup(func() { brandicon.Endpoint = old })
+
+	// On by default: a domain resolves, a local address is never asked for.
+	got, err := service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: []string{"exa.ai", "127.0.0.1"}})
+	if err != nil || !strings.HasPrefix(got.Icons["exa.ai"], "data:image/png;base64,") || len(got.Icons) != 1 || hits.Load() != 1 {
+		t.Fatalf("default resolve = %v, %v, hits %d", got.Icons, err, hits.Load())
+	}
+	if entries, _ := os.ReadDir(filepath.Join(os.Getenv("WHIP_HOME"), "icons")); len(entries) != 1 {
+		t.Errorf("the cache lives under WHIP_HOME/icons, found %d entries", len(entries))
+	}
+	snapshot, err := service.ReadConfiguration()
+	if err != nil || !snapshot.BrandIcons {
+		t.Fatalf("config.get must report the default as on: %+v %v", snapshot.BrandIcons, err)
+	}
+	// Off: nothing answered, nothing dialed, and config.get says so.
+	off := false
+	if _, err := service.UpdateConfiguration(ConfigurationUpdate{Revision: snapshot.Revision, BrandIcons: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: []string{"figma.com"}}); err != nil || len(got.Icons) != 0 || hits.Load() != 1 {
+		t.Fatalf("off must answer nothing and dial nothing: %v %v hits %d", got.Icons, err, hits.Load())
+	}
+	if snapshot, err = service.ReadConfiguration(); err != nil || snapshot.BrandIcons {
+		t.Fatalf("config.get must report off: %+v %v", snapshot.BrandIcons, err)
+	}
+	if _, err := service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: make([]string, 65)}); err == nil {
+		t.Error("more than 64 keys in one call must be refused")
 	}
 }
 
