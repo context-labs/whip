@@ -37,5 +37,4 @@ type MCPImportApplyParams struct {
 type MCPImportApplyResult struct {
 	Imported []string          `json:"imported"`
 	Skipped  map[string]string `json:"skipped,omitempty"`
-	Offered  bool              `json:"offered"`
 }

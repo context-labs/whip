@@ -13,8 +13,8 @@ func TestParseOpenCode(t *testing.T) {
 	  "$schema": "https://opencode.ai/config.json",
 	  "mcp": {
 	    "gsc": {"type": "local", "command": ["npx", "-y", "mcp-server-gsc"],
-	            "environment": {"GOOGLE_APPLICATION_CREDENTIALS": "$GSC_CREDS"}, "enabled": true, "timeout": 5000},
-	    "ahrefs": {"type": "remote", "url": "https://api.ahrefs.com/mcp/mcp", "headers": {"Authorization": "$AHREFS"}},
+	            "environment": {"GOOGLE_APPLICATION_CREDENTIALS": "$GSC_CREDS", "KEYFILE": "{file:~/gsc.json}"}, "enabled": true, "timeout": 5000},
+	    "ahrefs": {"type": "remote", "url": "https://api.ahrefs.com/mcp/mcp", "headers": {"Authorization": "Bearer {env:AHREFS_TOKEN}"}},
 	    "figma": {"type": "remote", "url": "https://mcp.figma.com/mcp", "oauth": {}},
 	    "linear": {"type": "remote", "url": "https://mcp.linear.app/mcp", "oauth": {"clientId": "x"}, "enabled": true},
 	    "plain": {"type": "remote", "url": "https://example.com/mcp", "oauth": false},
@@ -36,8 +36,11 @@ func TestParseOpenCode(t *testing.T) {
 	if gsc.StartupTimeout != 0 {
 		t.Errorf("opencode timeout must be ignored, got %d", gsc.StartupTimeout)
 	}
-	if a := got["ahrefs"]; !a.Remote() || a.Headers["Authorization"] != "$AHREFS" || a.Disabled() {
-		t.Errorf("remote entry mis-parsed: %+v", a)
+	if a := got["ahrefs"]; !a.Remote() || a.Headers["Authorization"] != "Bearer ${AHREFS_TOKEN}" || a.Disabled() {
+		t.Errorf("remote entry mis-parsed or {env:} not rewritten to a whip reference: %+v", a)
+	}
+	if gsc.Env["KEYFILE"] != "{file:~/gsc.json}" {
+		t.Errorf("{file:} has no whip equivalent and must stay as written, got %q", gsc.Env["KEYFILE"])
 	}
 	for _, name := range []string{"figma", "linear"} {
 		if s := got[name]; !s.Disabled() || s.Note != SignInNote {

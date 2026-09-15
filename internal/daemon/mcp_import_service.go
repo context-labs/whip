@@ -64,7 +64,8 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 		}
 	}
 	var result protocol.MCPImportApplyResult
-	_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+	// A second Skip or an apply with nothing new leaves the file alone.
+	_, _, err := config.UpdateVersionedIfChanged("", func(cfg *config.Config) error {
 		cands, _ := mcp.Candidates(p.CWD, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
 		added, skipped := mcp.Apply(cfg, cands, p.Names)
 		for name, reason := range skipped {
@@ -76,7 +77,7 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 			cfg.MCPImport = &config.MCPImport{}
 		}
 		cfg.MCPImport.Offered = true
-		result = protocol.MCPImportApplyResult{Imported: make([]string, 0, len(added)), Offered: true}
+		result = protocol.MCPImportApplyResult{Imported: make([]string, 0, len(added))}
 		for name := range added {
 			result.Imported = append(result.Imported, name)
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -51,9 +52,9 @@ func ParseOpenCode(data []byte) (map[string]ServerConfig, error) {
 	for name, s := range f.MCP {
 		c := ServerConfig{
 			Command: s.Command,
-			Env:     s.Environment,
+			Env:     opencodeReferences(s.Environment),
 			URL:     s.URL,
-			Headers: s.Headers,
+			Headers: opencodeReferences(s.Headers),
 			Enabled: s.Enabled,
 		}
 		switch s.Type {
@@ -70,6 +71,23 @@ func ParseOpenCode(data []byte) (map[string]ServerConfig, error) {
 		out[name] = c
 	}
 	return out, nil
+}
+
+var opencodeEnvRef = regexp.MustCompile(`\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// opencodeReferences rewrites OpenCode's "{env:NAME}" placeholders into the
+// "${NAME}" references whip resolves at connect time, so an imported secret
+// stays a reference. Its "{file:path}" form has no whip equivalent and is
+// left as written.
+func opencodeReferences(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = opencodeEnvRef.ReplaceAllString(value, "${$1}")
+	}
+	return out
 }
 
 // oauthConfigured reports whether an opencode entry opted into OAuth: any

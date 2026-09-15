@@ -120,7 +120,7 @@ that host's Whip config, without a terminal and without learning what
 | Protocol | `internal/protocol/{runtime_contract,runtime_types}.go`, host service registry next to `configuration.get/update`; `npm run generate` |
 | Daemon | `internal/daemon/mcp_import_service.go` (new), beside `provider_service.go:172-215` |
 | SDK | `packages/sdk/src/services.ts` (`client.mcpImport.candidates/apply`) |
-| Web | `packages/app/src/mcp-import.tsx`, `mcp-brand.tsx`, `assets/mcp-brands.svg` (new); `welcome.tsx`, `settings/configuration.tsx`, `details/integrations.tsx` |
+| Web | `packages/app/src/mcp-import.tsx` (new; monogram tiles, no brand assets per decision 8); `welcome.tsx`, `settings/configuration.tsx`, `settings/navigation.ts`, `details/integrations.tsx` |
 | Docs | `docs/features.md` (MCP), `docs/README.md` (MCP), `docs/tools.md` (trust paragraph), `docs/roadmap.md` |
 
 ### A. OpenCode source
@@ -395,3 +395,30 @@ Web (vitest, `apps/web/vitest.config.ts`):
 | 6 | Docs, roadmap, gates | `docs/features.md`, `docs/README.md`, `docs/tools.md`, `docs/roadmap.md`, web workflow inventory; `task check`, `go test -race` on the touched packages, full web suite. |
 
 Not done, on purpose: brand icons (decision 8), TUI screen, re-offer on new servers, a Settings switch for the project/OpenCode gates.
+
+### Adversarial review (2026-09-15) and what changed
+
+- **Fixed (high):** an empty `cwd` made `loadSources` read a relative
+  `.mcp.json` from the daemon's own working directory, so Settings and a New
+  session tab without a folder could offer a repository's file as the host's.
+  `loadSources` now reads the project file only with a cwd
+  (`TestCandidatesWithoutCWDIgnoreTheProcessDirectory`).
+- **Fixed (medium):** `cmd/whip` and `internal/daemon` test binaries isolate
+  `HOME` but OpenCode discovery prefers `XDG_CONFIG_HOME`; both `TestMain`s
+  now unset it.
+- **Fixed (low):** a repeated Skip or an apply with nothing new no longer
+  rewrites `config.json` (`UpdateVersionedIfChanged`); duplicate names in one
+  apply count once; the always-true `offered` field left the apply result;
+  OpenCode `{env:NAME}` placeholders import as `${NAME}` references.
+- **Accepted:** `Candidates` resolves a name to its highest-precedence source
+  before gates are considered, so the CLI no longer falls through to a
+  lower source's copy when the winner's gate is off (it used to, silently).
+  The screen must not fall through either, and the two now agree; a person
+  who wants the other copy turns the gate on or removes the entry.
+- **Accepted:** on a ready host the composer renders first and the offer
+  replaces it when the candidates query lands; drafts survive through the
+  runtime draft store. A held composer would cost every host a wait.
+- Pre-existing, unrelated: `TestQuickJSConfiguredConcurrencyQueuesRequests`
+  (`internal/rlm`) fails under CPU contention and passes alone;
+  `TestSessionsExportCLIWritesAndPushesTheSessionTrace` (`cmd/whip`) fails on
+  the base branch too.

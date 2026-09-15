@@ -1375,7 +1375,6 @@ export interface MCPImportApplyResult {
   skipped?: {
     [k: string]: string;
   };
-  offered: boolean;
 }
 
 export interface MCPImportCandidatesParams {

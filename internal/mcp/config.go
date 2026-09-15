@@ -344,10 +344,16 @@ func loadSources(cwd string) discovered {
 	if err != nil && !os.IsNotExist(err) {
 		d.errs[d.claudeGlobalPath] = err
 	}
-	projectPath := filepath.Join(cwd, ".mcp.json")
-	d.project, err = LoadClaude(projectPath)
-	if err != nil && !os.IsNotExist(err) {
-		d.errs[projectPath] = err
+	// No cwd means no project: a relative ".mcp.json" would resolve against
+	// the daemon's own working directory and offer a repository's file as
+	// the host's.
+	projectPath := ""
+	if cwd != "" {
+		projectPath = filepath.Join(cwd, ".mcp.json")
+		d.project, err = LoadClaude(projectPath)
+		if err != nil && !os.IsNotExist(err) {
+			d.errs[projectPath] = err
+		}
 	}
 	codexPath := CodexPath()
 	d.codex, err = LoadCodex(codexPath)

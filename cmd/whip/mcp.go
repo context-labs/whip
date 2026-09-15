@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -315,14 +317,10 @@ func mcpImportCLI(args []string) error {
 		fmt.Printf(buildinfo.Text("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n"), len(add), body)
 		return nil
 	}
-	names = names[:0]
-	for name := range add {
-		names = append(names, name)
-	}
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	sort.Strings(names)
+	names = slices.Sorted(maps.Keys(add))
 	fmt.Printf(buildinfo.Text("imported %d mcp server(s) into ~/.whip/config.json: %s\n"), len(names), strings.Join(names, ", "))
 	fmt.Println(buildinfo.Text("they are now native: trusted like hand-written entries, no per-call consent"))
 	return nil

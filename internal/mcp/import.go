@@ -79,8 +79,9 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 			if cfg.Remote() {
 				c.Transport = "http"
 			}
+			_, owned := native[name]
 			switch {
-			case nativeOwns(native, name):
+			case owned:
 				c.State = CandidateNative
 			case unsupported(cfg):
 				c.State = CandidateUnsupported
@@ -102,16 +103,12 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 	return out, d.errs
 }
 
-// nativeOwns reports whether whip's own config already defines name. Any
-// entry in the native map counts; FromConfigMap marks the trusted ones.
-func nativeOwns(native map[string]ServerConfig, name string) bool {
-	_, ok := native[name]
-	return ok
-}
-
 // unsupported reports whether discovery turned the server off because whip
 // cannot run it: an OAuth sign-in (SignInNote) or the legacy sse transport.
 // A plain enabled:false in the source is a choice, not a limitation.
+//
+// ponytail: the sse case matches the note's wording in claude.go; a third
+// unsupported kind should get a constant like SignInNote instead of a word.
 func unsupported(cfg ServerConfig) bool {
 	return cfg.Disabled() && (cfg.Note == SignInNote || strings.Contains(cfg.Note, "unsupported"))
 }
@@ -197,6 +194,9 @@ func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[str
 		byName[c.Name] = c
 	}
 	for _, name := range names {
+		if _, done := added[name]; done {
+			continue // the same name twice is one import
+		}
 		c, ok := byName[name]
 		_, owned := cfg.MCPServers[name]
 		switch {

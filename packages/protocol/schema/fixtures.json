@@ -491,8 +491,7 @@
   {
     "type": "MCPImportApplyResult",
     "value": {
-      "imported": [],
-      "offered": false
+      "imported": []
     }
   },
   {

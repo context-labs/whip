@@ -109,7 +109,7 @@ func TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(result.Imported, ",") != "chrome,paper" || !result.Offered {
+	if strings.Join(result.Imported, ",") != "chrome,paper" {
 		t.Errorf("result = %+v", result)
 	}
 	if result.Skipped["figma"] != mcp.SignInNote || result.Skipped["ahrefs"] != "already in Whip" {
@@ -163,7 +163,7 @@ func TestMCPImportApplyValidatesBeforeWriting(t *testing.T) {
 	}
 	// Skip for now: no names, offer recorded, config otherwise untouched.
 	result, err := service.MCPImportApply(protocol.MCPImportApplyParams{CWD: project})
-	if err != nil || len(result.Imported) != 0 || !result.Offered {
+	if err != nil || len(result.Imported) != 0 {
 		t.Fatalf("skip = %+v, %v", result, err)
 	}
 	cfg, err = config.Load()
@@ -172,5 +172,17 @@ func TestMCPImportApplyValidatesBeforeWriting(t *testing.T) {
 	}
 	if !cfg.MCPImport.Offered || len(cfg.MCPServers) != 1 {
 		t.Errorf("skip should only set offered: %+v %+v", cfg.MCPImport, cfg.MCPServers)
+	}
+	// A second skip changes nothing, so the file is not rewritten.
+	path, _ := config.Path()
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MCPImportApply(protocol.MCPImportApplyParams{CWD: project}); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := os.Stat(path); err != nil || !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+		t.Errorf("an unchanged apply must not rewrite config.json (%v)", err)
 	}
 }

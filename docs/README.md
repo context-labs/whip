@@ -129,9 +129,10 @@ set; on a name conflict the earlier source in this list wins:
 - **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
 - **claude**: `mcpServers` in `~/.claude.json` (on by default).
 - **opencode**: the `mcp` block in `~/.config/opencode/{config,opencode}.json[c]`
-  (on by default; `local` entries become stdio, `remote` become HTTP, and an
-  entry with `oauth` imports disabled with a "needs a sign-in" note because
-  whip has no browser sign-in for MCP servers).
+  (on by default; `local` entries become stdio, `remote` become HTTP,
+  `{env:NAME}` placeholders become `${NAME}` references, `{file:…}` stays as
+  written, and an entry with `oauth` imports disabled with a "needs a
+  sign-in" note because whip has no browser sign-in for MCP servers).
 
 Each import source takes `enabled`, `only` and `exclude`. Servers a source
 gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`

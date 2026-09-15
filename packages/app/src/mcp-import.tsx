@@ -95,11 +95,11 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
   if (query.isPending) return <p role="status" {...stylex.props(layout.muted)}>Looking for MCP servers on {hostName}…</p>;
   if (query.error) return <ErrorNotice type="resource" owner={`${runtimeId}:mcp-import`} title="Could not read the other agents' configuration" error={query.error} />;
   if (!data) return null;
-  const importable = rows.filter(row => row.state !== 'native');
+  const found = rows.filter(row => row.state !== 'native').length;
   return <div aria-label="Import MCP servers" {...stylex.props(styles.screen)}>
     {rows.length === 0
       ? <p {...stylex.props(styles.intro)}>No MCP servers were found in Codex, Claude, or OpenCode on {hostName}.</p>
-      : <p {...stylex.props(styles.intro)}>Whip found {importable.length} {importable.length === 1 ? 'server' : 'servers'} in {describeSources(rows)} on {hostName}. Pick the ones to add; they run as Whip's own servers, without per-call approval.</p>}
+      : <p {...stylex.props(styles.intro)}>Whip found {found} {found === 1 ? 'server' : 'servers'} in {describeSources(rows)} on {hostName}. Pick the ones to add; they run as Whip's own servers, without per-call approval.</p>}
     {rows.length > 0 && <ul role="list" aria-label="Discovered MCP servers" {...stylex.props(styles.list)}>
       {rows.map(candidate => {
         const on = checked(candidate);

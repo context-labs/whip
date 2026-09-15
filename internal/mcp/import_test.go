@@ -188,10 +188,28 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 	if len(added) != 0 || len(skipped) != 3 || len(cfg.MCPServers) != 4 {
 		t.Errorf("apply must be idempotent, got added=%v skipped=%v", added, skipped)
 	}
-	// Apply into an empty config allocates the block.
+	// Apply into an empty config allocates the block; a repeated name is one import.
 	empty := &config.Config{}
-	if added, _ := Apply(empty, cands, []string{"exa"}); len(added) != 1 || empty.MCPServers["exa"].URL != "https://mcp.exa.ai/mcp" {
-		t.Errorf("apply into an empty config failed: %+v", empty.MCPServers)
+	if added, skipped := Apply(empty, cands, []string{"exa", "exa"}); len(added) != 1 || len(skipped) != 0 || empty.MCPServers["exa"].URL != "https://mcp.exa.ai/mcp" {
+		t.Errorf("apply into an empty config failed: added=%v skipped=%v %+v", added, skipped, empty.MCPServers)
+	}
+}
+
+// TestCandidatesWithoutCWDIgnoreTheProcessDirectory pins the host-level
+// case: Settings and a New session tab without a folder send no cwd, and a
+// .mcp.json in the daemon's own working directory must not be offered.
+func TestCandidatesWithoutCWDIgnoreTheProcessDirectory(t *testing.T) {
+	dir := importFixture(t)
+	t.Chdir(dir) // dir holds the fixture's .mcp.json with "proj"
+	cands, errs := Candidates("", nil, everySource())
+	if len(errs) != 0 {
+		t.Fatalf("unexpected discovery errors: %v", errs)
+	}
+	if byName(cands, "proj") >= 0 {
+		t.Fatal("a relative .mcp.json must not be read when no cwd is given")
+	}
+	if f := LoadMergedFiltered("", nil, everySource()); f.Merged["proj"].Command != nil {
+		t.Fatal("LoadMergedFiltered must not read the process directory either")
 	}
 }
 
