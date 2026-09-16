@@ -1,4 +1,4 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPBrandIconsParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';
@@ -76,6 +76,8 @@ export class MCPImport {
   candidates(params: MCPImportCandidatesParams = {}, options: CallOptions = {}) { return this.client.call('mcp.import.candidates', params, options); }
   /** Copies the named candidates into the host's native configuration; an empty list only records that the offer was seen. */
   apply(params: MCPImportApplyParams, options: CallOptions = {}) { return this.client.call('mcp.import.apply', params, options); }
+  /** Small data: URIs for registrable domains the app has no bundled mark for; empty when the host keeps lookups local. */
+  brandIcons(params: MCPBrandIconsParams, options: CallOptions = {}) { return this.client.call('mcp.brand.icons', params, options); }
 }
 export class Providers {
   constructor(private readonly client: WhipClient) {}

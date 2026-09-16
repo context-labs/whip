@@ -1,17 +1,20 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"path/filepath"
 	"slices"
+	"time"
 
+	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-// The import screen's two host-level operations. They live beside the
+// The import screen's host-level operations. They live beside the
 // configuration service rather than among the session-scoped mcp.* actions
 // because the New session screen has a host but no session yet.
 
@@ -33,7 +36,7 @@ func (s *ProviderService) MCPImportCandidates(p protocol.MCPImportCandidatesPara
 	result.ConfigPath, _ = config.Path()
 	for _, c := range cands {
 		result.Candidates = append(result.Candidates, protocol.MCPImportCandidate{
-			Name: c.Name, Source: c.Source, State: string(c.State), Note: c.Note, BrandHint: c.BrandHint,
+			Name: c.Name, Source: c.Source, State: string(c.State), Note: c.Note, BrandHint: c.BrandHint, BrandKey: c.BrandKey,
 		})
 	}
 	if len(errs) > 0 {
@@ -75,6 +78,32 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 		return nil
 	})
 	return result, err
+}
+
+// MCPBrandIcons returns a small data: URI per registrable domain the screen
+// has no bundled mark for. It answers nothing when brandIcons is off in the
+// host config; otherwise DuckDuckGo's icon endpoint is the one party asked,
+// once per domain per month thanks to the resolver's on-disk cache.
+func (s *ProviderService) MCPBrandIcons(p protocol.MCPBrandIconsParams) (protocol.MCPBrandIconsResult, error) {
+	result := protocol.MCPBrandIconsResult{Icons: map[string]string{}}
+	if len(p.Keys) > 64 {
+		return result, errors.New("too many keys")
+	}
+	cfg, _, err := config.ReadVersioned()
+	if err != nil {
+		return result, err
+	}
+	if cfg.BrandIcons != nil && !*cfg.BrandIcons {
+		return result, nil
+	}
+	s.iconsOnce.Do(func() {
+		dir, _ := config.Dir()
+		s.icons = brandicon.New(filepath.Join(dir, "icons"))
+	})
+	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+	defer cancel()
+	result.Icons = s.icons.Resolve(ctx, p.Keys)
+	return result, nil
 }
 
 func validateImportCWD(cwd string) error {

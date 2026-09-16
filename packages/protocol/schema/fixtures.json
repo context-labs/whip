@@ -58,6 +58,7 @@
       "import_claude": false,
       "import_codex": false,
       "mcp_import_offered": false,
+      "brand_icons": false,
       "revision": "",
       "default_model": "",
       "default_provider": "",
@@ -481,6 +482,18 @@
       "created_at": "0001-01-01T00:00:00Z",
       "delivered_at": "0001-01-01T00:00:00Z",
       "done_at": "0001-01-01T00:00:00Z"
+    }
+  },
+  {
+    "type": "MCPBrandIconsParams",
+    "value": {
+      "keys": []
+    }
+  },
+  {
+    "type": "MCPBrandIconsResult",
+    "value": {
+      "icons": {}
     }
   },
   {

@@ -3,10 +3,13 @@ package mcp
 import (
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -42,6 +45,7 @@ type Candidate struct {
 	Gated     bool   // the source's enabled gate is off: the screen ignores that, the CLI honours it
 	Note      string // the source's own reason, when it gave one
 	BrandHint string // URL host, or the command's package/binary name
+	BrandKey  string // registrable domain of a remote server (mcp.figma.com → figma.com); "" when there is no company behind the host
 	config    ServerConfig
 }
 
@@ -56,7 +60,7 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 	byName := map[string]Candidate{}
 	for _, s := range d.sources(policy) { // lowest precedence first: a later source overwrites
 		for name, cfg := range s.cfgs {
-			c := Candidate{Name: name, Source: s.name, Gated: !s.policy.Enabled, Note: cfg.Note, BrandHint: brandHint(cfg), config: cfg}
+			c := Candidate{Name: name, Source: s.name, Gated: !s.policy.Enabled, Note: cfg.Note, BrandHint: brandHint(cfg), BrandKey: brandKey(cfg), config: cfg}
 			_, owned := native[name]
 			switch {
 			case owned:
@@ -121,6 +125,37 @@ func brandHint(cfg ServerConfig) string {
 		return tok
 	}
 	return ""
+}
+
+// localSuffixes name hosts that are somebody's machine, not a company.
+var localSuffixes = []string{".local", ".localhost", ".internal", ".lan", ".home.arpa", ".ts.net"}
+
+// brandKey is the registrable domain of a remote server's host, the key the
+// web app's bundled marks and the daemon's icon resolver share. IP literals,
+// single-label names and local suffixes have no company behind them and yield
+// "", which is also what a stdio server gets: a package name is not a domain.
+func brandKey(cfg ServerConfig) string {
+	if !cfg.Remote() {
+		return ""
+	}
+	u, err := url.Parse(cfg.URL)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if host == "" || net.ParseIP(host) != nil || !strings.Contains(host, ".") {
+		return ""
+	}
+	for _, suffix := range localSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return ""
+		}
+	}
+	domain, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil {
+		return ""
+	}
+	return domain
 }
 
 // Apply copies the named candidates into cfg.MCPServers as native entries:

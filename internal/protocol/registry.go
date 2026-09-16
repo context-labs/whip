@@ -152,6 +152,7 @@ var rpcOperations = []Operation{
 	rpc[ConfigurationUpdate, RuntimeConfiguration]("config.update", Ephemeral, "configuration-revision", false),
 	rpc[MCPImportCandidatesParams, MCPImportCandidatesResult]("mcp.import.candidates", Query, "host-configuration", false),
 	rpc[MCPImportApplyParams, MCPImportApplyResult]("mcp.import.apply", Ephemeral, "host-configuration", false),
+	rpc[MCPBrandIconsParams, MCPBrandIconsResult]("mcp.brand.icons", Query, "host-configuration", false),
 	rpc[ProviderKeySetup, RuntimeConfiguration]("provider.key.set", Ephemeral, "configuration-revision", true),
 	rpc[ProviderLoginBeginParams, ProviderLoginStatus]("provider.login.begin", Ephemeral, "host-configuration", false),
 	rpc[ProviderLoginParams, ProviderLoginStatus]("provider.login.status", Query, "none", false),

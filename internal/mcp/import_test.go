@@ -192,6 +192,36 @@ func TestCandidatesWithoutCWDIgnoreTheProcessDirectory(t *testing.T) {
 	}
 }
 
+func TestBrandKey(t *testing.T) {
+	for _, test := range []struct {
+		cfg  ServerConfig
+		want string
+	}{
+		{ServerConfig{URL: "https://mcp.figma.com/mcp"}, "figma.com"},
+		{ServerConfig{URL: "https://mcp.linear.app/mcp"}, "linear.app"},
+		{ServerConfig{URL: "https://api.ahrefs.com/mcp/mcp"}, "ahrefs.com"},
+		{ServerConfig{URL: "https://MCP.Example.CO.UK./x"}, "example.co.uk"},
+		{ServerConfig{URL: "https://team.github.io/mcp"}, "team.github.io"}, // a private suffix: the team is the brand
+		{ServerConfig{URL: "http://127.0.0.1:4789/mcp"}, ""},
+		{ServerConfig{URL: "http://[::1]:8080/mcp"}, ""},
+		{ServerConfig{URL: "http://localhost:3000/mcp"}, ""},
+		{ServerConfig{URL: "https://kuzco-4090.tail7524e6.ts.net/mcp"}, ""},
+		{ServerConfig{URL: "http://nas.local/mcp"}, ""},
+		{ServerConfig{URL: "http://mcp.corp.internal/"}, ""},
+		{ServerConfig{URL: "https://com/"}, ""},
+		{ServerConfig{URL: "::not a url"}, ""},
+		{ServerConfig{Command: []string{"npx", "-y", "@playwright/mcp@latest"}}, ""},
+	} {
+		if got := brandKey(test.cfg); got != test.want {
+			t.Errorf("brandKey(%v) = %q, want %q", test.cfg, got, test.want)
+		}
+	}
+	cands, _ := Candidates(importFixture(t), nil, everySource())
+	if at(cands, "exa").BrandKey != "mcp.exa.ai"[4:] || at(cands, "paper").BrandKey != "" || at(cands, "chrome").BrandKey != "" {
+		t.Errorf("candidates carry the key: exa=%q paper=%q chrome=%q", at(cands, "exa").BrandKey, at(cands, "paper").BrandKey, at(cands, "chrome").BrandKey)
+	}
+}
+
 func TestBrandHint(t *testing.T) {
 	for _, test := range []struct {
 		cfg  ServerConfig

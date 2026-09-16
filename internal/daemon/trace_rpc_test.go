@@ -49,9 +49,11 @@ func TestTraceRPCsPageSpansAndExportInlineOrByReference(t *testing.T) {
 	}
 	// A much larger export is the same shape behind the same kind of reference.
 	for i := range 64 {
-		span := session.SpanRecord{ID: session.ToolSpanID(root, root, "t1", strings.Repeat("c", 8)+string(rune('a'+i%26))+string(rune('a'+i/26))), TraceID: turn.TraceID, ParentID: turn.ID, RootID: root, AgentID: root, TurnID: "t1",
+		span := session.SpanRecord{
+			ID: session.ToolSpanID(root, root, "t1", strings.Repeat("c", 8)+string(rune('a'+i%26))+string(rune('a'+i/26))), TraceID: turn.TraceID, ParentID: turn.ID, RootID: root, AgentID: root, TurnID: "t1",
 			Kind: session.SpanKindTool, Name: "bash", StartNS: start + int64(i+1)*1000, EndNS: start + int64(i+2)*1000, Status: session.SpanStatusOK,
-			Attrs: session.SpanAttrs(map[string]any{"summary": strings.Repeat("s", 200), "input": strings.Repeat("i", 300)})}
+			Attrs: session.SpanAttrs(map[string]any{"summary": strings.Repeat("s", 200), "input": strings.Repeat("i", 300)}),
+		}
 		if err := fixture.store.RecordSpanEnd(t.Context(), span); err != nil {
 			t.Fatal(err)
 		}

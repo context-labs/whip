@@ -141,7 +141,11 @@ web and desktop app offer the same import as a screen: once per host on New
 session when other agents have servers configured there, and any time from
 Settings › Agents & execution › MCP servers. Tick what you want and
 Import writes it into the native block; Skip sets `mcpImport.offered` so the
-offer does not come back on its own.
+offer does not come back on its own. Each row shows the vendor's logo: the app
+bundles marks for the common MCP vendors, and the daemon looks the rest up on
+DuckDuckGo by the server's domain, once, caching under `~/.whip/icons`. Set
+`"brandIcons": false` (or turn off "Server logos" in that Settings group) to
+keep every lookup on the host; unresolved rows show a monogram.
 
 ```json
 {

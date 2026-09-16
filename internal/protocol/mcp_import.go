@@ -15,6 +15,22 @@ type MCPImportCandidate struct {
 	State     string `json:"state"`  // importable | native | disabled | excluded | unsupported
 	Note      string `json:"note,omitempty"`
 	BrandHint string `json:"brand_hint,omitempty"`
+	// BrandKey is the registrable domain behind a remote server, the key for
+	// the app's bundled marks and for mcp.brand.icons; empty for local hosts
+	// and stdio servers.
+	BrandKey string `json:"brand_key,omitempty"`
+}
+
+// MCPBrandIconsParams names registrable domains (MCPImportCandidate.BrandKey)
+// the app has no bundled mark for.
+type MCPBrandIconsParams struct {
+	Keys []string `json:"keys"`
+}
+
+// MCPBrandIconsResult maps a key to a small data: URI. Keys with no mark, and
+// every key when the host has brandIcons off, are absent.
+type MCPBrandIconsResult struct {
+	Icons map[string]string `json:"icons"`
 }
 
 type MCPImportCandidatesResult struct {
