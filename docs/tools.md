@@ -28,7 +28,7 @@ positional arguments and does not contact the daemon.
 | `models` | `call`, `batch` for stateless model work |
 | `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
 | `messages` | `send`, `list`, `read`, `complete`, `defer` |
-| `mcp` | `list_servers`, `list_tools`, `instructions`, `call` |
+| `mcp` | `list_servers`, `list_tools`, `search`, `describe`, `instructions`, `call` |
 | `state` | private/blackboard get, set, append, CAS, list/history, subscriptions |
 | `artifacts` | `put`, `inspect`, `read` |
 | `schedules` | `create`, `list`, `cancel` |
@@ -167,14 +167,25 @@ and `effective_budgets` fields are available through ordinary inspection as
 The daemon owns MCP connections. Both root and child kernels call:
 
 ```python
+mcp.search(query="lease search", limit=5)
+mcp.describe(server="docs", tool="search")
 mcp.list_servers()
-mcp.list_tools(server="docs")
+mcp.list_tools(server="docs", offset=0, limit=100)
 mcp.instructions(server="docs")
 mcp.call(server="docs", tool="search", arguments={"query": "leases"})
 ```
 
-Calls use the exact configured server and original tool name. `list_tools`
-marks which definitions the caller is authorized to use. Each call runs through
+Discovery reads the daemon's cached catalogs and never touches a server.
+`search` ranks tools across every ready server (or one, with `server=`) by
+name, then title, then description and schema property names; every query
+token must hit; results carry a one-line summary and no schema. `describe`
+returns one tool's full entry including its input schema, and names the
+nearest tools when the name is wrong. `list_tools` windows one server's
+name-sorted catalog (`offset`, `limit`, default 100) without schemas unless
+`schemas=True`; `list_servers` reports each server's total.
+
+Calls use the exact configured server and original tool name. Search results
+and listings mark which definitions the caller is authorized to use. Each call runs through
 the durable capability dispatcher, reserves operation capacity, and rechecks its
 grant and current server definition after permission and the server's call queue.
 Large results become handles through the same bounded-output path as built-in

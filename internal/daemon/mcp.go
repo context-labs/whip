@@ -94,6 +94,32 @@ func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
 	return nil
 }
 
+// mcpListDefaultLimit is the list_tools window when the model gives none.
+const mcpListDefaultLimit = 100
+
+// mcpAuthorized resolves a tool's callable descriptor and reports whether
+// this agent may call it right now: the check list_tools has always made, so
+// discovery never advertises a call the dispatcher would refuse.
+func (host *recursiveHost) mcpAuthorized(ctx context.Context, manager *mcp.Manager, server, tool string) (capability.MCPCall, bool) {
+	call, err := manager.ResolveTool(server, tool)
+	node := host.session
+	return call, err == nil && node.root.store.AuthorizeMCP(ctx, node.root.ID(), node.id, node.authority.MCP, call.MCPSelector) == nil
+}
+
+// mcpToolEntry is one tool as the model sees it: identity, callable
+// descriptor and authorization, with the input schema only when asked for.
+func (host *recursiveHost) mcpToolEntry(ctx context.Context, manager *mcp.Manager, server string, tool mcp.Tool, schema bool) map[string]any {
+	call, authorized := host.mcpAuthorized(ctx, manager, server, tool.Name)
+	entry := map[string]any{
+		"name": tool.Name, "title": tool.Title, "description": tool.Description,
+		"authorized": authorized, "definition": call.Definition, "generation": call.Generation,
+	}
+	if schema {
+		entry["input_schema"] = tool.InputSchema
+	}
+	return entry
+}
+
 func delegatedMCPTools(ctx context.Context, parent *AgentSession, names []string, requested any) ([]capability.MCPSelector, error) {
 	if !slices.Contains(names, "mcp") {
 		if requested != nil {

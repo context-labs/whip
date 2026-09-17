@@ -205,7 +205,10 @@ root prompt (`evals/rlm`).
   tinted monogram (`packages/app/src/mcp-brand.tsx`,
   `packages/app/test/mcp-brand.test.tsx`). Local hosts, IP literals and
   tailnet names never leave the machine.
-- Root and child kernels use `mcp.list_servers/list_tools/call`.
+- Root and child kernels use `mcp.search/describe/list_servers/list_tools/call`;
+  search ranks the daemon's cached catalogs across servers, describe returns one
+  schema, and listings are windowed and schema-free by default
+  (`internal/mcp/search.go`, [MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
 - Status rows distinguish `blocked` (policy-filtered or refused at attach) and
   `unreadable` (a discovery source that failed to parse) from live servers;
   the web panel, TUI palette and `whip mcp list` derive their controls from
