@@ -118,7 +118,12 @@ and a compaction span (named `compaction`, purpose `compaction`) carries
 `output_ref` and `output_bytes` for the summary it produced plus `raw_cutoff`,
 the last transcript seq the fold covered. The summary arrives after the call settled, so
 the daemon patches the span and journals it again as `span.ended`; clients
-upsert by `updated_seq`. The export emits the system prompt as the leading
+upsert by `updated_seq`. A user command that calls the model outside a turn
+(`history.compact`, `goal.from-context`) opens its own trace: a root `agent`
+span named for the command (`compact`, `goal`) with `trigger: command`, the
+`command`, and `input`/`output` excerpts, with the model call under it; the
+export renders such a root as `CHAIN` with `gen_ai.operation.name` set to the
+command. The export emits the system prompt as the leading
 `system` input message and the ephemeral text as the trailing one, matching the
 request order, each only when its reference changed since the agent's previous
 call that carried it; the summary as the compaction span's output message and

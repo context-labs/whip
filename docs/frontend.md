@@ -769,9 +769,10 @@ Code and scoped large-body reads use existing UI/SDK limits and copy controls.
 
 The third session view kind, `trace` (`?view=trace`), shows one trace as an
 execution tree beside a waterfall, with a detail pane for the selected span. A
-trace is one root turn and everything it caused, including child turns; the
-toolbar's picker lists the session's traces newest first and offers the whole
-session. **Open trace** sits beside **Open REPL** in the info bar, tab context
+trace is one root turn and everything it caused, including child turns, or one
+user command that called the model outside a turn (`/compact`, goal from
+context), named `compact` or `goal`; the toolbar's picker lists the session's
+traces newest first and offers the whole session. **Open trace** sits beside **Open REPL** in the info bar, tab context
 menu and picker, and uses the same `openSessionView` helper.
 
 The SDK owns the data. `SessionView.loadTrace()` pages the daemon's durable
