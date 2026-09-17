@@ -226,14 +226,97 @@ consented environment only. They do not prove the exact cause of the earlier
 Security.framework wait, isolated-keychain behavior, SSH loading/recovery,
 packaged agent-control acceptance, multi-pane/focus coverage, or performance.
 
+## Consented packaged SSH acceptance — 2026-09-17, 22:34–23:03 UTC
+
+The user authorized an exclusive, bounded desktop run and the existing normal-HOME
+mode. Root used ordinary native Accessibility input against the **same Developer
+ID-signed, shipping-fuse Beta** as the local run above; no CDP, injected bridge,
+package patch, encryption bypass or credential inspection. App data and Browser
+profiles remained disposable. GUI use ended at **22:56:10**, before the 23:04:50
+limit; the desktop was returned to the user. This is human preview evidence, not
+packaged agent-control acceptance.
+
+Fixture `Lrqo19` used the saved entry **Browser SSH acceptance Lrqo19**, ID
+`ssh:1d57918e-f1e4-44b2-af36-fcf7984d60e7`, on `sam@kuzco-4090`. The native sheet
+identified runtime `86e575f45b2faa250ed875d0a4f6a45d`, project
+`/tmp/whip-browser-acceptance-final.OrWYJW/project`, literal **127.0.0.1** and
+approved port **40711**. Persisted native identity correctly normalizes the
+project to `cwd:/tmp/whip-browser-acceptance-final.OrWYJW/project`; it is not a
+second project. The one environment profile remained
+`d2fef634781792c6184a2bc4741cfe091e5f479891bf68c5` across reconnection.
+The SSH lane independently owned the remote daemon/HTTP fixture, detached
+watchdog, counter reads and six exclusive Mac decoys (IPv4 and IPv6 on each of
+40711, 33671 and 37315). The Linux fixture was built from clean `57e045bad`.
+
+| Ordinary packaged observation | Independent request evidence |
+| --- | --- |
+| Cancel first native confirmation | Remote **0 approved / 0 unapproved** before and after, through 22:45:05 |
+| Approve exact IPv4 scope, render the remote marker | Remote **1/0** at 22:46:15; visible marker `remote-preview-bdebb36510f87e5fc827646ee117c07b` |
+| Navigate to `/cookie`, then `/inspect` | Remote **3/0**; visible JSON has logical Host `127.0.0.1:40711`, synthetic cookie, and null `authorization` / `proxyAuthorization` |
+| Cancel additional-port 33671 confirmation | Remote **3/0** both before and after |
+| Submit unapproved port 33671 and opposite-family `[::1]:40711` addresses | Remote still **3/0** at 22:49:12; no claim about exact error-message timing |
+| Return to approved address, then close only the verified Beta-owned SSH master | Remote **4/0**; old page becomes unavailable and Retry remains blocked |
+| Automatic host reconnection, followed by explicit disconnect/reconnect of the same saved entry | Old preview still unavailable; remote remains **4/0** through fresh-confirmation baseline 22:52:50 |
+| Approve the new native confirmation | Remote **5/0** at 22:53:19; exact remote marker visible again |
+| Inspect after renewed approval | Remote **6/0**; the same project cookie and logical Host remain, with both authorization headers null |
+| Quit and relaunch the same disposable profile | Two saved SSH tab descriptors restore; the selected preview is **unavailable**, with explicit no-This-Mac-fallback text; remote stays **6/0** at 22:55:28 |
+
+**All six Mac decoys remained TCP 0 / HTTP 0 throughout.** Their successful live
+binds were independently checked before stopping them, including same-port
+opposite-family listeners. Positive packaged loading was **IPv4 only**; this run
+does not establish positive packaged IPv6, WebSocket/SSE, service-worker, port
+expansion, agent-control or default-button acceptance. Earlier native/SDK tests
+remain separate evidence. The sole seeded remote conversation was an idle inert
+`tool_host`, with no model/provider, model turns or schedules.
+
+Both Beta launches exited after ordinary **Cmd+Q**, without a stop/force command:
+PID **53694** was confirmed absent at 22:54:34, before relaunch as **57948** at
+22:54:35; the latter was confirmed absent at 22:56:10, before harness cleanup.
+Post-quit Accessibility reads returned an absent-window error; process absence
+was checked independently rather than interpreting that helper exit as failure
+to quit. Harness `job-bfe35b87` finished at 22:56:11 with no cleanup errors and
+removed `Lrqo19`. Local fixture HTTP/click counters stayed zero.
+
+After root confirmed no consumers, the SSH lane independently sampled final
+remote **6/0** at **23:01:03**, no daemon TCP listener and no Unix clients.
+Early exact-owned watchdog cleanup finished **23:01:51**: graceful daemon stop
+code 0, `errors=[]`, `forced=[]`, `ownedAfter=[]`, socket and remote directory
+removed. Independent checks confirmed watchdog/daemon/HTTP PIDs and all three
+remote listeners gone. All six Mac decoys stopped gracefully at 23:01:44; their
+helper directory was removed at 23:02:41. Residual remote evidence was removed
+at 23:03:08 **only after** local archival and matching hashes. The watchdog and
+its follow-up schedule are settled; regular Whip, unrelated SSH/services and
+credential/configuration stores were not changed.
+
+Retained local evidence (not repository payloads):
+
+- `/tmp/whip-browser-ssh-ui-evidence.ViJI6T`: 75 UI/counter logs, 122 screenshots,
+  native profile metadata, harness/cleanup records and the ordinary-input helpers.
+  `node .../check-evidence.mjs` rechecks 12 recorded counter samples, visible
+  markers/cookie/Host, fail-closed states, restored descriptors and harness records;
+  `assertions.json` records **PASS**. This checks retained observations, not a new
+  UI execution. Archive `/tmp/whip-browser-ssh-ui-evidence.ViJI6T.tar.gz`, SHA-256
+  `170c144725d22d38f878e23b1a273fdd8521302ff2b51e9fa6b3e11637957beb`.
+- `/tmp/whip-preview-ssh-final-evidence.Z9MSfl`: independently collected fixture,
+  listener, idle-catalog and cleanup evidence; its README indexes the records.
+  `remote-evidence/remote-records.tar.gz` SHA-256
+  `e95e2e98caffdad851397a0ff153a9f87b1588f114a5e29c0a4247c0652be34e`.
+  Final saved/native association is in `local-fixture-records/manifest.json`;
+  the remote bootstrap manifest predates UI save and is not the final binding.
+- `/private/tmp/whip-browser-package-Lrqo19-evidence.json`: signed bundle
+  provenance, normal-HOME mode, both launches and error-free local cleanup.
+  It still reports **notarized=false**.
+
 ## Release gate status
 
 Implementation remains experimental and packaged default-OFF. Signed Beta
 builds and substantial development/native/selected-host tests have passed.
-Local enabled loading, input/navigation and graceful quit/restart/restore now pass
-in the explicitly consented normal-HOME environment. Phase 7 packaged acceptance
-is still incomplete: remote page loading/recovery, packaged agent control and
-remaining manual/performance gates are not established.
+Local enabled loading, input/navigation and graceful quit/restart/restore pass
+in the explicitly consented normal-HOME environment. Packaged human SSH IPv4
+loading, negative-network checks, fresh-approval recovery and fail-closed tab
+restore now also pass, with final owned-resource cleanup verified. Phase 7
+packaged acceptance is still incomplete: packaged agent control and remaining
+manual/performance gates are not established.
 The original development focus flake remains unexplained; contaminated earlier
 packaged focus observations are not product-defect evidence. The dependency
 audit still reports 43 findings (3 low, 14 moderate, 25 high, 1 critical); no

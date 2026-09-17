@@ -2,7 +2,7 @@
 
 Date: 2026-09-17 UTC. Worktree: `whip-browser-tabs`, branch `desktop-browser-tabs`, baseline `e261d9b5139d85ade9837eedccb8e9bdd7aaa5f1`.
 
-**Phase 0 status: real Electron networking spike passes using a deterministic private Unix endpoint. Actual selected-host SSH and packaged acceptance remain unproven.** The Phase 0 spike was initially unwired and did not modify existing SSH/native/main. The later authorized implementation milestone below now adds production SSH route/environment code; no dependencies, host configurations, keys, services or firewall rules were changed.
+**Historical Phase 0 status:** the initial real Electron networking spike passed using a deterministic private Unix endpoint; actual selected-host SSH and packaged acceptance were unproven at that point. Later selected-host native/SDK results and the final packaged human IPv4 run are recorded below; [current release status](evidence-integration.md#release-gate-status) remains gated. The Phase 0 spike was initially unwired and did not modify existing SSH/native/main. The later authorized implementation milestone below now adds production SSH route/environment code; no dependencies, host configurations, keys, services or firewall rules were changed.
 
 ## Files and runnable checks
 
@@ -227,3 +227,44 @@ Remote cleanup `job-86ae66a7` (exit 0) completed at **17:21:32.028 UTC**:
 Local cleanup completed at **17:22:09.372 UTC**, after verifying the retained archive/hash, completed remote cleanup, and no consumer process referencing the exact helper directory. Removed only **`/tmp/whip-preview-kuzco.2jL0pB`**. Retained evidence was not removed. The directory contains machine-readable `remote-idle-audit.json`, `remote-cleanup.json`, `local-cleanup.json`, and final lane state alongside the archive/provenance.
 
 **All owned SSH-lane acceptance resources are cleared.** No HTTP restart, SSH-config/known-host/credential/firewall change, unrelated service mutation, staging, or commit occurred in this cleanup. Connected-host native/SDK acceptance remains distinct from the **environment-blocked packaged human-preview retest**; cleanup does not convert that retest into a pass or an SSH defect.
+
+## Final consented packaged human IPv4 run — 22:34–23:03 UTC
+
+This later normal-HOME, exclusive-desktop run supersedes the earlier **packaged
+loading/recovery not established** status, not its historical observations or
+unresolved Security.framework diagnosis. See the detailed ordinary-UI timeline,
+archive and remaining gates in [root integration evidence](evidence-integration.md#consented-packaged-ssh-acceptance--2026-09-17-22342303-utc).
+
+- The unchanged signed Beta passed native cancellation/approval, exact remote
+  marker loading, synthetic cookie/logical Host/header inspection, additional-port
+  cancellation, unapproved-port/opposite-family no-traffic checks, exact-owned
+  master loss and same-saved-profile recovery only after renewed native approval.
+  Both launches quit normally; relaunch restored descriptors with the selected
+  SSH preview unavailable and no fallback traffic. Root owns these GUI observations.
+- The SSH lane independently maintained remote fixture
+  `/tmp/whip-browser-acceptance-final.OrWYJW`, runtime
+  `86e575f45b2faa250ed875d0a4f6a45d`, three remote listeners and six same-port
+  IPv4/IPv6 Mac decoys. Fresh Linux binary SHA-256
+  `44ad1cf3208ea994d5f5c48f7fc59c5798beb082de7e6a23adaf61c33ab99226`, clean
+  `57e045bad` source. The final manifest binds the actual saved entry
+  `ssh:1d57918e-f1e4-44b2-af36-fcf7984d60e7`, not a hostname match or invented ID.
+- Final independent **23:01:03** audit: remote **6 approved / 0 unapproved**;
+  all six live Mac decoys **TCP 0 / HTTP 0**; exactly one idle inert tool-host;
+  no model/provider/schedules, no Unix clients and no daemon TCP listener.
+- Exact-owned early watchdog cleanup finished **23:01:51** with daemon stop code
+  0, `errors=[]`, `forced=[]`, `ownedAfter=[]`, socket/directory gone. Independent
+  checks confirmed watchdog 1246130, daemon 1246320, HTTP 1246399 and all three
+  remote listeners absent. Mac decoy 54824 and all six listeners were gone before
+  helper-directory removal at **23:02:41**. Remote residual evidence was removed
+  at **23:03:08** only after verified local archival. The watchdog settled and its
+  follow-up schedule was canceled. No live fixture resources remain.
+- Archive index: `/tmp/whip-preview-ssh-final-evidence.Z9MSfl/README.md`.
+  Its `remote-evidence/remote-records.tar.gz` SHA-256 is
+  `e95e2e98caffdad851397a0ff153a9f87b1588f114a5e29c0a4247c0652be34e`.
+  Final identity is in `local-fixture-records/manifest.json`; remote bootstrap
+  metadata intentionally predates UI save. Root separately archived 75 UI/counter
+  logs and 122 screenshots, with machine-checked retained-observation assertions.
+
+Positive packaged loading here is **IPv4 only**. No packaged agent-control,
+positive IPv6, performance, full manual matrix, notarization or clean dependency
+audit is implied. Native/SDK results remain separate; packaged default stays OFF.
