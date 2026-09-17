@@ -91,3 +91,15 @@ class PoolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_pool(self.trials(1), dict(cpus=1, memory_mb=8, storage_mb=20), 32,
                      lambda *_: self.fail('worker must not start'))
+
+
+class InterruptTests(unittest.TestCase):
+    def test_interrupt_cancels_workers_only_when_the_caller_says_so(self):
+        trials = [{"id": "t1", "task_id": "x", "resources": {"cpus": 1}}]
+        def worker(trial, cancelled):
+            raise KeyboardInterrupt
+        for cancel_on_interrupt in (True, False):
+            cancelled = threading.Event()
+            with self.assertRaises(KeyboardInterrupt):
+                run_pool(trials, {"cpus": 1}, 1, worker, cancelled=cancelled, cancel_on_interrupt=cancel_on_interrupt)
+            self.assertEqual(cancelled.is_set(), cancel_on_interrupt)

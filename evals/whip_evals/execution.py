@@ -38,8 +38,12 @@ def schedule(tasks, candidates, repetitions, seed):
     return result
 
 
-def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, stats=None):
-    """Central admission; workers never reserve resources while holding others."""
+def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, stats=None, cancel_on_interrupt=True):
+    """Central admission; workers never reserve resources while holding others.
+
+    An interrupt is a human cancel on a local host (Ctrl-C) but a preemption on
+    Modal, where the VMs outlive the coordinator; the caller says which.
+    """
     cancelled = cancelled or threading.Event()
     for trial in trials:
         if any(trial["resources"][key] > capacity[key] for key in capacity):
@@ -84,7 +88,8 @@ def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, 
                     if on_result:
                         on_result(trial, result)
         except BaseException:
-            cancelled.set()  # Signal workers before executor shutdown waits for them.
+            if cancel_on_interrupt:
+                cancelled.set()  # Signal workers before executor shutdown waits for them.
             raise
     for trial in pending:
         # Never dispatched: because the run was cancelled, or because resources

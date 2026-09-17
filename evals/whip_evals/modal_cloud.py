@@ -151,6 +151,7 @@ class ModalCampaign:
             return {"started": False, "cleanup": {"complete": False}, "error_code": "attempt_already_claimed"}
         sandbox = None
         exit_code = None
+        failed = False
         try:
             app = modal.App.lookup(APP_NAME, environment_name=ENVIRONMENT)
             shape = self.settings["shapes"][trial["runner"]]
@@ -176,11 +177,16 @@ class ModalCampaign:
             record.update(state="completed" if marker else "exited_without_marker",
                           worker_status=(marker or {}).get("status"))
         except Exception as error:
+            failed = True
             record.update(state="controller_error", error_code=type(error).__name__)
+        except BaseException:
+            # Interrupted (Modal preemption): the VM is fine, only its watcher is gone.
+            record.update(state="detached", detached_at=utc_now())
+            raise
         finally:
             if sandbox is not None:
                 try:
-                    if exit_code is None:  # the controller failed mid-flight: end the VM
+                    if exit_code is None and failed:  # the controller failed mid-flight: end the VM
                         sandbox.terminate()
                         sandbox.wait(raise_on_termination=False)
                         exit_code = sandbox.poll()
@@ -233,8 +239,11 @@ def coordinate(run_id, digest, settings, expected_controller_sha256):
                   for t in manifest["schedule"]]
         from .execution import run_pool
         capacity = {key: sum(t["resources"][key] for t in trials) for key in ("cpus", "memory_mb", "storage_mb")}
+        # Modal preempts coordinator containers (SIGINT, then a restart that finds
+        # the run claimed). The VMs keep running and write their markers; fetch
+        # grades from those. Only the /cancel key is a cancellation.
         outcomes = run_pool(trials, capacity, settings["jobs"], controller.execute,
-                            cancelled=controller.cancelled, stats=stats)
+                            cancelled=controller.cancelled, stats=stats, cancel_on_interrupt=False)
         result = {"run_id": run_id, "status": "cancelled" if controller.cancelled.is_set() else "completed",
                   "finished_at": utc_now(), "planned": len(trials), "recorded": len(outcomes),
                   "unproven_vm_exits": sum(not o.get("cleanup", {}).get("complete") for o in outcomes.values()),

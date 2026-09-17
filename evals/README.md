@@ -40,7 +40,11 @@ exit after submission.
 **What can stop a run.** Only `cancel`. A worker that exits without a marker, a
 VM the platform lost, an unproven exit, or a controller error is recorded on
 that attempt and the rest of the campaign continues. Cancelled and failed
-attempts stay in the denominator.
+attempts stay in the denominator. Modal can preempt the coordinator container
+(it restarts, finds the run claimed, and exits); the VMs keep running and write
+their markers, the attempt records stay `detached` or `running`, and `fetch`
+grades from the markers. Such a run never reaches a terminal status: `fetch`
+keeps the Modal-side data, so `prune --force` afterwards.
 
 **Setup.** Dependency bootstrap inside the task container gets 600 s and three
 tries before any model call; the runner setup budget covers all three. Every

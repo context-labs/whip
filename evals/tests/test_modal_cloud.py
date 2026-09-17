@@ -219,6 +219,18 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual(result["cloud"]["worker_exit_code"], 137)
         self.assertTrue(result["cleanup"]["complete"])
 
+    def test_interrupted_controller_leaves_the_vm_running(self):
+        # Modal preemption interrupts the coordinator; the VM finishes on its own.
+        sandbox = FakeSandbox([None])
+        sandbox.set_tags = MagicMock(side_effect=KeyboardInterrupt)
+        state = MemoryState()
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_execute(self.campaign(state=state), sandbox)
+        record = state.get("r/attempt/t1")
+        self.assertEqual(record["state"], "detached")
+        self.assertFalse(sandbox.terminated)
+        self.assertFalse(record["cleanup_complete"])
+
     def test_duplicate_attempt_never_creates_a_second_vm(self):
         state = MemoryState({"r/attempt/t1": {"state": "running"}})
         create = MagicMock(side_effect=AssertionError("must not create"))
@@ -269,8 +281,9 @@ class CoordinateTests(unittest.TestCase):
                 self.assertEqual(state.get("r/status")["status"], "failed")
 
     def test_completed_and_human_cancelled_status_words(self):
-        def completed(trials, capacity, jobs, worker, *, cancelled, stats):
+        def completed(trials, capacity, jobs, worker, *, cancelled, stats, cancel_on_interrupt):
             self.assertEqual(jobs, 1)
+            self.assertFalse(cancel_on_interrupt)  # a preempted coordinator is not a cancel
             return {"t1": {"started": True, "cleanup": {"complete": True}}}
         state = MemoryState({"r/request": self.request()})
         result, _ = self.coordinate(state, completed)
@@ -278,7 +291,7 @@ class CoordinateTests(unittest.TestCase):
         self.assertEqual((result["planned"], result["recorded"], result["unproven_vm_exits"]), (1, 1, 0))
         self.assertEqual(state.get("r/status")["status"], "completed")
 
-        def cancelled_run(trials, capacity, jobs, worker, *, cancelled, stats):
+        def cancelled_run(trials, capacity, jobs, worker, *, cancelled, stats, cancel_on_interrupt):
             cancelled.set()  # a human cancel delivered through the state watcher
             return {"t1": {"started": False, "cancelled": True, "cleanup": {"complete": True}}}
         state = MemoryState({"r/request": self.request()})
