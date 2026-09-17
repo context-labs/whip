@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -328,17 +329,27 @@ func (node *AgentSession) recordEphemeral(ctx context.Context, text string) {
 	node.mu.Unlock()
 }
 
-// internPrompt stores the system prompt this turn composed, once, so the
-// turn's model call spans can point at it. Like span writes, a failure is
-// logged and the turn goes on without the pointer.
+// internPrompt stores the system prompt the agent's requests send, once per
+// turn or command, so the model call spans can point at it. It reads the
+// agent's own first message rather than the composed snapshot: a turn sets
+// that message from the snapshot, and a command before any turn sends whatever
+// the agent already holds. Like span writes, a failure is logged and the work
+// goes on without the pointer.
 func (node *AgentSession) internPrompt(ctx context.Context) {
 	if node.root == nil {
 		return
 	}
 	node.mu.Lock()
-	prompt, turnID := node.prompt.Prompt, node.turn.TurnID
+	turnID := node.turn.TurnID
 	node.mu.Unlock()
-	if prompt == "" || turnID == "" {
+	if turnID == "" {
+		return
+	}
+	var prompt string
+	if messages := node.agent.MessagesSnapshot(); len(messages) > 0 && messages[0].Role == "system" {
+		prompt = messages[0].Content
+	}
+	if prompt == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spanWriteTimeout)
@@ -351,6 +362,44 @@ func (node *AgentSession) internPrompt(ctx context.Context) {
 	node.mu.Lock()
 	node.turn.PromptRef, node.turn.PromptBytes = value.ReferenceID, int(value.Size)
 	node.mu.Unlock()
+}
+
+// beginCommandTrace opens a trace for one user command that calls the model
+// outside a turn (/compact, goal from context). The command becomes a root
+// span named for it, and the node carries the command's identity while it
+// runs, so the model call's span parents under that root through the same
+// code a turn uses. The returned function closes the root with the command's
+// output or error and clears the identity, so nothing later inherits it. A
+// command is admitted only while no root operation runs, which is what makes
+// borrowing the turn identity safe.
+func (node *AgentSession) beginCommandTrace(ctx context.Context, name, command, input string) func(output string, err error) {
+	if node.root == nil {
+		return func(string, error) {}
+	}
+	id := "command:" + rand.Text()
+	spanID, traceID := sessionstore.TurnSpanID(node.root.ID(), node.id, id), sessionstore.TraceIDForTurn(id)
+	node.mu.Lock()
+	node.turn = turnJournal{TurnID: id, SpanID: spanID, TraceID: traceID}
+	node.mu.Unlock()
+	node.internPrompt(ctx)
+	node.root.recordSpanStart(sessionstore.SpanRecord{
+		ID: spanID, TraceID: traceID, RootID: node.root.ID(), AgentID: node.id, TurnID: id,
+		Kind: sessionstore.SpanKindAgent, Name: name, Status: sessionstore.SpanStatusRunning, StartNS: time.Now().UnixNano(),
+		Attrs: sessionstore.SpanAttrs(map[string]any{"trigger": "command", "command": command, "input": input}),
+	})
+	return func(output string, err error) {
+		status, attrs := sessionstore.SpanStatusOK, map[string]any{"output": sessionstore.SpanExcerpt(output)}
+		if err != nil {
+			status, attrs["error"] = sessionstore.SpanStatusError, sessionstore.SpanExcerpt(err.Error())
+		}
+		node.root.recordSpanEnd(sessionstore.SpanRecord{
+			ID: spanID, TraceID: traceID, RootID: node.root.ID(), AgentID: node.id, TurnID: id,
+			Kind: sessionstore.SpanKindAgent, Name: name, Status: status, EndNS: time.Now().UnixNano(), Attrs: sessionstore.SpanAttrs(attrs),
+		})
+		node.mu.Lock()
+		node.turn = turnJournal{}
+		node.mu.Unlock()
+	}
 }
 
 // recordCompactionOutput attaches a fold's summary to the span of the call

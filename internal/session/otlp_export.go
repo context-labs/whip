@@ -581,6 +581,23 @@ func compactAttrs(attrs []otlpAttribute) []otlpAttribute {
 }
 
 func (e *otlpExporter) agentSpan(out *otlpSpan, record SpanRecord, attrs map[string]any, identity agentIdentity) error {
+	if trigger, _ := attrs["trigger"].(string); trigger == "command" {
+		// A user command that called the model outside a turn (/compact, goal
+		// from context): a step named for the command, not an agent turn.
+		command, _ := attrs["command"].(string)
+		out.Attributes = append(out.Attributes,
+			stringAttr("openinference.span.kind", "CHAIN"),
+			stringAttr("gen_ai.operation.name", command),
+			stringAttr("whip.turn.trigger", trigger),
+		)
+		if input, ok := attrs["input"].(string); ok {
+			out.Attributes = append(out.Attributes, stringAttr("input.value", input), stringAttr("input.mime_type", "text/plain"))
+		}
+		if output, ok := attrs["output"].(string); ok {
+			out.Attributes = append(out.Attributes, stringAttr("output.value", output), stringAttr("output.mime_type", "text/plain"))
+		}
+		return nil
+	}
 	if identity.name != "" {
 		out.Name = identity.name
 	}

@@ -275,18 +275,31 @@ func (r *AgentSession) FormGoal(ctx context.Context, window int) (string, llm.Us
 	if err != nil {
 		return "", r.agent.Usage(), err
 	}
+	end := r.beginCommandTrace(ctx, "goal", "goal.from-context", fmt.Sprintf("/goal-from-context %d", window))
 	goal, _, err := r.complete(ctx, agent.BuildGoalFromContextPrompt(tail, r.agent.ExecutionLanguage), 8192)
 	goal = strings.TrimSpace(goal)
 	if err == nil && goal == "" {
 		err = errors.New("model returned an empty goal")
 	}
+	end(goal, err)
 	return goal, r.agent.Usage(), err
 }
 
+// CompactNow runs a user's /compact as its own trace: the fold's model call
+// parents under a root named compact and carries the summary it produced, the
+// same way a mid-turn fold does.
 func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error) {
 	before := r.agent.MessagesSnapshot()
+	end := r.beginCommandTrace(ctx, "compact", "history.compact", "/compact")
 	summary, cutoff, info, err := r.agent.CompactNow(ctx)
 	rawCutoff := agent.RawCompactionCutoff(before, cutoff)
+	if err == nil || llm.IsCompletedAccountingError(err) {
+		r.mu.Lock()
+		callID := r.turn.LastModelCallID
+		r.mu.Unlock()
+		r.recordCompactionOutput(ctx, callID, summary, rawCutoff)
+	}
+	end(summary, err)
 	return clientCompaction{
 		summary: summary, cutoff: cutoff, rawTailStart: agent.CompactionRawTailStart(before, cutoff), rawCutoff: &rawCutoff,
 		model: info.Model, usage: r.agent.Usage(), before: before,

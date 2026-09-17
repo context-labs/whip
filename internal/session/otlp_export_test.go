@@ -571,3 +571,69 @@ func TestExportOTLPEmitsPromptsAndCompaction(t *testing.T) {
 		t.Fatalf("message slots=%d want 12", slots)
 	}
 }
+
+// A user command that called the model outside a turn exports as a step named
+// for the command, not as an agent turn: the root keeps its name, is a CHAIN
+// with the command as its operation, and the fold under it carries the summary.
+func TestExportOTLPNamesCommandRootsAsChains(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := store.InternContent(ctx, root, "prompt.summary", []byte("Keep the failing test in view."))
+	must(err)
+	const commandID = "command:abc"
+	base := time.Now().UnixNano()
+	commandRoot := SpanRecord{
+		ID: TurnSpanID(root, agent, commandID), TraceID: TraceIDForTurn(commandID), RootID: root, AgentID: agent, TurnID: commandID,
+		Kind: SpanKindAgent, Name: "compact", StartNS: base, Attrs: SpanAttrs(map[string]any{"trigger": "command", "command": "history.compact", "input": "/compact"}),
+	}
+	must(store.RecordSpanStart(ctx, commandRoot))
+	fold := SpanRecord{
+		ID: ModelCallSpanID(root, "k9"), TraceID: commandRoot.TraceID, ParentID: commandRoot.ID, RootID: root, AgentID: agent, TurnID: commandID,
+		Kind: SpanKindLLM, Name: "compaction", StartNS: base + 1, Attrs: SpanAttrs(map[string]any{"model": "compact-model", "provider": "compact-provider", "purpose": "compaction", "model_call_id": "k9", "logical_id": "L-k9", "attempt": 1}),
+	}
+	must(store.RecordSpanStart(ctx, fold))
+	fold.EndNS, fold.Attrs = base+2, SpanAttrs(map[string]any{"prompt_tokens": 9, "completion_tokens": 3, "usage_source": "reported", "cost_source": "unknown"})
+	must(store.RecordSpanEnd(ctx, fold))
+	must(store.PatchSpanAttrs(ctx, root, fold.ID, map[string]any{"output_ref": summary.ReferenceID, "output_bytes": int(summary.Size), "raw_cutoff": 5}))
+	commandRoot.EndNS, commandRoot.Attrs = base+3, SpanAttrs(map[string]any{"output": "Keep the failing test in view."})
+	must(store.RecordSpanEnd(ctx, commandRoot))
+
+	data, exportSummary, err := store.ExportOTLP(ctx, root, ExportOptions{})
+	must(err)
+	if exportSummary.Spans != 2 || exportSummary.Traces != 1 {
+		t.Fatalf("summary=%+v", exportSummary)
+	}
+	byID := map[string]exportedSpan{}
+	for _, span := range decodeExport(t, data) {
+		byID[span.SpanID] = span
+	}
+	out := byID[commandRoot.ID]
+	if out.Name != "compact" || out.ParentSpanID != "" {
+		t.Fatalf("command root = %+v", out)
+	}
+	for key, want := range map[string]string{
+		"openinference.span.kind": "CHAIN", "gen_ai.operation.name": "history.compact", "whip.turn.trigger": "command",
+		"input.value": "/compact", "output.value": "Keep the failing test in view.", "session.id": root,
+	} {
+		if got, _ := out.attr(key); got != want {
+			t.Fatalf("command root %s=%q want %q", key, got, want)
+		}
+	}
+	child := byID[fold.ID]
+	if child.ParentSpanID != commandRoot.ID || child.Name != "compaction" {
+		t.Fatalf("fold = %+v", child)
+	}
+	for key, want := range map[string]string{
+		"llm.output_messages.0.message.role": "assistant", "llm.output_messages.0.message.content": "Keep the failing test in view.", "whip.compaction.raw_cutoff": "5",
+	} {
+		if got, _ := child.attr(key); got != want {
+			t.Fatalf("fold %s=%q want %q", key, got, want)
+		}
+	}
+}
