@@ -48,14 +48,17 @@ func TestSetThemeRefreshesOpencodeInputStyles(t *testing.T) {
 	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
 
 	m := &model{cfg: &config.Config{}, input: newInput()}
-	t.Cleanup(func() { m.applyUIMode("") }) // don't leak ocActive into other tests
+	t.Cleanup(func() {
+		m.applyUIMode("")
+		setSchemeOverride("")
+	}) // don't leak UI or theme state into other tests
 	mdMu.Lock()
 	mdKnown = false // start unknown: styles bake NoColor
 	mdMu.Unlock()
 	m.applyUIMode(opencodeMode)
 	m.setTheme("light") // must re-bake the input styles with the light palette
-	if got := m.input.FocusedStyle.Placeholder.GetBackground(); got != lipgloss.Color("#e1e1e1") {
-		t.Fatalf("placeholder bg after /theme light = %v, want #e1e1e1", got)
+	if got := m.input.FocusedStyle.Placeholder.GetBackground(); got != lipgloss.Color("#dcdcdc") {
+		t.Fatalf("placeholder bg after /theme light = %v, want #dcdcdc", got)
 	}
 }
 
@@ -734,8 +737,9 @@ func TestOcBgShift(t *testing.T) {
 	if c, ok := ocBgShift(10); !ok || c != lipgloss.Color("#ebebe1") {
 		t.Fatalf("light shift = %v %v, want #ebebe1", c, ok)
 	}
-	// panels/element derive from the cache when present
+	// Semantic surfaces derive from the cache when the active theme is rebuilt.
 	bgCache = bgResult{light: false, valid: true, r: 0x26, g: 0x28, b: 0x2c, hasRGB: true}
+	rebuildTheme()
 	if got := ocPanelBg(); got != lipgloss.Color("#303236") {
 		t.Fatalf("panel = %v, want derived", got)
 	}

@@ -38,25 +38,32 @@ import (
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tools/bashrun"
+	uitheme "github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
-// UI styles use AdaptiveColor so they stay legible on both dark and light
-// terminal backgrounds (detected at startup by detectColorScheme).
-var (
-	youStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "21", Dark: "12"}).Bold(true) // blue
-	botStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "90", Dark: "13"}).Bold(true) // purple/magenta
-	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
-	growStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "10"})            // green
-	// thinkingStyle renders reasoning tokens: dim and italic so they're
-	// visually distinct from the answer.
-	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
-)
+var youStyle, botStyle, toolStyle, dimStyle, errStyle, growStyle, thinkingStyle lipgloss.Style
+
+func init() { refreshBaseStyles() }
+
+// refreshBaseStyles rebuilds package-level styles from the active semantic
+// palette. Existing render paths can stay unchanged while named themes swap.
+func refreshBaseStyles() {
+	rebuildTheme()
+	th := currentTheme()
+	youStyle = th.On(th.Info, nil).Bold(true)
+	botStyle = th.On(th.Accent, nil).Bold(true)
+	toolStyle = th.On(th.Warning, nil)
+	dimStyle = th.On(th.Muted, nil)
+	errStyle = th.On(th.Error, nil)
+	growStyle = th.On(th.Success, nil)
+	thinkingStyle = th.On(th.Muted, nil).Italic(true)
+	diffAddStyle = th.On(nil, th.DiffAdd)
+	diffDelStyle = th.On(nil, th.DiffDel)
+}
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
 // opencode render mode can swap them (❯→┃, ●→▣) in one place; both defaults
@@ -494,6 +501,11 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// Resolve the theme BEFORE applyUIMode/startupReport: opencode mode bakes
 	// theme-resolved colors into the input styles, and startupReport's
 	// unknown-background notice must reflect the final detection result.
+	invalidTheme := cfg.Theme != "" && !knownThemeName(cfg.Theme)
+	invalidThemeName := cfg.Theme
+	if invalidTheme {
+		cfg.Theme = ""
+	}
 	m.themeHow = m.applyTheme(cfg.Theme)
 	if cfg.UIMode == opencodeMode {
 		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
@@ -503,6 +515,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// option at the moment the pane asks).
 	tmuxEnableExtendedKeys()
 	m.startupReport()
+	if invalidTheme {
+		m.append(errStyle.Render("unknown configured theme " + strconv.Quote(invalidThemeName) + "; using auto"))
+	}
 
 	// Inline rendering (no alt-screen): the transcript lives in the normal
 	// terminal scrollback, so terminal scrollback owns history. Mouse capture
@@ -1150,13 +1165,17 @@ func (m *model) persist() {
 	m.saved = len(m.agent.Messages)
 }
 
-// setTheme switches the color scheme ("light"/"dark"/"auto") live and
-// persists the pick to the global config: markdown re-renders under the new
-// glamour style and every AdaptiveColor UI style follows lipgloss. A theme
-// file change in ANOTHER running whip session is picked up live via
-// syncThemeMsg.
+func (m *model) previewTheme(name string) {
+	m.themeHow = m.applyTheme(name)
+	if m.uiMode == opencodeMode {
+		m.applyUIMode(opencodeMode)
+	}
+	m.refreshVP()
+}
+
+// setTheme switches the active built-in theme live and persists its stable ID.
 func (m *model) setTheme(theme string) {
-	if theme != "light" && theme != "dark" {
+	if !knownThemeName(theme) {
 		theme = "auto"
 	}
 	how := m.applyTheme(theme)
@@ -1192,20 +1211,23 @@ func (m *model) setTheme(theme string) {
 // explicit picks override detection directly. Called by setTheme, startup, and
 // the config watcher. how (only meaningful for auto) names the detection
 // source so a wrong pick is diagnosable in the transcript note.
-func (m *model) applyTheme(theme string) (how string) {
-	switch theme {
-	case "light":
-		SetLightTheme(true)
-		lipgloss.SetHasDarkBackground(false)
-		setSchemeOverride("light")
-	case "dark":
-		SetLightTheme(false)
-		lipgloss.SetHasDarkBackground(true)
-		setSchemeOverride("dark")
-	default: // auto: don't touch m.cfg.Theme — setTheme owns persistence
+func (m *model) applyTheme(name string) (how string) {
+	switch name {
+	case "", "auto": // don't touch m.cfg.Theme — setTheme owns persistence
 		setSchemeOverride("")
 		how = detectColorScheme()
+	default:
+		spec, ok := uitheme.Builtin(name)
+		if !ok {
+			setSchemeOverride("")
+			how = detectColorScheme()
+			break
+		}
+		SetLightTheme(!spec.Dark)
+		lipgloss.SetHasDarkBackground(spec.Dark)
+		setSchemeOverride(name)
 	}
+	refreshBaseStyles()
 	return how
 }
 
@@ -2201,6 +2223,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		SetLightTheme(msg.light)
 		lipgloss.SetHasDarkBackground(!msg.light)
 		bgCache = bgResult{light: msg.light, valid: true} // no RGB from the theme report
+		refreshBaseStyles()
 		if m.uiMode == opencodeMode {
 			m.applyUIMode(opencodeMode) // re-bake input styles/spinner for the new scheme
 		}
@@ -4623,11 +4646,10 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/theme":
 		if len(fields) > 1 {
-			switch fields[1] {
-			case "light", "dark", "auto":
+			if knownThemeName(fields[1]) {
 				m.setTheme(fields[1])
-			default:
-				m.append(errStyle.Render("usage: /theme light|dark|auto"))
+			} else {
+				m.append(errStyle.Render("unknown theme: " + fields[1] + " (run /theme to browse)"))
 			}
 		} else {
 			m.openPaletteOn("theme") // bare: open the switcher, don't toggle blind

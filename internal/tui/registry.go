@@ -50,7 +50,7 @@ var registry = []registryEntry{
 	{Name: "/schedule", Hint: "@every 10m|@at <time> <prompt> — schedule a wakeup; list | cancel", Category: "Session"},
 	{Name: "/subagent", Hint: "[-m model] <prompt> — spawn a background subagent", Category: "Session"},
 	{Name: "/subagents", Hint: "[id] — subagent dock / live view (alias /tasks)", Keybind: "ctrl+t", Category: "Session"},
-	{Name: "/theme", Hint: "[light|dark|auto] — color scheme", Category: "Display"},
+	{Name: "/theme", Hint: "[name] — preview or select a built-in theme", Category: "Display"},
 	{Name: "!cmd", Hint: "— run a shell command; output joins the conversation", Category: "App"},
 }
 

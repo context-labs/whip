@@ -172,7 +172,7 @@ type Config struct {
 	CompactPct      int    `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
 	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
 	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
-	Theme           string `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
+	Theme           string `json:"theme,omitempty"`           // built-in theme ID, or "" (auto-detect at startup)
 	UIMode          string `json:"uiMode,omitempty"`          // "" (classic whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
 	Sidebar         *bool  `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
 	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works

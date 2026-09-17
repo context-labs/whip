@@ -13,8 +13,8 @@ func TestLightThemeRendersDarkText(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
-	if !strings.Contains(out, "\x1b[38;5;234m") {
-		t.Errorf("light theme should render body in color 234, got %q", out)
+	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
+		t.Errorf("light theme should render the light palette text, got %q", out)
 	}
 	if strings.Contains(out, "\x1b[38;5;252m") {
 		t.Errorf("light theme must not use dark-style color 252: %q", out)
@@ -120,7 +120,7 @@ func TestUnknownThemeStillRendersMarkdown(t *testing.T) {
 	if strings.Contains(ansi.Strip(out), "**") {
 		t.Errorf("neutral style left literal ** markers (ASCII style?): %q", out)
 	}
-	if !strings.Contains(out, "\x1b[1m") {
+	if !strings.Contains(out, ";1m") {
 		t.Errorf("neutral style should render bold: %q", out)
 	}
 	if !strings.Contains(out, "─") {
@@ -154,7 +154,7 @@ func TestThemeSwitchAfterUnknown(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
-	if !strings.Contains(out, "\x1b[38;5;234m") {
-		t.Errorf("switching unknown→light should re-render in light (234): %q", out)
+	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
+		t.Errorf("switching unknown→light should re-render in the light palette: %q", out)
 	}
 }

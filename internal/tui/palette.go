@@ -93,7 +93,8 @@ type ppanel struct {
 
 	mcps []mcpRow // panelMCP: the two source toggles then one row per server
 
-	err string // inline error from a failed apply (bad compact model, …)
+	err     string // inline error from a failed apply (bad compact model, …)
+	initial string // panelTheme: selection restored when preview is cancelled
 
 	// direct marks a panel a slash command opened straight into (bare /effort,
 	// /theme): enter applies and closes the whole palette instead of popping
@@ -338,12 +339,12 @@ func (m *model) paletteItems() []paletteItem {
 			dynDesc: func(m *model) string { return "current: " + CurrentTheme() },
 			dynHint: func(m *model) string { return "/theme " + slashHint(m, "/theme") },
 			panel: func(m *model) *ppanel {
-				list := []string{"auto", "light", "dark"}
+				list := themeNames()
 				cur := m.cfg.Theme
 				if cur == "" {
 					cur = "auto"
 				}
-				pp := &ppanel{kind: panelTheme, title: "Theme", list: list}
+				pp := &ppanel{kind: panelTheme, title: "Theme", list: list, initial: cur}
 				for i, t := range list {
 					if t == cur {
 						pp.midx = i
@@ -728,16 +729,19 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 	case panelTheme:
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
+			m.previewTheme(pp.initial)
 			pop()
 		case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
 			pp.midx = (pp.midx - 1 + len(pp.list)) % len(pp.list)
+			m.previewTheme(pp.list[pp.midx])
 		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
 			pp.midx = (pp.midx + 1) % len(pp.list)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyEnter:
-			m.setTheme(pp.list[pp.midx]) // applies live; re-renders the transcript
-			if msg.Type == tea.KeyEnter {
-				pop()
-			}
+			m.previewTheme(pp.list[pp.midx])
+		case tea.KeyLeft, tea.KeyRight:
+			m.previewTheme(pp.list[pp.midx])
+		case tea.KeyEnter:
+			m.setTheme(pp.list[pp.midx])
+			pop()
 		}
 
 	case panelBrowser:
@@ -1083,18 +1087,30 @@ func (m *model) panelView(pp *ppanel) string {
 		if cur == "" {
 			cur = "auto"
 		}
-		for i, name := range pp.list {
+		rows := max(m.height-8, 3)
+		lo := max(pp.midx-rows/2, 0)
+		hi := min(lo+rows, len(pp.list))
+		lo = max(hi-rows, 0)
+		if lo > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
+		}
+		for i := lo; i < hi; i++ {
+			name := pp.list[i]
 			mark := ""
 			if name == cur {
 				mark = dimStyle.Render("  (current)")
 			}
+			label := themeLabel(name)
 			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+name) + mark + "\n")
+				b.WriteString(botStyle.Render(" → "+label) + mark + "\n")
 			} else {
-				b.WriteString("   " + name + mark + "\n")
+				b.WriteString("   " + label + mark + "\n")
 			}
 		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
+		if hi < len(pp.list) {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
+		}
+		b.WriteString("\n" + dimStyle.Render("  ↑/↓ preview · enter apply · esc cancel"))
 
 	case panelBrowser:
 		for i, name := range pp.list {

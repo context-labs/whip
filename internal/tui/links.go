@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"image/color"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -363,20 +365,31 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 // linkAtomAt reports whether s starts with a link SGR span, returning the
 // span and 't' (LinkText/label) or 'h' (Link/href).
 func linkAtomAt(s string) (string, byte) {
+	th := currentTheme()
 	for _, cand := range []struct {
 		sgr  string
 		kind byte
 	}{
+		{themeLinkSGR(th.Link, 1), 't'},
+		{themeLinkSGR(th.Primary, 4), 'h'},
 		{linkTextSGRDark, 't'},
 		{linkTextSGRLight, 't'},
 		{linkSGRDark, 'h'},
 		{linkSGRLight, 'h'},
 	} {
-		if strings.HasPrefix(s, cand.sgr) {
+		if cand.sgr != "" && strings.HasPrefix(s, cand.sgr) {
 			return cand.sgr, cand.kind
 		}
 	}
 	return "", 0
+}
+
+func themeLinkSGR(c color.Color, attribute int) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%d;%dm", r>>8, g>>8, b>>8, attribute)
 }
 
 // scanAtom returns the end offset (exclusive) and visible text of the atom

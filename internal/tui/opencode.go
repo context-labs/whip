@@ -145,27 +145,46 @@ func ocBgShift(delta int) (lipgloss.TerminalColor, bool) {
 // and render as sunken holes on the common #202830-ish dark schemes; #343434/
 // #404040 read as raised panels across the whole dark range. When the real
 // bg RGB was captured, ocBgShift supersedes these with exact relative shades.
-func ocPanelBg() lipgloss.TerminalColor { // cards, sidebar (no fill if unknown)
-	if c, ok := ocBgShift(10); ok {
-		return c
-	}
-	return ocPick("#343434", "#ebebeb", "")
+func ocPanelBg() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Panel)
 }
-
-func ocElementBg() lipgloss.TerminalColor { // prompt box
-	if c, ok := ocBgShift(20); ok {
-		return c
-	}
-	return ocPick("#404040", "#e1e1e1", "")
+func ocElementBg() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Element)
 }
-func ocAgentCol() lipgloss.TerminalColor   { return ocPick("#5c9cf5", "#7b5bb6", "4") } // bars, ▣
-func ocTextCol() lipgloss.TerminalColor    { return ocPick("#eeeeee", "#1a1a1a", "") }  // text (default fg if unknown)
-func ocMutedCol() lipgloss.TerminalColor   { return ocPick("#808080", "#8a8a8a", "8") } // muted
-func ocWarnCol() lipgloss.TerminalColor    { return ocPick("#f5a742", "#d68c27", "3") } // "+ Thought"
-func ocSuccessCol() lipgloss.TerminalColor { return ocPick("#7fd88f", "#3d9a57", "2") } // footer bullet
-func ocAccentCol() lipgloss.TerminalColor  { return ocPick("#9d7cd8", "#d68c27", "5") } // palette category headers
-func ocSelBg() lipgloss.TerminalColor      { return ocPick("#fab283", "#3b7dd8", "7") } // selected row fill (primary)
-func ocSelFg() lipgloss.TerminalColor      { return ocPick("#0a0a0a", "#ffffff", "0") } // selected row text
+func ocAgentCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Info)
+}
+func ocTextCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Text)
+}
+func ocMutedCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Muted)
+}
+func ocWarnCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Warning)
+}
+func ocSuccessCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Success)
+}
+func ocAccentCol() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Accent)
+}
+func ocSelBg() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.Primary)
+}
+func ocSelFg() lipgloss.TerminalColor {
+	t := currentTheme()
+	return t.Terminal(t.OnPrimary)
+}
 
 // sidebarWidth is the fixed width of the opencode-mode right sidebar, matching
 // opencode (routes/session/sidebar.tsx). The sidebar shows only when the
