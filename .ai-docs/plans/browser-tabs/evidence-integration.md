@@ -166,12 +166,74 @@ profiles, screenshots and machine-specific credentials are excluded. This is
 review for an **experimental default-OFF source commit**, not a release waiver;
 source review and cleanup do not complete the missing packaged gates.
 
+## Consented normal-HOME packaged local acceptance — 2026-09-17 21:58–22:04 UTC
+
+The user explicitly authorized the signed Beta to use the current macOS account's
+normal HOME/keychain, while keeping WHIP data, the browser profile, daemon home,
+and temporary files disposable. `browser-packaged.mjs --enabled --user-home`
+selects this mode explicitly; without `--user-home`, the isolated-HOME default is
+unchanged. The user handles any OS credential prompt. No credential contents were
+inspected, keychain configuration changed, or cookie-encryption fuse disabled.
+The same signed shipping-fuse lifecycle bundle above was reused, not rebuilt,
+patched, or instrumented with CDP/an injected bridge.
+
+The earlier normal-HOME fixture `wv176m` reached a local 404, but extra input had
+changed the address. It is not a clean navigation pass. Its 45-minute fixture
+lifetime expired while waiting for exclusive desktop use; cleanup completed at
+21:11:51 with no errors. An attempted activation after that expiry sent no UI
+input. A fresh fixture was started only after the user granted exclusive keyboard
+and mouse use.
+
+Fresh fixture `JFuhwB` (`job-f3978db9`) used local URL
+`http://127.0.0.1:55836/` and marker
+`2a2a7975-da54-4735-9c7d-30aa275e32d8`. Ordinary native Accessibility interactions
+and exact-address assertions produced these observations:
+
+- PID **40970** rendered **Native Browser acceptance**, the exact fixture marker,
+  and its input/button/link controls. At first render the server counted **1 page,
+  0 clicks**. Typing left `native-input-check` in the visible fixture input; one
+  Increment click produced exactly **1 server-side click**.
+- Opening **Second fixture page** changed the Browser address to `/second`; Back
+  returned to `/`. The local check (`job-41e58f66`) completed at **21:59:52** with
+  `LOCAL_RENDER_PASS`, `ONE_CLICK_PASS`, and `NAVIGATION_PASS`. The visit counter
+  was **3** before quit (including the back navigation).
+- Cmd+Q at **22:00:01** exited PID 40970, independently confirmed absent before
+  relaunch. No stop command, SIGTERM, or forced kill was needed for that exit.
+- The harness relaunched the same disposable profile as PID **41660** at
+  **22:00:11**. The saved Browser tab restored at the same URL and rendered the
+  same marker. The visible localStorage visit counter became **4**, demonstrating
+  profile continuity. Server totals were **3 pages, 1 click**: back navigation
+  need not cause another HTTP request, and the click was not replayed.
+- The first post-relaunch Accessibility snapshot was not yet hydrated; a later
+  read-only snapshot showed the restored controls. An assertion on the initial
+  snapshot failed before sending any further input. This sampling interval is
+  **not** a measured startup latency or a product restore failure.
+- Cmd+Q at **22:02:54** also exited PID 41660; both app PIDs were confirmed absent.
+  Both post-quit helper AXWindows reads failed because the app had exited; process
+  absence, not the helper's exit status, establishes quit. The harness's final
+  cleanup completed at **22:04:04** with **no errors and no forced-stop record**.
+  The owned directory and local HTTP listener were absent. No remote fixture was
+  recreated during these local checks.
+
+Evidence: `/private/tmp/whip-browser-package-JFuhwB-evidence.json` records signed
+verification, `userHome: true`, both launch PIDs, final counters and cleanup.
+The focused UI logs, final Accessibility state, helper sequence and 16 app-scoped
+screenshots are retained in `/tmp/whip-browser-local-evidence.y4erlW.tar.gz`
+(SHA-256 `2faa4d43927c772310332080eaced1362f9e1f37133ee43e67ba9c57e5052dc6`).
+The bundle still reports **notarized=false**. These observations establish local
+packaged loading/input/navigation and enabled quit/restart/restore for this
+consented environment only. They do not prove the exact cause of the earlier
+Security.framework wait, isolated-keychain behavior, SSH loading/recovery,
+packaged agent-control acceptance, multi-pane/focus coverage, or performance.
+
 ## Release gate status
 
 Implementation remains experimental and packaged default-OFF. Signed Beta
-builds and substantial development/native/selected-host tests have passed, but
-Phase 7 packaged acceptance is incomplete: remote page loading, enabled graceful
-quit/restart, recovery and remaining manual/performance gates are not established.
+builds and substantial development/native/selected-host tests have passed.
+Local enabled loading, input/navigation and graceful quit/restart/restore now pass
+in the explicitly consented normal-HOME environment. Phase 7 packaged acceptance
+is still incomplete: remote page loading/recovery, packaged agent control and
+remaining manual/performance gates are not established.
 The original development focus flake remains unexplained; contaminated earlier
 packaged focus observations are not product-defect evidence. The dependency
 audit still reports 43 findings (3 low, 14 moderate, 25 high, 1 critical); no

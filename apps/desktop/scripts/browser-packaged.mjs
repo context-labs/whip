@@ -1,6 +1,8 @@
 // Signed shipping-fuse Browser acceptance fixture. UI interaction is deliberately
 // external (native Accessibility/manual); no CDP, injected bridge, or app patch.
-// Run: node apps/desktop/scripts/browser-packaged.mjs '/path/to/Whip Beta.app' [--enabled]
+// Run: node apps/desktop/scripts/browser-packaged.mjs '/path/to/Whip Beta.app' [--enabled] [--user-home]
+// --user-home requires consent to normal macOS keychain use. Only the app gets
+// the real HOME; daemon home, app data, browser profile and temp files stay isolated.
 // Write {"action":"launch","enabled":true}, {"action":"stop"}, or
 // {"action":"quit"} to the printed fixture's command.json. Default launch is OFF.
 import assert from 'node:assert/strict';
@@ -18,7 +20,10 @@ import { verifyDesktop } from './verify.mjs';
 
 const exec = promisify(execFile);
 assert.equal(process.platform, 'darwin');
-assert.ok(process.argv.length === 3 || (process.argv.length === 4 && process.argv[3] === '--enabled'), 'Pass a signed Beta app bundle and optional --enabled');
+const flags = process.argv.slice(3);
+assert.ok(process.argv[2] && flags.every(flag => ['--enabled', '--user-home'].includes(flag)) && new Set(flags).size === flags.length, 'Pass a signed Beta app bundle and optional --enabled / --user-home');
+const userHome = flags.includes('--user-home');
+assert.ok(!userHome || path.isAbsolute(process.env.HOME ?? ''), '--user-home requires an absolute HOME');
 const bundle = await realpath(process.argv[2]);
 const verified = await verifyDesktop(bundle, { signed: true });
 const archive = path.join(bundle, 'Contents/Resources/app.asar');
@@ -59,7 +64,7 @@ const server = createServer((request, response) => {
 });
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
 const url = `http://127.0.0.1:${server.address().port}/`;
-const snapshot = async () => writeFile(path.join(fixture, 'state.json'), JSON.stringify({ fixture, bundle, executable, env, marker, url, appPID, enabled, requests, evidencePath }, null, 2), { mode: 0o600 });
+const snapshot = async () => writeFile(path.join(fixture, 'state.json'), JSON.stringify({ fixture, bundle, executable, env, userHome, marker, url, appPID, enabled, requests, evidencePath }, null, 2), { mode: 0o600 });
 async function findOwnedPID() {
   const rows = (await exec('/bin/ps', ['-axo', 'pid=,command='])).stdout.split('\n');
   const matches = rows.filter(row => row.includes(`${bundle}/Contents/MacOS/`) && row.includes(ownership));
@@ -88,7 +93,7 @@ async function stop() {
 async function launch(flag) {
   await stop(); enabled = flag;
   // Exercise the packaged default with the opt-in absent, not explicitly false.
-  const launchEnv = { ...env, ...(flag ? { WHIP_DESKTOP_BROWSER_TABS: '1' } : {}) };
+  const launchEnv = { ...env, ...(userHome ? { HOME: minimal.HOME } : {}), ...(flag ? { WHIP_DESKTOP_BROWSER_TABS: '1' } : {}) };
   launcher = spawn('/usr/bin/open', ['-n', '-W', '-a', bundle, ...Object.entries(launchEnv).flatMap(([key, value]) => ['--env', `${key}=${value}`]), '--args', ownership], { env: minimal, stdio: ['ignore', 'ignore', 'pipe'] });
   launcher.stderr.on('data', data => process.stderr.write(data));
   let launchError;
@@ -101,7 +106,7 @@ async function launch(flag) {
     await delay(100);
   }
   assert(appPID, 'No owned app PID after LaunchServices launch');
-  record('launch', { enabled, appPID }); await snapshot(); console.log(JSON.stringify({ fixture, appPID, enabled, url }));
+  record('launch', { enabled, userHome, appPID }); await snapshot(); console.log(JSON.stringify({ fixture, appPID, enabled, url }));
 }
 process.once('SIGINT', () => { interrupted = true; });
 process.once('SIGTERM', () => { interrupted = true; });
@@ -120,7 +125,7 @@ try {
   await writeFile(path.join(env.WHIPCODE_HOME, 'models.json'), JSON.stringify({ 'browser-fixture': { fetchedAt: new Date().toISOString(), baseUrl,
     models: [{ id: 'browser-fixture', contextLength: 65536, maxCompletionTokens: 256, pricing: { prompt: '0', completion: '0' } }] } }), { mode: 0o600 });
   await exec(executable, ['daemon', 'start'], { env, cwd: path.join(fixture, 'work'), timeout: 15_000 });
-  await launch(process.argv[3] === '--enabled');
+  await launch(flags.includes('--enabled'));
   const deadline = Date.now() + 45 * 60_000;
   while (!interrupted && Date.now() < deadline) {
     let command;
@@ -144,7 +149,7 @@ try {
     try { await cleanup(); } catch (error) { errors.push(error); }
   }
   record('cleanup', { errors: errors.map(error => String(error)) });
-  await writeFile(evidencePath, JSON.stringify({ purpose: 'Signed shipping-fuse ordinary UI fixture, not automated UI assertions', verified, bundle, marker, requests, records }, null, 2), { mode: 0o600 });
+  await writeFile(evidencePath, JSON.stringify({ purpose: 'Signed shipping-fuse ordinary UI fixture, not automated UI assertions', verified, bundle, userHome, marker, requests, records }, null, 2), { mode: 0o600 });
   if (errors.length) throw new AggregateError(errors, `Cleanup incomplete; inspect owned fixture ${fixture}`);
   await rm(fixture, { recursive: true });
   console.log(`Fixture cleanup complete; evidence ${evidencePath}`);
