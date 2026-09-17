@@ -191,7 +191,7 @@ function truncate(text: string, max = 80): string {
 export function spanDisplayName(span: TraceSpan): string {
   const { attrs, name, kind } = span;
   const label =
-    kind === 'llm' ? str(attrs.model) || name
+    kind === 'llm' ? (str(attrs.purpose) === 'compaction' ? name : str(attrs.model) || name)
     : kind === 'agent' ? str(attrs.agent_name) || name
     : kind === 'wait' ? name
     : str(attrs.summary) ? `${name}: ${str(attrs.summary)}` : name;

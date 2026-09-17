@@ -108,6 +108,23 @@ returned as a root-scoped content reference; `whip sessions export <root>
 now RFC 3339 with a fixed nine-digit fraction; `stream.cell.host` gains
 `operation_id` when the call was admitted through the dispatcher.
 
+Model call spans also point at the bodies the transcript never holds, as
+root-scoped content references readable through `content.read`:
+`system_prompt_ref` and `system_prompt_bytes` name the system prompt the turn
+ran under (interned once per turn, shared by digest within the session),
+`ephemeral_ref` and `ephemeral_bytes` name the ephemeral system text the
+request carried (turn and final-answer calls only; interned when it changes),
+and a compaction span (named `compaction`, purpose `compaction`) carries
+`output_ref` and `output_bytes` for the summary it produced plus `raw_cutoff`,
+the last transcript seq the fold covered. The summary arrives after the call settled, so
+the daemon patches the span and journals it again as `span.ended`; clients
+upsert by `updated_seq`. The export emits the system prompt as the leading
+`system` input message and the ephemeral text as the trailing one, matching the
+request order, each only when its reference changed since the agent's previous
+call that carried it; the summary as the compaction span's output message and
+as a system message on the agent's next call; and `whip.compaction.raw_cutoff`
+on both.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

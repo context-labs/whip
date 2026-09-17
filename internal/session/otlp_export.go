@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,11 @@ import (
 // never from the bounded excerpts in span attrs, and every transcript message
 // appears exactly once across the export: each LLM span's input is the delta
 // since that agent's previous model call, its output the message it produced.
+// The bodies no transcript row holds follow the same rule through the content
+// references on the span, in request order: the system prompt leads and the
+// ephemeral notice trails when they changed since the previous call, and a
+// fold's summary appears as the compaction span's output and as a system
+// message on the first call after it.
 
 const (
 	otlpSpanKindInternal = 1
@@ -254,6 +260,15 @@ type otlpExporter struct {
 	transcripts map[string]*agentTranscript
 	// deltas maps an LLM span id to the transcript rows that are its input.
 	deltas map[string][]transcriptRow
+	// prefixes and suffixes are the system messages a span carried that no
+	// transcript row holds, in request order: the system prompt and a fold's
+	// summary lead the delta, the ephemeral notice trails it. outputs are the
+	// compaction spans' summaries; cutoffs mark a compaction span and the
+	// first call after it with the fold's raw cutoff.
+	prefixes map[string][]otlpMessage
+	suffixes map[string][]otlpMessage
+	outputs  map[string]otlpMessage
+	cutoffs  map[string]int64
 }
 
 func (e *otlpExporter) loadAgents() error {
@@ -382,8 +397,13 @@ func flattenContent(raw json.RawMessage) string {
 // assignDeltas walks every agent's LLM spans in start order and gives each
 // one the transcript rows written since the previous call that produced a
 // message. A call that produced nothing leaves the delta for the next one.
+// The same walk places the bodies no transcript row holds: the system prompt
+// and ephemeral notice when their reference changed since the previous call,
+// and a fold's summary on the compaction span as output and on the first call
+// after it as a system message.
 func (e *otlpExporter) assignDeltas(spans []SpanRecord) {
-	e.deltas = map[string][]transcriptRow{}
+	e.deltas, e.prefixes, e.suffixes = map[string][]transcriptRow{}, map[string][]otlpMessage{}, map[string][]otlpMessage{}
+	e.outputs, e.cutoffs = map[string]otlpMessage{}, map[string]int64{}
 	byAgent := map[string][]SpanRecord{}
 	for _, span := range spans {
 		if span.Kind == SpanKindLLM {
@@ -399,13 +419,34 @@ func (e *otlpExporter) assignDeltas(spans []SpanRecord) {
 			return calls[i].StartNS < calls[j].StartNS || calls[i].StartNS == calls[j].StartNS && calls[i].ID < calls[j].ID
 		})
 		previous := -1 // index of the last assistant row already attributed
+		carried := map[string]string{}
+		var summary *otlpMessage
+		var cutoff int64
 		for _, call := range calls {
 			attrs := decodeAttrs(call.Attrs)
+			if purpose, _ := attrs["purpose"].(string); purpose == "compaction" {
+				e.prefixes[call.ID] = e.changedBody(attrs, carried, "system_prompt_ref")
+				if body, ok := e.body(attrs["output_ref"]); ok {
+					e.outputs[call.ID] = otlpMessage{Role: "assistant", Content: body}
+					cutoff = intAttrValue(attrs, "raw_cutoff")
+					e.cutoffs[call.ID] = cutoff
+					summary = &otlpMessage{Role: "system", Content: SummaryPrefix + body}
+				}
+				continue
+			}
 			callID, _ := attrs["model_call_id"].(string)
 			index, produced := transcript.byCallID[callID]
 			if !produced {
 				continue
 			}
+			prefix := e.changedBody(attrs, carried, "system_prompt_ref")
+			if summary != nil {
+				prefix = append(prefix, *summary)
+				e.cutoffs[call.ID] = cutoff
+				summary = nil
+			}
+			e.prefixes[call.ID] = prefix
+			e.suffixes[call.ID] = e.changedBody(attrs, carried, "ephemeral_ref")
 			var delta []transcriptRow
 			for i := previous + 1; i < index; i++ {
 				delta = append(delta, transcript.rows[i])
@@ -414,6 +455,37 @@ func (e *otlpExporter) assignDeltas(spans []SpanRecord) {
 			previous = index
 		}
 	}
+}
+
+// changedBody emits one slot's body as a system message when its reference
+// differs from the last one the agent's calls carried, so each body appears
+// once until it changes, the way transcript rows do. A call without the slot
+// (the compaction call has no ephemeral notice) neither emits nor resets it.
+func (e *otlpExporter) changedBody(attrs map[string]any, carried map[string]string, slot string) []otlpMessage {
+	ref, _ := attrs[slot].(string)
+	if ref == "" || ref == carried[slot] {
+		return nil
+	}
+	carried[slot] = ref
+	body, ok := e.body(ref)
+	if !ok {
+		return nil
+	}
+	return []otlpMessage{{Role: "system", Content: body}}
+}
+
+// body reads a content reference in full; a missing or unreadable body is
+// skipped rather than failing the export.
+func (e *otlpExporter) body(reference any) (string, bool) {
+	id, _ := reference.(string)
+	if id == "" {
+		return "", false
+	}
+	data, err := e.store.readRuntimeValue(e.ctx, nil, sql.NullString{String: id, Valid: true})
+	if err != nil || len(data) == 0 {
+		return "", false
+	}
+	return string(data), true
 }
 
 func decodeAttrs(raw json.RawMessage) map[string]any {
@@ -581,7 +653,8 @@ func (e *otlpExporter) llmSpan(out *otlpSpan, record SpanRecord, attrs map[strin
 		stringAttr("llm.model_name", model),
 		stringAttr("llm.provider", provider),
 	)
-	for key, otelKey := range map[string]string{"purpose": "whip.model_call.purpose", "model_call_id": "whip.model_call.id", "logical_id": "whip.model_call.logical_id", "cost_source": "whip.cost.source", "usage_source": "whip.usage.source"} {
+	for _, pair := range [][2]string{{"purpose", "whip.model_call.purpose"}, {"model_call_id", "whip.model_call.id"}, {"logical_id", "whip.model_call.logical_id"}, {"cost_source", "whip.cost.source"}, {"usage_source", "whip.usage.source"}} {
+		key, otelKey := pair[0], pair[1]
 		if value, ok := attrs[key].(string); ok {
 			out.Attributes = append(out.Attributes, stringAttr(otelKey, value))
 		}
@@ -622,32 +695,46 @@ func (e *otlpExporter) llmSpan(out *otlpSpan, record SpanRecord, attrs map[strin
 			)
 		}
 	}
-	// Messages: the delta since the previous call as input, the produced row
-	// as output, in both the indexed OpenInference form and the JSON form.
-	inputs := make([]otlpMessage, 0, len(e.deltas[record.ID]))
+	// Messages, in request order: the system prompt and a fold's summary when
+	// they changed, the delta since the previous call, then the ephemeral
+	// notice when it changed, as input; the produced row, or a fold's summary,
+	// as output. Both the indexed OpenInference form and the JSON form.
+	inputs := slices.Clone(e.prefixes[record.ID])
 	for _, row := range e.deltas[record.ID] {
 		inputs = append(inputs, messageFromRow(row))
 	}
+	inputs = append(inputs, e.suffixes[record.ID]...)
 	if len(inputs) > 0 {
-		out.Attributes = append(out.Attributes, boolAttr("whip.input.delta", true), intAttr("whip.input.through_seq", int64(e.deltas[record.ID][len(inputs)-1].Seq)))
+		out.Attributes = append(out.Attributes, boolAttr("whip.input.delta", true))
+		if delta := e.deltas[record.ID]; len(delta) > 0 {
+			out.Attributes = append(out.Attributes, intAttr("whip.input.through_seq", int64(delta[len(delta)-1].Seq)))
+		}
 		out.Attributes = append(out.Attributes, indexedMessages("llm.input_messages", inputs)...)
 		if encoded, err := json.Marshal(inputs); err == nil {
 			out.Attributes = append(out.Attributes, stringAttr("gen_ai.input.messages", string(encoded)), stringAttr("input.value", string(encoded)), stringAttr("input.mime_type", "application/json"))
 		}
 	}
+	if cutoff, ok := e.cutoffs[record.ID]; ok && cutoff > 0 {
+		out.Attributes = append(out.Attributes, intAttr("whip.compaction.raw_cutoff", cutoff))
+	}
 	callID, _ := attrs["model_call_id"].(string)
+	var outputs []otlpMessage
 	if transcript, err := e.transcript(record.AgentID); err == nil && transcript != nil {
 		if index, ok := transcript.byCallID[callID]; ok {
-			output := messageFromRow(transcript.rows[index])
-			outputs := []otlpMessage{output}
+			outputs = []otlpMessage{messageFromRow(transcript.rows[index])}
 			out.Attributes = append(out.Attributes, intAttr("whip.output.seq", int64(transcript.rows[index].Seq)))
-			out.Attributes = append(out.Attributes, indexedMessages("llm.output_messages", outputs)...)
-			if encoded, err := json.Marshal(outputs); err == nil {
-				out.Attributes = append(out.Attributes, stringAttr("gen_ai.output.messages", string(encoded)), stringAttr("output.value", string(encoded)), stringAttr("output.mime_type", "application/json"))
-			}
-			if len(output.ToolCalls) == 1 {
-				out.Attributes = append(out.Attributes, stringAttr("tool_call.id", output.ToolCalls[0].ID))
-			}
+		}
+	}
+	if output, ok := e.outputs[record.ID]; ok {
+		outputs = []otlpMessage{output}
+	}
+	if len(outputs) > 0 {
+		out.Attributes = append(out.Attributes, indexedMessages("llm.output_messages", outputs)...)
+		if encoded, err := json.Marshal(outputs); err == nil {
+			out.Attributes = append(out.Attributes, stringAttr("gen_ai.output.messages", string(encoded)), stringAttr("output.value", string(encoded)), stringAttr("output.mime_type", "application/json"))
+		}
+		if len(outputs[0].ToolCalls) == 1 {
+			out.Attributes = append(out.Attributes, stringAttr("tool_call.id", outputs[0].ToolCalls[0].ID))
 		}
 	}
 	return nil
@@ -666,7 +753,8 @@ func (e *otlpExporter) toolSpan(out *otlpSpan, record SpanRecord, attrs map[stri
 		stringAttr("tool_call.id", toolCallID),
 		stringAttr("gen_ai.tool.call.id", toolCallID),
 	)
-	for key, otelKey := range map[string]string{"emitting_call_id": "whip.emitting_call_id", "execution_engine": "whip.execution_engine"} {
+	for _, pair := range [][2]string{{"emitting_call_id", "whip.emitting_call_id"}, {"execution_engine", "whip.execution_engine"}} {
+		key, otelKey := pair[0], pair[1]
 		if value, ok := attrs[key].(string); ok {
 			out.Attributes = append(out.Attributes, stringAttr(otelKey, value))
 		}
@@ -704,7 +792,8 @@ func (e *otlpExporter) hostSpan(out *otlpSpan, record SpanRecord, attrs map[stri
 		stringAttr("tool_call.id", toolCallID),
 		stringAttr("gen_ai.tool.call.id", toolCallID),
 	)
-	for key, otelKey := range map[string]string{"invocation_id": "whip.invocation_id", "operation_id": "whip.operation_id"} {
+	for _, pair := range [][2]string{{"invocation_id", "whip.invocation_id"}, {"operation_id", "whip.operation_id"}} {
+		key, otelKey := pair[0], pair[1]
 		if value, ok := attrs[key].(string); ok {
 			out.Attributes = append(out.Attributes, stringAttr(otelKey, value))
 		}

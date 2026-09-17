@@ -6,6 +6,7 @@ import { Badge, Button, CodeBlock, IconButton, Select, Tooltip } from '@whip/ui'
 import { ChevronDown, ChevronRight, Info, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from './error-feedback';
+import { ContentRead } from './details/shared';
 import { styles, TREE_WIDTH } from './trace-view.stylex';
 import {
   buildSpanTree, fitView, flattenRows, formatDuration, formatTick, isSpanInFlight, niceTicks, panBy, rollup, ROW_HEIGHT,
@@ -17,6 +18,7 @@ const ALL_TRACES = 'all';
 const traceHelp = 'Spans are recorded by the daemon with nanosecond clocks as the work happens. Open spans grow against the daemon’s clock; timing is never reconstructed from replay.';
 const usd = (micros: number) => `$${(micros / 1e6).toFixed(micros >= 1_000_000 ? 2 : 4)}`;
 const tokens = (value: number) => value >= 1_000_000 ? `${(value / 1e6).toFixed(1)}M` : value >= 10_000 ? `${Math.round(value / 1000)}K` : value >= 1_000 ? `${(value / 1000).toFixed(1)}K` : String(value);
+const kb = (bytes: number) => bytes >= 1024 ? `${(bytes / 1024).toFixed(bytes >= 10_240 ? 0 : 1)} KB` : `${bytes} B`;
 const statusTone = (span: TraceSpan) => span.status === 'error' ? 'error' : span.status === 'cancelled' || span.status === 'interrupted' ? 'warning' : span.status === 'running' ? 'info' : 'neutral';
 const text = (value: unknown): string => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 
@@ -169,7 +171,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
         <strong>{loading ? 'Loading trace…' : !evidence?.loaded && !connected ? 'Trace unavailable' : 'No spans yet'}</strong>
         <span>{loading ? 'Reading the session’s recorded spans.' : !evidence?.loaded && !connected ? 'Reconnect to read the recorded spans.' : 'Spans appear the moment a turn starts on this host.'}</span>
       </div>}
-      {panes.details && spans.length > 0 && <SpanDetails node={selected} domainStartMs={domain.startMs} now={now} agents={state.root?.agents} />}
+      {panes.details && spans.length > 0 && <SpanDetails view={view} node={selected} domainStartMs={domain.startMs} now={now} agents={state.root?.agents} />}
     </div>
     {spans.length > 0 && panes.timeline && <p {...stylex.props(styles.hint)}>Click a row to inspect it · ⌘ or Ctrl + scroll to zoom · horizontal scroll to pan · double-click a span to zoom to it</p>}
   </div>;
@@ -179,7 +181,7 @@ function Total({ label, value }: { label: string; value: string }) {
   return <span {...stylex.props(styles.total)}><span {...stylex.props(styles.totalLabel)}>{label}</span><span {...stylex.props(styles.totalValue)}>{value}</span></span>;
 }
 
-function SpanDetails({ node, domainStartMs, now, agents }: { node?: TraceNode; domainStartMs: number; now: number; agents?: DeepReadonly<RootSnapshot['agents']> }) {
+function SpanDetails({ view, node, domainStartMs, now, agents }: { view: SessionView; node?: TraceNode; domainStartMs: number; now: number; agents?: DeepReadonly<RootSnapshot['agents']> }) {
   const [raw, setRaw] = useState(false);
   if (!node) return <aside aria-label="Span details" {...stylex.props(styles.details)}><span {...stylex.props(styles.sectionLabel)}>Details</span><p {...stylex.props(styles.notice)}>Select a span to inspect it.</p></aside>;
   const span = node.span;
@@ -191,6 +193,10 @@ function SpanDetails({ node, domainStartMs, now, agents }: { node?: TraceNode; d
   const promptTokens = group ? sums!.promptTokens : span.kind === 'llm' ? Number(attrs.prompt_tokens ?? 0) : null;
   const completionTokens = group ? sums!.completionTokens : span.kind === 'llm' ? Number(attrs.completion_tokens ?? 0) : null;
   const agentName = agents?.find(agent => agent.id === span.agentId)?.name || text(attrs.agent_name) || span.agentId;
+  // Bodies the daemon interned instead of excerpting: the prompt the call
+  // sent and the summary a compaction produced, read on demand by reference.
+  const references = ([['System prompt', 'system_prompt_ref', 'system_prompt_bytes'], ['Ephemeral notice', 'ephemeral_ref', 'ephemeral_bytes'], ['Compaction summary', 'output_ref', 'output_bytes']] as const)
+    .flatMap(([label, refKey, bytesKey]) => text(attrs[refKey]) ? [{ label, reference: text(attrs[refKey]), bytes: Number(attrs[bytesKey] ?? 0) }] : []);
   const stats: [string, string][] = [
     ['duration', open ? `running · ${formatDuration(now - span.startMs)}` : formatDuration(spanEndMs(span) - span.startMs)],
     ['start', `+${formatDuration(span.startMs - domainStartMs)}`],
@@ -199,6 +205,8 @@ function SpanDetails({ node, domainStartMs, now, agents }: { node?: TraceNode; d
     ['tokens in', promptTokens === null ? '—' : tokens(promptTokens)],
     ['tokens out', completionTokens === null ? '—' : tokens(completionTokens)],
     ...(span.kind === 'llm' ? [['model', text(attrs.model) || span.name] as [string, string]] : []),
+    ...references.map(({ label, bytes }) => [label.toLowerCase(), bytes > 0 ? kb(bytes) : '—'] as [string, string]),
+    ...(text(attrs.raw_cutoff) ? [['folded through seq', text(attrs.raw_cutoff)] as [string, string]] : []),
     ...(group ? [['children', String(sums!.descendants)] as [string, string]] : []),
     ['agent', agentName],
     ['status', span.status],
@@ -223,7 +231,10 @@ function SpanDetails({ node, domainStartMs, now, agents }: { node?: TraceNode; d
         {bodies.map(([label, value]) => <div key={label} {...stylex.props(styles.section)}>
           <CodeBlock code={value} label={label} xstyle={styles.code} />
         </div>)}
-        {!bodies.length && <p {...stylex.props(styles.notice)}>This span recorded no excerpt. Export the session for full bodies.</p>}
+        {references.map(({ label, reference }) => <div key={label} {...stylex.props(styles.section)}>
+          <ContentRead view={view} referenceId={reference} label={label} />
+        </div>)}
+        {!bodies.length && !references.length && <p {...stylex.props(styles.notice)}>This span recorded no excerpt. Export the session for full bodies.</p>}
       </>}
   </aside>;
 }

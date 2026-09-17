@@ -312,7 +312,7 @@ func TestChildResponseIsLocalAndMessageBodyStaysOutOfParentContext(t *testing.T)
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		switch {
 		case last.Role == "user" && strings.Contains(last.Content, "delegate now"):
 			streamToolCall(w, "spawn", `agents.spawn(name="worker", prompt="do work")`)
@@ -395,7 +395,7 @@ func TestQueuedMailWakesIdleRootWithoutHumanInput(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		switch {
 		case last.Role == "user" && strings.Contains(last.Content, "delegate now"):
 			streamToolCall(w, "spawn", `agents.spawn(name="worker", prompt="do work")`)
@@ -544,7 +544,7 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 		}
 		// Count only the child's prompt turn; the root's mailbox turn for the
 		// child's completion notice is a separate, expected call.
-		if strings.Contains(input.Messages[len(input.Messages)-1].TextContent(), "run once after restart") {
+		if strings.Contains(lastTranscriptMessage(input.Messages).TextContent(), "run once after restart") {
 			calls.Add(1)
 		}
 		streamText(w, "restored queued prompt")
@@ -647,7 +647,7 @@ func TestConcurrentChildTurnPressureKeepsPromptQueued(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		last := input.Messages[len(input.Messages)-1].TextContent()
+		last := lastTranscriptMessage(input.Messages).TextContent()
 		switch {
 		case strings.Contains(last, "first child prompt"):
 			firstOnce.Do(func() { close(firstStarted) })
@@ -759,7 +759,7 @@ func TestSuspendedKernelRestoresScratchWithEphemeralNotice(t *testing.T) {
 		mu.Unlock()
 		// The ephemeral restart notice is appended after the user message, so
 		// key on the last message that is not a system notice.
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}
@@ -871,7 +871,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}
@@ -1001,7 +1001,7 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		if last.Role == "user" && strings.Contains(last.Content, "trace") {
 			streamToolCall(w, "trace", "print('working')\nfor i in range(3):\n    files.list(path=\".\")\nprint('done')")
 			return
@@ -1074,7 +1074,7 @@ func TestBackgroundShellJobOutlivesTheCellAndTurn(t *testing.T) {
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}

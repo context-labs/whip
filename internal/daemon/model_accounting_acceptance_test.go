@@ -125,6 +125,12 @@ func modelAccountingToolReply(w http.ResponseWriter, id, code, text string, usag
 func modelAccountingRequest(t *testing.T, w http.ResponseWriter, r *http.Request) (llm.Request, bool) {
 	t.Helper()
 	var request llm.Request
+	// Local port scanners probe new listeners with HEAD; only a model call
+	// carries a body, so anything else is answered and ignored.
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusOK)
+		return request, false
+	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		t.Error(err)
 		http.Error(w, "invalid fixture request", http.StatusBadRequest)
@@ -167,7 +173,7 @@ func TestModelAccountingAcceptanceTurnsAndHelpers(t *testing.T) {
 			return
 		}
 		usage := modelAccountingUsage()
-		switch request.Messages[len(request.Messages)-1].Content {
+		switch lastTranscriptMessage(request.Messages).Content {
 		case "free helper":
 			usage["cost"] = 0
 		case "batch reported":

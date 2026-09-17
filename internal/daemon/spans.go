@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -241,22 +242,137 @@ func (s *Session) modelCallSpanStart(agentID, callID string, attempt llm.ModelAt
 	if !ok {
 		return
 	}
-	name := attempt.Model
-	if attempt.Provider != "" {
-		name = attempt.Provider + "/" + attempt.Model
+	attrs := map[string]any{
+		"model": attempt.Model, "provider": attempt.Provider, "purpose": attempt.Purpose,
+		"model_call_id": callID, "logical_id": attempt.LogicalID, "attempt": attempt.Number, "input_tokens_estimate": attempt.InputTokens,
 	}
-	if attempt.Purpose == "compact" {
-		name = "compaction"
+	if runtime, has := s.runtime.(interface {
+		PromptAttrs(string, string) map[string]any
+	}); has {
+		maps.Copy(attrs, runtime.PromptAttrs(agentID, attempt.Purpose))
 	}
 	s.recordSpanStart(sessionstore.SpanRecord{
 		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
 		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
-		Kind: sessionstore.SpanKindLLM, Name: name, Status: sessionstore.SpanStatusRunning, StartNS: startedAt.UnixNano(),
-		Attrs: sessionstore.SpanAttrs(map[string]any{
-			"model": attempt.Model, "provider": attempt.Provider, "purpose": attempt.Purpose,
-			"model_call_id": callID, "logical_id": attempt.LogicalID, "attempt": attempt.Number, "input_tokens_estimate": attempt.InputTokens,
-		}),
+		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: sessionstore.SpanStatusRunning, StartNS: startedAt.UnixNano(),
+		Attrs: sessionstore.SpanAttrs(attrs),
 	})
+}
+
+// modelCallSpanName labels an attempt by its route, and a fold's summary call
+// "compaction" so it stands out in the tree.
+func modelCallSpanName(attempt llm.ModelAttempt) string {
+	if attempt.Purpose == "compaction" {
+		return "compaction"
+	}
+	if attempt.Provider != "" {
+		return attempt.Provider + "/" + attempt.Model
+	}
+	return attempt.Model
+}
+
+// PromptAttrs names the bodies an agent's request sends but never writes to
+// the transcript, as pointers for its model call span. Which bodies depends on
+// the call: turn and final-answer calls carry the system prompt and the
+// ephemeral notice, the compaction call carries the system prompt alone, and
+// helper calls carry neither.
+func (runtime *RecursiveRuntime) PromptAttrs(agentID, purpose string) map[string]any {
+	runtime.mu.RLock()
+	node := runtime.agents[agentID]
+	runtime.mu.RUnlock()
+	if node == nil {
+		return nil
+	}
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	attrs := map[string]any{}
+	switch purpose {
+	case "turn", "final":
+		attrs["ephemeral_ref"], attrs["ephemeral_bytes"] = node.turn.EphemeralRef, node.turn.EphemeralBytes
+		fallthrough
+	case "compaction":
+		attrs["system_prompt_ref"], attrs["system_prompt_bytes"] = node.turn.PromptRef, node.turn.PromptBytes
+	}
+	return attrs
+}
+
+// recordEphemeral interns the ephemeral text the agent is about to send, so
+// the request's span can point at it. The agent composes it on the turn
+// goroutine right before each request, ahead of admission, so the reference
+// the span copies is the one this request carried. Unchanged text is not
+// stored again; a failed store leaves the span without a pointer rather than
+// with a stale one.
+func (node *AgentSession) recordEphemeral(ctx context.Context, text string) {
+	if node.root == nil {
+		return
+	}
+	node.mu.Lock()
+	unchanged := text == node.turn.EphemeralText
+	node.mu.Unlock()
+	if unchanged {
+		return
+	}
+	var ref string
+	var size int
+	if text != "" {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spanWriteTimeout)
+		defer cancel()
+		if value, err := node.root.store.InternContent(ctx, node.root.ID(), "prompt.ephemeral", []byte(text)); err != nil {
+			config.LogEvent("trace", fmt.Sprintf("ephemeral notice of %s: %v", node.id, err))
+		} else {
+			ref, size = value.ReferenceID, int(value.Size)
+		}
+	}
+	node.mu.Lock()
+	node.turn.EphemeralText, node.turn.EphemeralRef, node.turn.EphemeralBytes = text, ref, size
+	node.mu.Unlock()
+}
+
+// internPrompt stores the system prompt this turn composed, once, so the
+// turn's model call spans can point at it. Like span writes, a failure is
+// logged and the turn goes on without the pointer.
+func (node *AgentSession) internPrompt(ctx context.Context) {
+	if node.root == nil {
+		return
+	}
+	node.mu.Lock()
+	prompt, turnID := node.prompt.Prompt, node.turn.TurnID
+	node.mu.Unlock()
+	if prompt == "" || turnID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spanWriteTimeout)
+	defer cancel()
+	value, err := node.root.store.InternContent(ctx, node.root.ID(), "prompt.system", []byte(prompt))
+	if err != nil {
+		config.LogEvent("trace", fmt.Sprintf("system prompt of %s: %v", node.id, err))
+		return
+	}
+	node.mu.Lock()
+	node.turn.PromptRef, node.turn.PromptBytes = value.ReferenceID, int(value.Size)
+	node.mu.Unlock()
+}
+
+// recordCompactionOutput attaches a fold's summary to the span of the call
+// that produced it. That call settled inside runAttempt before compact()
+// returned, so it is the agent's most recently settled call, and its span has
+// already ended; hence the patch. The compactions table keeps the summary for
+// recovery exactly as before.
+func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, summary string, rawCutoff int) {
+	if node.root == nil || callID == "" || summary == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spanWriteTimeout)
+	defer cancel()
+	value, err := node.root.store.InternContent(ctx, node.root.ID(), "prompt.summary", []byte(summary))
+	if err == nil {
+		err = node.root.store.PatchSpanAttrs(ctx, node.root.ID(), sessionstore.ModelCallSpanID(node.root.ID(), callID), map[string]any{
+			"output_ref": value.ReferenceID, "output_bytes": int(value.Size), "raw_cutoff": rawCutoff,
+		})
+	}
+	if err != nil {
+		config.LogEvent("trace", fmt.Sprintf("compaction output of call %s: %v", callID, err))
+	}
 }
 
 // modelCallSpanEnd closes an attempt's span with what it settled to.
@@ -285,14 +401,10 @@ func (s *Session) modelCallSpanEnd(agentID, callID string, attempt llm.ModelAtte
 	if settled.Status == "interrupted" {
 		status = sessionstore.SpanStatusInterrupted
 	}
-	name := attempt.Model
-	if attempt.Provider != "" {
-		name = attempt.Provider + "/" + attempt.Model
-	}
 	s.recordSpanEnd(sessionstore.SpanRecord{
 		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
 		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
-		Kind: sessionstore.SpanKindLLM, Name: name, Status: status, EndNS: time.Now().UnixNano(), Attrs: sessionstore.SpanAttrs(attrs),
+		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: status, EndNS: time.Now().UnixNano(), Attrs: sessionstore.SpanAttrs(attrs),
 	})
 	if runtime, has := s.runtime.(interface{ NoteModelCall(string, string) }); has {
 		runtime.NoteModelCall(agentID, callID)

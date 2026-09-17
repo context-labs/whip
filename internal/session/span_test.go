@@ -363,3 +363,90 @@ func TestSpanHelpersFilterTracesAndSurfaceStoreErrors(t *testing.T) {
 		t.Fatal("turn lookup on a closed store must fail")
 	}
 }
+
+// Interned bodies are shared by digest within a root, so a prompt repeated
+// over many calls costs one reference; a span learns a late fact (the summary
+// a compaction produced) through a patch that keeps its settlement and moves
+// its cursor so live clients see the merge.
+func TestInternContentReusesReferencesAndPatchesSettledSpans(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	ctx := context.Background()
+	first, err := store.InternContent(ctx, root, "prompt.system", []byte("the prompt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.InternContent(ctx, root, "prompt.system", []byte("the prompt"))
+	if err != nil || again.ReferenceID != first.ReferenceID || again.Digest != first.Digest || again.Size != 10 {
+		t.Fatalf("same body and source in one root must reuse the reference: %+v then %+v (%v)", first, again, err)
+	}
+	other, err := store.InternContent(ctx, root, "prompt.summary", []byte("the prompt"))
+	if err != nil || other.ReferenceID == first.ReferenceID {
+		t.Fatalf("a different source keeps its own reference: %+v (%v)", other, err)
+	}
+	if body, _, err := store.ReadContent(ctx, first.ReferenceID, root, agent, 0, MaxContentRead); err != nil || string(body) != "the prompt" {
+		t.Fatalf("interned body must read back through the root grant: %q %v", body, err)
+	}
+	if _, err := store.InternContent(ctx, root, "prompt.system", nil); err == nil {
+		t.Fatal("an empty body must be rejected")
+	}
+	otherRoot, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := store.InternContent(ctx, otherRoot, "prompt.system", []byte("the prompt"))
+	if err != nil || elsewhere.ReferenceID == first.ReferenceID || elsewhere.Digest != first.Digest {
+		t.Fatalf("another root shares the blob but not the reference: %+v (%v)", elsewhere, err)
+	}
+
+	turnID, _ := startRootTurnForTest(t, store, root, agent, "fold")
+	span := SpanRecord{
+		ID: ModelCallSpanID(root, "k1"), TraceID: TraceIDForTurn(turnID), ParentID: TurnSpanID(root, agent, turnID), RootID: root, AgentID: agent, TurnID: turnID,
+		Kind: SpanKindLLM, Name: "compaction", StartNS: time.Now().UnixNano(), Attrs: SpanAttrs(map[string]any{"purpose": "compaction", "model_call_id": "k1"}),
+	}
+	if err := store.RecordSpanStart(ctx, span); err != nil {
+		t.Fatal(err)
+	}
+	span.EndNS, span.Attrs = span.StartNS+5, SpanAttrs(map[string]any{"prompt_tokens": 9})
+	if err := store.RecordSpanEnd(ctx, span); err != nil {
+		t.Fatal(err)
+	}
+	read := func() SpanRecord {
+		t.Helper()
+		spans, err := store.SpansForTrace(ctx, root, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range spans {
+			if record.ID == span.ID {
+				return record
+			}
+		}
+		t.Fatal("span missing")
+		return SpanRecord{}
+	}
+	settled := read()
+	if err := store.PatchSpanAttrs(ctx, root, span.ID, map[string]any{"output_ref": other.ReferenceID, "raw_cutoff": 7}); err != nil {
+		t.Fatal(err)
+	}
+	patched := read()
+	attrs := map[string]any{}
+	if err := json.Unmarshal(patched.Attrs, &attrs); err != nil {
+		t.Fatal(err)
+	}
+	if attrs["purpose"] != "compaction" || attrs["prompt_tokens"] != 9.0 || attrs["output_ref"] != other.ReferenceID || attrs["raw_cutoff"] != 7.0 {
+		t.Fatalf("patch must merge over start and settlement attrs: %v", attrs)
+	}
+	if patched.EndNS != settled.EndNS || patched.Status != settled.Status || patched.UpdatedSeq <= settled.UpdatedSeq {
+		t.Fatalf("patch must keep the settlement and move the cursor: before %+v after %+v", settled, patched)
+	}
+	page, err := store.PageSpans(ctx, root, "", settled.UpdatedSeq, 10, false)
+	if err != nil || len(page.Spans) != 1 || page.Spans[0].ID != span.ID {
+		t.Fatalf("a client paging after the settlement must see the patched span: %+v %v", page, err)
+	}
+	if err := store.PatchSpanAttrs(ctx, root, ModelCallSpanID(root, "missing"), map[string]any{"x": 1}); err == nil {
+		t.Fatal("patching an unknown span must fail")
+	}
+	if err := store.PatchSpanAttrs(ctx, "", span.ID, map[string]any{"x": 1}); err == nil {
+		t.Fatal("patching without a root must fail")
+	}
+}

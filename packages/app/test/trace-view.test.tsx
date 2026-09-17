@@ -42,8 +42,11 @@ function fixture(trace: Partial<TraceEvidence> | undefined = { loaded: true }) {
     root: { root_id: 'root', history_revision: '1', agents: [{ id: 'root', name: 'root' }], presentation: [], agent_presentations: {}, active_turns: {} },
     history: {}, collections: {}, retainedBytes: 0, truncated: false, unavailable: false, trace: evidence,
   } as unknown as SessionViewSnapshot };
+  // ContentRead reads the connection through the session's client; a stable
+  // snapshot keeps useSyncExternalStore quiet.
+  const connection = { state: 'connected' };
   const view = {
-    session: { rootId: 'root' },
+    session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection } },
     getSnapshot: () => holder.state,
     subscribe: () => () => {},
     loadTrace: vi.fn(async () => {}),
@@ -94,6 +97,26 @@ it('collapses a subtree, selects a span for the detail pane, and rolls cost up o
   expect(screen.getByRole('complementary', { name: 'Span details' }).textContent).toContain('41ms');
   fireEvent.click(screen.getByRole('button', { name: 'Raw' }));
   expect(screen.getByRole('region', { name: 'Raw span' }).textContent).toContain('"operation_id": "op-1"');
+});
+
+it('names a fold "compaction" and offers the interned prompt and summary for reading', async () => {
+  const fold = span({ id: 'fold', parentId: 'turn', kind: 'llm', name: 'compaction', startMs: base + 50, endMs: base + 90, attrs: { model: 'compact-model', purpose: 'compaction', output_ref: 'ref-summary', output_bytes: 2048, raw_cutoff: 12 } });
+  const call = span({ id: 'call', parentId: 'turn', kind: 'llm', name: 'inference-net/kimi-k3-fast', startMs: base + 100, endMs: base + 2_100, attrs: { model: 'kimi-k3-fast', purpose: 'turn', system_prompt_ref: 'ref-prompt', system_prompt_bytes: 35_328, ephemeral_ref: 'ref-notice', ephemeral_bytes: 300 } });
+  const f = fixture({ spans: { turn: spans[0]!, fold, call } });
+  render(f.app());
+  const items = await screen.findAllByRole('treeitem');
+  expect(items.map(item => item.getAttribute('aria-label'))).toEqual(['root · 10.0s', 'compaction · 40ms', 'kimi-k3-fast · 2.0s']);
+  fireEvent.click(screen.getByRole('treeitem', { name: 'kimi-k3-fast · 2.0s' }));
+  expect(screen.getByRole('complementary', { name: 'Span details' }).textContent).toContain('35 KB');
+  expect(screen.getByRole('complementary', { name: 'Span details' }).textContent).toContain('300 B');
+  expect(screen.getByRole('button', { name: 'Read system prompt' })).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Read ephemeral notice' })).toBeDefined();
+  fireEvent.click(screen.getByRole('treeitem', { name: 'compaction · 40ms' }));
+  const details = screen.getByRole('complementary', { name: 'Span details' }).textContent!;
+  expect(details).toContain('2.0 KB');
+  expect(details).toContain('folded through seq');
+  expect(screen.getByRole('button', { name: 'Read compaction summary' })).toBeDefined();
+  expect(screen.queryByText(/recorded no excerpt/)).toBeNull();
 });
 
 it('explains loading, disconnected, truncated and failed evidence without inventing spans', async () => {

@@ -122,7 +122,17 @@ type turnJournal struct {
 	TraceID string
 	// LastModelCallID is the attempt that most recently settled, so the tool
 	// calls it emitted can name it.
-	LastModelCallID   string
+	LastModelCallID string
+	// PromptRef and PromptBytes point at the system prompt this turn ran
+	// under, so every model call span of the turn can name what it sent.
+	// EphemeralRef and EphemeralBytes point at the ephemeral text the next
+	// request carries; EphemeralText is that text, so an unchanged notice is
+	// not interned again.
+	PromptRef         string
+	PromptBytes       int
+	EphemeralText     string
+	EphemeralRef      string
+	EphemeralBytes    int
 	BaseSeq           int
 	HookNotices       []string        // ephemeral lines a hook raised this turn
 	Output            json.RawMessage // the final message validated against the definition's output contract

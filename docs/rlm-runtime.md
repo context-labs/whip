@@ -436,6 +436,17 @@ ephemeral system text before the model's next request, bounded to eight
 notices and 2 KiB per turn, so the model knows what ran without any operation
 changing its result shape.
 
+The ephemeral system text (the turn's budget line, a worker-restart notice,
+the `turn_start` contribution, hook notices) rides as the last message of every
+request, not beside the system prompt. Provider prefix caches match a request
+from the front, so a change in that text at index 1 would invalidate the
+cached history behind it; at the tail it costs only its own tokens. For the
+same reason the budget line names which budgets are finite and never carries
+remaining amounts, which would change every turn; `agents.inspect` has the
+numbers. Each request's ephemeral text is interned and referenced from the
+call's trace span (`ephemeral_ref`), so a trace can show what the model was
+told without the text ever entering history.
+
 ## Output contracts
 
 A definition may state what a turn returns. `output` is an object JSON Schema;

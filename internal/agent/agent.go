@@ -27,6 +27,10 @@ type Events struct {
 	// appended to EphemeralSystem, so notices raised mid-turn (a hook rewrote or
 	// denied an operation) reach the model on its next request.
 	EphemeralNotices func() string
+	// OnEphemeral, when set, receives the composed ephemeral text right before
+	// each provider request that carries it, so the daemon can record what the
+	// request sent; the text itself never enters history.
+	OnEphemeral func(text string)
 	// CheckFinal, when set, inspects the model's final message before the turn
 	// returns it. Returning retry runs one more round (the caller queues the
 	// correction as an ephemeral notice); returning an error fails the turn.
@@ -660,18 +664,23 @@ func (ev Events) ephemeral() string {
 			text = strings.TrimSpace(text + "\n" + notices)
 		}
 	}
+	if ev.OnEphemeral != nil {
+		ev.OnEphemeral(text)
+	}
 	return text
 }
 
+// withEphemeralSystem appends the turn's ephemeral text as the last message of
+// the request rather than beside the system prompt. Provider prefix caches
+// match a request from the front, so a notice that changes (a hook denial
+// mid-turn, a new turn's budget line) would invalidate the cached history
+// behind it at index 1; at the tail it costs only its own tokens. The model
+// reads it as the newest message.
 func withEphemeralSystem(messages []llm.Message, content string) []llm.Message {
 	if content == "" {
 		return messages
 	}
-	position := 0
-	if len(messages) > 0 && messages[0].Role == "system" {
-		position = 1
-	}
-	return slices.Insert(slices.Clone(messages), position, llm.Message{Role: "system", Content: content})
+	return append(slices.Clone(messages), llm.Message{Role: "system", Content: content})
 }
 
 // CallAccounting snapshots the route used by an ordinary model request.

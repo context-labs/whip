@@ -326,6 +326,10 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 // a persisted system prompt when present. "Raw" matters: a stored row that is
 // itself a summary is a derived row saved after a compaction, so folding it
 // again would nest summaries. No event means the log loads verbatim.
+// SummaryPrefix opens the system message that carries a compaction summary,
+// as the agent installs it after a fold and as reload rebuilds it here.
+const SummaryPrefix = "Summary of the conversation so far:\n\n"
+
 func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string, msgs []llm.Message) ([]llm.Message, error) {
 	var cutoff int
 	var summary string
@@ -362,7 +366,7 @@ func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string,
 		out = append(out, msgs[0])
 		start = 1
 	}
-	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary, RawSequence: msgs[cutoff-1].RawSequence})
+	out = append(out, llm.Message{Role: "system", Content: SummaryPrefix + summary, RawSequence: msgs[cutoff-1].RawSequence})
 	// keep the last derived summary before the fold (a second compaction's
 	// saved row — it summarizes history the new summary doesn't reach)
 	var prior []llm.Message

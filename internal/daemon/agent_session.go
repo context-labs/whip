@@ -91,7 +91,8 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
 	session.turn.SpanID, session.turn.TraceID, session.turn.LastModelCallID = spanID, traceID, ""
 	session.mu.Unlock()
-	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices}
+	session.internPrompt(ctx)
+	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices, OnEphemeral: func(text string) { session.recordEphemeral(ctx, text) }}
 	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
 		check, err := session.outputContract(contract)
 		if err != nil {
@@ -182,7 +183,9 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		session.turn.Compactions = append(session.turn.Compactions, turnCompaction{
 			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff,
 		})
+		callID := session.turn.LastModelCallID
 		session.mu.Unlock()
+		session.recordCompactionOutput(ctx, callID, summary, rawCutoff)
 	}
 	var output string
 	if len(parts) > 0 {
@@ -606,20 +609,26 @@ func (session *AgentSession) modelBudgetNotice(ctx context.Context) (string, err
 	if err != nil {
 		return "", err
 	}
-	var remaining []string
+	// The notice rides on every request of every turn, so its bytes must not
+	// move between turns: exact remaining amounts would change each turn and
+	// break the provider's prefix cache. It names which budgets are finite;
+	// agents.inspect has the numbers when the model needs them.
+	var finite []string
 	incomplete := false
 	for _, budget := range budgets {
 		switch budget.Kind {
 		case sessionstore.BudgetTokens, sessionstore.BudgetElapsed, sessionstore.BudgetCost:
-			amount := "unlimited"
 			if budget.Remaining != nil {
-				amount = sessionstore.FormatBudgetAmount(budget.Kind, *budget.Remaining)
+				finite = append(finite, string(budget.Kind))
 			}
-			remaining = append(remaining, string(budget.Kind)+": "+amount)
 			incomplete = incomplete || budget.Incomplete
 		}
 	}
-	notice := "Model budget remaining at turn start (shared with ancestors): " + strings.Join(remaining, ", ") + ". Concurrent requests each consume model-call time. Each request has a finite output ceiling and deadline. Provider-reported charges take precedence; missing charges use reported tokens and the call's saved prices. Unpriced calls require an unlimited monetary budget and remain marked unknown. Finite allowances may reduce output or stop further calls."
+	notice := "Model budgets (shared with ancestors): unlimited."
+	if len(finite) > 0 {
+		notice = "Model budgets (shared with ancestors): finite " + strings.Join(finite, ", ") + "; the rest unlimited. agents.inspect reports exact remaining amounts. Finite allowances may reduce output or stop further calls."
+	}
+	notice += " Concurrent requests each consume model-call time. Each request has a finite output ceiling and deadline. Provider-reported charges take precedence; missing charges use reported tokens and the call's saved prices. Unpriced calls require an unlimited monetary budget and remain marked unknown."
 	if incomplete {
 		notice += " Some previous usage is unconfirmed; reservation estimates are recorded separately from known usage."
 	}

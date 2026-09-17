@@ -114,22 +114,11 @@ func (s *Store) RootCollectionPage(ctx context.Context, rootID, collection strin
 				page.HasMore = true
 				break
 			}
-			value, err := s.prepareContentReference(RuntimePayload{Data: raw, MediaType: "application/json", Source: "root.collection." + collection}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+			value, err := s.internContentTx(ctx, tx, rootID, "root.collection."+collection, "application/json", raw)
 			if err != nil {
 				return page, err
 			}
-			var existing string
-			err = tx.QueryRowContext(ctx, `SELECT r.id FROM content_references r JOIN content_grants g ON g.reference_id=r.id WHERE r.digest=? AND r.source=? AND g.root_id=? AND g.agent_id='' AND g.scope='root' AND g.revoked_at='' LIMIT 1`, value.Digest, value.Source, rootID).Scan(&existing)
-			if err == nil {
-				value.ReferenceID = existing
-			} else if errors.Is(err, sql.ErrNoRows) {
-				if err := insertRuntimeValue(ctx, tx, value, now()); err != nil {
-					return page, err
-				}
-			} else {
-				return page, err
-			}
-			entry = CollectionEntry{Body: &value.RuntimeValue}
+			entry = CollectionEntry{Body: &value}
 		}
 		page.Items = append(page.Items, entry)
 		page.NextCursor = &CollectionCursor{RootID: rootID, Collection: collection, Revision: page.Revision, Offset: offset + int64(len(page.Items))}

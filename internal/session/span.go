@@ -204,6 +204,52 @@ func (s *Store) RecordSpanEnd(ctx context.Context, record SpanRecord) error {
 	return tx.Commit()
 }
 
+// PatchSpanAttrs merges attrs into a span that may already have ended, for a
+// fact the daemon learns after settlement: the summary a compaction call
+// produced arrives once the agent has installed it, after the call's own span
+// closed. The merged record is journaled again under its current lifecycle
+// kind; clients upsert by updated_seq, so the patch lands live.
+func (s *Store) PatchSpanAttrs(ctx context.Context, rootID, spanID string, attrs map[string]any) error {
+	if rootID == "" || spanID == "" {
+		return errors.New("span patch requires a root and a span")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	seq, err := nextEventSeqTx(ctx, tx, rootID)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE spans SET attrs=json_patch(attrs,?), updated_seq=? WHERE id=? AND root_id=?`,
+		string(SpanAttrs(attrs)), seq, spanID, rootID)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return err
+	} else if changed != 1 {
+		return errors.New("span patch found no such span in the root")
+	}
+	record, err := readSpanTx(ctx, tx, spanID)
+	if err != nil {
+		return err
+	}
+	kind := "span.ended"
+	if record.EndNS == 0 {
+		kind = "span.started"
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if err := s.insertEventWithSeqTx(ctx, tx, rootID, seq, kind, payload, "span event", now()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) startSpanTx(ctx context.Context, tx *sql.Tx, record SpanRecord, stamp string) error {
 	record.EndNS = 0
 	if record.Status == "" {

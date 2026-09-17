@@ -446,3 +446,128 @@ func TestExportOTLPAndSplitRejectBadInputs(t *testing.T) {
 		t.Fatal("export on a closed store must fail")
 	}
 }
+
+// The bodies the transcript never holds ride on spans as content references:
+// the system prompt appears on an agent's first call and again only when it
+// changes, a fold's summary is the compaction span's output and the first
+// message of the next call, and the raw cutoff tells a consumer which rows
+// left the model's context. Transcript rows still appear exactly once.
+func TestExportOTLPEmitsPromptsAndCompaction(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	intern := func(source, body string) string {
+		t.Helper()
+		value, err := store.InternContent(ctx, root, source, []byte(body))
+		must(err)
+		return value.ReferenceID
+	}
+	const summaryText = "The user wants the test fixed; README was read."
+	prompt := intern("prompt.system", "You are the root agent.")
+	notice := intern("prompt.ephemeral", "Model budgets: unlimited.")
+	summary := intern("prompt.summary", summaryText)
+	base := time.Now().UnixNano()
+	call := func(callID, turnID, purpose string, start int64, promptRef, noticeRef string) SpanRecord {
+		name := "inference-net/kimi-k3-fast"
+		if purpose == "compaction" {
+			name = "compaction"
+		}
+		attrs := map[string]any{"model": "kimi-k3-fast", "provider": "inference-net", "purpose": purpose, "model_call_id": callID, "logical_id": "L-" + callID, "attempt": 1, "system_prompt_ref": promptRef, "system_prompt_bytes": 23, "ephemeral_ref": noticeRef, "ephemeral_bytes": 25}
+		return SpanRecord{ID: ModelCallSpanID(root, callID), TraceID: TraceIDForTurn(turnID), ParentID: TurnSpanID(root, agent, turnID), RootID: root, AgentID: agent, TurnID: turnID, Kind: SpanKindLLM, Name: name, StartNS: start, Attrs: SpanAttrs(attrs)}
+	}
+	settle := func(record SpanRecord, end int64) {
+		t.Helper()
+		must(store.RecordSpanStart(ctx, record))
+		record.EndNS, record.Attrs = end, SpanAttrs(map[string]any{"prompt_tokens": 10, "completion_tokens": 2, "usage_source": "reported", "cost_source": "unknown"})
+		must(store.RecordSpanEnd(ctx, record))
+	}
+	turn1, seq1 := startRootTurnForTest(t, store, root, agent, "fix it")
+	settle(call("c1", turn1, "turn", base, prompt, notice), base+1)
+	settle(call("k1", turn1, "compaction", base+2, prompt, ""), base+3)
+	must(store.PatchSpanAttrs(ctx, root, ModelCallSpanID(root, "k1"), map[string]any{"output_ref": summary, "output_bytes": len(summaryText), "raw_cutoff": 2}))
+	settle(call("c2", turn1, "turn", base+4, prompt, notice), base+5)
+	insertTranscriptRow(t, store, root, 1, map[string]any{"role": "user", "content": "fix it"})
+	insertTranscriptRow(t, store, root, 2, map[string]any{"role": "assistant", "content": "Reading.", "call_id": "c1"})
+	insertTranscriptRow(t, store, root, 3, map[string]any{"role": "user", "content": "continue"})
+	insertTranscriptRow(t, store, root, 4, map[string]any{"role": "assistant", "content": "Done.", "call_id": "c2"})
+	must(store.CommitRootTurn(ctx, RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq1, Model: "kimi-k3-fast", Provider: "inference-net"}))
+	// The next turn composed a different prompt and a different notice, so
+	// its first call carries both again.
+	changed := intern("prompt.system", "You are the root agent. Skill: docs.")
+	capped := intern("prompt.ephemeral", "Model budgets: finite cost.")
+	turn2, _ := startRootTurnForTest(t, store, root, agent, "again")
+	settle(call("c3", turn2, "turn", base+6, changed, capped), base+7)
+	insertTranscriptRow(t, store, root, 5, map[string]any{"role": "user", "content": "again"})
+	insertTranscriptRow(t, store, root, 6, map[string]any{"role": "assistant", "content": "Again done.", "call_id": "c3"})
+
+	data, _, err := store.ExportOTLP(ctx, root, ExportOptions{})
+	must(err)
+	byID := map[string]exportedSpan{}
+	for _, span := range decodeExport(t, data) {
+		byID[span.SpanID] = span
+	}
+	expect := func(spanID string, want map[string]string) {
+		t.Helper()
+		for key, value := range want {
+			if got, _ := byID[spanID].attr(key); got != value {
+				t.Fatalf("%s %s=%q want %q", byID[spanID].Name, key, got, value)
+			}
+		}
+	}
+	absent := func(spanID, key string) {
+		t.Helper()
+		if _, has := byID[spanID].attr(key); has {
+			t.Fatalf("%s must not carry %s", byID[spanID].Name, key)
+		}
+	}
+	c1 := ModelCallSpanID(root, "c1")
+	expect(c1, map[string]string{
+		"llm.input_messages.0.message.role": "system", "llm.input_messages.0.message.content": "You are the root agent.",
+		"llm.input_messages.1.message.role": "user", "llm.input_messages.1.message.content": "fix it",
+		"llm.input_messages.2.message.role": "system", "llm.input_messages.2.message.content": "Model budgets: unlimited.",
+		"whip.input.through_seq": "1", "llm.output_messages.0.message.content": "Reading.",
+	})
+	absent(c1, "whip.compaction.raw_cutoff")
+	k1 := ModelCallSpanID(root, "k1")
+	if byID[k1].Name != "compaction" {
+		t.Fatalf("compaction span name=%q", byID[k1].Name)
+	}
+	expect(k1, map[string]string{
+		"whip.model_call.purpose": "compaction", "whip.compaction.raw_cutoff": "2",
+		"llm.output_messages.0.message.role": "assistant", "llm.output_messages.0.message.content": summaryText,
+	})
+	absent(k1, "llm.input_messages.0.message.role") // the same prompt as c1 and no notice: nothing new was sent
+	absent(k1, "whip.output.seq")
+	c2 := ModelCallSpanID(root, "c2")
+	expect(c2, map[string]string{
+		"llm.input_messages.0.message.role": "system", "llm.input_messages.0.message.content": SummaryPrefix + summaryText,
+		"llm.input_messages.1.message.role": "user", "llm.input_messages.1.message.content": "continue",
+		"whip.compaction.raw_cutoff": "2", "whip.input.through_seq": "3", "llm.output_messages.0.message.content": "Done.",
+	})
+	absent(c2, "llm.input_messages.2.message.role") // the notice is unchanged since c1, and the compaction call did not reset it
+	c3 := ModelCallSpanID(root, "c3")
+	expect(c3, map[string]string{
+		"llm.input_messages.0.message.role": "system", "llm.input_messages.0.message.content": "You are the root agent. Skill: docs.",
+		"llm.input_messages.1.message.content": "again",
+		"llm.input_messages.2.message.role":    "system", "llm.input_messages.2.message.content": "Model budgets: finite cost.",
+		"whip.input.through_seq": "5", "llm.output_messages.0.message.content": "Again done.",
+	})
+	absent(c3, "whip.compaction.raw_cutoff")
+	// Six transcript rows once each, two prompts, two notices, one summary in and one out.
+	slots := 0
+	for _, span := range byID {
+		for _, attr := range span.Attributes {
+			if strings.HasSuffix(attr.Key, ".message.role") && (strings.HasPrefix(attr.Key, "llm.input_messages.") || strings.HasPrefix(attr.Key, "llm.output_messages.")) {
+				slots++
+			}
+		}
+	}
+	if slots != 12 {
+		t.Fatalf("message slots=%d want 12", slots)
+	}
+}

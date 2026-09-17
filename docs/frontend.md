@@ -793,7 +793,9 @@ The tree and waterfall are two columns of one virtualized row list at 28 px, so
 they never scroll apart. The detail pane shows Overview (duration, start and end
 offsets, cost rolled up for agent spans, tokens, model, children, agent, status)
 and Raw (the span JSON), with the bounded input/output/error excerpts the daemon
-kept in span attrs; full bodies are in the export. Export from the CLI:
+kept in span attrs, and a Read action for the bodies it interned instead of
+excerpting: the system prompt and ephemeral notice each model call sent and the
+summary a compaction produced. Full bodies are in the export. Export from the CLI:
 `whip sessions export <root> [-o file] [-push URL]`.
 
 ## Data fetching and synchronization

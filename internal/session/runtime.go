@@ -1562,6 +1562,48 @@ func (s *Store) prepareContentReference(payload RuntimePayload, grant ContentGra
 	return preparedRuntimeValue{RuntimeValue: value, grant: grant}, nil
 }
 
+// InternContent stores one body and returns a root-scoped reference to it,
+// reusing the reference an earlier call minted for the same digest and source
+// in this root. Spans point at bodies the transcript never holds this way (the
+// system prompt a turn ran under, the summary a fold produced): a 35 KB prompt
+// repeated over a hundred calls costs one blob and one reference row.
+func (s *Store) InternContent(ctx context.Context, rootID, source string, data []byte) (RuntimeValue, error) {
+	if rootID == "" || source == "" || len(data) == 0 {
+		return RuntimeValue{}, errors.New("interned content requires a root, a source and a body")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	value, err := s.internContentTx(ctx, tx, rootID, source, "text/plain", data)
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	return value, tx.Commit()
+}
+
+func (s *Store) internContentTx(ctx context.Context, tx *sql.Tx, rootID, source, mediaType string, data []byte) (RuntimeValue, error) {
+	value, err := s.prepareContentReference(RuntimePayload{Data: data, MediaType: mediaType, Source: source}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	var existing string
+	err = tx.QueryRowContext(ctx, `SELECT r.id FROM content_references r JOIN content_grants g ON g.reference_id=r.id
+		WHERE r.digest=? AND r.source=? AND g.root_id=? AND g.agent_id='' AND g.scope='root' AND g.revoked_at='' LIMIT 1`, value.Digest, value.Source, rootID).Scan(&existing)
+	switch {
+	case err == nil:
+		value.ReferenceID = existing
+	case errors.Is(err, sql.ErrNoRows):
+		if err := insertRuntimeValue(ctx, tx, value, now()); err != nil {
+			return RuntimeValue{}, err
+		}
+	default:
+		return RuntimeValue{}, err
+	}
+	return value.RuntimeValue, nil
+}
+
 func insertRuntimeValue(ctx context.Context, tx runtimeValueWriter, value preparedRuntimeValue, stamp string) error {
 	if value.ReferenceID == "" {
 		return nil
