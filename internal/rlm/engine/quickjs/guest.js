@@ -7,8 +7,10 @@
   const isArray = Array.isArray, finite = Number.isFinite;
   const create = Object.create, freeze = Object.freeze, define = Object.defineProperty;
   const NativeError = Error, NativePromise = Promise, NativeSet = Set;
+  // quickjs-ng serves Error#stack through a prototype accessor; keep the native getter so located() never runs user code.
+  const stackDescriptor = descriptor(Error.prototype, 'stack'), nativeStack = stackDescriptor && typeof stackDescriptor.get === 'function' ? stackDescriptor.get : null;
   const call = Function.prototype.call.bind(Function.prototype.call);
-  const charCodeAt = String.prototype.charCodeAt, textSlice = String.prototype.slice, textIncludes = String.prototype.includes, same = Object.is;
+  const charCodeAt = String.prototype.charCodeAt, textSlice = String.prototype.slice, textIncludes = String.prototype.includes, textIndexOf = String.prototype.indexOf, same = Object.is;
   const setHas = Set.prototype.has, setAdd = Set.prototype.add, setDelete = Set.prototype.delete;
   const promiseReject = NativePromise.reject.bind(NativePromise);
   const nativeBigInt = BigInt, nativeNumber = Number, safeInteger = Number.isSafeInteger, integer = Number.isInteger;
@@ -134,6 +136,25 @@
     }
     return visit(input, 0);
   }
+  // located prefixes a thrown error's class (SyntaxError, TypeError, ...) and
+  // appends the line:column of the cell source that raised it, read from the
+  // innermost stack frame QuickJS records as "at <cell>:LINE:COL". A 60-line cell
+  // that fails with "unexpected end of string" is otherwise a guessing game
+  // for the model. Bootstrap faults keep their plain message: their class is
+  // Error and their frames are not <cell>.
+  function located(e, message) {
+    const n = descriptor(proto(e), 'name');
+    if (n && typeof n.value === 'string' && n.value && n.value !== 'Error') message = n.value + ': ' + message;
+    const own = descriptor(e, 'stack');
+    const stack = own ? own.value : nativeStack ? call(nativeStack, e) : undefined;
+    if (typeof stack !== 'string') return message;
+    const at = call(textIndexOf, stack, '<cell>:');
+    if (at < 0) return message;
+    let end = at + 7;
+    while (end < stack.length) { const ch = stack[end]; if (!((ch >= '0' && ch <= '9') || ch === ':')) break; end++; }
+    const position = call(textSlice, stack, at + 7, end);
+    return position ? message + ' at line ' + position : message;
+  }
   function remoteError(e) {
     let code = 'E_GUEST', message = 'guest rejected';
     try {
@@ -142,6 +163,7 @@
         const c = descriptor(e, 'code'), m = descriptor(e, 'message');
         if (c && typeof c.value === 'string') code = c.value;
         if (m && typeof m.value === 'string') message = m.value;
+        message = located(e, message);
       }
       const result = '{"code":' + quote(code) + ',"message":' + quote(message) + '}';
       if (utf8(result) <= limits.MaxOutputBytes) return result;
