@@ -60,6 +60,7 @@ Object.assign(metrics, {
     retainedChildren: 100,
     messagesPerChild: 100,
     largeToolBodyBytes: 1_400_000,
+    retainedTreeOperations: 128, markdownStreams: true,
   },
 });
 const origin = desktop ? host.origin : fixture.info.endpoint
@@ -118,7 +119,7 @@ await page.addInitScript(({ desktop, rootId }) => {
           }
           pending.push({
             sequence: event.seq,
-            text: event.payload.text,
+            text: event.payload.text.replaceAll("**", ""),
             start: performance.now(),
           });
         } catch {}
@@ -240,12 +241,13 @@ const frame = () =>
     assert(await page.evaluate(() => window.__performanceIPCFrames > 0), 'Desktop receipt probe saw no real frames');
   }
   await frame();
-  metrics.initialRenderedRows = await page.locator('[data-message-id]').count();
+  metrics.initialRenderedRows = await page.locator('[data-reading-id]').count();
   assert.ok(metrics.initialRenderedRows < 80);
   // Repeated real paging must retain the visible row at exactly the same offset.
   const anchors = [];
   for (let index = 0; index < 4; index++) {
     await viewport.evaluate((element) => {
+      element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 }));
       element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
     });
     // Stay away from automatic near-top loading and let measured rows settle.
@@ -258,13 +260,13 @@ const frame = () =>
       return performance.now() - stableSince >= 300;
     });
     const before = await viewport.evaluate((element) => {
-      const row = [...element.querySelectorAll('[data-message-id]')].find(
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(
         (item) =>
           item.getBoundingClientRect().bottom >
           element.getBoundingClientRect().top,
       );
       return {
-        id: row.dataset.messageId,
+        id: row.dataset.readingId,
         offset:
           row.getBoundingClientRect().top - element.getBoundingClientRect().top,
       };
@@ -282,8 +284,8 @@ const frame = () =>
     );
     await frame();
     const after = await viewport.evaluate((element, id) => {
-      const row = [...element.querySelectorAll('[data-message-id]')].find(
-        (item) => item.dataset.messageId === id,
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(
+        (item) => item.dataset.readingId === id,
       );
       return row
         ? row.getBoundingClientRect().top - element.getBoundingClientRect().top
@@ -303,12 +305,12 @@ const frame = () =>
   }
   metrics.prependMilliseconds = summarize(anchors);
   metrics.maximumVisibleRowsAfterPaging = await page
-    .locator('[data-message-id]')
+    .locator('[data-reading-id]')
     .count();
   assert.ok(metrics.maximumVisibleRowsAfterPaging < 80);
   // A virtualized row containing native text selection must remain mounted.
   const selection = await viewport.evaluate((element) => {
-    const row = [...element.querySelectorAll('[data-message-id]')].find(
+    const row = [...element.querySelectorAll('[data-reading-id]')].find(
       (item) =>
         item.getBoundingClientRect().bottom >
         element.getBoundingClientRect().top,
@@ -321,9 +323,10 @@ const frame = () =>
     getSelection().removeAllRanges();
     getSelection().addRange(range);
     window.__performanceSelectedRow = row;
-    return { id: row.dataset.messageId, text: getSelection().toString() };
+    return { id: row.dataset.readingId, text: getSelection().toString() };
   });
   await viewport.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1 }));
     element.scrollTop += 8000;
   });
   await frame();
@@ -343,13 +346,13 @@ const frame = () =>
   // Each recipient restores its own retained reading anchor after unmounting.
   const captureAnchor = () =>
     viewport.evaluate((element) => {
-      const row = [...element.querySelectorAll('[data-message-id]')].find(
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(
         (item) =>
           item.getBoundingClientRect().bottom >
           element.getBoundingClientRect().top,
       );
       return {
-        id: row.dataset.messageId,
+        id: row.dataset.readingId,
         offset:
           row.getBoundingClientRect().top - element.getBoundingClientRect().top,
       };
@@ -357,8 +360,8 @@ const frame = () =>
   const assertAnchor = async (anchor) => {
     await eventually(() =>
       viewport.evaluate((element, saved) => {
-        const row = [...element.querySelectorAll('[data-message-id]')].find(
-          (item) => item.dataset.messageId === saved.id,
+        const row = [...element.querySelectorAll('[data-reading-id]')].find(
+          (item) => item.dataset.readingId === saved.id,
         );
         return (
           !!row &&
@@ -388,6 +391,7 @@ const frame = () =>
   await ready();
   await frame();
   await viewport.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 }));
     element.scrollTop = 300;
   });
   await frame();
@@ -759,7 +763,7 @@ const frame = () =>
   metrics.browserRetained = {
     ...(await cdp.send('Runtime.getHeapUsage')),
     ...(await cdp.send('Memory.getDOMCounters')),
-    currentTranscriptRows: await page.locator('[data-message-id]').count(),
+    currentTranscriptRows: await page.locator('[data-reading-id]').count(),
   };
   if (desktop) {
     const traffic = await host.traffic();

@@ -1,0 +1,54 @@
+{
+  "date": "2026-09-17",
+  "rendererDigest": "0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166",
+  "webTests": 658,
+  "webSuites": 66,
+  "historyReadingBrowsers": [
+    "chromium",
+    "firefox"
+  ],
+  "browsers": {
+    "chromium": {
+      "pinnedGap": 0,
+      "detachedOffset": 8402,
+      "overlapOffset": 9448,
+      "interruptedOffset": 8793,
+      "checks": [
+        "streamed tall Markdown stays pinned",
+        "ordinary clicks retain following",
+        "12px upward wheel stays detached through growth",
+        "downward return resumes following",
+        "upward gesture overlapping a new block remains detached",
+        "Latest is interruptible"
+      ]
+    },
+    "firefox": {
+      "pinnedGap": 0,
+      "detachedOffset": 8345,
+      "overlapOffset": 9391,
+      "interruptedOffset": 9626,
+      "checks": [
+        "streamed tall Markdown stays pinned",
+        "ordinary clicks retain following",
+        "12px upward wheel stays detached through growth",
+        "downward return resumes following",
+        "upward gesture overlapping a new block remains detached",
+        "Latest is interruptible"
+      ]
+    },
+    "electron": {
+      "pinnedGap": 0,
+      "detachedOffset": 8325,
+      "overlapOffset": 9492,
+      "interruptedOffset": 8811.5,
+      "checks": [
+        "streamed tall Markdown stays pinned",
+        "ordinary clicks retain following",
+        "12px upward wheel stays detached through growth",
+        "downward return resumes following",
+        "upward gesture overlapping a new block remains detached",
+        "Latest is interruptible"
+      ]
+    }
+  }
+}

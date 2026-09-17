@@ -1,0 +1,50 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "ded7d860b43daa30e6558c701b48b085a4da5077e01ba5624176046a4ecf03cb",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "ded7d860b43daa30e6558c701b48b085a4da5077e01ba5624176046a4ecf03cb",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  }
+]

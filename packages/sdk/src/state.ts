@@ -281,7 +281,7 @@ export class SessionView {
           if (seq <= cursor) continue;
           gap ||= partial && seq !== cursor + 1n;
           const next = appendPresentation(rows, event, !gap);
-          if (next.at(-1) !== rows.at(-1)) gap = false;
+          if (!presentationTelemetry(event.kind) && next.at(-1) !== rows.at(-1)) gap = false;
           rows = next;
           cursor = seq;
         }
@@ -385,7 +385,7 @@ export class SessionView {
       const agentId = typeof payload?.agent_id === 'string' && payload.agent_id ? payload.agent_id : root.root_id;
       const rows = (agentId === root.root_id ? root.presentation : root.agent_presentations?.[agentId]) ?? [];
       const next = appendPresentation(rows, item, !this.presentationGaps.has(agentId));
-      if (next.at(-1) !== rows.at(-1)) this.presentationGaps.delete(agentId);
+      if (!presentationTelemetry(item.kind) && next.at(-1) !== rows.at(-1)) this.presentationGaps.delete(agentId);
       if (agentId !== root.root_id) root.agent_presentations = { ...root.agent_presentations, [agentId]: next };
       else root.presentation = next;
     } else if (event.kind.startsWith('session.') && event.kind.endsWith('.updated')) {
@@ -544,6 +544,10 @@ function mergeMessages(left: Message[], right: Message[]): Message[] {
   return [...new Map([...left, ...right].map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
 }
 
+function presentationTelemetry(kind: string): boolean {
+  return kind === 'stream.usage' || kind === 'stream.cell.host' || kind === 'stream.cell.host.started';
+}
+
 function appendPresentation(previous: Presentation[], item: Presentation, continuous = true): Presentation[] {
   if (item.kind === 'stream.accounting') return previous;
   const payload = (item.payload ?? {}) as StreamEvent & { truncated?: boolean; content?: unknown };
@@ -551,13 +555,18 @@ function appendPresentation(previous: Presentation[], item: Presentation, contin
   // them to the root or turn cumulative deltas into anonymous tool rows.
   if (payload.truncated && payload.content && !payload.agent_id) return previous;
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
-  const index = cumulative && payload.id ? previous.findIndex(row => {
+  let index = cumulative && payload.id ? previous.findIndex(row => {
     const value = (row.payload ?? {}) as StreamEvent;
-    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id;
+    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id && value.part_id === payload.part_id;
   }) : previous.length - 1;
+  // These events update existing evidence; they do not split a prose/thought
+  // part. Only join proven continuous text, never across notices or missing data.
+  if (continuous && payload.part_id && (item.kind === 'stream.text' || item.kind === 'stream.reasoning')) {
+    while (index >= 0 && presentationTelemetry(previous[index]!.kind)) index--;
+  }
   const last = previous[index];
   const lastPayload = (last?.payload ?? {}) as StreamEvent;
-  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id) {
+  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id && payload.part_id === lastPayload.part_id) {
     let next: Presentation | undefined;
     // Tool arguments/output are full values so far, even when calls interleave.
     if (cumulative && payload.id) next = { ...item, seq: last.seq };

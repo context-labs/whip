@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-16 America/Denver",
+  "rendererDigest": "513a1c1b58bbec2c834f51ea06a4c99d7cf16064abe9a0437945fddf4de4ecde",
+  "baselineCommit": "f02c6cf920a237574ae03df6a221a376e16a98a8",
+  "zeronReference": "92e80c85",
+  "go": "Affected llm, rlm, session and daemon tests and race suites passed; both QuickJS and Starlark host capture passed targeted race checks.",
+  "protocolSDK": "Generated contract drift/check and 334 SDK tests passed.",
+  "web": "Shared app typecheck, production build, 655 tests across 66 suites passed.",
+  "ui": "Typecheck and 14 tests passed.",
+  "desktop": "Typecheck, 90 core tests, 92 distribution tests and startup self-test passed; 9 optional SSH integration tests skipped because no fixture helper was configured.",
+  "mobile": "Typecheck and 160 tests across 25 suites passed.",
+  "browser": "Electron, Chromium, Firefox production renderer fixtures passed, with screenshots and videos.",
+  "reading": "Chromium and Firefox reading-anchor fixtures passed.",
+  "limitations": [
+    "Synthetic provider streams; no paid upstream provider execution.",
+    "Keyboard and accessibility-tree semantics tested; an actual VoiceOver/NVDA speech/navigation session was not performed.",
+    "Ad-hoc staged macOS app tested; signed release packaging/notarization not run.",
+    "Performance comparison shows higher streaming/input latency; see EVIDENCE.md."
+  ]
+}

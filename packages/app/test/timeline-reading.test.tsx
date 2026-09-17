@@ -21,6 +21,7 @@ vi.mock('@tanstack/react-virtual', () => {
     getItemKey(index: number): string | number;
   };
   const virtual = {
+    options: {} as Record<string, unknown>,
     // Row zero is the separately measured history control; this layout mock
     // leaves it at zero height and gives each message a fixed 100px height.
     getTotalSize: () => (options.count - 1) * 100,
@@ -44,8 +45,10 @@ vi.mock('@tanstack/react-virtual', () => {
   };
   return {
     defaultRangeExtractor: () => [],
+    elementScroll: vi.fn(),
     useVirtualizer: (value: typeof options) => {
       options = value;
+      virtual.options = value;
       return virtual;
     },
   };
@@ -130,6 +133,88 @@ function fixture() {
   );
   return { readingPositions, loadOlder, paging, report, app, runtime };
 }
+it('focusing a closed activity header does not open it; explicit disclosure still works', () => {
+  const f = fixture();
+  const group = { id: 'group', role: 'activity', text: '', cells: [], items: [{ id: 'thought', kind: 'reasoning', row: { id: 'thought', role: 'reasoning', text: 'Saved reasoning' } }], memberIds: ['thought'], memberSeqs: [] };
+  render(f.app(undefined, undefined, true, [group]));
+  const button = screen.getByRole('button', { name: 'Thought' });
+  act(() => button.focus());
+  expect(button.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(button);
+  expect(button.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.click(button);
+  act(() => vi.advanceTimersByTime(1000));
+  expect(button.getAttribute('aria-expanded')).toBe('false');
+});
+it('preserves an explicit disclosure when regrouping retains the old group as an alias', () => {
+  const f = fixture();
+  const group = { id: 'activity:old', role: 'activity', text: '', cells: [], items: [{ id: 'thought', kind: 'reasoning', row: { id: 'thought', role: 'reasoning', text: 'Saved reasoning' } }], memberIds: ['thought'], memberSeqs: [] };
+  const mounted = render(f.app(undefined, undefined, true, [group]));
+  fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+  const merged = { ...group, id: 'activity:merged', memberIds: ['thought', group.id] };
+  mounted.rerender(f.app(undefined, undefined, true, [merged]));
+  const header = mounted.container.querySelector('[data-activity-group] button')!;
+  expect(header.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.click(header);
+  act(() => vi.advanceTimersByTime(1000));
+  mounted.rerender(f.app(undefined, undefined, true, [merged]));
+  expect(screen.getByRole('button', { name: 'Thought' }).getAttribute('aria-expanded')).toBe('false');
+});
+it('ordinary clicks, Tab and Enter preserve following; an upward gesture stays detached near the bottom', () => {
+  const f = fixture();
+  const mounted = render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  const message = screen.getByText('Message 5');
+  fireEvent.pointerDown(message);
+  fireEvent.pointerUp(message);
+  act(() => vi.advanceTimersByTime(16));
+  fireEvent.keyDown(root, { key: 'Tab' });
+  fireEvent.keyDown(root, { key: 'Enter' });
+  expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+  fireEvent.wheel(root, { deltaY: -1 });
+  root.scrollTop = 399;
+  fireEvent.scroll(root);
+  expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
+  mounted.rerender(f.app(undefined, undefined, true, [...rows]));
+  expect(root.scrollTop).toBe(399);
+  expect(f.readingPositions.get('host:root:root')?.follow).toBe(false);
+  fireEvent.wheel(root, { deltaY: 1 });
+  root.scrollTop = 400;
+  fireEvent.scroll(root);
+  expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+});
+it('content movement cannot re-enable following or load history without a user scroll', () => {
+  const f = fixture();
+  render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  fireEvent.wheel(root, { deltaY: -100 });
+  root.scrollTop = 300;
+  fireEvent.scroll(root);
+  fireEvent(root, new Event('scrollend'));
+  root.scrollTop = 0;
+  fireEvent.scroll(root);
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  root.scrollTop = 400;
+  fireEvent.scroll(root);
+  expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
+  expect(f.readingPositions.get('host:root:root')?.follow).toBe(false);
+});
+it('keeps a pressed target stationary through growth, then resumes after the click', () => {
+  const f = fixture();
+  const mounted = render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  const message = screen.getByText('Message 5');
+  fireEvent.pointerDown(message);
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(800);
+  mounted.rerender(f.app(undefined, undefined, true, [...rows]));
+  expect(root.scrollTop).toBe(400);
+  fireEvent.pointerUp(message);
+  fireEvent.click(message);
+  expect(root.scrollTop).toBe(400);
+  act(() => vi.advanceTimersByTime(16));
+  expect(root.scrollTop).toBe(600);
+  expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+});
 it('waits for ready history and restores a saved anchor under StrictMode without following the tail', () => {
   const f = fixture();
   f.readingPositions.set('host:root:root', {
@@ -155,6 +240,7 @@ it('captures only visible identity and restores separate root and child position
   const mounted = render(f.app());
   const root = screen.getByRole('region', { name: 'Conversation' });
   root.scrollTop = 230;
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   expect(f.readingPositions.get('host:root:root')).toMatchObject({
     messageId: 'row-2',
@@ -164,6 +250,7 @@ it('captures only visible identity and restores separate root and child position
   mounted.rerender(f.app('host:root:child'));
   const child = screen.getByRole('region', { name: 'Conversation' });
   child.scrollTop = 110;
+  fireEvent.wheel(child, { deltaY: -100 });
   fireEvent.scroll(child);
   mounted.rerender(f.app());
   act(() => vi.advanceTimersByTime(160));
@@ -204,8 +291,9 @@ it('hands control back immediately when the reader scrolls during restoration', 
   });
   render(f.app());
   const root = screen.getByRole('region', { name: 'Conversation' });
-  fireEvent.wheel(root);
+  fireEvent.wheel(root, { deltaY: -100 });
   root.scrollTop = 220;
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   const calls = harness.scrolls.length;
   act(() => vi.advanceTimersByTime(160));
@@ -234,15 +322,19 @@ it('loads on a near-top scroll, shares a pending read, and permits another after
   const root = screen.getByRole('region', { name: 'Conversation' });
   expect(f.loadOlder).not.toHaveBeenCalled();
   root.scrollTop = 300;
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   expect(f.loadOlder).not.toHaveBeenCalled();
   root.scrollTop = 200;
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: /Load earlier messages$/ }).hasAttribute('disabled')).toBe(true);
   await act(async () => { resolve(); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   expect(f.loadOlder).toHaveBeenCalledTimes(2);
   await act(async () => {});
@@ -259,6 +351,7 @@ it.each(['hasMore', 'canLoadOlder', 'loadingHistory', 'historyReady', 'restoring
     render(f.app(undefined, undefined, condition !== 'historyReady'));
     const root = screen.getByRole('region', { name: 'Conversation' });
     root.scrollTop = 200;
+    if (condition !== 'restoring') fireEvent.wheel(root, { deltaY: -100 });
     fireEvent.scroll(root);
     expect(f.loadOlder).not.toHaveBeenCalled();
     if (condition !== 'restoring') {

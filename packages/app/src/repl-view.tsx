@@ -9,7 +9,7 @@ import { ReadingList } from './reading-list';
 import { ContentRead } from './details/shared';
 import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
-import { ExecutionTime } from './execution-time';
+import { ExecutionTime, formatHostDuration } from './execution-time';
 
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 const executionLabel = (engine?: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : !engine || engine === 'starlark' ? 'Starlark' : 'Unsupported execution language';
@@ -111,7 +111,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
-        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : host.duration}</span></div>
+        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : formatHostDuration(host.duration)}</span></div>
         {host.error && <ErrorNotice type="execution" owner={`${row.id}:${host.id}`} title={`${host.name} failed`} error={host.error} />}
       </div>)}
     </div>}
@@ -126,5 +126,6 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     <ErrorNotice type="action" owner={`${row.id}:copy`} title="Could not copy" error={copyError} />
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}
+    {row.codeBody && <ContentRead key={row.codeBody.reference_id} view={view} agentId={row.agentId} value={row.codeBody} label="Execution code" />}
   </article>;
 }

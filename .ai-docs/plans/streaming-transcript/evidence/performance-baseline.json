@@ -1,0 +1,493 @@
+{
+  "recordedAt": "2026-09-17T05:21:59.044Z",
+  "platform": "darwin",
+  "checks": [
+    "10,000 stored root messages page into at most 512 retained messages; 100 child transcripts inspected and released",
+    "Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll",
+    "20 cached child-to-root switches restore independent reading anchors and never mix transcript content",
+    "40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error",
+    "32 near-limit drafts remain editable with 16 concurrent fake root agents and visible stream updates"
+  ],
+  "browser": "153.0.8010.12",
+  "host": {
+    "kind": "browser-websocket"
+  },
+  "fixture": {
+    "rootMessages": 10000,
+    "retainedChildren": 100,
+    "messagesPerChild": 100,
+    "largeToolBodyBytes": 1400000,
+    "retainedTreeOperations": 128,
+    "markdownStreams": true
+  },
+  "sdk": {
+    "childOpenMilliseconds": {
+      "count": 100,
+      "median": 13.891750000000684,
+      "p95": 41.92433399999936,
+      "max": 74.48370799999975
+    },
+    "maximumRetainedPayloadBytes": 407455,
+    "maximumRetainedMessages": 612,
+    "finalRetainedMessages": 512
+  },
+  "initialRenderedRows": 8,
+  "anchorOffsets": [
+    {
+      "before": -131,
+      "after": -131
+    },
+    {
+      "before": -76,
+      "after": -76
+    },
+    {
+      "before": -154,
+      "after": -154
+    },
+    {
+      "before": -102,
+      "after": -102
+    }
+  ],
+  "prependMilliseconds": {
+    "count": 4,
+    "median": 157.27279199999975,
+    "p95": 172.97641599999952,
+    "max": 172.97641599999952
+  },
+  "maximumVisibleRowsAfterPaging": 21,
+  "cachedAnchors": {
+    "root": {
+      "id": "h:0:9862",
+      "offset": -150
+    },
+    "child": {
+      "id": "h:0:7",
+      "offset": -10
+    },
+    "observations": [
+      {
+        "index": 0,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 0,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 1,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 1,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 2,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 2,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 3,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 3,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 4,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 4,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 5,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 5,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 6,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 6,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 7,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 7,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 8,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 8,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 9,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 9,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 10,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 10,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 11,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 11,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 12,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 12,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 13,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 13,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 14,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 14,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 15,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 15,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 16,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 16,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 17,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 17,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 18,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      },
+      {
+        "index": 18,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7",
+          "offset": -10
+        }
+      },
+      {
+        "index": 19,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9862",
+          "offset": -150
+        }
+      }
+    ]
+  },
+  "cachedRootSwitchMilliseconds": {
+    "count": 20,
+    "median": 143.22904200000266,
+    "p95": 174.46187500000087,
+    "max": 183.61304200000086
+  },
+  "drafts": {
+    "count": 32,
+    "bytes": 1046528,
+    "activeBytes": 256689,
+    "concurrentAgents": 16,
+    "inputToAnimationFrameMilliseconds": {
+      "count": 40,
+      "median": 27.40000009536743,
+      "p95": 31.90000009536743,
+      "max": 43.10000014305115,
+      "boundary": "Input handler to next requestAnimationFrame callback; responsiveness proxy, excludes rendering and paint."
+    },
+    "streamingMutations": 12,
+    "keyboardToNextPaintMilliseconds": {
+      "count": 40,
+      "trustedKeydowns": 40,
+      "browserEventCount": 40,
+      "reportedCount": 40,
+      "censoredCount": 0,
+      "p95Rounded": 48,
+      "medianBounds": {
+        "lower": 36,
+        "upper": 44
+      },
+      "p95Bounds": {
+        "lower": 44,
+        "upper": 52
+      },
+      "maxBounds": {
+        "lower": 60,
+        "upper": 68
+      },
+      "observed": {
+        "count": 40,
+        "median": 40,
+        "p95": 48,
+        "max": 64
+      },
+      "reportingThresholdMilliseconds": 16,
+      "durationQuantizationMilliseconds": 8,
+      "censoredUpperBoundMilliseconds": 20,
+      "droppedEntries": 0,
+      "boundary": "Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.",
+      "censoring": "All 40 keydowns are retained. Entries below the 16ms reporting threshold are absent; each absent value is conservatively bounded to 0–20ms including the 4ms rounding allowance. Percentile bounds include both reported and censored events. A rounded p95 is supplied only when its rank is represented by reported entries.",
+      "deliveryCheck": "Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silently losing slow entries.",
+      "reference": "https://www.w3.org/TR/event-timing/"
+    }
+  },
+  "eventReceivedToDOMMilliseconds": {
+    "count": 108,
+    "median": 21.200000047683716,
+    "p95": 52.89999985694885,
+    "max": 76.79999995231628
+  },
+  "commitReturnToDOMMilliseconds": {
+    "count": 40,
+    "median": 63.77420907152555,
+    "p95": 70.99312497615938,
+    "max": 120.48212516689455,
+    "clockErrorBoundMilliseconds": 0.5500000238425855,
+    "boundary": "Timestamp immediately after successful Store.AppendRootEvent COMMIT return to MutationObserver observation of its marker in a mounted live transcript row; excludes physical paint."
+  },
+  "commitClockCalibration": {
+    "method": "Go time.Since and browser performance.now; intersect 20 request-response brackets before and 20 after the loaded interval, without assuming symmetric latency.",
+    "sampleCount": 40,
+    "measuredIntervalMilliseconds": 3454.5,
+    "roundTripMilliseconds": {
+      "count": 40,
+      "median": 2.700000047683716,
+      "p95": 13.5,
+      "max": 23.800000190734863
+    },
+    "browserMinusDaemonOffsetMilliseconds": {
+      "lower": -11473.789042047685,
+      "upper": -11472.689042
+    },
+    "timerQuantizationAllowanceMilliseconds": 0.2,
+    "assumption": "Both monotonic clocks have negligible relative drift during this short same-machine run; disjoint before/after bounds fail the measurement."
+  },
+  "browserRetained": {
+    "usedSize": 19410552,
+    "totalSize": 21151744,
+    "embedderHeapUsedSize": 6253432,
+    "backingStorageSize": 6406154,
+    "documents": 1,
+    "nodes": 1076,
+    "jsEventListeners": 722,
+    "currentTranscriptRows": 10
+  },
+  "requestCounts": {
+    "initialize": 2,
+    "sessions.list": 3,
+    "config.get": 2,
+    "host.attention": 5,
+    "sessions.summaries": 16,
+    "root.snapshot": 3,
+    "provider.list": 2,
+    "sessions.revision": 8,
+    "events.subscribe": 3,
+    "query": 22,
+    "history.page": 24,
+    "events.unsubscribe": 1
+  }
+}

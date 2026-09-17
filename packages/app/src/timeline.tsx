@@ -3,6 +3,8 @@ import {
   isValidElement,
   memo,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -32,8 +34,10 @@ import {
 import { useRuntime } from './context';
 import { layout } from './styles';
 import { ReadingList } from './reading-list';
-import { ActivityGroupRow } from './chat-activity';
-import { isActivityGroup, responseCopies, type ConversationActivityRow } from './chat-activity-rows';
+import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
+import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
+import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
+import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
 import {
@@ -98,6 +102,7 @@ export function executionCode(args: string): string {
 }
 
 const styles = stylex.create({
+  transcript: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 },
   article: {
     position: 'relative',
     paddingBlock: 8,
@@ -487,7 +492,11 @@ function MessageCopy({ owner, label, text }: { owner: string; label: string; tex
 }
 
 export function Timeline({
-  rows,
+  rows: incomingRows,
+  agents = [],
+  activeTurns = {},
+  activeTurnId,
+  onAgent,
   hasMore,
   loadOlder,
   readBody,
@@ -504,6 +513,10 @@ export function Timeline({
   footer,
 }: {
   rows: ConversationActivityRow[];
+  agents?: readonly TranscriptAgent[];
+  activeTurns?: Readonly<Record<string, string>>;
+  activeTurnId?: string;
+  onAgent?(id: string): void;
   hasMore: boolean;
   loadOlder(): Promise<void>;
   readBody(row: TimelineRow): void;
@@ -519,33 +532,142 @@ export function Timeline({
   active?: boolean;
   footer?: ReactNode;
 }) {
+  const rows = useCoalescedTranscript(incomingRows);
+  const availableMotion = useTranscriptMotion() && connected;
+  const [wasAvailable, setWasAvailable] = useState(availableMotion);
+  useLayoutEffect(() => setWasAvailable(availableMotion), [availableMotion]);
+  // Reattachment/visibility resumes with one final-state paint before allowing
+  // new arrivals to animate. Work received while absent is already history.
+  const motion = availableMotion && wasAvailable;
   const copies = useMemo(() => responseCopies(rows, active || !connected || !historyReady, hasMore), [rows, active, connected, historyReady, hasMore]);
+  const parsed = useRef<Parameters<typeof markdownRows>[1]>(new Map());
+  const blocks = useMemo(() => markdownRows(rows, parsed.current), [rows]);
+  const region = useRef<HTMLDivElement>(null);
   const [choices, setChoices] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const [protectedGroups, setProtectedGroups] = useState<ReadonlySet<string>>(new Set());
+  const [visible, setVisible] = useState<ReadonlySet<string>>(new Set());
+  const [closing, setClosing] = useState<ReadonlySet<string>>(new Set());
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const seen = useRef<Set<string> | undefined>(undefined);
+  const arrivals = useRef(new Map<string, Arrival>());
+  const groups = rows.filter(isActivityGroup);
+  const keys = new Set(blocks.flatMap(row => isActivityGroup(row) ? [row.id, ...activityItems(row).flatMap(item => [item.id, `${item.id}:detail`])] : [row.id]));
+  // A prepend or newly known turn boundary can merge existing groups. Keep
+  // their bounded aliases so the latest explicit group choice still wins.
+  const groupChoices = new Map(groups.map(group => {
+    const aliases = new Set([group.id, ...group.memberIds.filter(id => id.startsWith('activity:'))]);
+    let choice: boolean | undefined;
+    for (const [id, open] of choices) if (aliases.has(id)) choice = open;
+    return [group.id, choice];
+  }));
+  const choiceKeys = new Set([...keys, ...groups.flatMap(group => group.memberIds.filter(id => id.startsWith('activity:')))]);
+  for (const id of arrivals.current.keys()) if (!keys.has(id)) arrivals.current.delete(id);
+  if (seen.current && active && connected && motion) {
+    for (const row of blocks) {
+      const items = isActivityGroup(row) ? activityItems(row) : [];
+      let stagger = 0;
+      for (const id of [row.id, ...items.map(item => item.id)]) {
+        if (!seen.current.has(id) && !arrivals.current.has(id)) arrivals.current.set(id, { time: performance.now(), delay: items.length && id !== row.id ? (seen.current.has(row.id) ? 0 : transcriptMotion.first) + stagger++ * transcriptMotion.stagger : 0 });
+      }
+    }
+  }
+  useLayoutEffect(() => { seen.current = keys; });
+  const wanted = new Set(groups.filter(group => groupChoices.get(group.id) ?? (density === 'detailed' || (!!group.autoOpen && active && (!!group.live || group.turnId === activeTurnId)))).map(group => group.id));
+  for (const id of protectedGroups) if (visible.has(id) && groupChoices.get(id) === undefined) wanted.add(id);
   useEffect(() => {
-    const ids = new Set(rows.filter(isActivityGroup).map(row => row.id));
-    setChoices(previous => [...previous.keys()].every(id => ids.has(id)) ? previous
-      : new Map([...previous].filter(([id]) => ids.has(id))));
-  }, [rows]);
-  const toggle = (id: string, open: boolean) => setChoices(previous => {
-    const next = new Map(previous);
-    next.delete(id);
-    next.set(id, !open);
+    const update = () => {
+      const selection = document.getSelection();
+      const nodes = [document.activeElement, ...(!selection?.isCollapsed ? [selection?.anchorNode, selection?.focusNode] : [])];
+      const ids = nodes.flatMap(node => {
+        const element = node instanceof Element ? node : node?.parentElement;
+        const owner = element?.closest<HTMLElement>('[data-activity-owner]');
+        return owner && region.current?.contains(owner) ? [owner.dataset.activityOwner!] : [];
+      });
+      if (selection && !selection.isCollapsed && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        for (const owner of region.current?.querySelectorAll<HTMLElement>('[data-activity-owner]') ?? [])
+          if (range.intersectsNode(owner)) ids.push(owner.dataset.activityOwner!);
+      }
+      setProtectedGroups(previous => [...previous].join() === ids.join() ? previous : new Set(ids));
+    };
+    document.addEventListener('selectionchange', update); document.addEventListener('focusin', update); document.addEventListener('focusout', update);
+    return () => { document.removeEventListener('selectionchange', update); document.removeEventListener('focusin', update); document.removeEventListener('focusout', update); };
+  }, []);
+  useLayoutEffect(() => {
+    const ids = new Set(groups.map(group => group.id));
+    setChoices(previous => [...previous.keys()].every(id => choiceKeys.has(id)) ? previous : new Map([...previous].filter(([id]) => choiceKeys.has(id))));
+    setVisible(previous => {
+      const next = new Set([...previous].filter(id => ids.has(id)));
+      for (const id of wanted) next.add(id);
+      return [...next].join() === [...previous].join() ? previous : next;
+    });
+    for (const [id, timer] of timers.current) if (wanted.has(id) || !ids.has(id) || !motion) { clearTimeout(timer); timers.current.delete(id); setClosing(previous => new Set([...previous].filter(value => value !== id))); }
+    for (const group of groups) {
+      if (!visible.has(group.id) || wanted.has(group.id) || timers.current.has(group.id)) continue;
+      const finish = () => {
+        timers.current.delete(group.id);
+        setVisible(previous => new Set([...previous].filter(id => id !== group.id)));
+        setClosing(previous => new Set([...previous].filter(id => id !== group.id)));
+      };
+      if (!motion) { finish(); continue; }
+      const ends = activityItems(group).map(item => arrivals.current.get(item.id)).filter((value): value is Arrival => !!value).map(value => value.time + value.delay + transcriptMotion.connector);
+      const hold = Math.max(0, ...ends.map(end => end - performance.now()));
+      timers.current.set(group.id, setTimeout(() => {
+        setClosing(previous => new Set([...previous, group.id]));
+        timers.current.set(group.id, setTimeout(finish, transcriptMotion.fold));
+      }, hold));
+    }
+  });
+  useEffect(() => () => { for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear(); }, []);
+  const toggle = (id: string, open: boolean) => {
+    if (!open && motion) {
+      const group = groups.find(group => group.id === id);
+      for (const key of group ? activityItems(group).flatMap(item => [item.id, `${item.id}:detail`]) : [`${id}:detail`])
+        arrivals.current.set(key, { time: performance.now(), delay: 0, disclosure: true });
+    }
+    setChoices(previous => {
+    const next = new Map(previous); next.delete(id); next.set(id, !open);
     if (next.size > 128) next.delete(next.keys().next().value!);
     return next;
-  });
-  return <ReadingList rows={rows} hasMore={hasMore} loadOlder={loadOlder}
-    bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
-    canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
-    label="Conversation" earlierLabel="Load earlier messages" footer={footer}
-    renderRow={row => {
-      const open = choices.get(row.id) ?? (density === 'detailed' && isActivityGroup(row) && row.cells.length > 0);
-      const copy = copies.get(row.id);
-      return <>
-        {isActivityGroup(row) ? <ActivityGroupRow group={row} open={open} onToggle={() => toggle(row.id, open)} connected={connected}
-          density={density} readBody={readBody} onOpenRepl={onOpenRepl} /> : <MessageRow row={row} readBody={readBody} historyAction={historyAction} />}
-        {copy && <div data-response-actions {...stylex.props(styles.responseActions)}>
-          <MessageCopy key={row.id} owner={row.id} label={copy.label} text={copy.text} />
-        </div>}
-      </>;
-    }} />;
+    });
+  };
+  type DisplayRow = { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[]; source: typeof blocks[number]; group?: ActivityGroup; item?: ActivityItem; detail?: boolean; open?: boolean; last?: boolean; copy?: { text: string; label: string } };
+  const displayRows: DisplayRow[] = [];
+  for (const [blockIndex, row] of blocks.entries()) {
+    if (isActivityGroup(row)) {
+      const open = wanted.has(row.id) || visible.has(row.id);
+      displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, memberSeqs: row.memberSeqs, source: row, group: row, open: open && !closing.has(row.id) });
+      if (open) activityItems(row).forEach((original, index, items) => {
+        const reasoningLive = original.kind === 'reasoning' && index === items.length - 1 && !!row.autoOpen && active && !!original.row?.live;
+        const item = original.kind === 'reasoning' && original.row ? { ...original, row: { ...original.row, live: reasoningLive } } : original;
+        const detail = choices.get(item.id) ?? (item.kind === 'mailbox' ? false : item.kind === 'reasoning' ? reasoningLive : density === 'detailed');
+        displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
+        if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, detail: true });
+      });
+    } else displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, source: row });
+    const owner = isMarkdownRow(row) ? row.ownerId : row.id;
+    const following = blocks[blockIndex + 1];
+    if (!isMarkdownRow(row) || !following || !isMarkdownRow(following) || following.ownerId !== owner) displayRows.at(-1)!.copy = copies.get(owner);
+  }
+  return <MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
+    <ReadingList rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} chatFollow
+      bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
+      canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
+      label="Conversation" earlierLabel="Load earlier messages" footer={footer}
+      renderRow={row => {
+        const source = row.source;
+        return <>
+          <RowMotion arrival={row.group || isAgentActivity(source) ? arrivals.current.get(row.id) : undefined} closing={!!row.item && closing.has(row.group!.id)}>
+            {row.group ? row.item ? row.detail
+              ? <ActivityDetail item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
+              : <ActivityStep item={row.item} groupId={row.group.id} open={!!row.open} toggle={() => toggle(row.item!.id, !!row.open)} connected={connected} last={!!row.last} />
+              : <ActivityHeader group={row.group} open={!!row.open} toggle={() => toggle(row.group!.id, !!row.open)} connected={connected} density={density} />
+            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} active={!!activeTurns[source.agentHost.display?.child_id ?? '']} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
+            : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
+            : <MessageRow row={source} readBody={readBody} historyAction={historyAction} />}
+          </RowMotion>
+          {row.copy && <div data-response-actions {...stylex.props(styles.responseActions)}><MessageCopy key={source.id} owner={source.id} label={row.copy.label} text={row.copy.text} /></div>}
+        </>;
+      }} />
+  </div></MotionContext.Provider>;
 }

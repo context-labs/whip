@@ -93,6 +93,61 @@ class Host {
   }
 }
 
+test('text and reasoning retain one part across interleaved usage and host updates', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let seq = 10;
+  const events: NonNullable<RootSnapshot['presentation']> = [];
+  const push = (kind: string, payload: StreamEvent) => {
+    events.push({ seq: String(++seq), kind, payload });
+    host.streams[0]!.push(String(seq), kind, payload);
+  };
+  for (const kind of ['stream.text', 'stream.reasoning']) {
+    const payload = { agent_id: 'root', turn_id: 'turn', part_id: kind };
+    push(kind, { ...payload, text: '1. **First**' });
+    push('stream.usage', { agent_id: 'root' });
+    push(kind, { ...payload, text: ' ' });
+    push('stream.cell.host', { agent_id: 'root', id: 'call', invocation_id: 'host', name: 'files.read' });
+    push(kind, { ...payload, text: 'item\n2. Second item' });
+  }
+  await until(() => view.getSnapshot().root?.cursor === String(seq));
+  for (const kind of ['stream.text', 'stream.reasoning']) {
+    const rows = view.getSnapshot().root?.presentation?.filter(row => row.kind === kind);
+    assert.deepEqual(rows?.map(row => (row.payload as StreamEvent).text), ['1. **First** item\n2. Second item']);
+  }
+  const before = view.getSnapshot().root?.presentation;
+  host.root.cursor = String(seq);
+  host.root.presentation = events;
+  await view.refresh();
+  assert.deepEqual(view.getSnapshot().root?.presentation, before, 'refresh does not replay already observed fragments');
+  host.notify('stale');
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  assert.deepEqual(view.getSnapshot().root?.presentation, before, 'reconnect assembles raw snapshot deltas identically');
+});
+
+test('part assembly stops at notices, discarded output, and other turns', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let seq = 10;
+  const push = (kind: string, payload: StreamEvent) => host.streams[0]!.push(String(++seq), kind, { agent_id: 'root', ...payload });
+  const text = (value: string, turn = 'turn') => push('stream.text', { part_id: 'part', turn_id: turn, text: value });
+  text('A');
+  push('stream.notice', { text: 'Notice' });
+  text('B');
+  push('stream.discard', { turn_id: 'turn' });
+  text('C');
+  push('stream.usage', {});
+  text('D', 'next-turn');
+  await until(() => view.getSnapshot().root?.cursor === String(seq));
+  assert.deepEqual(view.getSnapshot().root?.presentation?.filter(row => row.kind === 'stream.text').map(row => (row.payload as StreamEvent).text), ['A', 'B', 'C', 'D']);
+});
+
 test('large cumulative calls retain child identity; legacy references never become root activity', async t => {
   const host = new Host();
   host.root.active_turns = { child: 'turn' };
@@ -297,7 +352,7 @@ for (const agentId of ['root', 'child']) {
     test(`${agentId}: partial refresh separates ${kind} across missing snapshot and live deltas`, async t => {
       const host = new Host();
       host.root.active_turns = { [agentId]: 'turn' };
-      const payload = (text: string) => ({ text, agent_id: agentId });
+      const payload = (text: string) => ({ text, agent_id: agentId, part_id: 'part', turn_id: 'turn' });
       const initial = [{ seq: '10', kind, payload: payload('A') }];
       if (agentId === 'root') host.root.presentation = initial;
       else host.root.agent_presentations = { [agentId]: initial };
@@ -314,12 +369,13 @@ for (const agentId of ['root', 'child']) {
       else host.root.agent_presentations = { [agentId]: suffix };
       await view.refresh();
       await view.refresh(); // A repeat must not lose the unresolved suffix boundary.
-      host.streams.at(-1)!.push('15', kind, payload('F'));
-      host.streams.at(-1)!.push('16', kind, payload('G'));
-      await until(() => view.getSnapshot().root?.cursor === '16');
+      host.streams.at(-1)!.push('15', 'stream.usage', { agent_id: agentId });
+      host.streams.at(-1)!.push('16', kind, payload('F'));
+      host.streams.at(-1)!.push('17', kind, payload('G'));
+      await until(() => view.getSnapshot().root?.cursor === '17');
       const rows = agentId === 'root' ? view.getSnapshot().root?.presentation : view.getSnapshot().root?.agent_presentations?.[agentId];
-      assert.deepEqual(rows?.map(row => (row.payload as StreamEvent).text), ['A', 'CD', 'FG']);
-      assert.deepEqual(rows?.map(row => row.seq), ['10', '12', '15']);
+      assert.deepEqual(rows?.filter(row => row.kind === kind).map(row => (row.payload as StreamEvent).text), ['A', 'CD', 'FG']);
+      assert.deepEqual(rows?.filter(row => row.kind === kind).map(row => row.seq), ['10', '12', '16']);
     });
   }
 }

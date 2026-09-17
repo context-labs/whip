@@ -1,0 +1,40 @@
+- region "Conversation":
+  - button "Load earlier messages"
+  - button "Read source/file-103.ts Done 1ms"
+  - button "Read source/file-104.ts Done 1ms"
+  - button "Read source/file-105.ts Done 1ms"
+  - button "Read source/file-106.ts Done 1ms"
+  - button "Read source/file-107.ts Done 1ms"
+  - button "Read source/file-108.ts Done 1ms"
+  - button "Read source/file-109.ts Done 1ms"
+  - button "Read source/file-110.ts Done 1ms"
+  - button "Read source/file-111.ts Done 1ms"
+  - button "Read source/file-112.ts Done 1ms"
+  - button "Read source/file-113.ts Done 1ms"
+  - button "Read source/file-114.ts Done 1ms"
+  - button "Read source/file-115.ts Done 1ms"
+  - button "Read source/file-116.ts Done 1ms"
+  - button "Read source/file-117.ts Done 1ms"
+  - button "Read source/file-118.ts Done 1ms"
+  - button "Read source/file-119.ts Done 1ms"
+  - button "Read source/file-120.ts Done 1ms"
+  - button "Read source/file-121.ts Done 1ms"
+  - button "Read source/file-122.ts Done 1ms"
+  - button "Read source/file-123.ts Done 1ms"
+  - button "Read source/file-124.ts Done 1ms"
+  - button "Read source/file-125.ts Done 1ms"
+  - button "Read source/file-126.ts Done 1ms"
+  - button "Read source/file-127.ts Done 1ms"
+  - article:
+    - heading "Streaming report" [level=2]
+  - article:
+    - paragraph:
+      - strong: Hello world
+      - text: 🌍
+  - article:
+    - figure "javascript":
+      - text: javascript
+      - region "javascript code":
+        - code: const answer = 42;
+  - article:
+    - paragraph: Ready to review.

@@ -140,7 +140,7 @@ func streamSDKPerformance(ctx context.Context, root *Session) {
 			return
 		case <-ticker.C:
 			root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
-				kind: "stream.text", event: StreamEvent{Text: fmt.Sprintf(" delta-%03d", index)},
+				kind: "stream.text", event: StreamEvent{Text: fmt.Sprintf(" **delta-%03d**", index)},
 			}})
 		}
 	}
@@ -167,6 +167,14 @@ func seedSDKPerformanceHistory(t *testing.T, store *session.Store, rootID, cwd s
 	}
 	// A large body near the latest page must remain an explicit content reference.
 	messages[9_990] = llm.Message{Role: "tool", Name: "read", ToolCallID: "large-output", Content: strings.Repeat("Large tool output stays on the host.\n", 40_000)}
+	hosts := make([]llm.PresentationHost, 128)
+	for i := range hosts {
+		hosts[i] = llm.PresentationHost{InvocationID: fmt.Sprint(i), Name: "files.read", Status: "completed", Display: &llm.OperationDisplay{Target: fmt.Sprintf("source/file-%03d.ts", i)}}
+	}
+	call := llm.ToolCall{ID: "long-tree", Type: "function"}
+	call.Function.Name, call.Function.Arguments = "rlm_exec", `{"code":"files.read(path=\"source/example.ts\")"}`
+	messages[9_995] = llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}, Presentation: &llm.TranscriptPresentation{Version: 1, TurnID: "performance-tree", Parts: []llm.PresentationPart{{ID: "performance-tree", Kind: "tool", CallID: call.ID, ToolName: "rlm_exec", Hosts: hosts}}}}
+	messages[9_996] = llm.Message{Role: "tool", Name: "rlm_exec", ToolCallID: call.ID, Content: `{"value":null,"output":"128 files read","steps":128}`}
 	if err := store.Save(rootID, 0, messages, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}

@@ -44,6 +44,16 @@ func seedSDKREPLHistory(t *testing.T, store *session.Store, rootID, cwd string) 
 			llm.Message{Role: "assistant", Content: "Both surveys are complete; the reports remain available for inspection."},
 		)
 	}
+	if os.Getenv("WHIP_WEB_STREAMING_FIXTURE") == "1" {
+		message := &messages[len(messages)-3]
+		message.Presentation = &llm.TranscriptPresentation{Version: 1, TurnID: "saved-turn", Parts: []llm.PresentationPart{
+			{ID: "saved-thought", Kind: "reasoning", Text: "Saved reasoning survives reopening."},
+			{ID: "saved-call", Kind: "tool", CallID: message.ToolCalls[0].ID, ToolName: "rlm_exec", Hosts: []llm.PresentationHost{
+				{InvocationID: "saved-read", Name: "files.read", Status: "completed", Display: &llm.OperationDisplay{Target: "persisted.md"}},
+				{InvocationID: "saved-agent", Name: "agents.spawn", Status: "completed", Display: &llm.OperationDisplay{ChildID: "repl-child", Label: "Saved reviewer"}},
+			}},
+		}}
+	}
 	if err := store.Save(rootID, 0, messages, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +140,7 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 	mux.HandleFunc("POST /control/repl/{step}", func(w http.ResponseWriter, r *http.Request) {
 		events := []sdkREPLProbe{}
 		switch r.PathValue("step") {
-		case "activity-start", "activity-next", "activity-complete", "activity-large", "activity-large-complete":
+		case "activity-start", "activity-next", "activity-complete", "activity-large", "activity-large-complete", "activity-tree", "activity-prose", "activity-prose-more", "activity-prose-end", "activity-list", "activity-list-more", "activity-list-end", "activity-scroll", "activity-scroll-block":
 			turnID, err := store.RunningTurnID(r.Context(), rootID, rootID)
 			if err != nil || turnID == "" {
 				http.Error(w, "activity fixture requires a held turn", http.StatusConflict)
@@ -247,11 +257,12 @@ func sdkChatActivityProbes(step, rootID, turnID string) []sdkREPLProbe {
 		emit("stream.tool.completed", StreamEvent{ID: "large-root", Name: "rlm_exec", Result: strings.Repeat("large output", 1000)})
 		emit("stream.text", StreamEvent{Text: "The inspection has finished."})
 	case "activity-start":
+		emit("stream.reasoning", StreamEvent{PartID: "live-thought", Text: "Inspect the repository before running checks."})
 		for index := range 3 {
 			id := fmt.Sprintf("chat-%d", index)
 			invocation := fmt.Sprintf("%d:1", index)
 			emit("stream.tool.started", StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code":"files.read(path=\"README.md\")"}`})
-			emit("stream.cell.host.started", StreamEvent{ID: id, InvocationID: invocation, Name: "files.read", Args: "path=README.md"})
+			emit("stream.cell.host.started", StreamEvent{ID: id, InvocationID: invocation, Name: "files.read", Args: "path=README.md", Display: &llm.OperationDisplay{Target: "README.md"}})
 			if index < 2 {
 				emit("stream.cell.host", StreamEvent{ID: id, InvocationID: invocation, Name: "files.read", Args: "path=README.md", Text: "8ms", HostStatus: "completed"})
 				emit("stream.tool.completed", StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":null,"output":"Read the repository guide.\n","steps":24}`})
@@ -264,6 +275,34 @@ func sdkChatActivityProbes(step, rootID, turnID string) []sdkREPLProbe {
 		emit("stream.cell.host", StreamEvent{ID: "chat-2", InvocationID: "2:2", Name: "agents.wait", Text: "3s", HostStatus: "completed"})
 		emit("stream.tool.completed", StreamEvent{ID: "chat-2", Name: "rlm_exec", Result: `{"value":null,"output":"Review complete.\n","steps":32}`})
 		emit("stream.text", StreamEvent{Text: "The review is complete. All three executions are available in the REPL."})
+	case "activity-tree":
+		emit("stream.tool.started", StreamEvent{ID: "tree", PartID: "tree-part", Name: "rlm_exec", Args: `{"code":"files.read(path=\"example.ts\")"}`})
+		for i := range 128 {
+			call := StreamEvent{ID: "tree", PartID: "tree-part", InvocationID: fmt.Sprint(i), Name: "files.read", Display: &llm.OperationDisplay{Target: fmt.Sprintf("source/file-%03d.ts", i)}}
+			emit("stream.cell.host.started", call)
+			call.HostStatus, call.Text = "completed", "1ms"
+			emit("stream.cell.host", call)
+		}
+		emit("stream.tool.completed", StreamEvent{ID: "tree", PartID: "tree-part", Name: "rlm_exec", Result: `{"value":null,"output":"128 files read","steps":128}`})
+	case "activity-prose":
+		emit("stream.text", StreamEvent{PartID: "live-prose", Text: "# Streaming report\n\n**Hello"})
+	case "activity-prose-more":
+		emit("stream.usage", StreamEvent{})
+		emit("stream.text", StreamEvent{PartID: "live-prose", Text: " world** 🌍\n\n```javascript\nconst answer = 42;"})
+	case "activity-scroll":
+		emit("stream.text", StreamEvent{PartID: "scroll-prose", Text: strings.Repeat("Streaming paragraph grows and wraps as tokens arrive. ", 24)})
+	case "activity-scroll-block":
+		emit("stream.text", StreamEvent{PartID: "scroll-prose", Text: "\n\n### A new streamed block\n\nMore text below the reading position. "})
+	case "activity-prose-end":
+		emit("stream.text", StreamEvent{PartID: "live-prose", Text: "\n```\n\nReady to review."})
+	case "activity-list":
+		emit("stream.text", StreamEvent{PartID: "list-prose", Text: "Launched a three-agent investigation crew:\n\n1. **dotwhip-diver** — deep dive into `/home/whip/.whip/` (configs, logs, runtime-v2), delegating part of the tree to its"})
+	case "activity-list-more":
+		emit("stream.usage", StreamEvent{})
+		emit("stream.text", StreamEvent{PartID: "list-prose", Text: " own child\n2. **fs-sweeper** — sweeps the wider filesystem (`/tmp`, `/srv`, `/opt`, `/home`, `/workspace`, etc.) for any real project code or data,"})
+	case "activity-list-end":
+		emit("stream.cell.host", StreamEvent{ID: "chat-2", InvocationID: "2:2", Name: "agents.wait", Text: "3s", HostStatus: "completed"})
+		emit("stream.text", StreamEvent{PartID: "list-prose", Text: " delegating a subtree to its child\n3. **env-profiler** — inspects dotfiles, environment, running processes, and listening ports, delegating the process/network enumeration to its child\n\nEach will synthesize its sub-agent's findings into a report. I'll relay the consolidated results — nothing needed from you meanwhile."})
 	}
 	return events
 }

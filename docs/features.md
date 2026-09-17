@@ -717,22 +717,36 @@ intact. History restores exact view identities, including expired closed entries
 
 ## Chat activity
 
-Web and desktop share compact execution groups, one current status in the session
-information bar, and bounded named-agent rows above the composer. Authored messages retain their order;
-expansion exposes bounded code/output and host-operation evidence with an
-**Open in REPL** action that creates a fresh adjacent tab. Reading aliases and stable detail windows protect
-navigation and focus. Appearance density, typography and reduced motion apply.
+Desktop and web share Zeron-style streaming activity trees with Whip themes,
+typography and accessibility preferences. Adjacent reasoning, Read/Search/Run/Edit/
+Browser operations form one expandable group; spawned agents have separate inline
+cards linked through typed child IDs. The inspector remains the complete agent
+directory. Current work opens automatically; Compact and Comfortable fold settled
+work, Detailed keeps it open, and manual choices take precedence. Keyboard focus
+and text selection defer automatic folding.
 
-- Runtime: `internal/rlm/kernel.go` emits host starts before dispatch and correlated
-  completions afterward. `recursive_runtime.go` publishes additive protocol 5.1
-  events without a database migration. Cancellation remains distinct from failure.
-- State: `packages/sdk/src/executions.ts` joins root/agent/turn/invocation evidence,
-  handles replay, late completions and bounded eviction; it is shared by both views.
-- UI: `packages/app/src/chat-activity{,-rows}.ts*`, `conversation.tsx`, `timeline.tsx`,
-  `reading-positions.ts`, `execution-time.tsx`, and `packages/ui/src/activity-indicator.tsx`.
-- Coverage: kernel cancellation/ordering and daemon journal tests, SDK execution
-  regressions, `chat-activity.test.tsx`, existing reading tests, and the isolated
-  production browser workflow `apps/web/scripts/chat-activity.mjs`.
+New runs retain bounded operation metadata and exposed reasoning in the existing
+transcript, including disconnected execution and interrupted turns. Older history
+uses generic execution rows. Complete available execution code/output remains
+accessible through details and **Open in REPL**. Long trees and top-level Markdown
+blocks are virtualized. Live Markdown coalesces updates, appended text fades in,
+activity branches reveal, and chat stays pinned to the growing tail until the
+reader scrolls up. Returning to the bottom or choosing **Latest** resumes following;
+only **Latest** animates scrolling. Reduced motion and hidden windows stop animation work. Native mobile's
+portable presentation remains unchanged.
+
+An inline activity line appears immediately on send, before the first response
+event. It bridges **Sending…** into a thinking caption or the actual tool/response
+phase with a turn timer. A small theme-colored 3×3 dot wave animates during work;
+queued, uncertain, disconnected and human-input states stay explicit. The line
+scrolls with the transcript and disappears on completion. Reduced motion stops
+the wave and caption rotation.
+
+- Sources: `internal/daemon/transcript_presentation.go`, `internal/llm/presentation.go`,
+  `packages/sdk/src/executions.ts`, `packages/app/src/{chat-activity-rows,streaming-markdown,transcript-motion,transcript-activity,timeline,reading-list}.ts*`.
+- Coverage: journal/storage/SDK reconciliation tests, app activity/Markdown/reading
+  tests, and the isolated production browser fixture `apps/web/scripts/chat-activity.mjs`.
+- Ownership and limits: [frontend guide](frontend.md#conversation-and-navigation-patterns).
 
 ## Conversation row actions
 

@@ -87,7 +87,7 @@ func TestV2SDKBridge(t *testing.T) {
 	frontend := "http://" + listener.Addr().String()
 	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
 	var factory Factory = func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
-		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
+		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices(), control: runner}
 		value.services.SetExternalPermissions(true)
 		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {
 			if input == "question:single" || input == "question:batch" {
@@ -391,6 +391,7 @@ type sdkFixtureRunner struct {
 	*fakeRunner
 	root     *Session
 	services *tools.Services
+	control  *sdkRunnerControl
 }
 
 func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
@@ -419,6 +420,16 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 	}
 	return r.fakeRunner.Turn(ctx, input, authored, func() {
 		started()
+		if input == "hold:thinking-response" {
+			r.control.mu.Lock()
+			firstToken := r.control.hold("thinking-first-token")
+			r.control.mu.Unlock()
+			select {
+			case <-firstToken:
+			case <-ctx.Done():
+				return
+			}
+		}
 		for _, text := range []string{input[:len(input)/2], input[len(input)/2:]} {
 			r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.text", event: StreamEvent{Text: text}}})
 		}

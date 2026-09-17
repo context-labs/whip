@@ -1,0 +1,493 @@
+{
+  "recordedAt": "2026-09-17T05:27:32.393Z",
+  "platform": "darwin",
+  "checks": [
+    "10,000 stored root messages page into at most 512 retained messages; 100 child transcripts inspected and released",
+    "Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll",
+    "20 cached child-to-root switches restore independent reading anchors and never mix transcript content",
+    "40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error",
+    "32 near-limit drafts remain editable with 16 concurrent fake root agents and visible stream updates"
+  ],
+  "browser": "153.0.8010.12",
+  "host": {
+    "kind": "browser-websocket"
+  },
+  "fixture": {
+    "rootMessages": 10000,
+    "retainedChildren": 100,
+    "messagesPerChild": 100,
+    "largeToolBodyBytes": 1400000,
+    "retainedTreeOperations": 128,
+    "markdownStreams": true
+  },
+  "sdk": {
+    "childOpenMilliseconds": {
+      "count": 100,
+      "median": 10.487375000000611,
+      "p95": 13.793166999999812,
+      "max": 16.008832999999868
+    },
+    "maximumRetainedPayloadBytes": 407455,
+    "maximumRetainedMessages": 612,
+    "finalRetainedMessages": 512
+  },
+  "initialRenderedRows": 12,
+  "anchorOffsets": [
+    {
+      "before": -135,
+      "after": -135
+    },
+    {
+      "before": -74,
+      "after": -74
+    },
+    {
+      "before": -28,
+      "after": -28
+    },
+    {
+      "before": -194,
+      "after": -194
+    }
+  ],
+  "prependMilliseconds": {
+    "count": 4,
+    "median": 120.67470799999865,
+    "p95": 128.0627089999998,
+    "max": 128.0627089999998
+  },
+  "maximumVisibleRowsAfterPaging": 22,
+  "cachedAnchors": {
+    "root": {
+      "id": "h:0:9837:block:0",
+      "offset": -2
+    },
+    "child": {
+      "id": "h:0:7:block:0",
+      "offset": -10
+    },
+    "observations": [
+      {
+        "index": 0,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 0,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 1,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 1,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 2,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 2,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 3,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 3,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 4,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 4,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 5,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 5,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 6,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 6,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 7,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 7,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 8,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 8,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 9,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 9,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 10,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 10,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 11,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 11,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 12,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 12,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 13,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 13,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 14,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 14,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 15,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 15,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 16,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 16,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 17,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 17,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 18,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      },
+      {
+        "index": 18,
+        "recipient": "child",
+        "observed": {
+          "id": "h:0:7:block:0",
+          "offset": -10
+        }
+      },
+      {
+        "index": 19,
+        "recipient": "root",
+        "observed": {
+          "id": "h:0:9837:block:0",
+          "offset": -2
+        }
+      }
+    ]
+  },
+  "cachedRootSwitchMilliseconds": {
+    "count": 20,
+    "median": 135.71487500000148,
+    "p95": 155.28499999999985,
+    "max": 161.7095420000005
+  },
+  "drafts": {
+    "count": 32,
+    "bytes": 1046528,
+    "activeBytes": 256689,
+    "concurrentAgents": 16,
+    "inputToAnimationFrameMilliseconds": {
+      "count": 40,
+      "median": 30.399999856948853,
+      "p95": 35.700000047683716,
+      "max": 39.89999985694885,
+      "boundary": "Input handler to next requestAnimationFrame callback; responsiveness proxy, excludes rendering and paint."
+    },
+    "streamingMutations": 2,
+    "keyboardToNextPaintMilliseconds": {
+      "count": 40,
+      "trustedKeydowns": 40,
+      "browserEventCount": 40,
+      "reportedCount": 40,
+      "censoredCount": 0,
+      "p95Rounded": 56,
+      "medianBounds": {
+        "lower": 44,
+        "upper": 52
+      },
+      "p95Bounds": {
+        "lower": 52,
+        "upper": 60
+      },
+      "maxBounds": {
+        "lower": 60,
+        "upper": 68
+      },
+      "observed": {
+        "count": 40,
+        "median": 48,
+        "p95": 56,
+        "max": 64
+      },
+      "reportingThresholdMilliseconds": 16,
+      "durationQuantizationMilliseconds": 8,
+      "censoredUpperBoundMilliseconds": 20,
+      "droppedEntries": 0,
+      "boundary": "Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.",
+      "censoring": "All 40 keydowns are retained. Entries below the 16ms reporting threshold are absent; each absent value is conservatively bounded to 0–20ms including the 4ms rounding allowance. Percentile bounds include both reported and censored events. A rounded p95 is supplied only when its rank is represented by reported entries.",
+      "deliveryCheck": "Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silently losing slow entries.",
+      "reference": "https://www.w3.org/TR/event-timing/"
+    }
+  },
+  "eventReceivedToDOMMilliseconds": {
+    "count": 112,
+    "median": 55.40000009536743,
+    "p95": 80.29999995231628,
+    "max": 95.29999995231628
+  },
+  "commitReturnToDOMMilliseconds": {
+    "count": 40,
+    "median": 116.22454138079047,
+    "p95": 130.84754152384085,
+    "max": 161.1865414284748,
+    "clockErrorBoundMilliseconds": 0.7937914284757426,
+    "boundary": "Timestamp immediately after successful Store.AppendRootEvent COMMIT return to MutationObserver observation of its marker in a mounted live transcript row; excludes physical paint."
+  },
+  "commitClockCalibration": {
+    "method": "Go time.Since and browser performance.now; intersect 20 request-response brackets before and 20 after the loaded interval, without assuming symmetric latency.",
+    "sampleCount": 40,
+    "measuredIntervalMilliseconds": 3308.5,
+    "roundTripMilliseconds": {
+      "count": 40,
+      "median": 2.299999952316284,
+      "p95": 5,
+      "max": 16.899999856948853
+    },
+    "browserMinusDaemonOffsetMilliseconds": {
+      "lower": -9998.739957809266,
+      "upper": -9997.152374952315
+    },
+    "timerQuantizationAllowanceMilliseconds": 0.2,
+    "assumption": "Both monotonic clocks have negligible relative drift during this short same-machine run; disjoint before/after bounds fail the measurement."
+  },
+  "browserRetained": {
+    "usedSize": 19966096,
+    "totalSize": 21970944,
+    "embedderHeapUsedSize": 6646304,
+    "backingStorageSize": 6589650,
+    "documents": 1,
+    "nodes": 1061,
+    "jsEventListeners": 721,
+    "currentTranscriptRows": 10
+  },
+  "requestCounts": {
+    "initialize": 2,
+    "sessions.list": 4,
+    "config.get": 2,
+    "host.attention": 5,
+    "sessions.summaries": 14,
+    "root.snapshot": 3,
+    "provider.list": 2,
+    "sessions.revision": 7,
+    "events.subscribe": 3,
+    "query": 22,
+    "history.page": 24,
+    "events.unsubscribe": 1
+  }
+}

@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -350,7 +351,8 @@ type KernelOptions struct {
 // model tool call it belongs to, what was called, a bounded argument summary
 // (never raw contents), how long it took, and the error text if it failed.
 type HostCall struct {
-	CallID string
+	Display *llm.OperationDisplay
+	CallID  string
 	// InvocationID distinguishes repeated operations and repeated model call IDs
 	// for this kernel's lifetime. Clients also scope it to the agent and turn.
 	InvocationID string
@@ -599,6 +601,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, hostCalls),
 				Module: response.Module, Operation: response.Operation,
 				Summary: hostCallSummary(response.Arguments),
+				Display: hostDisplay(response.Module, response.Operation, response.Arguments),
 			}
 			callStarted := time.Now()
 			if kernel.onHostStart != nil {
@@ -613,6 +616,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				value, callErr = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 			}
 			if kernel.onHostCall != nil {
+				call.Display = hostResultDisplay(call, value)
 				call.Duration = time.Since(callStarted)
 				call.Status = "completed"
 				if callErr != nil {

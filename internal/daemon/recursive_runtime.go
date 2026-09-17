@@ -192,6 +192,7 @@ func (node *AgentSession) emitHostCall(call rlm.HostCall) {
 }
 
 func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+	partID := node.recordHostPresentation(call)
 	emit := node.emit
 	if emit == nil {
 		return
@@ -200,11 +201,11 @@ func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 	turnID := node.turn.TurnID
 	node.mu.Unlock()
 	event := StreamEvent{
-		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
+		PartID: partID, Display: call.Display, ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
 		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err, OperationID: call.OperationID,
 	}
 	if kind == "stream.cell.host" {
-		event.Text = call.Duration.Round(time.Millisecond).String()
+		event.Text = call.Duration.String()
 	}
 	emit(kind, event)
 }

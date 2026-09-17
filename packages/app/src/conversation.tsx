@@ -30,7 +30,7 @@ import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
-import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
+import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionInfoBar } from './session-info-bar';
 import { openSessionView } from './session-tab-routing';
@@ -197,6 +197,7 @@ export function SessionContent({
     root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
     submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
     new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
+    true,
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
@@ -227,7 +228,8 @@ export function SessionContent({
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
   const agent = useSelectedAgent(view, state, agentId, connected);
   const activeTurn = root?.active_turns[agentId];
-  const status = activityStatus(state, agentId, executions, connected, agent);
+  const delivery = rows.filter(row => row.role === 'user' && row.delivery).at(-1)?.delivery;
+  const status = activityStatus(state, agentId, executions, connected, agent, delivery);
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
     // The recipient history exposes failures without leaking into another tab.
@@ -289,12 +291,21 @@ export function SessionContent({
         owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
         action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
       {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
-      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
+      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn ? (
         <Timeline
           active={!!activeTurn}
+          activeTurnId={activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={activityRows}
-          footer={<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />}
+          agents={root?.agents ?? []}
+          activeTurns={root?.active_turns ?? {}}
+          onAgent={next => {
+            const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
+            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
+          }}
+          footer={<><TranscriptWorking key={activeTurn ?? 'pending'} status={status} turnId={activeTurn}
+            startedAt={agent?.last_turn?.turn_id === activeTurn ? agent?.last_turn?.started_at : undefined} />
+            {state.executions?.truncated && <p {...stylex.props(layout.notice)}>Some activity could not be retained. Showing available operations; counts may be partial.</p>}<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></>}
           connected={connected}
           density={preferences.toolDensity}
           onOpenRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
@@ -348,12 +359,7 @@ export function SessionContent({
           ))}
         </details>
       )}
-      {kind === 'chat' && <ChatActivity state={state} agentId={agentId} connected={connected}
-        onAllAgents={() => setPanel('agents')}
-        onAgent={next => {
-          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-        }} />}
+
       {root && (
         <PendingRequests
           root={root}

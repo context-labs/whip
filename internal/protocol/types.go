@@ -12,7 +12,7 @@ import (
 
 const (
 	Major = 6
-	Minor = 7
+	Minor = 8
 )
 
 type ErrorData struct {
@@ -118,6 +118,8 @@ type ProtocolEvent struct {
 }
 
 type StreamEvent struct {
+	PartID       string                   `json:"part_id,omitempty"`
+	Display      *llm.OperationDisplay    `json:"display,omitempty"`
 	Accounting   *session.ModelAccounting `json:"accounting,omitempty"`
 	Usage        *UsageEvent              `json:"usage,omitempty"`
 	AgentID      string                   `json:"agent_id,omitempty"`

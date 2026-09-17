@@ -2,7 +2,7 @@
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
 It explains the current design, why it exists, and how to extend it. Updated on
-2026-09-08 for the multi-host workspace and native companion.
+2026-09-17 for intent-controlled transcript following and immediate inline activity.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -555,6 +555,9 @@ update their source, boundary tests, and this table together.
 | Resource | Bound | Source |
 | --- | --- | --- |
 | SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/sdk/src/state.ts) |
+| Durable presentation | 64 KiB per transcript record, 128 ordered parts, 128 host operations per execution; inline content-handle summaries at most 8 KiB within page bounds | [presentation.go](../internal/llm/presentation.go) |
+| Markdown display cache | 512 documents / 2 MiB source, coalesced to 30 live parses/second; per-block fade chunks capped at 32 | [streaming-markdown.tsx](../packages/app/src/streaming-markdown.tsx) |
+| Transcript disclosures | 128 explicit choices, 512 member aliases per activity group | [timeline.tsx](../packages/app/src/timeline.tsx), [chat-activity-rows.ts](../packages/app/src/chat-activity-rows.ts) |
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
 | SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
@@ -851,6 +854,11 @@ raw events by the previous root cursor before grouping them; cumulative tool
 values replace earlier values and row identities remain stable. Partial snapshots
 do not join text across unverified gaps, including the boundary back to live
 delivery. Omission flags and the session view's memory budget still apply.
+Usage and host-operation updates do not split a continuous, identified text or
+reasoning part. Gaps and standalone notices still separate fragments; the chat
+projection gives each retained fragment a unique row key while keeping its
+durable part identity as a reading alias. React, Markdown caches and virtualizer
+measurements must never share a key between separate fragments.
 Initial attachment, reconnect, subscription failure/gaps, history revision changes,
 and an agent's ended or replaced turn use snapshot replacement. This retains
 received activity; it does not recover events absent from the bounded snapshot.
@@ -1192,69 +1200,111 @@ login invalidates configuration, status and catalog queries for that host.
 
 ## Conversation and navigation patterns
 
-Chat folds adjacent typed `rlm_exec` rows into quiet, expandable activity groups.
-Internal mailbox digests join the following executions at their delivery boundary;
-they never merge into earlier work or across authored prose. Standalone digests
-appear as **Agent updates**, without claiming an execution outcome. Raw deliveries
-remain behind a separate **Agent messages** disclosure, closed even at Detailed
-density, with stored bodies read only on request. Groups retain at most six
-digests before starting another group, and preserve digest IDs/sequences for
-reading bookmarks. Agent-written replies remain verbatim; UI code does not infer
-that a reply is redundant from its wording or parse digest text for agent status.
-`conversationActivityRows` consumes the existing portable `conversationRows` and
-SDK `executionRows`; the app does not parse results or subscribe to events again.
-Authored prose, notices, known turns and restart boundaries remain separate.
-Unknown historical turn identity is never presented as a turn duration or total.
-Group keys survive append, prepend and live-to-recorded reconciliation; bounded
-member aliases restore old reading bookmarks. Explicit disclosure choices are
-capped at 128 and pruned with retained groups. Expanded groups show six cells in
-a stable window, three host operations per cell and bounded code/output previews;
-**Open in REPL** opens the full retained record in a fresh adjacent tab.
-Expanded details use one quiet inset rule and a content-width REPL action.
-Message prose has its own element so trailing paragraph/list margins cannot
-compound with the action area. Assistant paragraphs have no action spacer.
-`responseCopies` places one visible copy footer after a completed response's
-prose and activity, delimited by authored input; internal deliveries remain in
-that response. Active responses have no footer, and queued input cannot finish
-one. Copy includes retained assistant prose only, capped at 256K characters;
-partial history/body windows are labeled **Copy visible response**. This view
-does not invent historical turn IDs or merge virtual reading rows. User message
-actions retain a fixed 28px footer on fine pointers and visible 44px targets on
-coarse pointers. A narrow desktop viewport alone does not enlarge those actions.
+Desktop and web chat use the richer `conversationRows(..., true)` display projection;
+native mobile retains the portable default. The daemon's turn journal captures
+version-1 presentation metadata even without a connected client. Ordered parts
+reference canonical prose and tool bodies; exposed reasoning and typed host
+operation fields are retained separately. Metadata is committed on success,
+failure and cancellation, preserved by raw-history paging/fork/rewind/compaction,
+and excluded from provider requests, continuation data and token accounting.
+An interrupted attempt's pending evidence follows its last journal record.
+Records cap metadata at 64 KiB, 128 parts and 128 operations per execution.
+Oversized message handles retain a compact identity/outcome summary inline;
+full details require the existing scoped content read. Omission is visible as
+**Partial activity**, never a complete count. Old transcripts use generic execution
+rows; no source-code parsing invents operations.
 
-Large stream events retain agent/turn/call/invocation identity inline with a
-content handle. Complete small fields can remain inline; omitted arguments or
-results are unavailable, not parse failures or evidence of success. The SDK
-coalesces cumulative updates by agent, turn and call. Older content-only events
-advance the cursor and signal unavailable evidence without creating anonymous
-root-agent tool rows. Accounting/usage events do not consume the bounded snapshot
-presentation window. Full event bodies remain explicitly scoped content reads;
-rendering never dereferences them for each token update.
+`conversationActivityRows` is one chronological pass over those parts and the
+SDK's execution projection. Reasoning and ordinary operations form quiet trees.
+Prose, images, authored input, notices, mailbox delivery boundaries, scratch
+restarts, different known turns and agent launches end the group. Failed host
+operations stay in place, even if their enclosing execution catches the error.
+Summary counts count invocations and deduplicate edits only by exact typed file
+target. The enclosing execution is not counted again. SDK reconciliation scopes
+identities to root, agent, revision, turn, part, tool and invocation; the UI does
+not replay events or fetch traces. Unmatched evidence remains separate.
 
-`CurrentActivity` in the session information bar reads the selected session
-snapshot and execution projection. Its single polite status prioritizes connection
-health and human requests, then current operation/model activity; idle stays distinct
-from successful completion. `ChatActivity` keeps direct child rows above the composer. They show agent
-names and current lifecycle state, with at most three visible and no eager child
-transcript reads. Counts from incomplete snapshots say **At least**. Retained
-children are labeled **Session agents**, not attributed to an unproven turn.
-Inactive unrelated children stay in the inspector; visible agent admission order
-is retained, and attention changes do not evict a focused agent row.
-The shared `ActivityIndicator` starts gentle opacity motion after one second,
-stops in hidden documents, and respects OS and Appearance reduced motion. Its
-pause control updates the existing device preference. Status text remains static
-and readable, with one polite live region and no per-token/timer announcements.
-Chat and REPL reuse `ExecutionTime` for client-observed durations. Its isolated
-timer stops while hidden; replay never starts a new historical clock.
+Group headers, operation steps, expanded details and top-level Markdown blocks
+are individual rows in the existing virtual list. There is no six-cell or
+three-operation display cap; DOM virtualization is separate from data retention.
+Only the streaming tail automatically opens. Compact and Comfortable settle
+closed (Comfortable retains its small loaded preview); Detailed remains open.
+Manual disclosure choices take precedence, are capped at 128 and survive ordinary
+virtual remounts and live/history reconciliation. Stable member aliases are capped
+at 512 per group. Automatic folding waits for entrance motion and for selection
+or focus to leave the group. Live reasoning shows its last 24 lines; settled
+reasoning begins at the start. Available larger reasoning, execution code/output,
+and raw mailbox messages remain behind explicit disclosures and content reads.
+**Open in REPL** shares the existing execution evidence and opens an adjacent tab.
 
-Protocol 5.1 adds `stream.cell.host.started` immediately before host dispatch.
-`stream.cell.host` remains completion-only. Turn and invocation IDs join these
-events in SDK evidence; host cancellation, caught host errors and cell/turn
-outcomes remain distinct. Snapshot/replay can recover known current operations;
-missing prefixes fall back to generic activity. Old daemons still support
-accurate Running through existing tool lifecycle events. Older clients preserve
-ordered delivery but surface the new kind as unavailable detail; update their
-renderer to use the richer event. Never filter events out of a sequenced stream.
+Typed `agents.spawn` child IDs produce separate chronological cards. Name/model
+and lifecycle state come from the existing agent collection; there are no child
+transcript subscriptions just to populate cards. The inspector remains the full
+agent directory, including older children without a proven launch location. The
+composer's duplicate agent dock is removed. `CurrentActivity` remains the single
+polite live status in the information bar; no per-token announcements are added.
+
+`TranscriptWorking` renders a quiet activity line below the transcript, inside
+the same reading scroller. It immediately bridges local submission previews as
+**Sending…**, then uses the existing SDK turn/operation status. Queued and
+uncertain delivery stay explicit; permission/question waits and disconnected
+views stop the animation. Completed, failed and cancelled turns remove the
+trailer, leaving existing outcome notices responsible for errors. Empty active
+conversations also render the trailer before their first response event.
+
+The generic UI `ActivityIndicator` matrix variant uses a theme-colored 3×3 dot
+wave with a 750ms opacity cycle and no entrance delay. Its existing compact dots
+remain unchanged in the information bar. Generic working/thinking captions rotate
+every 7 seconds; known tool and response phases retain their specific labels.
+The elapsed clock starts with the current turn, using its recorded start when
+available and otherwise the client observation time. Sending has no clock;
+an older turn's timestamp is never reused. Only the trailer's local clock updates
+once per second, and hidden/waiting/settled views leave no ticking interval.
+Shared reduced-motion settings stop the wave and caption rotation. The trailer
+adds no live region, requests, retained history, or SDK event reconciliation.
+
+`streaming-markdown.tsx` retains TanStack Markdown and safe app renderers. Live
+changes are coalesced to at most 30 parses/second, with stable unchanged block
+ASTs and a 512-document / 2 MiB source cache. This is not an incremental parser.
+Conservative trailing inline delimiter completion affects display only. One
+response-copy footer uses original retained assistant prose before display splits;
+reasoning, tool output and mailbox deliveries are excluded. Partial history reads
+say **Copy visible response**, with the existing 256K-character bound. Selected
+Markdown blocks preserve their DOM until selection ends, then display the latest
+source; other blocks continue streaming. Code decoration receives original token
+offsets and never changes its source or copy semantics.
+
+`transcript-motion.tsx` adapts Zeron's MIT-licensed motion with native Web Animations
+and static StyleX styles. Text fades are opacity-only, use the 160ms gap seed,
+70/30 moving average and 120–400ms clamp, with acceleration for concurrent chunks.
+Rows reveal over 360ms, connectors over 480ms, first rows wait 90ms and simultaneous
+rows stagger by 65ms. Activity content fades with a 4px lift; folds and chevrons use
+140ms ease-out. Active summaries sweep muted-to-normal text over 3.4 seconds.
+Entrance reveals clip the measured row while reserving its layout space; delayed
+zero-height rows would defeat virtualization by mounting every waiting operation.
+Initial history, reattachment and virtual remounts do not replay entrance motion.
+Hidden documents and reduced motion stop animations and use final states.
+
+Chat enables `ReadingList.chatFollow`; REPL keeps its existing following behavior.
+Following is explicit user intent, independent of distance after a layout change.
+TanStack owns end anchoring and ordinary resize/prepend compensation. An exact
+end correction on append, layout and container/viewport resize accounts for
+surrounding padding, turn feedback and composer height. Indexed `followOnAppend`
+is disabled: its pending target can keep reconciling after a user interruption.
+There is no streaming scroll animation loop. CSS `overflow-anchor: none` keeps
+browser anchoring from competing with virtual measurements.
+
+Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
+selection detach immediately, even within the old 70px proximity threshold.
+Ordinary row clicks, Tab and Enter do not detach. A downward user scroll reaching
+the actual bottom (2px rounding tolerance), or **Latest**, resumes following;
+content growth and programmatic scrolls never resume it or load history.
+Only **Latest** uses native smooth scrolling, which new scroll input cancels;
+reduced motion uses an immediate jump. TanStack's default resize predicate keeps
+a growing block spanning the viewport stationary while reading it. Existing
+bookmark, attachment, permission, question and authored-input ownership remains.
+Pointer presses pause automatic movement until the click completes so a growing
+transcript cannot move an action away from the pointer between down and up.
 
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,

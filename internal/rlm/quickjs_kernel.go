@@ -116,7 +116,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 					return fail(err)
 				}
 				seen[response.ID], pending[response.ID] = true, true
-				call := HostCall{CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, response.ID), Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments)}
+				call := HostCall{CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, response.ID), Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments), Display: hostDisplay(response.Module, response.Operation, response.Arguments)}
 				if kernel.onHostStart != nil {
 					kernel.onHostStart(call)
 				}
@@ -145,6 +145,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 							out.value, out.err = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 						}
 					}
+					out.call.Display = hostResultDisplay(out.call, out.value)
 					out.call.Duration = time.Since(start)
 					completed <- out
 				}()

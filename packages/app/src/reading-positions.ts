@@ -65,10 +65,11 @@ export function readingTarget(
   revision: string,
   bookmark: ReadingBookmark,
 ): { index: number; offset: number; fallback: boolean } {
-  const exact =
+  let exact =
     revision === bookmark.revision
-      ? rows.findIndex((row) => row.id === bookmark.messageId || row.memberIds?.includes(bookmark.messageId))
+      ? rows.findIndex((row) => row.id === bookmark.messageId)
       : -1;
+  if (exact < 0 && revision === bookmark.revision) exact = rows.findIndex(row => row.memberIds?.includes(bookmark.messageId));
   if (exact >= 0)
     return { index: exact, offset: bookmark.offset, fallback: false };
   if (revision === bookmark.revision && bookmark.seq !== undefined) {
