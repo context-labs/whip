@@ -23,6 +23,41 @@ const completed = (seq: number, id: string, content: string): HistoryView['messa
 });
 const success = JSON.stringify({ value: 42, output: 'printed\n', steps: 7 });
 
+test('durable presentation restores operations and exactly joins a live part on first history read', () => {
+  const message = call(8, 'reused', '42');
+  message.message!.presentation = { version: 1, turn_id: 'turn', parts: [{ id: 'turn:p1', kind: 'tool', call_id: 'reused', tool_name: 'rlm_exec', hosts: [
+    { invocation_id: '1:1', name: 'files.read', status: 'completed', display: { target: 'README.md' } },
+    { invocation_id: '1:2', name: 'agents.spawn', status: 'completed', display: { child_id: 'reviewer', label: 'Review' } },
+  ] }] };
+  const histories = history([message, completed(9, 'reused', success)]);
+  const restored = cells(state(undefined, histories))[0]!;
+  assert.equal(restored.hosts.length, 2);
+  assert.equal(restored.hosts[0]!.display?.target, 'README.md');
+  assert.equal(restored.hosts[1]!.display?.child_id, 'reviewer');
+  let evidence = observeExecution(emptyExecutionEvidence('root', '1'), { seq: '1', kind: 'stream.tool.started', payload: { id: 'reused', name: 'rlm_exec', part_id: 'turn:p1', turn_id: 'turn' } }, { root: 'turn' }, {});
+  const id = evidence.rows[0]!.id;
+  evidence = reconcileExecutions(evidence, histories);
+  const reconciled = cells(state(evidence, histories));
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0]!.id, id);
+  assert.equal(reconciled[0]!.hosts.length, 2);
+});
+
+test('large historical calls and results keep separate explicit content handles', () => {
+  const body = (id: string) => ({ reference_id: id, digest: 'a'.repeat(64), size: '100000', media_type: 'application/json', source: 'transcript' });
+  const histories = history([
+    { seq: 1, role: 'assistant', body: body('code'), presentation: { version: 1, turn_id: 'turn', parts: [{ id: 'call', kind: 'tool', call_id: 'id', tool_name: 'rlm_exec', omitted: 1, hosts: [{ invocation_id: 'host', name: 'files.read', status: 'completed' }] }] } },
+    { seq: 2, role: 'tool', body: body('result'), presentation: { version: 1, turn_id: 'turn', parts: [{ id: 'result', kind: 'result', call_id: 'id', tool_name: 'rlm_exec', status: 'completed' }] } },
+  ]);
+  const rows = cells(state(undefined, histories));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.codeBody?.reference_id, 'code');
+  assert.equal(rows[0]!.body?.reference_id, 'result');
+  assert.equal(rows[0]!.status, 'completed');
+  assert.equal(rows[0]!.hosts.length, 1);
+  assert.equal(rows[0]!.truncated, true);
+});
+
 test('result v2 completes either engine without invented metrics and preserves explicit null', () => {
   for (const execution_engine of ['starlark', 'quickjs']) {
     const language = execution_engine === 'quickjs' ? 'javascript' : 'starlark';

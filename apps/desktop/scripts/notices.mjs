@@ -62,6 +62,7 @@ export async function dependencyNotices(binary, directory, version) {
       properties: [{ name: 'go:module:sum', value: module.sum }] });
   }
   notices.push('\n' + await readFile(path.join(repositoryRoot, 'packages/app/src/assets/provider-logos-NOTICE.txt'), 'utf8'));
+  notices.push('\n' + await readFile(path.join(repositoryRoot, 'apps/web/public/zeron-NOTICE.txt'), 'utf8'));
   // The toolchain's runtime and standard library are linked too.
   await collect('Go runtime and standard library', (await command('go', ['env', 'GOROOT'])).trim());
   full.metadata.properties = [{ name: 'whip:license-declarations-without-files', value: missing.join(', ') }];

@@ -30,7 +30,7 @@ import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
-import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
+import { activityStatus, CurrentActivity } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionInfoBar } from './session-info-bar';
 import { openSessionView } from './session-tab-routing';
@@ -197,6 +197,7 @@ export function SessionContent({
     root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
     submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
     new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
+    true,
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
@@ -292,8 +293,15 @@ export function SessionContent({
       : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
         <Timeline
           active={!!activeTurn}
+          activeTurnId={activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={activityRows}
+          agents={root?.agents ?? []}
+          activeTurns={root?.active_turns ?? {}}
+          onAgent={next => {
+            const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
+            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
+          }}
           footer={<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />}
           connected={connected}
           density={preferences.toolDensity}
@@ -348,12 +356,7 @@ export function SessionContent({
           ))}
         </details>
       )}
-      {kind === 'chat' && <ChatActivity state={state} agentId={agentId} connected={connected}
-        onAllAgents={() => setPanel('agents')}
-        onAgent={next => {
-          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-        }} />}
+
       {root && (
         <PendingRequests
           root={root}

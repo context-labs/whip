@@ -3,9 +3,10 @@ import { expect, it, vi } from 'vitest';
 import { ActivityIndicator, ThemeProvider, UIProvider } from '@whip/ui';
 import type { ExecutionCell, SessionViewSnapshot } from '@whip/sdk/state';
 import { conversationActivityRows, isActivityGroup, responseCopies, type ActivityGroup } from '../src/chat-activity-rows';
-import { activityStatus, ActivityGroupRow, ChatActivity } from '../src/chat-activity';
+import { activityStatus } from '../src/chat-activity';
 import { timelineRows, type TimelineRow } from '../src/conversation-rows';
 import { readingTarget } from '../src/reading-positions';
+import { ActivityHeader, ActivityDetail, InlineAgent } from '../src/transcript-activity';
 import { ExecutionTime } from '../src/execution-time';
 
 const cell = (id: string, seq?: number, status: ExecutionCell['status'] = 'completed'): ExecutionCell => ({
@@ -62,10 +63,10 @@ it('groups typed contiguous cells while preserving authored prose and notices ex
   expect(conversationActivityRows([{ ...tool('a', 1), toolName: 'another-tool' }], [cells[0]!])[0]!.role).toBe('tool');
 });
 
-it('turns, failures, gaps and restarts split groups rather than claiming one continuous operation', () => {
+it('turn boundaries, gaps and restarts split groups while failures stay in their activity', () => {
   const cells = [cell('a', 1), { ...cell('b', 2, 'failed'), turnId: 'one' }, { ...cell('c', 3), turnId: 'one' }, { ...cell('d', 4), turnId: 'two' }, cell('e', 5)];
   const output = conversationActivityRows(cells.map(item => tool(item.id, item.seq)), [...cells, { kind: 'restart', id: 'restart', agentId: 'root', seq: 4, text: 'Restarted' }]);
-  expect(output.filter(isActivityGroup).map(row => row.cells.length)).toEqual([1, 1, 1, 1, 1]);
+  expect(output.filter(isActivityGroup).map(row => row.cells.length)).toEqual([1, 2, 1, 1]);
 });
 
 it('folds internal deliveries into following work without absorbing prose or earlier executions', () => {
@@ -86,11 +87,9 @@ it('agent updates retain their raw contents and never imply an execution complet
   const readBody = vi.fn();
   const update: TimelineRow = { id: 'digest', role: 'mailbox', text: 'Mailbox digest: keep the full report.' };
   const activity = conversationActivityRows([update], []).filter(isActivityGroup)[0]!;
-  const view = render(<ThemeProvider><UIProvider><ActivityGroupRow group={activity} open connected density="detailed" onToggle={vi.fn()} readBody={readBody} /></UIProvider></ThemeProvider>);
+  const view = render(<ThemeProvider><UIProvider><ActivityHeader group={activity} open connected density="detailed" toggle={vi.fn()} /></UIProvider></ThemeProvider>);
   expect(screen.getByText('Agent updates')).toBeDefined();
-  expect(screen.queryByText('Completed work')).toBeNull();
-  expect(view.container.querySelector('[data-agent-updates]')!.hasAttribute('open')).toBe(false);
-  expect(view.container.querySelector('[data-agent-update] pre')!.textContent).toBe(update.text);
+  expect(view.container.querySelector('[data-agent-update] pre')).toBeNull();
   expect(readBody).not.toHaveBeenCalled();
   const many = conversationActivityRows(Array.from({ length: 14 }, (_, index) => ({ ...update, id: String(index) })), []).filter(isActivityGroup);
   expect(many.map(group => group.updates!.length)).toEqual([6, 6, 2]);
@@ -133,51 +132,25 @@ it('merged groups preserve bookmarks for both prior identities', () => {
   expect(readingTarget(merged, '1', bookmark)).toEqual({ index: 0, offset: 12, fallback: false });
 });
 
-it('appending executions preserves a focused cell in the bounded expanded window', () => {
-  const items = Array.from({ length: 6 }, (_, index) => cell(String(index)));
-  const props = { open: true, connected: true, density: 'detailed' as const, onToggle: vi.fn(), readBody: vi.fn() };
-  const app = (items: ExecutionCell[]) => <ThemeProvider><UIProvider><ActivityGroupRow group={group(items)} {...props} /></UIProvider></ThemeProvider>;
-  const view = render(app(items));
-  const first = view.container.querySelector<HTMLElement>('[data-activity-cell="0"]')!;
-  first.tabIndex = 0;
-  first.focus();
-  view.rerender(app([...items, cell('6')]));
-  expect(document.activeElement).toBe(first);
-  expect(view.container.querySelectorAll('[data-activity-cell]')).toHaveLength(6);
+it('inline agent cards use the typed child identity without hydrating a transcript', () => {
+  const onAgent = vi.fn();
+  const row = { ...tool('spawn'), role: 'agent-activity' as const, cell: cell('spawn'), agentHost: { id: 'host', name: 'agents.spawn', status: 'completed' as const, summary: '', duration: '', display: { child_id: 'child', label: 'Reviewer' } } };
+  const view = render(<ThemeProvider><UIProvider><InlineAgent row={row} connected active={false} onAgent={onAgent} readBody={vi.fn()} /></UIProvider></ThemeProvider>);
+  fireEvent.click(screen.getByRole('button', { name: /Reviewer/ }));
+  expect(onAgent).toHaveBeenCalledWith('child');
+  expect(view.container.querySelector('[data-inline-agent]')).toBeTruthy();
+  expect(screen.getByText('Status unavailable')).toBeTruthy();
 });
 
-it('agent rows show names, stay bounded, and open an agent without hydrating its transcript', () => {
-  const onAgent = vi.fn(), onAllAgents = vi.fn();
-  const snapshot = state({ agents: Array.from({ length: 8 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Review ${index}`, model: 'model', status: 'running' })) });
-  render(<ThemeProvider><UIProvider><ChatActivity state={snapshot} agentId="root" connected onAgent={onAgent} onAllAgents={onAllAgents} /></UIProvider></ThemeProvider>);
-  expect(screen.getAllByRole('button', { name: /^Review / })).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button', { name: /^Review 0/ }));
-  expect(onAgent).toHaveBeenCalledWith('child-0');
-  fireEvent.click(screen.getByRole('button', { name: 'View all session agents' }));
-  expect(onAllAgents).toHaveBeenCalledOnce();
-});
-
-it('expanded groups bound code and DOM work and never fetch stored bodies automatically', () => {
+it('explicit execution details keep language and output and do not fetch stored bodies', () => {
   const readBody = vi.fn(), onOpenRepl = vi.fn();
-  render(<ThemeProvider><UIProvider><ActivityGroupRow group={group(Array.from({ length: 100 }, (_, index) => ({ ...cell(String(index)), code: 'x'.repeat(20_000) })))}
-    open connected density="detailed" onToggle={vi.fn()} readBody={readBody} onOpenRepl={onOpenRepl} /></UIProvider></ThemeProvider>);
-  expect(screen.getByText(/Showing 6 of 100/)).toBeDefined();
-  expect(document.querySelectorAll('pre')).toHaveLength(6);
-  expect(document.body.textContent!.length).toBeLessThan(30_000);
+  const execution = { ...cell('js'), language: 'javascript', code: 'await files.read({path: "README.md"})', output: 'hello' };
+  render(<ThemeProvider><UIProvider><ActivityDetail item={{ id: 'js', kind: 'execution', cell: execution }} groupId="group" readBody={readBody} onOpenRepl={onOpenRepl} /></UIProvider></ThemeProvider>);
+  expect(screen.getByText('JavaScript')).toBeDefined();
+  expect(screen.getByText('hello')).toBeDefined();
   expect(readBody).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open in REPL' }));
   expect(onOpenRepl).toHaveBeenCalledOnce();
-});
-
-it('named agents keep focus and admission order as other agents need attention', () => {
-  const children = Array.from({ length: 4 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Agent ${index}`, status: 'running' }));
-  const app = (agents: unknown[]) => <ThemeProvider><UIProvider><ChatActivity state={state({ agents })} agentId="root" connected onAgent={vi.fn()} onAllAgents={vi.fn()} /></UIProvider></ThemeProvider>;
-  const view = render(app(children));
-  const focused = screen.getByRole('button', { name: /^Agent 2/ });
-  focused.focus();
-  view.rerender(app([{ ...children[3], blocking_reason: 'permission' }, ...children.slice(0, 3).reverse()]));
-  expect(document.activeElement).toBe(focused);
-  expect(screen.getAllByRole('button', { name: /^Agent / }).map(item => item.getAttribute('data-activity-agent'))).toEqual(['child-0', 'child-1', 'child-2']);
 });
 
 it('observed time pauses its timer while hidden and never invents a timer for replay', () => {

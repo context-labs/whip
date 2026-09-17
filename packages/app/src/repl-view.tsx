@@ -126,5 +126,6 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     <ErrorNotice type="action" owner={`${row.id}:copy`} title="Could not copy" error={copyError} />
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}
+    {row.codeBody && <ContentRead key={row.codeBody.reference_id} view={view} agentId={row.agentId} value={row.codeBody} label="Execution code" />}
   </article>;
 }

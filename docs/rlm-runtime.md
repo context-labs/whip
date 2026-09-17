@@ -358,7 +358,7 @@ in either mode, subject to its existing consent gate.
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized
-node through `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
+node through `mcp.search`, `mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
 are not appended to the provider’s tool catalog. Root and child therefore keep
 the same stable interface even as MCP servers connect, fail, or reconnect. A
 call's text carries structured content as JSON; image, audio and binary parts

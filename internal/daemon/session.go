@@ -115,7 +115,11 @@ type turnCompaction struct {
 // new transcript messages, compactions, and the durable items the model saw
 // (steer rows injected at a boundary, mailbox messages shown or read).
 type turnJournal struct {
-	TurnID string
+	Presentation          *llm.TranscriptPresentation
+	PresentationSerial    uint64
+	PresentationTextBytes int
+	PresentationProse     string // Bounded pending source, discarded once canonical prose is recorded.
+	TurnID                string
 	// SpanID and TraceID identify the turn's trace span; every model call,
 	// cell, host call and wait of the turn parents under it.
 	SpanID  string

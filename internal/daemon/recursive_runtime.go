@@ -192,6 +192,7 @@ func (node *AgentSession) emitHostCall(call rlm.HostCall) {
 }
 
 func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+	partID := node.recordHostPresentation(call)
 	emit := node.emit
 	if emit == nil {
 		return
@@ -200,7 +201,7 @@ func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 	turnID := node.turn.TurnID
 	node.mu.Unlock()
 	event := StreamEvent{
-		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
+		PartID: partID, Display: call.Display, ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
 		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err, OperationID: call.OperationID,
 	}
 	if kind == "stream.cell.host" {
@@ -1650,17 +1651,45 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 		if err != nil {
 			return nil, err
 		}
-		node := host.session
-		result := make([]map[string]any, 0, len(listed))
-		for _, tool := range listed {
-			call, err := manager.ResolveTool(server, tool.Name)
-			authorized := err == nil && node.root.store.AuthorizeMCP(ctx, node.root.ID(), node.id, node.authority.MCP, call.MCPSelector) == nil
+		// A window over the name-sorted catalog, light by default: schemas
+		// come from describe, and list_servers reports each server's total.
+		offset := min(max(intArgument(arguments, "offset", 0), 0), len(listed))
+		limit := intArgument(arguments, "limit", mcpListDefaultLimit)
+		if limit <= 0 {
+			limit = mcpListDefaultLimit
+		}
+		schemas := arguments["schemas"] == true
+		window := listed[offset:min(offset+limit, len(listed))]
+		result := make([]map[string]any, 0, len(window))
+		for _, tool := range window {
+			result = append(result, host.mcpToolEntry(ctx, manager, server, tool, schemas))
+		}
+		return result, nil
+	case "search":
+		server, _ := stringArgument(arguments, "server")
+		query, _ := stringArgument(arguments, "query")
+		matches, err := manager.Search(server, query, intArgument(arguments, "limit", 0))
+		if err != nil {
+			return nil, err
+		}
+		result := make([]map[string]any, 0, len(matches))
+		for _, match := range matches {
+			_, authorized := host.mcpAuthorized(ctx, manager, match.Server, match.Name)
 			result = append(result, map[string]any{
-				"name": tool.Name, "title": tool.Title, "description": tool.Description, "input_schema": tool.InputSchema,
-				"authorized": authorized, "definition": call.Definition, "generation": call.Generation,
+				"server": match.Server, "name": match.Name, "title": match.Title, "summary": match.Summary, "authorized": authorized,
 			})
 		}
 		return result, nil
+	case "describe":
+		server, _ := stringArgument(arguments, "server")
+		tool, _ := stringArgument(arguments, "tool")
+		described, err := manager.Describe(server, tool)
+		if err != nil {
+			return nil, err
+		}
+		entry := host.mcpToolEntry(ctx, manager, server, described, true)
+		entry["server"] = server
+		return entry, nil
 	case "instructions":
 		server, _ := stringArgument(arguments, "server")
 		text, generation, source, err := manager.Instructions(server)

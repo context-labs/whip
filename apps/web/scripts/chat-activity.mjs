@@ -12,6 +12,7 @@ import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.
 // Production renderer, real SDK subscription and durable fixed event fixtures.
 // No live provider, user daemon, credentials, editor or displayed command is used.
 process.env.WHIP_WEB_REPL_FIXTURE = '1';
+process.env.WHIP_WEB_STREAMING_FIXTURE = '1';
 const directory = process.env.WHIP_CHAT_ACTIVITY_RESULTS ?? '/tmp/whip-chat-activity-results';
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const exec = promisify(execFile);
@@ -64,7 +65,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   };
   const dock = page.locator('[data-current-activity]');
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
-  const group = page.locator('[data-activity-group]').filter({ hasText: '3 executions' });
+  const group = page.locator('[data-activity-group]').filter({ hasText: 'read 3 files' });
   const screenshot = label => page.screenshot({ path: join(directory, `${name}-${label}.png`) });
   try {
     // Verify the fixture's Go embed and staged Electron use the same renderer.
@@ -86,6 +87,16 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     await page.goto(url);
     await page.getByRole('textbox', { name: 'Message WHIP', exact: true }).waitFor();
+    await expect(page.locator('[data-inline-agent="repl-child"]')).toHaveCount(1);
+    const saved = page.locator('[data-activity-group]').filter({ hasText: 'Thought' });
+    await saved.getByRole('button').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-activity-step]').filter({ hasText: 'persisted.md' })).toHaveCount(1);
+    await page.locator('[data-activity-step]').filter({ hasText: 'Thought' }).getByRole('button').click();
+    await expect(page.locator('[data-activity-detail]')).toContainText('Saved reasoning');
+    await saved.getByRole('button').focus();
+    await page.keyboard.press('Enter');
+    await expect(saved.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
     if (browser.app) {
       // Verify the actual staged renderer's native drag hit regions.
       const chrome = await page.locator('[data-workspace-tab-strip]').evaluate(strip => ({
@@ -104,7 +115,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const latest = page.getByRole('button', { name: 'Latest', exact: true });
     if (await latest.count()) await latest.click();
     await expect(group).toHaveCount(1);
-    await expect(group.locator('[data-tool-preview]')).toBeVisible();
+    await expect(group.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-activity-step]').filter({ hasText: 'Read' })).toHaveCount(3);
+    await expect(page.locator('[data-chat-activity]')).toHaveCount(0);
     const groupId = await group.getAttribute('data-activity-group');
     await expect(dock.locator('[data-activity-animation]')).toHaveAttribute('data-activity-animation', 'running');
     await screenshot('running');
@@ -134,12 +147,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(dock.getByRole('status')).toHaveText('Waiting for agents');
     assert.equal(await group.getAttribute('data-activity-group'), groupId);
     assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, snapshots, 'Host phases must not add snapshot reads');
-    await group.locator('summary').focus();
+    const operation = page.locator('[data-activity-step]').filter({ hasText: 'agents.wait' });
+    await operation.getByRole('button').focus();
     await page.keyboard.press('Enter');
-    await expect(group.locator('details')).toHaveAttribute('open', '');
-    await expect(group.getByText('agents.wait', { exact: true })).toBeVisible();
+    await expect(operation.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    await page.locator('[data-activity-detail]').scrollIntoViewIfNeeded();
     await screenshot('expanded');
-    await group.getByRole('button', { name: 'Open in REPL' }).click();
+    await page.locator('[data-activity-detail]').getByRole('button', { name: 'Open in REPL' }).click();
     await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
     const notebook = page.locator('[data-repl-cell]').filter({ hasText: 'agents.wait' });
     await expect(notebook).toContainText('Running');
@@ -173,7 +187,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       // before checking its typography; font reflow need not follow the tail.
       await expect.poll(async () => {
         await reading.evaluate(element => { element.scrollTop = element.scrollHeight; });
-        return group.locator('[data-tool-preview]').isVisible();
+        return group.isVisible();
       }).toBe(true);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), appearance.label);
       await screenshot(appearance.label);
@@ -197,7 +211,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.evaluate(() => {
-      const node = document.querySelector('[data-activity-group] [data-tool-preview]');
+      const node = document.querySelector('[data-activity-step] button span');
       if (node) { const range = document.createRange(); range.selectNodeContents(node); getSelection().removeAllRanges(); getSelection().addRange(range); }
     });
     const selected = await page.evaluate(() => getSelection().toString());
@@ -205,6 +219,33 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(dock.getByRole('status')).toHaveText('Writing a response');
     if (selected) assert.equal(await page.evaluate(() => getSelection().toString()), selected);
     await screenshot('complete');
+    await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement?.blur(); document.documentElement.setAttribute('data-motion', 'system'); });
+    await expect(group.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+    await step('tree');
+    const tree = page.locator('[data-activity-group]').filter({ hasText: 'read 128 files' });
+    if (await latest.count()) await latest.click();
+    await expect(tree).toHaveCount(1);
+    await expect(tree.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    assert.ok(await reading.locator('[data-reading-id]').count() < 80, 'Long operation trees must stay virtualized');
+    await screenshot('long-tree');
+    await step('prose');
+    if (await latest.count()) await latest.click();
+    await expect(reading.getByRole('heading', { name: 'Streaming report' })).toBeVisible();
+    await expect(reading.locator('strong').filter({ hasText: 'Hello' })).toBeVisible();
+    await step('prose-more');
+    await expect(reading.locator('[data-markdown-block]').filter({ hasText: 'Hello world' })).toBeVisible();
+    await expect(reading.locator('code').filter({ hasText: 'const answer = 42;' })).toBeVisible();
+    await page.evaluate(() => {
+      const node = [...document.querySelectorAll('[data-markdown-block] p')].find(node => node.textContent.includes('Hello world'));
+      const range = document.createRange(); range.selectNodeContents(node); getSelection().removeAllRanges(); getSelection().addRange(range);
+    });
+    await step('prose-end');
+    await expect.poll(() => page.evaluate(() => getSelection().toString())).toBe('Hello world 🌍');
+    await screenshot('markdown');
+    const accessible = await reading.ariaSnapshot();
+    assert.ok(accessible.includes('heading "Streaming report"'), 'Markdown headings remain in the accessibility tree');
+    await writeFile(join(directory, `${name}-accessibility.yml`), accessible);
+    await page.evaluate(() => { getSelection().removeAllRanges(); });
     const response = await fetch(`${fixture.info.frontend}/control/release?key=chat-activity`, { method: 'POST' });
     assert.equal(response.status, 204);
     await work.result();
@@ -213,7 +254,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(page.getByRole('textbox', { name: 'Message WHIP', exact: true })).toBeInViewport();
     assert.deepEqual(errors, []);
     assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
-    report.push({ browser: name, rendererDigest: manifest.digest, checks: ['identical embedded renderer', 'grouped executions', 'visible collapsed preview', 'accurate host phase', 'no phase polling', 'keyboard disclosure', 'shared REPL state', 'snapshot recovery', 'shared reduced motion', '390/320px bounds', 'light/dark themes with minimum/maximum system type', 'selection through completion', 'bounded production history', ...(browser.app ? ['staged main/preload', '400% native zoom'] : [])] });
+    report.push({ browser: name, rendererDigest: manifest.digest, checks: ['identical embedded renderer', 'restored reasoning and typed inline agent', 'grouped executions', 'live-open operation tree', 'accurate host phase', 'no phase polling', 'keyboard disclosure', 'shared REPL state', 'snapshot recovery', 'shared reduced motion', '390/320px bounds', 'light/dark themes with minimum/maximum system type', 'selection through completion', 'automatic fold after selection release', '128-operation virtual tree under 80 mounted rows', 'streamed Markdown, Unicode and highlighted code', 'accessibility tree', 'bounded production history', ...(browser.app ? ['staged main/preload', '400% native zoom'] : [])] });
     await writeFile(join(directory, 'results.json'), JSON.stringify(report, null, 2));
   } catch (error) {
     await screenshot('failure').catch(() => {});

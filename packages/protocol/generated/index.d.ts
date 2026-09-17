@@ -152,11 +152,81 @@ export interface AgentTranscriptResult {
     messages:
       | null
       | {
+          presentation?: null | {
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
           role?: string;
           authored?: boolean;
           sent_at?: null | string;
           seq: number;
           message?: null | {
+            presentation?: null | {
+              version: number;
+              turn_id?: string;
+              parts?:
+                | null
+                | {
+                    id: string;
+                    kind: string;
+                    start?: number;
+                    end?: number;
+                    text?: string;
+                    tool_name?: string;
+                    status?: string;
+                    call_id?: string;
+                    hosts?:
+                      | null
+                      | {
+                          invocation_id: string;
+                          name: string;
+                          summary?: string;
+                          status: string;
+                          duration?: string;
+                          error?: string;
+                          display?: null | {
+                            target?: string;
+                            command?: string;
+                            query?: string;
+                            child_id?: string;
+                            label?: string;
+                          };
+                        }[];
+                    omitted?: number;
+                  }[];
+              omitted?: number;
+            };
             role: string;
             content:
               | string
@@ -257,11 +327,81 @@ export interface BoundedTranscriptPage {
   messages:
     | null
     | {
+        presentation?: null | {
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
         role?: string;
         authored?: boolean;
         sent_at?: null | string;
         seq: number;
         message?: null | {
+          presentation?: null | {
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
           role: string;
           content:
             | string
@@ -538,6 +678,14 @@ export interface ConfigurationUpdate {
 }
 
 export interface ContentEventPayload {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
   accounting?: null | {
     root_id: string;
     agent_id: string;
@@ -2429,6 +2577,41 @@ export interface RootSnapshot {
   messages:
     | null
     | {
+        presentation?: null | {
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
         role: string;
         content:
           | string
@@ -2968,6 +3151,14 @@ export interface SpanRecord {
 }
 
 export interface StreamEvent {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
   accounting?: null | {
     root_id: string;
     agent_id: string;

@@ -91,6 +91,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
 	session.turn.SpanID, session.turn.TraceID, session.turn.LastModelCallID = spanID, traceID, ""
 	session.mu.Unlock()
+	defer session.finishPresentation()
 	session.internPrompt(ctx)
 	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices, OnEphemeral: func(text string) { session.recordEphemeral(ctx, text) }}
 	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
@@ -142,37 +143,52 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	events.OnToolStart = func(id, name, args string) {
 		session.toolSpanStart(id, name, args)
 		if emit != nil {
-			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID, PartID: session.toolPresentationID(id)})
 		}
 	}
 	events.OnToolEnd = func(id, name, result string) {
 		session.toolSpanEnd(id, name, result)
 		if emit != nil {
-			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID})
+			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID, PartID: session.toolPresentationID(id)})
+		}
+	}
+	events.OnText = func(text string) {
+		id := session.presentationPart("text", "", text)
+		if emit != nil {
+			emit("stream.text", StreamEvent{Text: text, TurnID: turnID, PartID: id})
+		}
+	}
+	events.OnThink = func(text string) {
+		id := session.presentationPart("reasoning", "", text)
+		if emit != nil {
+			emit("stream.reasoning", StreamEvent{Text: text, TurnID: turnID, PartID: id})
+		}
+	}
+	events.OnToolCall = func(id, name, args string) {
+		partID := session.presentationPart("tool", id, "")
+		if emit != nil {
+			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID, PartID: partID})
+		}
+	}
+	events.OnRetry = func(event llm.RetryEvent) {
+		if event.Regenerating {
+			session.discardPresentation()
+		}
+		if emit == nil {
+			return
+		}
+		if event.Regenerating {
+			emit("stream.discard", StreamEvent{Text: strconv.Itoa(event.Discarded), TurnID: turnID})
+			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("response interrupted after %d characters (%v); regenerating in %s (%d of %d)", event.Discarded, event.Err, event.Delay, event.Regeneration, event.Regenerations)})
+		} else {
+			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
 		}
 	}
 	if emit != nil {
-		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
-		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }
-		events.OnToolCall = func(id, name, args string) {
-			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
-		}
 		events.OnToolOutput = func(id, text string) {
-			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID})
+			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID, PartID: session.toolPresentationID(id)})
 		}
 		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
-		events.OnRetry = func(event llm.RetryEvent) {
-			if event.Regenerating {
-				// The stream failed after output; the client discards the partial
-				// and generates the whole message again. Clients drop the shown
-				// partial on stream.discard; the notice says what happened.
-				emit("stream.discard", StreamEvent{Text: strconv.Itoa(event.Discarded), TurnID: turnID})
-				emit("stream.notice", StreamEvent{Text: fmt.Sprintf("response interrupted after %d characters (%v); regenerating in %s (%d of %d)",
-					event.Discarded, event.Err, event.Delay, event.Regeneration, event.Regenerations)})
-				return
-			}
-			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
-		}
 		events.OnUsage = func(usage llm.Usage) {
 			emit("stream.usage", StreamEvent{Usage: &UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage}})
 		}
@@ -208,6 +224,7 @@ func (session *AgentSession) recordTranscriptMessage(message llm.Message) int {
 	message.Parts = slices.Clone(message.Parts)
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	session.attachPresentationLocked(&message)
 	message.RawSequence = session.turn.BaseSeq + len(session.turn.Messages) + 1
 	session.turn.Messages = append(session.turn.Messages, message)
 	return message.RawSequence

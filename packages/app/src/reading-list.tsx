@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@whip/ui';
 import { ArrowDown } from 'lucide-react';
@@ -7,6 +7,7 @@ import { scale } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { readingTarget } from './reading-positions';
 import { layout } from './styles';
+import { MotionContext, springStep } from './transcript-motion';
 
 const styles = stylex.create({
   viewport: { flex: 1, overflowY: 'auto', minHeight: 0, overflowAnchor: 'none' },
@@ -19,7 +20,7 @@ const styles = stylex.create({
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
 export function ReadingList<Row extends { id: string; seq?: number }>({
   rows, hasMore, loadOlder, bookmarkKey, historyRevision, historyReady = true,
-  label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false,
+  label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false, smoothFollow = false,
 }: {
   rows: readonly Row[];
   hasMore: boolean;
@@ -35,8 +36,16 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   footer?: ReactNode;
   canLoadOlder?: boolean;
   loadingHistory?: boolean;
+  smoothFollow?: boolean;
 }) {
   const runtime = useRuntime();
+  const motion = useContext(MotionContext);
+  const animation = useRef(0);
+  const spring = useRef({ velocity: 0, time: 0, target: 0, growth: 0, settled: 0 });
+  const programmatic = useRef<number | undefined>(undefined);
+  const userScrolling = useRef(false);
+  const userScrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const attached = useRef(false);
   const viewport = useRef<HTMLDivElement>(null);
   const saved = useRef(
     bookmarkKey ? runtime.readingPositions.get(bookmarkKey) : undefined,
@@ -59,7 +68,8 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     // resize compensation while scrolling backward, so removing it shifts rows.
     getItemKey: (index) => (index === 0 ? 0 : rows[index - 1]!.id),
     anchorTo: 'end',
-    scrollEndThreshold: 64,
+    // Preserve key anchoring on prepend while the chat spring owns tail movement.
+    scrollEndThreshold: smoothFollow ? -1 : 64,
     rangeExtractor: (range) => {
       const indices = [0, ...defaultRangeExtractor(range)];
       const selected = pinned
@@ -77,6 +87,42 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     },
   });
   const total = virtual.getTotalSize();
+  // The spring alone owns movement while following; key/resize compensation
+  // remains TanStack's responsibility while the person reads older content.
+  virtual.shouldAdjustScrollPositionOnItemSizeChange = smoothFollow ? (item, _delta, instance) => !follow.current && item.start < (instance.scrollOffset ?? 0) : undefined;
+  const writeOffset = (offset: number) => {
+    const root = viewport.current;
+    programmatic.current = root ? Math.max(0, Math.min(root.scrollHeight - root.clientHeight, offset)) : offset;
+    virtual.scrollToOffset(offset);
+  };
+  const stopSpring = () => { cancelAnimationFrame(animation.current); animation.current = 0; };
+  const followTail = (jump = false) => {
+    const root = viewport.current;
+    if (!root || !follow.current || document.hidden) { stopSpring(); return; }
+    const target = Math.max(0, root.scrollHeight - root.clientHeight);
+    if (!smoothFollow || !motion || !attached.current) { attached.current = true; stopSpring(); writeOffset(root.scrollHeight); return; }
+    if (jump && target - root.scrollTop > root.clientHeight * 2.5) writeOffset(target - root.clientHeight * 2.5);
+    if (animation.current) return;
+    const now = performance.now();
+    if (now - spring.current.settled > 500) spring.current.velocity = 0;
+    spring.current.time = now;
+    spring.current.target = target;
+    const tick = (time: number) => {
+      animation.current = 0;
+      if (!follow.current || document.hidden) return;
+      const bottom = Math.max(0, root.scrollHeight - root.clientHeight);
+      const state = spring.current;
+      const frames = Math.min(8, Math.max(.25, (time - state.time) / (1000 / 60)));
+      state.growth = bottom - state.target < -1 ? 0 : state.growth * .88 + Math.max(0, bottom - state.target) / frames * .12;
+      state.target = bottom;
+      const next = springStep(root.scrollTop, state.velocity, bottom, frames, state.growth);
+      state.velocity = next.velocity; state.time = time;
+      if (bottom - next.position <= .5) { writeOffset(bottom); state.settled = time; return; }
+      writeOffset(next.position);
+      animation.current = requestAnimationFrame(tick);
+    };
+    animation.current = requestAnimationFrame(tick);
+  };
   const savePosition = useRef(() => {});
   savePosition.current = () => {
     const root = viewport.current;
@@ -106,6 +152,14 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const stopRestore = () => {
     cancelAnimationFrame(restoreFrame.current);
     restoring.current = false;
+  };
+  const userScroll = () => {
+    stopRestore();
+    if (!smoothFollow) return;
+    stopSpring(); programmatic.current = undefined; follow.current = false;
+    userScrolling.current = true;
+    clearTimeout(userScrollTimer.current);
+    userScrollTimer.current = setTimeout(() => { userScrolling.current = false; }, 250);
   };
   const canReadHistory = hasMore && canLoadOlder && historyReady && !loadingHistory;
   const loadEarlier = async () => {
@@ -200,6 +254,9 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   useLayoutEffect(
     () => () => {
       savePosition.current();
+      stopSpring();
+      clearTimeout(userScrollTimer.current);
+      attached.current = false;
       cancelAnimationFrame(restoreFrame.current);
       restoring.current = false;
       appliedRevision.current = undefined;
@@ -209,14 +266,16 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   useLayoutEffect(() => {
     // A fixed offset lets the next user scroll take over. An indexed scroll can
     // keep reconciling toward the last row after the user starts reading history.
-    if (follow.current && historyReady && !restoring.current)
-      virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-  }, [rows, total, virtual, historyReady, footer]);
+    if (follow.current && historyReady && !restoring.current) followTail();
+    else if (!motion || document.hidden) stopSpring();
+    if (!follow.current && viewport.current) setAtEnd(viewport.current.scrollHeight - viewport.current.scrollTop - viewport.current.clientHeight < 70);
+  }, [rows, total, virtual, historyReady, footer, motion]);
   useEffect(() => {
     const update = () => {
       const root = viewport.current;
       if (!root) return;
       const selection = document.getSelection();
+      if (smoothFollow && selection && !selection.isCollapsed && (root.contains(selection.anchorNode) || root.contains(selection.focusNode))) { stopSpring(); follow.current = false; }
       const nodes = [
         selection?.anchorNode,
         selection?.focusNode,
@@ -251,8 +310,9 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         role="region"
         tabIndex={0}
         aria-label={label}
-        onWheel={stopRestore}
-        onTouchStart={stopRestore}
+        onWheel={userScroll}
+        onTouchStart={userScroll}
+        onPointerDown={userScroll}
         onKeyDown={(event) => {
           if (
             [
@@ -263,19 +323,22 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
               'Home',
               'End',
               ' ',
+              'Enter',
+              'Tab',
             ].includes(event.key)
           )
-            stopRestore();
+            userScroll();
         }}
         onScroll={(event) => {
           if (restoring.current) return;
           const target = event.currentTarget;
+          if (smoothFollow && programmatic.current !== undefined && Math.abs(target.scrollTop - programmatic.current) < 1) { programmatic.current = undefined; savePosition.current(); return; }
           const end =
-            target.scrollHeight - target.scrollTop - target.clientHeight < 64;
-          follow.current = end;
+            target.scrollHeight - target.scrollTop - target.clientHeight < (smoothFollow ? 70 : 64);
+          if (!smoothFollow || userScrolling.current) follow.current = end;
           setAtEnd(end);
           savePosition.current();
-          maybeAutoLoad(target);
+          if (!smoothFollow || userScrolling.current) maybeAutoLoad(target);
         }}
       >
         <div {...stylex.props(styles.inner, contentStyle)}>
@@ -328,7 +391,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
             stopRestore();
             follow.current = true;
             setAtEnd(true);
-            virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
+            followTail(true);
           }}
         >
           <ArrowDown size={14} /> Latest

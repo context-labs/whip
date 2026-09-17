@@ -553,11 +553,11 @@ function appendPresentation(previous: Presentation[], item: Presentation, contin
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
   const index = cumulative && payload.id ? previous.findIndex(row => {
     const value = (row.payload ?? {}) as StreamEvent;
-    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id;
+    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id && value.part_id === payload.part_id;
   }) : previous.length - 1;
   const last = previous[index];
   const lastPayload = (last?.payload ?? {}) as StreamEvent;
-  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id) {
+  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id && payload.part_id === lastPayload.part_id) {
     let next: Presentation | undefined;
     // Tool arguments/output are full values so far, even when calls interleave.
     if (cumulative && payload.id) next = { ...item, seq: last.seq };

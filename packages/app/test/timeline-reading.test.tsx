@@ -155,6 +155,7 @@ it('captures only visible identity and restores separate root and child position
   const mounted = render(f.app());
   const root = screen.getByRole('region', { name: 'Conversation' });
   root.scrollTop = 230;
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
   expect(f.readingPositions.get('host:root:root')).toMatchObject({
     messageId: 'row-2',
@@ -164,6 +165,7 @@ it('captures only visible identity and restores separate root and child position
   mounted.rerender(f.app('host:root:child'));
   const child = screen.getByRole('region', { name: 'Conversation' });
   child.scrollTop = 110;
+  fireEvent.wheel(child);
   fireEvent.scroll(child);
   mounted.rerender(f.app());
   act(() => vi.advanceTimersByTime(160));
@@ -206,6 +208,7 @@ it('hands control back immediately when the reader scrolls during restoration', 
   const root = screen.getByRole('region', { name: 'Conversation' });
   fireEvent.wheel(root);
   root.scrollTop = 220;
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
   const calls = harness.scrolls.length;
   act(() => vi.advanceTimersByTime(160));
@@ -234,15 +237,19 @@ it('loads on a near-top scroll, shares a pending read, and permits another after
   const root = screen.getByRole('region', { name: 'Conversation' });
   expect(f.loadOlder).not.toHaveBeenCalled();
   root.scrollTop = 300;
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
   expect(f.loadOlder).not.toHaveBeenCalled();
   root.scrollTop = 200;
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: /Load earlier messages$/ }).hasAttribute('disabled')).toBe(true);
   await act(async () => { resolve(); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  fireEvent.wheel(root);
   fireEvent.scroll(root);
   expect(f.loadOlder).toHaveBeenCalledTimes(2);
   await act(async () => {});
@@ -259,6 +266,7 @@ it.each(['hasMore', 'canLoadOlder', 'loadingHistory', 'historyReady', 'restoring
     render(f.app(undefined, undefined, condition !== 'historyReady'));
     const root = screen.getByRole('region', { name: 'Conversation' });
     root.scrollTop = 200;
+    if (condition !== 'restoring') fireEvent.wheel(root);
     fireEvent.scroll(root);
     expect(f.loadOlder).not.toHaveBeenCalled();
     if (condition !== 'restoring') {

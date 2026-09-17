@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { SessionViewSnapshot } from '@whip/sdk/state';
 import { SessionInfoBar } from '../src/session-info-bar';
-import { activityStatus, ChatActivity, CurrentActivity } from '../src/chat-activity';
+import { activityStatus, CurrentActivity } from '../src/chat-activity';
 
 it('keeps full host/path identity accessible and opens scoped actions', () => {
   const onRepl = vi.fn(), onAgents = vi.fn(), onDetails = vi.fn();
@@ -16,12 +16,11 @@ it('keeps full host/path identity accessible and opens scoped actions', () => {
   expect(onRepl).toHaveBeenCalledOnce(); expect(onAgents).toHaveBeenCalledOnce(); expect(onDetails).toHaveBeenCalledOnce();
 });
 
-it('shows one current status in the bar while child activity stays below it', () => {
+it('shows one current status in the bar without a duplicate agent dock', () => {
   const state = { status: 'live', root: { root_id: 'root', active_turns: {}, agents: [], permissions: [], questions: [{ question_id: 'q' }] } } as unknown as SessionViewSnapshot;
   const app = (connected: boolean) => <ThemeProvider><UIProvider>
     <SessionInfoBar host="Local" cwd="/whip" agentName="Root" kind="chat"
       activity={<CurrentActivity status={activityStatus(state, 'root', [], connected)} connected={connected} onDetails={vi.fn()} />} />
-    <ChatActivity state={state} agentId="root" connected={connected} onAgent={vi.fn()} onAllAgents={vi.fn()} />
   </UIProvider></ThemeProvider>;
   const view = render(app(true));
   expect(screen.getAllByRole('status')).toHaveLength(1);

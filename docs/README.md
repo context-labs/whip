@@ -115,8 +115,9 @@ in `~/.inf/config.json` by the `inf` CLI.
 
 ## MCP
 
-whip connects to MCP servers and exposes them through `mcp.list_servers`,
-`mcp.list_tools`, and `mcp.call` inside Starlark. Five sources feed one merged
+whip connects to MCP servers and exposes them through `mcp.search`,
+`mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, and `mcp.call` inside
+Starlark. Five sources feed one merged
 set; on a name conflict the earlier source in this list wins:
 
 - **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only

@@ -1,15 +1,24 @@
-import type { ExecutionCell, ExecutionRow } from '@whip/sdk/state';
+import type { ExecutionCell, ExecutionHostCall, ExecutionRow } from '@whip/sdk/state';
 import type { TimelineRow } from './conversation-rows';
 
 export interface ActivityGroup extends TimelineRow {
   role: 'activity';
+  items?: readonly ActivityItem[];
+  autoOpen?: boolean;
   cells: readonly ExecutionCell[];
   updates?: readonly TimelineRow[];
   /** Reading bookmarks can address any folded member, including a former group. */
   memberIds: readonly string[];
   memberSeqs: readonly number[];
 }
-export type ConversationActivityRow = TimelineRow | ActivityGroup;
+export interface ActivityItem { id: string; kind: 'reasoning' | 'mailbox' | 'operation' | 'execution'; row?: TimelineRow; cell?: ExecutionCell; host?: ExecutionHostCall }
+export interface AgentActivityRow extends TimelineRow { role: 'agent-activity'; agentHost: ExecutionHostCall; cell: ExecutionCell }
+export type ConversationActivityRow = TimelineRow | ActivityGroup | AgentActivityRow;
+export const isAgentActivity = (row: TimelineRow): row is AgentActivityRow => 'agentHost' in row;
+export const activityItems = (group: ActivityGroup): readonly ActivityItem[] => group.items ?? [
+  ...(group.updates ?? []).map(row => ({ id: row.id, kind: 'mailbox' as const, row })),
+  ...group.cells.flatMap<ActivityItem>(cell => cell.hosts.length ? cell.hosts.map(host => ({ id: host.id, kind: 'operation' as const, cell, host })) : [{ id: cell.id, kind: 'execution' as const, cell }]),
+];
 export const isActivityGroup = (row: TimelineRow): row is ActivityGroup => 'cells' in row;
 export const executionActive = (cell: ExecutionCell) => cell.status === 'running' || cell.status === 'writing';
 
@@ -36,11 +45,12 @@ export function responseCopies(rows: readonly ConversationActivityRow[], active:
     last = row.id;
     if (row.role !== 'assistant') continue;
     if (row.body) incomplete = true;
-    if (!row.text.trim()) continue;
+    const source = row.copyText ?? row.text;
+    if (!source.trim()) continue;
     // Bound derived copy strings as well as the underlying SDK window.
-    if (bytes + row.text.length > 256 * 1024) { incomplete = true; continue; }
-    prose.push(row.text);
-    bytes += row.text.length;
+    if (bytes + source.length > 256 * 1024) { incomplete = true; continue; }
+    prose.push(source);
+    bytes += source.length;
   }
   if (!active) finish();
   return copies;
@@ -59,82 +69,112 @@ export function operationLabel(name: string): string {
   if (labels[name]) return labels[name];
   if (name.startsWith('browser.')) return 'Using the browser';
   if (name.startsWith('computer.')) return 'Using the computer';
-  return name || 'Running Starlark';
+  return name || 'Running an execution';
 }
 
 export function cellActivityLabel(cell: ExecutionCell): string {
   const active = cell.hosts.filter(host => host.status === 'running').at(-1);
-  return active ? operationLabel(active.name) : cell.status === 'writing' ? 'Preparing an execution' : 'Running Starlark';
+  return active ? operationLabel(active.name) : cell.status === 'writing' ? 'Preparing an execution' : cell.language === 'javascript' ? 'Running JavaScript' : 'Running Starlark';
 }
 
-/** Fold adjacent executions without moving authored prose or decoding tool results twice.
- * Previous groups are only identity hints for the retained reading window, not session state.
- */
+/** A pure display projection; typed SDK evidence owns operation reconciliation. */
 export function conversationActivityRows(
   rows: readonly TimelineRow[], executions: readonly ExecutionRow[], previous: readonly ActivityGroup[] = [],
 ): ConversationActivityRow[] {
   const cells = executions.filter((row): row is ExecutionCell => row.kind === 'cell');
   const recorded = new Map(cells.filter(cell => cell.seq !== undefined).map(cell => [JSON.stringify([cell.seq, cell.callId]), cell]));
+  const parts = new Map(cells.filter(cell => cell.partId).map(cell => [cell.partId, cell]));
   const observed = new Map(cells.flatMap(cell => (cell.presentationSeqs ?? (cell.eventSeq ? [cell.eventSeq] : [])).map(seq => [seq, cell] as const)));
   const used = new Set<string>();
   const reused = new Set<string>();
-  const priorByMember = new Map(previous.flatMap(group => [...group.cells, ...(group.updates ?? [])].map(item => [item.id, group] as const)));
+  const priorByMember = new Map(previous.flatMap(group => [...activityItems(group).map(item => item.id), ...group.cells.map(cell => cell.id)].map(id => [id, group] as const)));
   const output: ConversationActivityRow[] = [];
-  let pending: { row: TimelineRow; cell?: ExecutionCell }[] = [];
+  let pending: ActivityItem[] = [];
+  let members: TimelineRow[] = [];
   const flush = () => {
     if (!pending.length) return;
-    const first = pending[0]!;
-    const overlapping = [...new Set(pending.map(item => priorByMember.get(item.cell?.id ?? item.row.id)).filter((group): group is ActivityGroup => !!group))];
-    const prior = overlapping.find(group => !reused.has(group.id));
-    const id = prior?.id ?? `activity:${first.cell?.id ?? first.row.id}`;
+    const overlaps = [...new Set(pending.map(item => priorByMember.get(item.id) ?? priorByMember.get(item.cell?.id ?? '')).filter((group): group is ActivityGroup => !!group))];
+    const prior = overlaps.find(group => !reused.has(group.id));
+    const id = prior?.id ?? `activity:${pending[0]!.id}`;
     reused.add(id);
-    const members = new Set(pending.flatMap(({ row, cell }) => cell ? [row.id, cell.id] : [row.id]));
-    for (const group of overlapping) {
-      members.add(group.id);
-      for (const alias of group.memberIds) if (members.size < 512) members.add(alias);
-    }
-    const groupedCells = pending.flatMap(item => item.cell ? [item.cell] : []);
-    output.push({ id, role: 'activity', text: '', seq: first.row.seq, cells: groupedCells,
-      updates: pending.filter(item => !item.cell).map(item => item.row),
-      memberIds: [...members], memberSeqs: pending.flatMap(item => item.row.seq === undefined ? [] : [item.row.seq]),
-      live: groupedCells.some(executionActive), turnId: groupedCells[0]?.turnId });
-    pending = [];
+    const aliases = new Set([id, ...pending.map(item => item.id), ...members.flatMap(row => [row.id, ...(row.memberIds ?? [])])]);
+    for (const group of overlaps) for (const alias of [group.id, ...group.memberIds]) if (aliases.size < 512) aliases.add(alias);
+    const groupedCells = [...new Map(pending.flatMap(item => item.cell ? [[item.cell.id, item.cell] as const] : [])).values()];
+    output.push({ id, role: 'activity', text: '', seq: members[0]?.seq, cells: groupedCells, items: pending,
+      updates: pending.flatMap(item => item.kind === 'mailbox' && item.row ? [item.row] : []),
+      memberIds: [...aliases].slice(0, 512), memberSeqs: [...new Set(members.flatMap(row => row.seq === undefined ? [] : [row.seq]))],
+      live: pending.some(item => item.cell ? executionActive(item.cell) : item.row?.live), turnId: members.find(row => row.turnId)?.turnId ?? groupedCells[0]?.turnId });
+    pending = []; members = [];
   };
   const restarts = executions.filter(row => row.kind === 'restart');
+  const append = (item: ActivityItem, row: TimelineRow) => {
+    const last = members.at(-1);
+    const priorTurn = last?.turnId ?? pending.at(-1)?.cell?.turnId;
+    const nextTurn = row.turnId ?? item.cell?.turnId;
+    if (last && ((priorTurn !== nextTurn) || last.activityBoundary !== row.activityBoundary
+      || item.cell?.historyUnmatched || pending.at(-1)?.cell?.historyUnmatched
+      || restarts.some(restart => restart.seq !== undefined && last.seq !== undefined && row.seq !== undefined && restart.seq >= last.seq && restart.seq <= row.seq))) flush();
+    pending.push(item); members.push(row);
+  };
+  const addCell = (cell: ExecutionCell, row: TimelineRow) => {
+    used.add(cell.id);
+    if (!cell.hosts.length) append({ id: cell.id, kind: 'execution', cell }, row);
+    for (const host of cell.hosts) {
+      if (host.name === 'agents.spawn') {
+        flush();
+        output.push({ ...row, id: `agent:${host.id}`, role: 'agent-activity', text: '', agentHost: host, cell, memberIds: [row.id, cell.id] });
+      } else append({ id: host.id, kind: 'operation', cell, host }, row);
+    }
+  };
   for (const row of rows) {
     if (row.role === 'mailbox') {
-      // A digest starts a new delivery boundary; keep it with the following work,
-      // never with earlier work or across authored prose. Bound expanded updates.
-      if (pending.some(item => item.cell) || pending.length === 6) flush();
-      pending.push({ row });
-      continue;
+      if (pending.some(item => item.cell || item.kind === 'reasoning') || pending.length === 6) flush();
+      append({ id: row.id, kind: 'mailbox', row }, row); continue;
     }
+    if (row.role === 'reasoning') { append({ id: row.id, kind: 'reasoning', row }, row); continue; }
     let cell: ExecutionCell | undefined;
     if (row.role === 'tool' && row.toolName === 'rlm_exec' && row.callId) {
-      cell = row.seq !== undefined ? recorded.get(JSON.stringify([row.seq, row.callId])) : observed.get(row.eventSeq ?? '');
+      cell = row.partId ? parts.get(row.partId) : undefined;
+      cell ??= row.seq !== undefined ? recorded.get(JSON.stringify([row.seq, row.callId])) : observed.get(row.eventSeq ?? '');
       if (!cell && row.seq === undefined) {
-        const candidates = cells.filter(item => !used.has(item.id) && item.callId === row.callId && item.seq === undefined
-          && (!row.turnId || !item.turnId || row.turnId === item.turnId));
+        const candidates = cells.filter(item => !used.has(item.id) && item.callId === row.callId && item.seq === undefined && (!row.turnId || !item.turnId || row.turnId === item.turnId));
         if (candidates.length === 1) cell = candidates[0];
       }
       if (cell && used.has(cell.id)) cell = undefined;
     }
-    if (!cell) { flush(); output.push(row); continue; }
-    const last = pending.at(-1);
-    if (last?.cell && (last.cell.turnId !== cell.turnId || last.row.activityBoundary !== row.activityBoundary
-      || last.cell.status === 'failed' || last.cell.status === 'cancelled' || last.cell.status === 'interrupted'
-      || cell.historyUnmatched || last.cell.historyUnmatched
-      || restarts.some(restart => restart.seq !== undefined && last.row.seq !== undefined && row.seq !== undefined
-        && restart.seq >= last.row.seq && restart.seq <= row.seq))) flush();
-    used.add(cell.id);
-    pending.push({ row, cell });
+    if (cell) addCell(cell, row);
+    else { flush(); output.push(row); }
   }
   flush();
-  // Lost presentation prefixes can leave live evidence without a transcript row.
-  // Keep that evidence explicitly separate; do not guess where old observations belong.
   for (const cell of cells.filter(cell => !used.has(cell.id) && cell.seq === undefined)) {
-    output.push({ id: `activity:${cell.id}`, role: 'activity', text: '', cells: [cell],
-      memberIds: [cell.id], memberSeqs: [], live: executionActive(cell) });
+    addCell(cell, { id: cell.id, role: 'tool', text: '', turnId: cell.turnId }); flush();
   }
+  const tail = [...output].reverse().find(row => !row.queued);
+  if (tail && isActivityGroup(tail)) tail.autoOpen = true;
   return output;
+}
+
+export function activitySummary(group: ActivityGroup): string {
+  const counts = { commands: 0, reads: 0, searches: 0, fetches: 0, edits: 0, other: 0, executions: 0, failed: 0 };
+  const files = new Set<string>();
+  let thought = false;
+  for (const item of activityItems(group)) {
+    if (item.kind === 'reasoning') { thought = true; continue; }
+    if (item.kind === 'execution') { counts.executions++; if (item.cell?.status === 'failed') counts.failed++; continue; }
+    const host = item.host;
+    if (!host) continue;
+    if (host.status === 'failed') counts.failed++;
+    if (['shell.run', 'shell.start'].includes(host.name)) counts.commands++;
+    else if (host.name === 'files.read') counts.reads++;
+    else if (['files.list', 'files.search', 'browser.search'].includes(host.name)) counts.searches++;
+    else if (['browser.fetch', 'web.fetch'].includes(host.name)) counts.fetches++;
+    else if (['files.write', 'files.patch'].includes(host.name)) { if (host.display?.target) files.add(host.display.target); else counts.edits++; }
+    else counts.other++;
+  }
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  const labels = [thought ? 'Thought' : '', counts.commands ? `ran ${plural(counts.commands, 'command')}` : '', files.size ? `edited ${plural(files.size, 'file')}` : '',
+    counts.edits ? `made ${plural(counts.edits, 'edit')}` : '', counts.reads ? `read ${plural(counts.reads, 'file')}` : '', counts.searches ? `searched ${plural(counts.searches, 'time')}` : '',
+    counts.fetches ? `fetched ${plural(counts.fetches, 'page')}` : '', counts.other ? `called ${plural(counts.other, 'tool')}` : '', counts.executions ? plural(counts.executions, 'execution') : '', counts.failed ? `${counts.failed} failed` : ''].filter(Boolean);
+  const text = labels.join(' · ') || 'Agent updates';
+  return `${group.cells.some(cell => cell.truncated || cell.historyUnmatched) || activityItems(group).some(item => item.row?.truncated) ? 'Partial activity · ' : ''}${text[0]!.toUpperCase()}${text.slice(1)}`;
 }

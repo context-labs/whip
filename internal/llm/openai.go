@@ -25,7 +25,8 @@ import (
 // image Parts (multimodal/vision) — when Parts is non-empty it is sent as the
 // content array and Content is mirrored as a text part so both stay in sync.
 type Message struct {
-	Continuation ResponseContinuation `json:"-"`
+	Presentation *TranscriptPresentation `json:"presentation,omitempty"`
+	Continuation ResponseContinuation    `json:"-"`
 	// RawSequence identifies the retained transcript row. Summaries carry
 	// the last covered raw sequence. Runtime-only; never serialized.
 	RawSequence int           `json:"-"`
@@ -153,26 +154,27 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 // fields are omitempty and cleared by stripAuthored before a provider request,
 // so they only ever appear in the persisted session store.
 type messageWire struct {
-	Continuation ResponseContinuation `json:"continuation,omitzero"`
-	Role         string               `json:"role"`
-	Content      any                  `json:"content"`
-	ToolCalls    []ToolCall           `json:"tool_calls,omitempty"`
-	ToolCallID   string               `json:"tool_call_id,omitempty"`
-	Name         string               `json:"name,omitempty"`
-	Authored     bool                 `json:"authored,omitempty"`
-	SentAt       *time.Time           `json:"sent_at,omitempty"`
-	Usage        *Usage               `json:"usage,omitempty"`
-	Model        string               `json:"model,omitempty"`
-	RewoundFrom  string               `json:"rewound_from,omitempty"`
-	CallID       string               `json:"call_id,omitempty"`
+	Presentation *TranscriptPresentation `json:"presentation,omitempty"`
+	Continuation ResponseContinuation    `json:"continuation,omitzero"`
+	Role         string                  `json:"role"`
+	Content      any                     `json:"content"`
+	ToolCalls    []ToolCall              `json:"tool_calls,omitempty"`
+	ToolCallID   string                  `json:"tool_call_id,omitempty"`
+	Name         string                  `json:"name,omitempty"`
+	Authored     bool                    `json:"authored,omitempty"`
+	SentAt       *time.Time              `json:"sent_at,omitempty"`
+	Usage        *Usage                  `json:"usage,omitempty"`
+	Model        string                  `json:"model,omitempty"`
+	RewoundFrom  string                  `json:"rewound_from,omitempty"`
+	CallID       string                  `json:"call_id,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
 // content-parts array (text + images) for multimodal ones.
 func (m Message) MarshalJSON() ([]byte, error) {
 	w := messageWire{
-		Continuation: m.Continuation,
-		Role:         m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
+		Continuation: m.Continuation, Presentation: m.Presentation,
+		Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
 		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
 		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID,
 	}
@@ -198,6 +200,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	}
 	*m = Message{}
 	m.Continuation = raw.Continuation
+	m.Presentation = raw.Presentation
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
 	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom, m.CallID = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom, raw.CallID
 	if len(raw.Content) == 0 {
@@ -252,6 +255,7 @@ func stripAuthored(msgs []Message) []Message {
 		out[i].Model = ""
 		out[i].RewoundFrom = ""
 		out[i].CallID = ""
+		out[i].Presentation = nil
 		for j := range out[i].ToolCalls {
 			out[i].ToolCalls[j].DurationMs = 0
 			out[i].ToolCalls[j].ExitCode = 0

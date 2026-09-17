@@ -3,7 +3,7 @@
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `6` (minor `7`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `6` (minor `8`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -15,6 +15,14 @@ editing Go types with `npm run generate`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol **6.8** adds optional versioned transcript `presentation` metadata,
+stream `part_id`, and allowlisted operation `display` fields. Durable presentation
+stays in existing raw JSON records, separate from opaque provider continuation.
+A bounded page can carry a compact presentation summary alongside a content
+handle. IDs/outcomes remain available without eagerly reading large bodies;
+omission is explicit. Clients without these fields retain their generic execution
+projection. See [frontend ownership and bounds](frontend.md#conversation-and-navigation-patterns).
 
 Protocol **6.0** adds immutable session execution languages and cell result format 2.
 Older clients are rejected during `initialize`, before they can subscribe to JavaScript
