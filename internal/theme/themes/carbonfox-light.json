@@ -1,0 +1,44 @@
+{
+  "name": "carbonfox-light",
+  "dark": false,
+  "palette": {
+    "text": "#161616",
+    "muted": "#6f6f6f",
+    "faint": "#e8e8e8",
+    "primary": "#0043ce",
+    "accent": "#9f1853",
+    "success": "#198038",
+    "warning": "#007d79",
+    "error": "#9f1853",
+    "info": "#0043ce",
+    "link": "#0072c3",
+    "emphasis": "#6929c4",
+    "border": "#dcdcdc",
+    "borderFocus": "#0043ce",
+    "bg": "#ffffff",
+    "diffAdd": "#defbe6",
+    "diffDel": "#fff1f1",
+    "onPrimary": "#ffffff"
+  },
+  "surfaces": {
+    "panel": "#f4f4f4",
+    "element": "#f4f4f4",
+    "hover": "#e5e5e5"
+  },
+  "syntax": {
+    "keyword": "#6929c4",
+    "string": "#198038",
+    "number": "#007d79",
+    "comment": "#6f6f6f",
+    "function": "#0043ce",
+    "type": "#007d79",
+    "operator": "#525252",
+    "punctuation": "#161616"
+  },
+  "markdown": {
+    "heading": "#0043ce",
+    "strong": "#000000",
+    "code": "#198038",
+    "quote": "#6f6f6f"
+  }
+}

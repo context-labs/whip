@@ -1,0 +1,44 @@
+{
+  "name": "tokyonight",
+  "dark": true,
+  "palette": {
+    "text": "#c8d3f5",
+    "muted": "#828bb8",
+    "faint": "#545c7e",
+    "primary": "#82aaff",
+    "accent": "#ff966c",
+    "success": "#c3e88d",
+    "warning": "#ff966c",
+    "error": "#ff757f",
+    "info": "#82aaff",
+    "link": "#86e1fc",
+    "emphasis": "#ffc777",
+    "border": "#737aa2",
+    "borderFocus": "#9099b2",
+    "bg": "#1a1b26",
+    "diffAdd": "#20303b",
+    "diffDel": "#37222c",
+    "onPrimary": "#1a1b26"
+  },
+  "surfaces": {
+    "panel": "#1e2030",
+    "element": "#222436",
+    "hover": "#2f3142"
+  },
+  "syntax": {
+    "keyword": "#c099ff",
+    "string": "#c3e88d",
+    "number": "#ff966c",
+    "comment": "#828bb8",
+    "function": "#82aaff",
+    "type": "#ffc777",
+    "operator": "#86e1fc",
+    "punctuation": "#c8d3f5"
+  },
+  "markdown": {
+    "heading": "#c099ff",
+    "strong": "#ff966c",
+    "code": "#c3e88d",
+    "quote": "#ffc777"
+  }
+}

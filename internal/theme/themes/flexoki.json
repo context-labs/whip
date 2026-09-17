@@ -1,0 +1,44 @@
+{
+  "name": "flexoki",
+  "dark": true,
+  "palette": {
+    "text": "#cecdc3",
+    "muted": "#6f6e69",
+    "faint": "#403e3c",
+    "primary": "#da702c",
+    "accent": "#8b7ec8",
+    "success": "#879a39",
+    "warning": "#da702c",
+    "error": "#d14d41",
+    "info": "#3aa99f",
+    "link": "#3aa99f",
+    "emphasis": "#d0a215",
+    "border": "#575653",
+    "borderFocus": "#6f6e69",
+    "bg": "#100f0f",
+    "diffAdd": "#1a2d1a",
+    "diffDel": "#2d1a1a",
+    "onPrimary": "#100f0f"
+  },
+  "surfaces": {
+    "panel": "#1c1b1a",
+    "element": "#282726",
+    "hover": "#353433"
+  },
+  "syntax": {
+    "keyword": "#879a39",
+    "string": "#3aa99f",
+    "number": "#8b7ec8",
+    "comment": "#6f6e69",
+    "function": "#da702c",
+    "type": "#d0a215",
+    "operator": "#b7b5ac",
+    "punctuation": "#b7b5ac"
+  },
+  "markdown": {
+    "heading": "#8b7ec8",
+    "strong": "#da702c",
+    "code": "#3aa99f",
+    "quote": "#d0a215"
+  }
+}

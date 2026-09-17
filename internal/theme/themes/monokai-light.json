@@ -1,0 +1,44 @@
+{
+  "name": "monokai-light",
+  "dark": false,
+  "palette": {
+    "text": "#272822",
+    "muted": "#75715e",
+    "faint": "#e8e8e8",
+    "primary": "#66d9ef",
+    "accent": "#a6e22e",
+    "success": "#a6e22e",
+    "warning": "#fd971f",
+    "error": "#f92672",
+    "info": "#fd971f",
+    "link": "#ae81ff",
+    "emphasis": "#fd971f",
+    "border": "#d0d0d0",
+    "borderFocus": "#66d9ef",
+    "bg": "#fafafa",
+    "diffAdd": "#e0ffe0",
+    "diffDel": "#ffe0e0",
+    "onPrimary": "#fafafa"
+  },
+  "surfaces": {
+    "panel": "#f0f0f0",
+    "element": "#e0e0e0",
+    "hover": "#d3d3d3"
+  },
+  "syntax": {
+    "keyword": "#f92672",
+    "string": "#fd971f",
+    "number": "#ae81ff",
+    "comment": "#75715e",
+    "function": "#a6e22e",
+    "type": "#66d9ef",
+    "operator": "#f92672",
+    "punctuation": "#272822"
+  },
+  "markdown": {
+    "heading": "#f92672",
+    "strong": "#fd971f",
+    "code": "#a6e22e",
+    "quote": "#75715e"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "dracula-light",
+  "dark": false,
+  "palette": {
+    "text": "#282a36",
+    "muted": "#6272a4",
+    "faint": "#e0e0e0",
+    "primary": "#bd93f9",
+    "accent": "#8be9fd",
+    "success": "#50fa7b",
+    "warning": "#f1fa8c",
+    "error": "#ff5555",
+    "info": "#ffb86c",
+    "link": "#ff79c6",
+    "emphasis": "#f1fa8c",
+    "border": "#c8c8c2",
+    "borderFocus": "#bd93f9",
+    "bg": "#f8f8f2",
+    "diffAdd": "#e0ffe0",
+    "diffDel": "#ffe0e0",
+    "onPrimary": "#f8f8f2"
+  },
+  "surfaces": {
+    "panel": "#e8e8e2",
+    "element": "#d8d8d2",
+    "hover": "#cbcbc5"
+  },
+  "syntax": {
+    "keyword": "#ff79c6",
+    "string": "#f1fa8c",
+    "number": "#bd93f9",
+    "comment": "#6272a4",
+    "function": "#50fa7b",
+    "type": "#8be9fd",
+    "operator": "#ff79c6",
+    "punctuation": "#282a36"
+  },
+  "markdown": {
+    "heading": "#bd93f9",
+    "strong": "#ffb86c",
+    "code": "#50fa7b",
+    "quote": "#6272a4"
+  }
+}

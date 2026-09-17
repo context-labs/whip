@@ -1,0 +1,44 @@
+{
+  "name": "kanagawa-light",
+  "dark": false,
+  "palette": {
+    "text": "#54433a",
+    "muted": "#9e9389",
+    "faint": "#dcd4c9",
+    "primary": "#2d4f67",
+    "accent": "#d27e99",
+    "success": "#98bb6c",
+    "warning": "#d7a657",
+    "error": "#e82424",
+    "info": "#76946a",
+    "link": "#76946a",
+    "emphasis": "#c38d9d",
+    "border": "#d4cbbf",
+    "borderFocus": "#c38d9d",
+    "bg": "#f2e9de",
+    "diffAdd": "#eaf3e4",
+    "diffDel": "#fbe6e6",
+    "onPrimary": "#f2e9de"
+  },
+  "surfaces": {
+    "panel": "#eae4d7",
+    "element": "#e3dcd2",
+    "hover": "#d5cfc5"
+  },
+  "syntax": {
+    "keyword": "#957fb8",
+    "string": "#98bb6c",
+    "number": "#d7a657",
+    "comment": "#9e9389",
+    "function": "#2d4f67",
+    "type": "#c38d9d",
+    "operator": "#d27e99",
+    "punctuation": "#54433a"
+  },
+  "markdown": {
+    "heading": "#957fb8",
+    "strong": "#d7a657",
+    "code": "#98bb6c",
+    "quote": "#9e9389"
+  }
+}

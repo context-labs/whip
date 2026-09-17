@@ -1,0 +1,44 @@
+{
+  "name": "everforest",
+  "dark": true,
+  "palette": {
+    "text": "#d3c6aa",
+    "muted": "#7a8478",
+    "faint": "#7a8478",
+    "primary": "#a7c080",
+    "accent": "#d699b6",
+    "success": "#a7c080",
+    "warning": "#e69875",
+    "error": "#e67e80",
+    "info": "#83c092",
+    "link": "#83c092",
+    "emphasis": "#dbbc7f",
+    "border": "#859289",
+    "borderFocus": "#9da9a0",
+    "bg": "#2d353b",
+    "diffAdd": "#20303b",
+    "diffDel": "#37222c",
+    "onPrimary": "#2d353b"
+  },
+  "surfaces": {
+    "panel": "#333c43",
+    "element": "#343f44",
+    "hover": "#404b4f"
+  },
+  "syntax": {
+    "keyword": "#d699b6",
+    "string": "#a7c080",
+    "number": "#e69875",
+    "comment": "#7a8478",
+    "function": "#a7c080",
+    "type": "#dbbc7f",
+    "operator": "#83c092",
+    "punctuation": "#d3c6aa"
+  },
+  "markdown": {
+    "heading": "#d699b6",
+    "strong": "#e69875",
+    "code": "#a7c080",
+    "quote": "#dbbc7f"
+  }
+}

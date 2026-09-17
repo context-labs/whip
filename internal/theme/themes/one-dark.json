@@ -1,0 +1,44 @@
+{
+  "name": "one-dark",
+  "dark": true,
+  "palette": {
+    "text": "#abb2bf",
+    "muted": "#5c6370",
+    "faint": "#2c313a",
+    "primary": "#61afef",
+    "accent": "#56b6c2",
+    "success": "#98c379",
+    "warning": "#e5c07b",
+    "error": "#e06c75",
+    "info": "#d19a66",
+    "link": "#56b6c2",
+    "emphasis": "#e5c07b",
+    "border": "#393f4a",
+    "borderFocus": "#61afef",
+    "bg": "#282c34",
+    "diffAdd": "#2c382b",
+    "diffDel": "#3a2d2f",
+    "onPrimary": "#282c34"
+  },
+  "surfaces": {
+    "panel": "#21252b",
+    "element": "#353b45",
+    "hover": "#414750"
+  },
+  "syntax": {
+    "keyword": "#c678dd",
+    "string": "#98c379",
+    "number": "#d19a66",
+    "comment": "#5c6370",
+    "function": "#61afef",
+    "type": "#e5c07b",
+    "operator": "#56b6c2",
+    "punctuation": "#abb2bf"
+  },
+  "markdown": {
+    "heading": "#c678dd",
+    "strong": "#d19a66",
+    "code": "#98c379",
+    "quote": "#5c6370"
+  }
+}
