@@ -1,3 +1,4 @@
+import { useNativeSurfacePresence } from './native-surfaces';
 import * as stylex from '@stylexjs/stylex';
 import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Collapsible as BaseCollapsible } from '@base-ui/react/collapsible';
@@ -79,6 +80,8 @@ const toastStyles = stylex.create({
 export function UIProvider({children}: {children: ReactNode}) {return <CSPProvider disableStyleElements><BaseTooltip.Provider delay={400}><BaseToast.Provider timeout={5000}>{children}<ToastViewport/></BaseToast.Provider></BaseTooltip.Provider></CSPProvider>;}
 function ToastViewport() {
   const {toasts} = BaseToast.useToastManager();
+  const visible = useNativeSurfacePresence(toasts.length > 0);
+  if (!visible) return null;
   return <BaseToast.Portal><BaseToast.Viewport {...stylex.props(toastStyles.viewport)}>{toasts.map(toast => <BaseToast.Root key={toast.id} toast={toast} {...stylex.props(styles.alert)}><BaseToast.Content {...stylex.props(styles.grow)}><BaseToast.Title {...stylex.props(styles.label)}/><BaseToast.Description {...stylex.props(styles.description)}/></BaseToast.Content><BaseToast.Close render={<IconButton label="Dismiss notification" variant="ghost"><X size={14}/></IconButton>}/></BaseToast.Root>)}</BaseToast.Viewport></BaseToast.Portal>;
 }
 export function useToast() {return BaseToast.useToastManager();}

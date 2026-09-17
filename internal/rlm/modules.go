@@ -24,7 +24,7 @@ var moduleRegistry = map[string][]string{
 	"context":     {"inspect", "search", "read", "history"},
 	"files":       {"list", "search", "read", "write", "patch"},
 	"shell":       {"run", "read", "start", "poll", "tail", "wait", "kill", "list"},
-	"browser":     {"run"},
+	"browser":     {"open", "attach", "run", "detach", "allow_preview_port"},
 	"computer":    {"run"},
 	"models":      {"call", "batch"},
 	"agents":      {"spawn", "submit", "wait", "inspect", "list", "stop", "delete"},

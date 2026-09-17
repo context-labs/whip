@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "provider_id": {
+      "type": "string"
+    },
+    "provider_epoch": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/BrowserProviderRevoked",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserProviderRevoked",
+  "required": [
+    "root_id",
+    "provider_id",
+    "provider_epoch",
+    "reason"
+  ],
+  "additionalProperties": false
+}

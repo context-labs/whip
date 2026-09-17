@@ -274,20 +274,21 @@ func (s *supervisor) wait() {
 }
 
 type Session struct {
-	providers  *ProviderService
-	store      *sessionstore.Store
-	meta       sessionstore.Meta
-	authority  capability.Authority
-	definition agentdef.Definition
-	executors  *executorRegistry // custom tool executors; nil when no daemon owns the root
-	runner     Runner
-	mcpMu      sync.RWMutex
-	mcp        Closeable
-	runtime    Closeable
-	factory    Factory
-	supervisor *supervisor
-	mailbox    chan inboxReady
-	done       chan struct{}
+	providers        *ProviderService
+	store            *sessionstore.Store
+	meta             sessionstore.Meta
+	authority        capability.Authority
+	definition       agentdef.Definition
+	executors        *executorRegistry // custom tool executors; nil when no daemon owns the root
+	browserProviders *browserProviders
+	runner           Runner
+	mcpMu            sync.RWMutex
+	mcp              Closeable
+	runtime          Closeable
+	factory          Factory
+	supervisor       *supervisor
+	mailbox          chan inboxReady
+	done             chan struct{}
 
 	admitMu  sync.RWMutex
 	stopping bool

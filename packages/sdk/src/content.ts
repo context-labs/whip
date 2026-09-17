@@ -79,7 +79,7 @@ function transferSignal(client: WhipClient, options: CallOptions): AbortSignal {
 function httpError(status: number): WhipError {
   return new WhipError(status === 403 ? 'permission_denied' : status === 413 ? 'resource_limit' : 'unavailable_capability', `Content transfer failed (HTTP ${status})`);
 }
-export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>, options: UploadOptions): Promise<ContentReference> {
+export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>, options: UploadOptions, transport: 'auto' | 'connection' = 'auto'): Promise<ContentReference> {
   options.signal?.throwIfAborted();
   const info = client.requireConnected();
   if (!options.rootId) throw new WhipError('invalid_arguments', 'Upload requires a root scope');
@@ -90,7 +90,9 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
   const digest = await client.digestHex(bytes);
   signal.throwIfAborted();
   let handle: ContentHandle;
-  if (client.transportKind === 'websocket') {
+  // Browser results require upload provenance on the selected holder connection.
+  // HTTP creates a separate principal even when it reaches the same daemon.
+  if (transport === 'auto' && client.transportKind === 'websocket') {
     const url = new URL('/api/v3/content/upload', client.httpEndpoint);
     url.searchParams.set('root_id', options.rootId);
     if (options.agentId) url.searchParams.set('agent_id', options.agentId);

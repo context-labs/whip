@@ -46,31 +46,32 @@ type Diagnostics interface {
 }
 
 type Services struct {
-	mu                  sync.RWMutex
-	interactive         InteractiveRunner
-	diagnostics         Diagnostics
-	gate                Gate
-	dispatcher          *capability.Dispatcher
-	authority           capability.Authority
-	processes           *capability.ProcessManager
-	workspace           *capability.Workspace
-	processCwd          string
-	processEnv          map[string]string
-	browser             *browser.Manager
-	allowPrivateURLs    bool
-	screenshotSink      func([][]byte)
-	computerPolicy      *computer.Policy
-	computerApprover    func(string) bool
-	computerHelper      *computer.Helper
-	appGenerations      map[string]int
-	externalPermissions bool
-	headlessPermissions bool
-	mcpAutomatic        bool
-	permissionRevision  uint64
-	mcpProvider         func() MCPProvider
-	mcpAttachmentStore  func(context.Context, string, []byte) (string, error)
-	permissionLedger    capability.Ledger
-	permissions         map[string]*permissionResolution
+	mu                     sync.RWMutex
+	interactive            InteractiveRunner
+	diagnostics            Diagnostics
+	gate                   Gate
+	dispatcher             *capability.Dispatcher
+	authority              capability.Authority
+	processes              *capability.ProcessManager
+	workspace              *capability.Workspace
+	processCwd             string
+	processEnv             map[string]string
+	browser                *browser.Manager
+	desktopBrowserProvider func() browser.DesktopProvider
+	allowPrivateURLs       bool
+	screenshotSink         func([][]byte)
+	computerPolicy         *computer.Policy
+	computerApprover       func(string) bool
+	computerHelper         *computer.Helper
+	appGenerations         map[string]int
+	externalPermissions    bool
+	headlessPermissions    bool
+	mcpAutomatic           bool
+	permissionRevision     uint64
+	mcpProvider            func() MCPProvider
+	mcpAttachmentStore     func(context.Context, string, []byte) (string, error)
+	permissionLedger       capability.Ledger
+	permissions            map[string]*permissionResolution
 	// Custom tools declared by the agent definition; see custom.go.
 	customDefinition string
 	customRevision   string
@@ -496,7 +497,7 @@ func AllWithServices(services *Services) []Tool {
 // ToolDefinitions returns the public built-in schemas without exposing
 // concrete handlers to protocol adapters.
 func (s *Services) ToolDefinitions(context.Context) ([]llm.Tool, error) {
-	return Defs(AllWithServices(s)), nil
+	return append(Defs(AllWithServices(s)), desktopToolDefinitions()...), nil
 }
 
 // CallTool routes one public built-in through the bound dispatcher.
@@ -587,6 +588,11 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 			return err
 		}
 	}
+	for _, registration := range s.desktopBrowserRegistrations(ledger) {
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
 	if err := dispatcher.Register(s.mcpRegistration(ledger)); err != nil {
 		return err
 	}
@@ -640,24 +646,25 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) (*Services, error) {
 	s.mu.RLock()
 	clone := &Services{
-		interactive:         s.interactive,
-		diagnostics:         s.diagnostics,
-		gate:                s.gate,
-		processEnv:          maps.Clone(s.processEnv),
-		browser:             s.browser,
-		allowPrivateURLs:    s.allowPrivateURLs,
-		computerPolicy:      s.computerPolicy,
-		computerApprover:    s.computerApprover,
-		appGenerations:      maps.Clone(s.appGenerations),
-		externalPermissions: s.externalPermissions,
-		headlessPermissions: s.headlessPermissions,
-		mcpAutomatic:        s.mcpAutomatic,
-		permissionRevision:  s.permissionRevision,
-		mcpProvider:         s.mcpProvider,
-		customDefinition:    s.customDefinition,
-		customRevision:      s.customRevision,
-		customTools:         append([]CustomTool(nil), s.customTools...),
-		toolExecutor:        s.toolExecutor,
+		interactive:            s.interactive,
+		diagnostics:            s.diagnostics,
+		gate:                   s.gate,
+		processEnv:             maps.Clone(s.processEnv),
+		browser:                s.browser,
+		desktopBrowserProvider: s.desktopBrowserProvider,
+		allowPrivateURLs:       s.allowPrivateURLs,
+		computerPolicy:         s.computerPolicy,
+		computerApprover:       s.computerApprover,
+		appGenerations:         maps.Clone(s.appGenerations),
+		externalPermissions:    s.externalPermissions,
+		headlessPermissions:    s.headlessPermissions,
+		mcpAutomatic:           s.mcpAutomatic,
+		permissionRevision:     s.permissionRevision,
+		mcpProvider:            s.mcpProvider,
+		customDefinition:       s.customDefinition,
+		customRevision:         s.customRevision,
+		customTools:            append([]CustomTool(nil), s.customTools...),
+		toolExecutor:           s.toolExecutor,
 	}
 	s.mu.RUnlock()
 	if clone.externalPermissions {
@@ -690,7 +697,7 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 		return "", errors.New("tool services are not bound to dispatcher authority")
 	}
 	spec, ok := hostSpec(operation)
-	if !ok && operation != "mcp.call" && !isCustomToolOperation(operation) {
+	if !ok && operation != "mcp.call" && !isCustomToolOperation(operation) && !isDesktopBrowserOperation(operation) {
 		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
 	capabilityRef := authority.Files
@@ -715,6 +722,16 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	}
 	if spec.shell {
 		capabilityRef = authority.Shell
+	}
+	if isDesktopBrowserOperation(operation) {
+		capabilityRef = authority.Shell
+		if operation != "browser.open" && operation != "browser.attach" {
+			var call capability.BrowserCall
+			if err := json.Unmarshal(arguments, &call); err != nil {
+				return "", err
+			}
+			capabilityRef = call.Grant
+		}
 	}
 	if capabilityRef.ID == "" {
 		return "", capability.ErrDenied
@@ -756,6 +773,17 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 // authority, permission, budget, mutation-ordering, and trace path used by
 // runtime modules.
 func (s *Services) Invoke(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
+	if desktop, ok := desktopToolOperations[operation]; ok {
+		operation = desktop
+	}
+	if isDesktopBrowserOperation(operation) {
+		result, err := s.RunDesktopBrowser(ctx, operation, arguments)
+		if err != nil {
+			return "", err
+		}
+		data, err := json.Marshal(result)
+		return string(data), err
+	}
 	_, ok := hostSpec(operation)
 	if !ok {
 		return "", fmt.Errorf("unknown host operation %q", operation)

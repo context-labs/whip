@@ -5,7 +5,8 @@ import "slices"
 // Operation lists in the order the runtime's grants have always stored them.
 var (
 	fileOperations  = []string{"read", "write", "edit", "workspace.write"}
-	shellOperations = []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"}
+	shellOperations = []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
+		"browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"}
 )
 
 // Operations maps capability names to the operations they grant: file
@@ -24,7 +25,7 @@ func Operations(capabilities []string) (files, shell []string, mcp bool) {
 		case "shell":
 			wantShell = append(wantShell, "bash", "shell_start", "workspace_process")
 		case "browser":
-			wantShell = append(wantShell, "browser_exec")
+			wantShell = append(wantShell, "browser_exec", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port")
 		case "computer":
 			wantShell = append(wantShell, "computer_exec")
 		case "mcp":

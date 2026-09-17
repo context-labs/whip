@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider, type RouterHistory } from '@tanstack/react-router';
 import { ThemeProvider } from '@whip/ui/themes';
-import { UIProvider } from '@whip/ui';
+import { UIProvider, NativeSurfaceProvider } from '@whip/ui';
 import { RuntimeContext } from './context';
 import { AppRuntime } from './runtime';
 import type { AppPlatform } from './platform';
@@ -25,10 +25,10 @@ export function createWhipApplication(platform: AppPlatform, history?: RouterHis
     const systemContrast = useSyncExternalStore(subscribeContrast, readContrast, readContrast);
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} systemContrast={systemContrast} onNotice={message => runtime.report(message)}>
-        <UIProvider><QueryClientProvider client={runtime.queries}>
+        <NativeSurfaceProvider acquire={platform.browser ? runtime.browser.acquireOverlay : undefined}><UIProvider><QueryClientProvider client={runtime.queries}>
           {startup ? <StartupScreen startup={startup}><RouterProvider router={router} /></StartupScreen> : <RouterProvider router={router} />}
           {children}
-        </QueryClientProvider></UIProvider>
+        </QueryClientProvider></UIProvider></NativeSurfaceProvider>
       </ThemeProvider>
     </RuntimeContext.Provider>;
   }

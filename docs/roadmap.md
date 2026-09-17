@@ -167,6 +167,16 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [ ] Experimental desktop Browser rollout: human workspace tabs, explicit
+  conversation/agent access and saved-SSH previews are implemented, but packaged
+  builds remain **default OFF** outside explicit dogfood. See the
+  [behavior → implementation → tests map](features.md#experimental-desktop-browser-tabs)
+  and [implementation ledger](../.ai-docs/plans/browser-tabs/implementation.md).
+  Completion requires the remaining [Phase 7 gates](../.ai-docs/plans/browser-tabs/README.md):
+  shipping-security packaged local/SSH and overlay/focus acceptance, security and
+  dependency review, supported-macOS/VoiceOver/IME/manual checks, performance and
+  lifecycle budgets, and disabled/old-client/rollback validation. Passing unit or
+  development-native fixtures does not complete this rollout milestone.
 - [ ] Desktop publishing CI: explicit desktop releases, CI signing/notarization,
   verified downloads and update feeds, clean-machine installation and actual
   update acceptance. See the

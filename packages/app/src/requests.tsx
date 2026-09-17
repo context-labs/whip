@@ -83,6 +83,7 @@ function PermissionRequest({
   refresh(): Promise<void>;
 }) {
   const titleId = useId();
+  const browserPermission = permission.operation.startsWith('browser.');
   const [pending, setPending] = useState(false);
   const [remember, setRemember] = useState('');
   const [uncertain, setUncertain] = useState(false);
@@ -98,7 +99,7 @@ function PermissionRequest({
         root_id: session.rootId,
         permission_id: permission.id,
         allow,
-        ...(allow && remember ? { remember } : {}),
+        ...(allow && remember && !browserPermission ? { remember } : {}),
       });
       restoreFocus();
       await refresh();
@@ -128,7 +129,13 @@ function PermissionRequest({
         <pre aria-label="Requested operation" tabIndex={0} {...stylex.props(layout.pre, permissionStyles.command)}>
           {permission.command || permission.canonical_path || permission.operation}
         </pre>
-        {permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {describeRule(permission.operation, permission.rule).summary}</p>}
+        {!browserPermission && permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {describeRule(permission.operation, permission.rule).summary}</p>}
+        {browserPermission && <p {...stylex.props(permissionStyles.rule)}>
+          This approval is specific to the Browser resource shown above. It cannot be remembered for other tabs or hosts.
+          {permission.operation === 'browser.allow_preview_port'
+            ? ' This also authorizes the requested preview port; that network access stays with the tab’s preview environment after agent control ends.'
+            : ' Agent control lasts until the attachment is detached, revoked, or its connection ends; releasing control does not close your tab. If SSH preview access is described above, this approval also authorizes that network scope, which remains with the tab after detach.'}
+        </p>}
         {error !== undefined && <ErrorNotice type="action" owner={`permission:${permission.id}`} error={error} title="Approval status needs checking" tone="warning" />}
         {uncertain ? (
           <Button
@@ -153,7 +160,7 @@ function PermissionRequest({
                 disabled={disabled || pending}
                 onClick={() => void decide(true)}
               >
-                {remember ? 'Allow and remember' : 'Allow once'}
+                {remember && !browserPermission ? 'Allow and remember' : 'Allow once'}
               </Button>
               <Button
                 xstyle={permissionStyles.control}
@@ -163,7 +170,7 @@ function PermissionRequest({
                 Deny
               </Button>
             </div>
-            {permission.rule && <Select
+            {!browserPermission && permission.rule && <Select
               label="Permission scope"
               placeholder="This request only"
               value={remember}

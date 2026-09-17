@@ -10,17 +10,19 @@ import { SessionContent, SessionLoading } from './conversation';
 import { SessionInfoBar } from './session-info-bar';
 import { isSessionTab, selectedSessionTab, sessionPanes, sessionViewPane, sessionSearch, type SessionPane, type SessionTab, type SplitEdge, viewSuffix } from './session-tabs';
 import { TerminalView } from './terminal-view';
+import { BrowserView } from './browser-view';
+import { BrowserProviderControls } from './browser-provider-controls';
 import { useWorkspaceViews, workspaceRootKey } from './workspace-views';
-import { ChevronDown, Circle, CircleHelp, MessageSquare, MessageSquareWarning, MoreHorizontal, Pencil, Plus, Columns2, SquareTerminal, X } from 'lucide-react';
+import { ChevronDown, Circle, Globe, CircleHelp, MessageSquare, MessageSquareWarning, MoreHorizontal, Pencil, Plus, Columns2, SquareTerminal, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { draftDestination, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { browserDestination, openBrowserTab, draftDestination, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
-export interface SessionTabActions { next(offset: -1 | 1): void; close(): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
+export interface SessionTabActions { next(offset: -1 | 1): void; close(viewId?: string): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
 function Status({ item, stale }: { item?: SessionNavigationSummary; stale: boolean }) {
   if (!item || stale || item.missing) return <CircleHelp size={13} aria-hidden="true" />;
   if (sessionNeedsInput(item, stale)) return <MessageSquareWarning size={14} {...stylex.props(styles.attention)} aria-hidden="true" />;
@@ -50,6 +52,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const terminalRoute = terminalDestination(route.pathname);
   // Keep other panes mounted during the route commit before onResolved admits a new tab.
   const matched = (!!destination && tabs.length > 0 && runtime.tabs.canOpen(destination.runtimeId, destination.rootId)) || !!tabs.find(tab => tab.id === draftDestination(route.pathname))
+    || !!tabs.find(tab => tab.kind === 'browser' && tab.id === browserDestination(route.pathname))
     || (!!terminalRoute && tabs.some(tab => tab.kind === 'terminal' && tab.runtimeId === terminalRoute.runtimeId && tab.terminalId === terminalRoute.terminalId));
   const active = matched ? selectedSessionTab(workspace) : undefined;
   const navigate = useNavigate();
@@ -78,7 +81,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const staleHosts = new Set(groups.filter((group, index) => !group.enabled || !!summaries[index]?.error).map(group => group.runtimeId));
   const stale = (tab: SessionTab) => isSessionTab(tab) && (!groups.some(group => group.runtimeId === tab.runtimeId) || staleHosts.has(tab.runtimeId));
   const item = (tab: SessionTab) => isSessionTab(tab) ? items.get(workspaceRootKey(tab)) : undefined;
-  const hostName = (tab: SessionTab) => hosts.find(host => tab.kind === 'new' && tab.hostProfileId ? host.id === tab.hostProfileId : !!tab.runtimeId && host.runtimeId === tab.runtimeId)?.name ?? (tab.runtimeId ? `Unavailable host ${tab.runtimeId.slice(0, 8)}` : 'Choose a host');
+  const hostName = (tab: SessionTab) => tab.kind === 'browser' ? (tab.environmentId ? 'SSH preview' : 'This Mac') : hosts.find(host => tab.kind === 'new' && tab.hostProfileId ? host.id === tab.hostProfileId : !!tab.runtimeId && host.runtimeId === tab.runtimeId)?.name ?? (tab.runtimeId ? `Unavailable host ${tab.runtimeId.slice(0, 8)}` : 'Choose a host');
   useEffect(() => {
     const cleanups = groups.filter(group => group.enabled).map(group => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -97,13 +100,13 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   }, [runtime, groups, summaries]);
 
   const pendingNavigation = useRef<string | undefined>(undefined);
-  const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.title || tab.titleHint || 'Untitled session';
+  const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'browser' ? tab.titleHint || 'Browser' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.title || tab.titleHint || 'Untitled session';
   // The sidebar's catalog already holds a session's directory before the first summaries poll, so an opening tab can show its project at first paint.
   const knownCwd = (tab: SessionTab) => !isSessionTab(tab) ? undefined : item(tab)?.cwd ?? hosts.find(host => host.runtimeId === tab.runtimeId)?.list?.getSnapshot().page?.items?.find(session => session.id === tab.rootId)?.cwd;
   const project = (tab: SessionTab) => (tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
   const hasDraft = (tab: SessionTab) => isSessionTab(tab) && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
-  const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab));
-  const icon = (tab: SessionTab) => tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : tab.kind === 'terminal' ? <SquareTerminal size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>;
+  const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'browser' ? 'Browser' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab));
+  const icon = (tab: SessionTab) => tab.kind === 'browser' ? <Globe size={13} aria-hidden="true"/> : tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : tab.kind === 'terminal' ? <SquareTerminal size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>;
   const go = (viewId: string, replace = false) => {
     runtime.clearWorkspaceError();
     const tab = runtime.tabs.workspace().tabs.find(t => t.id === viewId);
@@ -112,6 +115,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const location = route.search as { agent?: string; panel?: string; view?: 'repl' | 'trace' };
     if (isSessionTab(tab) && destination?.runtimeId === tab.runtimeId && destination.rootId === tab.rootId && route.state.whipViewId === viewId && location.agent === tab.location.agent && location.panel === tab.location.panel && location.view === sessionSearch(tab).view) return;
     if (tab.kind === 'terminal' && terminalRoute?.runtimeId === tab.runtimeId && terminalRoute.terminalId === tab.terminalId && route.state.whipViewId === viewId) return;
+    if (tab.kind === 'browser' && browserDestination(route.pathname) === viewId) return;
     const target = JSON.stringify(tabDestination(tab));
     if (pendingNavigation.current === target) return;
     pendingNavigation.current = target;
@@ -124,15 +128,23 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const pane = sessionPanes(current.layout).find(p => p.id === paneId);
     if (pane?.selected) go(pane.selected);
   };
-  const close = (viewIds: readonly string[], focusAfterMenu = false) => {
+  const close = async (requestedIds: readonly string[], focusAfterMenu = false) => {
+    const viewIds: string[] = [];
+    for (const id of requestedIds) {
+      const tab = runtime.tabs.workspace().tabs.find(tab => tab.id === id);
+      try { if (tab && (tab.kind !== 'browser' || await runtime.browser.mayClose(id))) viewIds.push(id); }
+      catch (error) { runtime.reportWorkspace(error); }
+    }
+    if (!viewIds.length) return;
     const focused = document.activeElement;
     const restoreFocus = viewIds.some(id => document.getElementById(workspaceTabId(id))?.closest('[data-workspace-tab]')?.contains(focused));
     // Closing a terminal tab ends its shell; a late failure has nowhere truthful to show.
     const shells = runtime.tabs.workspace().tabs.filter(tab => tab.kind === 'terminal' && viewIds.includes(tab.id));
     for (const tab of shells) if (tab.kind === 'terminal') void runtime.connections.host(tab.runtimeId)?.client?.terminals.close(tab.terminalId).catch(() => {});
-    const closing = active && viewIds.includes(active.id) ? active : undefined;
+    const selected = selectedSessionTab(runtime.tabs.workspace());
+    const closing = selected && viewIds.includes(selected.id) ? selected : undefined;
     const closingCwd = closing?.kind === 'terminal' ? closing.cwd : closing ? knownCwd(closing) : undefined;
-    const next = runtime.tabs.closeViews(viewIds, active?.id);
+    const next = runtime.tabs.closeViews(viewIds, selected?.id);
     setNotice(shells.length === viewIds.length ? (shells.length === 1 ? 'Terminal closed. Its shell has ended.' : 'Terminals closed. Their shells have ended.') : viewIds.length === 1 ? 'Tab closed. Work and drafts are kept.' : 'Tabs closed. Work and drafts are kept.');
     if (next === null) openAfterLastClose(runtime, navigate, closing, closingCwd);
     else if (next) go(next, true);
@@ -180,7 +192,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const newTerminal = (pane: SessionPane) => {
     const selected = pane.tabs.find(t => t.id === pane.selected);
     const state = runtime.getSnapshot();
-    const host = (selected?.runtimeId ? hosts.find(h => h.runtimeId === selected.runtimeId) : undefined) ?? hosts.find(h => h.id === state.selectedHostId) ?? hosts.find(h => h.client);
+    const host = (selected && selected.kind !== 'browser' && selected.runtimeId ? hosts.find(h => h.runtimeId === selected.runtimeId) : undefined) ?? hosts.find(h => h.id === state.selectedHostId) ?? hosts.find(h => h.client);
     if (!host?.runtimeId) { runtime.reportWorkspace('Connect a host before opening a terminal.'); return; }
     const cwd = selected?.kind === 'terminal' || selected?.kind === 'new' ? selected.cwd || undefined : selected ? item(selected)?.cwd : undefined;
     void openTerminalTab(runtime, navigate, { runtimeId: host.runtimeId, cwd, rootId: selected && isSessionTab(selected) ? selected.rootId : undefined, paneId: pane.id });
@@ -189,6 +201,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const pane = sessionViewPane(workspace, tab.id)!;
     const index = pane.tabs.findIndex(item => item.id === tab.id);
     if (!isSessionTab(tab)) return [
+      ...(tab.kind === 'browser' ? [{ id: 'browser-duplicate', label: 'Duplicate Browser tab', disabled: !runtime.platform.browser || !runtime.tabs.canOpenBrowser(), onSelect: () => { void openBrowserTab(runtime, navigate, { url: tab.url, environmentId: tab.environmentId, paneId: pane.id }); } }] : []),
       ...(tab.kind === 'terminal' ? [{ id: 'terminal-new', label: 'New terminal here', onSelect: () => void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: tab.cwd, paneId: pane.id }) }] : []),
       { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
       { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
@@ -222,8 +235,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     ];
   };
   useImperativeHandle(ref, () => ({
-    next(offset) { const list = focusedPane.tabs; if (!list.length) return; const index = list.findIndex(t => t.id === active?.id); go(list[index < 0 ? offset === 1 ? 0 : list.length - 1 : (index + offset + list.length) % list.length]!.id); },
-    close() { if (!active) return false; close([active.id]); return true; }, reopen,
+    next(offset) { const current = runtime.tabs.workspace(), selected = selectedSessionTab(current); const list = sessionPanes(current.layout).find(pane => pane.id === current.focusedPaneId)?.tabs ?? []; if (!list.length) return; const index = list.findIndex(t => t.id === selected?.id); go(list[index < 0 ? offset === 1 ? 0 : list.length - 1 : (index + offset + list.length) % list.length]!.id); },
+    close(viewId) { const tab = runtime.tabs.workspace().tabs.find(tab => tab.id === (viewId ?? selectedSessionTab(runtime.tabs.workspace())?.id)); if (!tab) return false; void close([tab.id]); return true; }, reopen,
     showPicker() { setPicker(true); setSearch(''); },
     newTerminal() { newTerminal(focusedPane); },
   }));
@@ -232,8 +245,9 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     windowDrag={inset && pane.id === panes[0]?.id} trafficLightInset={inset && sidebarHidden}
     leading={(!matched || pane.id === visiblePanes[0]?.id) ? utilities : undefined}
     value={matched ? pane.selected ?? null : null} onClose={id => close([id])} panelId={pane.selected ? workspacePanelId(pane.selected) : undefined}
-    onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<>{add}{matched && <Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Columns2 size={16} /></IconButton>} items={[
+    onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<>{add}{runtime.platform.browser && <IconButton variant="ghost" label="New Browser tab" disabled={!runtime.tabs.canOpenBrowser()} onClick={() => { void openBrowserTab(runtime, navigate, { paneId: pane.id }); }}><Globe size={15}/></IconButton>}{matched && <Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Columns2 size={16} /></IconButton>} items={[
       { id: 'terminal', label: 'New terminal', onSelect: () => newTerminal(pane) },
+      ...(runtime.platform.browser ? [{ id: 'browser', label: 'New Browser tab', disabled: !runtime.tabs.canOpenBrowser(), onSelect: () => { void openBrowserTab(runtime, navigate, { paneId: pane.id }); } }] : []),
       { id: 'split-right', label: 'Split right', disabled: !pane.tabs.some(tab => tab.id === pane.selected && isSessionTab(tab)) || !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'right'); } },
       { id: 'split-down', label: 'Split down', disabled: !pane.tabs.some(tab => tab.id === pane.selected && isSessionTab(tab)) || !canSplit(pane.id, 'bottom') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'bottom'); } },
       ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `focus-${p.id}`, label: `Focus pane ${panes.indexOf(p) + 1}`, onSelect: () => { if (p.selected) { go(p.selected); requestAnimationFrame(() => document.getElementById(workspacePanelId(p.selected!))?.focus()); } } })),
@@ -260,6 +274,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       onResize={(id, ratio) => runtime.tabs.resize(id, ratio)} onDrop={transfer} canDrop={canDrop} onFocusPane={focusPane}
       renderHeader={id => compact ? null : renderStrip(panes.find(p => p.id === id)!, true)}
       panels={visibleTabs.map(tab => {
+        if (tab.kind === 'browser') return { id: tab.id, paneId: sessionViewPane(workspace, tab.id)!.id, label: `Browser: ${title(tab)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id), content: <BrowserView key={tab.id} tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/> };
         const pane = sessionViewPane(workspace, tab.id)!;
         if (tab.kind === 'new') return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: New Chat`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
           content: <Welcome key={tab.id} tab={tab} focused={pane.id === workspace.focusedPaneId} /> };

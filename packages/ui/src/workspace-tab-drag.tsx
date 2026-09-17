@@ -1,3 +1,4 @@
+import { useNativeSurfacePresence } from './native-surfaces';
 import * as stylex from '@stylexjs/stylex';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -53,6 +54,7 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
   callbacks.current = { locate, onDrop, onPreview };
   const active = useRef<Drag | null>(null);
   const [presentation, setPresentation] = useState<Drag | null>(null);
+  const visible = useNativeSurfacePresence(presentation !== null);
   const overlay = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
   const offsets = useRef(new Map<HTMLElement, { x: number; animation?: Animation }>());
@@ -219,9 +221,9 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
     const zoom = element.getBoundingClientRect().width / element.offsetWidth || 1;
     element.style.width = `${presentation.rect.width / zoom}px`; element.style.height = `${presentation.rect.height / zoom}px`;
     element.style.transform = `translate(${(presentation.point.x - presentation.offset.x) / zoom}px, ${presentation.rect.top / zoom}px)`;
-  }, [presentation]);
+  }, [presentation, visible]);
 
-  return { handlers, preview: presentation && createPortal(
+  return { handlers, visible, preview: visible && presentation && createPortal(
     <div ref={overlay} dir={presentation.direction} aria-hidden="true" inert data-workspace-drag-preview={presentation.id} {...stylex.props(styles.item, styles.preview)}
       style={{ width: presentation.rect.width, height: presentation.rect.height }}>{presentation.face}</div>, presentation.source.ownerDocument.body),
   };

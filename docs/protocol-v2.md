@@ -239,7 +239,8 @@ explicitly.
 Unix sockets use one newline-delimited JSON envelope per message. WebSockets
 use one envelope per text message. Binary WebSocket messages are rejected.
 Fragmented messages have a cumulative 1 MiB bound; control and data frames are
-written under one lock. Large bodies travel through HTTP content transfers.
+written under one lock. Large bodies use the bounded [content transfers](#content-transfers);
+desktop Browser screenshots require same-connection chunk RPCs, not HTTP.
 
 `initialize` is the first request. A request ID identifies only its response;
 it is unrelated to a durable command ID, connection ID, root ID, agent ID or
@@ -281,6 +282,32 @@ explicitly ephemeral operations such as terminal input and MCP attachment.
 Credentials and terminal input must never enter durable retry queues. Provider
 login operations expose progress and choices while keeping tokens on the host.
 Configuration writes require a revision and preserve host-side atomic writes.
+
+## Desktop Browser provider lifetime
+
+Desktop Browser is **experimental, default off, and release-gated**. Advertising
+`desktop-browser-v1` during initialization does not authorize control.
+`browser.provider.bind` explicitly associates one root with its exact
+authenticated connection and a fresh provider epoch; another connection is not
+a replacement merely because it is newer. The [SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+owns selection/acknowledgement behavior. See the
+[Browser lifecycle guide](browser-computer-use.md#desktop-browser-tabs) for the
+agent operations; generated schemas remain the wire inventory.
+
+Provider traffic is not a durable retry queue. `browser.command` has a distinct
+command ID from its enclosing operation; results and `browser.command.cancel`
+match the exact root, epoch, command and attachment generation. Cancellation
+after delivery can report `outcome_unknown`; neither reconnect nor a late result
+replays the page effect. Native observations are ordered and bounded; invalid
+live sequence/authority fails closed. Screenshots use `upload.begin`,
+`upload.chunk` and `upload.finish` on the same holder connection with the
+requesting root/agent, even over WebSocket, preserving content authorization
+without HTTP or filesystem fallback.
+
+`browser.provider.unbind` releases only that holder's exact root/epoch. Release,
+disconnect, replacement or revocation ends agent control without closing human
+tabs; reconnect requires a fresh explicit selection. It does not recover a
+Browser lease through ordinary command-status or event replay.
 
 ## Reconnect and bounded views
 
@@ -383,8 +410,9 @@ decision handoff to the dispatcher. Revalidation and the tool operation settle
 asynchronously; observe runtime state and events for their authoritative outcome.
 The reply does not establish tool completion, and a crash during the handoff can
 interrupt the underlying operation. Optional `reason` explains a decision;
-`remember` accepts `tree` or `global` for an allowed request. An uncertain
-acknowledgement requires reconciling current permission state; the SDK
+`remember` accepts `tree` or `global` for an allowed request, except Browser
+requests, which currently allow Once-only approval and reject remembered scope.
+An uncertain acknowledgement requires reconciling current permission state; the SDK
 does not automatically repeat decisions.
 
 Permission mode changes use the ordinary durable runtime `permission.mode`

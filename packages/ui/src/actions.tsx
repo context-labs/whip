@@ -9,6 +9,7 @@ import { LoaderCircle, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import type { ComponentPropsWithRef, ReactElement, ReactNode } from 'react';
 import { styles } from './styles.stylex';
+import { useNativeOverlay } from './native-surfaces';
 
 export type Styled = {xstyle?: StyleXStyles};
 export type ButtonProps = ComponentPropsWithRef<'button'> & Styled & {variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; size?: 'sm' | 'md' | 'lg'; loading?: boolean};
@@ -22,7 +23,8 @@ type TooltipProps = {label: ReactNode; children: ReactElement; delay?: number} &
   Pick<BaseTooltip.Root.Props, 'disableHoverablePopup'> &
   Pick<BaseTooltip.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'collisionPadding' | 'collisionAvoidance'>;
 export function Tooltip({label, children, delay, disableHoverablePopup, xstyle, ...position}: TooltipProps) {
-  return <BaseTooltip.Root disableHoverablePopup={disableHoverablePopup}><BaseTooltip.Trigger render={children} delay={delay}/><BaseTooltip.Portal><BaseTooltip.Positioner sideOffset={7} {...position} {...stylex.props(styles.positioner)}><BaseTooltip.Popup {...stylex.props(styles.tooltip, xstyle)}>{label}</BaseTooltip.Popup></BaseTooltip.Positioner></BaseTooltip.Portal></BaseTooltip.Root>;
+  const overlay = useNativeOverlay();
+  return <BaseTooltip.Root {...overlay} disableHoverablePopup={disableHoverablePopup}><BaseTooltip.Trigger render={children} delay={delay}/><BaseTooltip.Portal><BaseTooltip.Positioner sideOffset={7} {...position} {...stylex.props(styles.positioner)}><BaseTooltip.Popup {...stylex.props(styles.tooltip, xstyle)}>{label}</BaseTooltip.Popup></BaseTooltip.Positioner></BaseTooltip.Portal></BaseTooltip.Root>;
 }
 const spin = stylex.keyframes({from: {transform: 'rotate(0deg)'}, to: {transform: 'rotate(360deg)'}});
 const spinnerStyles = stylex.create({spin: {animationName: spin, animationDuration: '1s', animationTimingFunction: 'linear', animationIterationCount: 'infinite'}});

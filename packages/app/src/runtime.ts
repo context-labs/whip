@@ -17,6 +17,8 @@ import type { CommandOperation } from '@whip/protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { isSessionTab, SessionTabs, welcomeDraftKey } from './session-tabs';
+import { BrowserAssociations } from './browser-provider';
+import { BrowserWorkspace } from './browser-workspace';
 import { CompositionStore } from './compositions';
 import { ReadingPositions } from './reading-positions';
 import { SubmittedInputs } from './input-presentation';
@@ -87,6 +89,8 @@ interface RuntimeSnapshot {
 
 /** Owns UI observation lifetimes; accepted execution continues after disposal. */
 export class AppRuntime {
+  readonly browser: BrowserWorkspace;
+  readonly browserAssociations: BrowserAssociations;
   readonly connections: HostConnections;
   readonly tabs: SessionTabs;
   readonly compositions = new CompositionStore();
@@ -166,13 +170,14 @@ export class AppRuntime {
       },
     };
     this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message), this.lastSession()?.runtimeId);
+    this.browser = new BrowserWorkspace(platform.browser, this.tabs, error => this.reportWorkspace(error));
     let previousTabs = this.tabs.getSnapshot();
     this.tabs.subscribe(() => {
       const next = this.tabs.getSnapshot();
       const before = previousTabs.workspace, after = next.workspace;
       const views = new Set([...after.tabs, ...after.closed.map(item => item.tab)].map(tab => tab.id));
       for (const tab of [...before.tabs, ...before.closed.map(item => item.tab)]) {
-        if (tab.kind !== 'new' && !views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
+        if ((isSessionTab(tab) || tab.kind === 'terminal') && !views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
       }
       previousTabs = next;
     });
@@ -202,6 +207,7 @@ export class AppRuntime {
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
       },
     });
+    this.browserAssociations = new BrowserAssociations(platform.browserAgent, this.connections, this.tabs, this.browser, error => this.reportWorkspace(error));
     const updateHosts = () => {
       const { hosts, profilesReady, profileError, selectedId } = this.connections.getSnapshot();
       this.update({ hosts, home: hosts.find(host => host.local), profilesReady, profileError, selectedHostId: selectedId });
@@ -293,7 +299,7 @@ export class AppRuntime {
     const prefix = `${runtimeId}:${rootId}:`;
     const matches = (tab: { runtimeId?: string; rootId?: string }) => tab.runtimeId === runtimeId && tab.rootId === rootId;
     const workspace = this.tabs.workspace();
-    const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(matches).map(tab => tab.id);
+    const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(tab => tab.kind !== 'browser' && matches(tab)).map(tab => tab.id);
     this.compositions.clearSession(runtimeId, rootId, viewIds);
     this.tabs.purge(runtimeId, rootId);
     const viewKey = JSON.stringify([runtimeId, rootId]);
@@ -792,10 +798,12 @@ export class AppRuntime {
     if (this.closed) return;
     this.flushDrafts();
     this.closed = true;
+    this.browserAssociations.dispose();
     this.connections.dispose();
     this.submittedInputs.clear();
     this.pending.clear();
     this.queries.clear();
+    this.browser.dispose();
     this.tabs.dispose();
     this.compositions.dispose();
     this.readingPositions.clear();

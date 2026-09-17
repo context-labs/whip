@@ -1,8 +1,8 @@
 # Whipcode browser tabs, agent attachment, and SSH previews
 
-Branch: proposed `desktop-browser-tabs`; planning performed on `compaction-loop-and-ui-cleanup` at `f02c6cf920a237574ae03df6a221a376e16a98a8` plus the existing working tree.
+Branch: `desktop-browser-tabs`, worktree `../whip-browser-tabs`. Inherited local changes and this plan were committed as baseline `e261d9b5139d85ade9837eedccb8e9bdd7aaa5f1` (parent `f02c6cf920a237574ae03df6a221a376e16a98a8`).
 
-Status: **Phased implementation proposal. No feature implementation has started.**
+Status: **Implemented behind the packaged opt-in flag; integration and Phase 7 acceptance are in progress, not release-complete.** The user authorized end-to-end implementation, all phases/testing, and isolated testing with the connected remote host. Track actual progress, commands, evidence and blockers in [the implementation ledger](implementation.md). Unchecked gates are not complete.
 
 This revision incorporates the subsequent product discussion and **supersedes the initial human-only browser-tab proposal**. Agent attachment and SSH remote previews are part of the planned feature. URL/Tailscale host previews are explicitly out of scope. [OpenCode research](opencode-research.md) remains the pinned prior-art record; it is not evidence that Whipcode has implemented any of this.
 

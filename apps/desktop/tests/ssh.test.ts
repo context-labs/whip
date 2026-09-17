@@ -279,6 +279,42 @@ test('real SSH forwards an isolated Unix socket, quotes remote paths and preserv
   assert.equal(await exchange(f.remoteSocket, 'remote remains alive'), 'remote remains alive');
 });
 
+test('preview routes require a live authenticated master and never establish implicitly', async () => {
+  const connection = new SSHConnection({ target: { kind: 'ssh', host: 'fixture' }, executable: '/not-executed',
+    env: {}, signal: new AbortController().signal, progress() {}, prompt: async () => { throw new Error('Unexpected prompt'); } });
+  assert.equal(connection.previewConnection, undefined);
+  await assert.rejects(connection.acquirePreviewRoute({ remoteHost: '127.0.0.1', port: 3000, expectedGeneration: 'missing' }, new AbortController().signal), /no longer active/);
+  await connection.dispose();
+});
+
+test('real SSH preview forwards literal IPv4 and IPv6 through the same master and revokes owned streams', integration, async t => {
+  const f = await fixture(t); const connection = f.connection(async () => { throw new Error('Unexpected prompt'); });
+  await connection.getSocket(); const current = connection.previewConnection!; assert.ok(current.generation);
+  const servers: Server[] = []; const peers = new Set<Socket>();
+  t.after(async () => {
+    for (const peer of peers) peer.destroy();
+    await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+  });
+  for (const remoteHost of ['127.0.0.1', '::1'] as const) {
+    const server = createServer(peer => { peers.add(peer); peer.on('error', () => {}); peer.on('data', bytes => peer.write(bytes)); });
+    servers.push(server); server.listen(0, remoteHost); await once(server, 'listening'); const port = (server.address() as { port: number }).port;
+    const route = await connection.acquirePreviewRoute({ remoteHost, port, expectedGeneration: current.generation }, t.signal);
+    assert.equal(route.generation, current.generation); assert.equal(connection.previewConnection!.generation, current.generation);
+    const socket = await route.open(t.signal); socket.write(`literal ${remoteHost}`);
+    assert.equal((await once(socket, 'data'))[0].toString(), `literal ${remoteHost}`);
+    const closed = new Promise<void>(resolve => socket.once('close', () => resolve())); await route.close(); await closed;
+    await assert.rejects(route.open(t.signal)); await route.close();
+    // Cancel one preview forward must not disturb the daemon or remote listener.
+    assert.equal(await exchange(await connection.getSocket(), 'daemon remains'), 'daemon remains');
+    const direct = connect(port, remoteHost); await once(direct, 'connect'); direct.destroy();
+  }
+  const port = (servers[0]!.address() as { port: number }).port;
+  const route = await connection.acquirePreviewRoute({ remoteHost: '127.0.0.1', port, expectedGeneration: current.generation }, t.signal);
+  const socket = await route.open(t.signal); const closed = new Promise<void>(resolve => socket.once('close', () => resolve()));
+  await connection.dispose(); await closed; assert.equal(current.signal.aborted, true); assert.equal(connection.previewConnection, undefined);
+  await assert.rejects(connection.acquirePreviewRoute({ remoteHost: '127.0.0.1', port, expectedGeneration: current.generation }, t.signal));
+});
+
 test('real SSH preserves the remote Unix path when status output splits a UTF-8 character', integration, async t => {
   const f = await fixture(t, { fragmentedStatus: true });
   const connection = f.connection(async () => { throw new Error('Unexpected prompt'); });

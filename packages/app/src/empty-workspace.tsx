@@ -14,7 +14,7 @@ import { layout } from './styles';
  * Chat instead (see openAfterLastClose), so this renders on first run, after
  * storage loss, and for URLs whose tab is not open here.
  */
-export function EmptyWorkspace({ missing = false, subject = 'draft' }: { missing?: boolean; subject?: 'draft' | 'terminal' }) {
+export function EmptyWorkspace({ missing = false, subject = 'draft' }: { missing?: boolean; subject?: 'draft' | 'terminal' | 'browser' }) {
   const runtime = useRuntime();
   const navigate = useNavigate();
   const { hosts, preferences } = useAppState();

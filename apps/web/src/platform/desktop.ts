@@ -127,6 +127,26 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
     for (const listener of updateListeners) listener();
   });
   return {
+    ...(bridge.browser?.version === 1 ? { browser: { ...bridge.browser,
+      ...(bridge.browser.createPreview ? { createPreview: (input: Parameters<NonNullable<NonNullable<typeof bridge.browser>['createPreview']>>[0]) => {
+        const connection = prepared.get(input.connectionId);
+        if (!connection || connection.urlSource) return Promise.reject(new Error('The native SSH connection is unavailable'));
+        return bridge.browser!.createPreview!({ ...input, connectionId: connection.id });
+      } } : {}),
+    } } : {}),
+    ...(bridge.browserAgent ? { browserAgent: {
+      ...bridge.browserAgent,
+      preview: (input: Parameters<NonNullable<typeof bridge.browserAgent>['preview']>[0]) => {
+        const connection = prepared.get(input.connectionId);
+        if (!connection || connection.urlSource) return Promise.reject(new Error('The native SSH connection is unavailable'));
+        return bridge.browserAgent!.preview({ ...input, connectionId: connection.id });
+      },
+      select: (input: Parameters<NonNullable<typeof bridge.browserAgent>['select']>[0]) => {
+        const connection = input.connectionId ? prepared.get(input.connectionId) : undefined;
+        if (input.connectionId && (!connection || connection.urlSource)) return Promise.reject(new Error('The native provider connection is unavailable'));
+        return bridge.browserAgent!.select({ ...input, ...(connection ? { connectionId: connection.id } : {}) });
+      },
+    } } : {}),
     hostPrompts,
     systemContrast: {
       getSnapshot: () => systemContrast,

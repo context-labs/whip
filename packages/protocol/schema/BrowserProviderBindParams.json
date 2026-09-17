@@ -1,0 +1,160 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer"
+    },
+    "desktop_id": {
+      "type": "string"
+    },
+    "window_id": {
+      "type": "string"
+    },
+    "offer_revision": {
+      "type": "string"
+    },
+    "create_profile_id": {
+      "type": "string"
+    },
+    "expected_provider_epoch": {
+      "type": "string"
+    },
+    "offered_tabs": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string"
+          },
+          "tab_generation": {
+            "type": "string"
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "document_revision": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "preview": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "host_id": {
+                "type": "string"
+              },
+              "host_identity": {
+                "type": "string"
+              },
+              "connection_generation": {
+                "type": "string"
+              },
+              "environment_id": {
+                "type": "string"
+              },
+              "loopback": {
+                "type": "string"
+              },
+              "ports": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "host_id",
+              "host_identity",
+              "connection_generation",
+              "environment_id",
+              "loopback",
+              "ports"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "tab_id",
+          "tab_generation",
+          "profile_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "offered_preview_hosts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "host_id": {
+            "type": "string"
+          },
+          "host_identity": {
+            "type": "string"
+          },
+          "connection_generation": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "loopback": {
+            "type": "string"
+          },
+          "ports": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "host_id",
+          "host_identity",
+          "connection_generation",
+          "environment_id",
+          "loopback",
+          "ports"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/BrowserProviderBindParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserProviderBindParams",
+  "required": [
+    "root_id",
+    "version",
+    "desktop_id",
+    "window_id",
+    "offer_revision",
+    "create_profile_id",
+    "offered_tabs",
+    "offered_preview_hosts"
+  ],
+  "additionalProperties": false
+}

@@ -1,4 +1,5 @@
 import type { HostPromptsController } from './host-prompt-controller';
+import type { BrowserAgentBridge } from './browser-agent-types';
 export { createHostPrompts } from './host-prompt-controller';
 import type { ConnectionOptions, ConnectionProfile, ConnectionTarget, ResolvedConnection } from './connections';
 export { localProfile, urlProfile, validateProfile, resolveURLConnection } from './connections';
@@ -74,6 +75,10 @@ export interface SSHProfile { alias: string; hostname?: string; user?: string; p
 export interface SSHProfileList { profiles: SSHProfile[]; truncated: boolean }
 
 export interface AppPlatform {
+  /** Optional native human-browser capability. Unavailable clients retain descriptors without realizing pages. */
+  browser?: import('./browser-types').BrowserPlatform;
+  /** Explicit model-provider transport, separate from ordinary human browsing. */
+  readonly browserAgent?: BrowserAgentBridge;
   storage: AppStorage;
   /** 'inset' when the host hides the native title bar and insets its window
    * controls into the app chrome (macOS hiddenInset); the shell reserves the

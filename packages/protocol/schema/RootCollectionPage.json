@@ -492,6 +492,103 @@
                   "mcp_all": {
                     "type": "boolean"
                   },
+                  "browser": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "provider_id": {
+                        "type": "string"
+                      },
+                      "provider_epoch": {
+                        "type": "string"
+                      },
+                      "tab_id": {
+                        "type": "string"
+                      },
+                      "tab_generation": {
+                        "type": "string"
+                      },
+                      "profile_id": {
+                        "type": "string"
+                      },
+                      "attachment_id": {
+                        "type": "string"
+                      },
+                      "attachment_generation": {
+                        "type": "string"
+                      },
+                      "rights": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "preview": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "host_id": {
+                            "type": "string"
+                          },
+                          "host_identity": {
+                            "type": "string"
+                          },
+                          "connection_generation": {
+                            "type": "string"
+                          },
+                          "environment_id": {
+                            "type": "string"
+                          },
+                          "loopback": {
+                            "type": "string"
+                          },
+                          "ports": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "required": [
+                          "host_id",
+                          "host_identity",
+                          "connection_generation",
+                          "environment_id",
+                          "loopback",
+                          "ports"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "provider_id",
+                      "provider_epoch",
+                      "tab_id",
+                      "tab_generation",
+                      "profile_id",
+                      "rights"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "browser_issuer_id": {
+                    "type": "string"
+                  },
+                  "browser_issuer_generation": {
+                    "type": "integer"
+                  },
+                  "browser_delegation_only": {
+                    "type": "boolean"
+                  },
                   "generation": {
                     "type": "string",
                     "pattern": "^-?(0|[1-9][0-9]*)$",
@@ -1169,6 +1266,103 @@
                         }
                       },
                       "mcp_all": {
+                        "type": "boolean"
+                      },
+                      "browser": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "provider_id": {
+                            "type": "string"
+                          },
+                          "provider_epoch": {
+                            "type": "string"
+                          },
+                          "tab_id": {
+                            "type": "string"
+                          },
+                          "tab_generation": {
+                            "type": "string"
+                          },
+                          "profile_id": {
+                            "type": "string"
+                          },
+                          "attachment_id": {
+                            "type": "string"
+                          },
+                          "attachment_generation": {
+                            "type": "string"
+                          },
+                          "rights": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "preview": {
+                            "type": [
+                              "null",
+                              "object"
+                            ],
+                            "properties": {
+                              "host_id": {
+                                "type": "string"
+                              },
+                              "host_identity": {
+                                "type": "string"
+                              },
+                              "connection_generation": {
+                                "type": "string"
+                              },
+                              "environment_id": {
+                                "type": "string"
+                              },
+                              "loopback": {
+                                "type": "string"
+                              },
+                              "ports": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "integer"
+                                }
+                              }
+                            },
+                            "required": [
+                              "host_id",
+                              "host_identity",
+                              "connection_generation",
+                              "environment_id",
+                              "loopback",
+                              "ports"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "provider_id",
+                          "provider_epoch",
+                          "tab_id",
+                          "tab_generation",
+                          "profile_id",
+                          "rights"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "browser_issuer_id": {
+                        "type": "string"
+                      },
+                      "browser_issuer_generation": {
+                        "type": "integer"
+                      },
+                      "browser_delegation_only": {
                         "type": "boolean"
                       },
                       "generation": {

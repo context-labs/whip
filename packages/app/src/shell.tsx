@@ -6,10 +6,11 @@ import {
   IconButton,
   Sheet,
   CommandPicker,
+  useNativeSurfacePresence,
 } from '@whip/ui';
 import { workspacePanelId } from '@whip/ui/workspace-layout';
 import { selectedSessionTab } from './session-tabs';
-import { openNewChat } from './session-tab-routing';
+import { openBrowserTab, openNewChat } from './session-tab-routing';
 import {
   PanelLeft,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const params = useParams({ strict: false });
   const settings = useLocation().pathname === '/settings';
+  const settingsReady = useNativeSurfacePresence(settings);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const focusedHost = params.runtimeId ? state.hosts.find(host => host.runtimeId === params.runtimeId) : state.home;
@@ -74,6 +76,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (settingsRef.current) { void navigate(settingsBackDestination(runtime)); return; }
     if (!tabActions.current?.close()) runtime.platform.hideWindow?.();
   }), [runtime, navigate]);
+  useEffect(() => runtime.browser.onEvent(event => {
+    if (event.kind !== 'shortcut' || settingsRef.current || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    if (runtime.browser.target(event.tabId)?.generation !== event.generation) return;
+    if (event.shortcut === 'commands') setCommands(true);
+    else if (event.shortcut === 'close') { tabActions.current?.close(event.tabId); }
+    else if (event.shortcut === 'tab-next') { runtime.tabs.activate(event.tabId); tabActions.current?.next(1); }
+    else if (event.shortcut === 'tab-previous') { runtime.tabs.activate(event.tabId); tabActions.current?.next(-1); }
+    else if (event.shortcut === 'new-browser') void openBrowserTab(runtime, navigate);
+  }), [runtime, navigate]);
   useEffect(() => { if (settings) setNavigation(false); }, [settings]);
   useEffect(() => {
     runtime.platform.setNotificationsEnabled?.(state.preferences.desktopNotifications);
@@ -104,6 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   </>;
   const runCommand = (action: string) => {
     if (action === 'new') openNewChat(runtime, navigate);
+    else if (action === 'browser:new') void openBrowserTab(runtime, navigate);
     else if (action === 'commands') setCommands(true);
     else if (action === 'focus') requestAnimationFrame(focusComposer);
     else if (action === 'navigation') openSearch();
@@ -128,7 +140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onHide={() => { sidebar.setState(value => ({ ...value, hidden: true })); requestAnimationFrame(() => toggleRef.current?.focus()); }} toggleRef={toggleRef} />
       </aside>}
       <div {...stylex.props(layout.main)}>
-        {settings ? <>{notices}{children}</> : <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={manageServers} sidebarHidden={sidebar.state.hidden}
+        {settings ? (settingsReady && <>{notices}{children}</>) : <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={manageServers} sidebarHidden={sidebar.state.hidden}
           utilities={<>{(compact || sidebar.state.hidden) && navigationToggle}<Attention /></>} notices={notices}>{children}</SessionTabStrip>}
       </div>
       <Sheet xstyle={layout.sidebarSheet} open={!settings && compact && navigation} onOpenChange={setNavigation} title="WHIP">
@@ -147,6 +159,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         onOpenChange={setCommands}
         items={[
           { value: 'new', label: 'New session' },
+          ...(runtime.platform.browser ? [{ value: 'browser:new', label: 'New Browser tab' }] : []),
           ...(!settings ? [{ value: 'focus', label: 'Focus message composer' }] : []),
           { value: 'navigation', label: 'Search sessions' },
           { value: 'connect', label: 'Manage servers' },

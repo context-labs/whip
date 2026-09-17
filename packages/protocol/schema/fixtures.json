@@ -25,6 +25,64 @@
     }
   },
   {
+    "type": "BrowserCommandResultParams",
+    "value": {
+      "command_id": "",
+      "root_id": "",
+      "provider_epoch": "",
+      "attachment_generation": "",
+      "document_revision": ""
+    }
+  },
+  {
+    "type": "Accepted",
+    "value": {
+      "accepted": false
+    }
+  },
+  {
+    "type": "BrowserProviderBindParams",
+    "value": {
+      "root_id": "",
+      "version": 0,
+      "desktop_id": "",
+      "window_id": "",
+      "offer_revision": "",
+      "create_profile_id": "",
+      "offered_tabs": [],
+      "offered_preview_hosts": []
+    }
+  },
+  {
+    "type": "BrowserProviderBindResult",
+    "value": {
+      "version": 0,
+      "provider_id": "",
+      "provider_epoch": ""
+    }
+  },
+  {
+    "type": "BrowserProviderEventParams",
+    "value": {
+      "root_id": "",
+      "provider_epoch": "",
+      "tab_id": "",
+      "tab_generation": "",
+      "attachment_id": "",
+      "attachment_generation": "",
+      "sequence": "0",
+      "document_revision": "",
+      "kind": ""
+    }
+  },
+  {
+    "type": "BrowserProviderUnbindParams",
+    "value": {
+      "root_id": "",
+      "provider_epoch": ""
+    }
+  },
+  {
     "type": "CommandStatusParams",
     "value": {
       "command_id": ""
@@ -290,12 +348,6 @@
     "value": {
       "invocation_id": "",
       "generation": "0"
-    }
-  },
-  {
-    "type": "Accepted",
-    "value": {
-      "accepted": false
     }
   },
   {

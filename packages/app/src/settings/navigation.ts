@@ -1,7 +1,7 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../runtime';
 import { isSessionTab, selectedSessionTab, validateSessionSearch, type SessionSearch } from '../session-tabs';
-import { draftDestination, tabDestination } from '../session-tab-routing';
+import { draftDestination, browserDestination, terminalDestination, tabDestination } from '../session-tab-routing';
 
 export const settingsCategories = [
   { id: 'general', label: 'General', description: 'Keyboard shortcuts and attention on this device.' },
@@ -18,6 +18,8 @@ export function isSettingsSection(value: unknown): value is SettingsSection {
 export interface SettingsSearch { section?: SettingsSection; host?: string; setting?: string }
 export interface SettingEntry { id: string; section: SettingsSection; label: string; keywords: string; desktopOnly?: boolean }
 export const settingEntries: readonly SettingEntry[] = [
+  { id: 'browserRecovery', section: 'general', label: 'Saved Browser addresses', keywords: 'browser tabs recovery restore upgrade downgrade' },
+  { id: 'browserForget', section: 'general', label: 'Forget closed Browser addresses', keywords: 'browser history privacy data clear' },
   { id: 'commandShortcut', section: 'general', label: 'Open commands', keywords: 'keyboard shortcut command palette' },
   { id: 'composerShortcut', section: 'general', label: 'Focus message composer', keywords: 'keyboard shortcut message' },
   { id: 'attentionAnnouncements', section: 'general', label: 'Attention announcements', keywords: 'accessibility screen reader voiceover' },
@@ -89,12 +91,14 @@ export function bindSettingsNavigation(runtime: AppRuntime, router: AnyRouter) {
     if (toLocation.pathname !== '/settings' || !fromLocation || fromLocation.pathname === '/settings') return;
     const match = /^\/h\/([^/]+)\/s\/([^/]+)\/?$/.exec(fromLocation.pathname);
     const draftId = draftDestination(fromLocation.pathname);
-    if (!match && !draftId && fromLocation.pathname !== '/') return;
+    const browserId = browserDestination(fromLocation.pathname);
+    const terminal = terminalDestination(fromLocation.pathname);
+    if (!match && !draftId && !browserId && !terminal && fromLocation.pathname !== '/') return;
     try {
       const active = typeof document === 'undefined' ? undefined : document.activeElement;
       runtime.rememberSettingsReturn({
         ...(match ? { runtimeId: decodeURIComponent(match[1]!), rootId: decodeURIComponent(match[2]!) } : {}),
-        viewId: draftId ?? (match ? fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id : undefined),
+        viewId: draftId ?? browserId ?? (match || terminal ? fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id : undefined),
         search: fromLocation.search, focusId: active?.id || undefined,
       });
     } catch (error) { runtime.report(error); }

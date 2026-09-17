@@ -10,12 +10,22 @@ import { createAssetHandler, desktopScheme, desktopURL, isDesktopURL, type Rende
 import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';
 import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
+import { BrowserManager } from './browser-manager';
+import { BrowserControl } from './browser-control';
+import { BrowserPreviewAuthority } from './browser-preview-authority';
+import { BrowserHumanPreview } from './browser-human-preview';
+import { nativeHumanPreviewConfirmation } from './browser-human-confirmation';
+import { browserPreviewLease } from './browser-preview';
+import { installBrowserIPC } from './browser-ipc';
+import { browserTabsArgument, browserTabsEnabled } from './browser-feature';
 import { ProjectEditors, validateOpenProject, verifyProjectRuntime } from './project-open';
 import { SSHConnection } from './ssh';
 import { listSSHProfiles } from './ssh-profiles';
 import { DesktopUpdates, readDesktopConfig } from './updates';
 import { sessionLinkPath } from './links';
 import { attachStartupProbe } from './startup-probe';
+
+const enableBrowserTabs = browserTabsEnabled(app.isPackaged, process.env.WHIP_DESKTOP_BROWSER_TABS);
 
 protocol.registerSchemesAsPrivileged([{ scheme: desktopScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -28,6 +38,8 @@ if (!app.isPackaged || process.env.WHIP_DESKTOP_FIXTURE) {
   app.setPath('userData', process.env.WHIP_DESKTOP_USER_DATA);
 }
 app.setName(__APP_NAME__);
+// Preview sessions must not bypass their fixed HTTP proxy with QUIC/WebTransport.
+app.commandLine.appendSwitch('disable-quic');
 let pendingSessionPath: string | undefined;
 let openSession: ((path: string) => void) | undefined;
 app.on('open-url', (event, url) => {
@@ -92,7 +104,7 @@ async function start() {
   const window = new BrowserWindow({ width: 1200, height: 800, minWidth: 800, minHeight: 600, ...bounds,
     show: false, backgroundColor: '#111111', title: 'Whip',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 18 } } : {}),
-    webPreferences: { preload: path.join(root, 'preload.cjs'), sandbox: true, contextIsolation: true,
+    webPreferences: { preload: path.join(root, 'preload.cjs'), additionalArguments: enableBrowserTabs ? [browserTabsArgument] : [], sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, webviewTag: false, spellcheck: true } });
   await attachStartupProbe(window, { userData: app.getPath('userData'), rendererDigest: renderer.digest, quit: () => app.quit() });
   const emit = (event: DesktopEvent) => { if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:event', event); };
@@ -127,6 +139,24 @@ async function start() {
     if (window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
         !rendererURL(event.senderFrame.url)) throw new Error('Untrusted desktop request');
   };
+  let browserControl: BrowserControl | undefined;
+  const previews = new BrowserPreviewAuthority(app.getPath('userData'), id => connections.get(id),
+    (id, reason) => browserControl?.invalidateEnvironment(id, reason),
+    id => browsers.invalidateEnvironment(id, 'Preview connection ended'));
+  const browsers = new BrowserManager(window, event => {
+    browserControl?.observe(event);
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:browser:event', event);
+  }, { environment: (id, tabId) => browserPreviewLease(previews.environments, id, tabId),
+    invalidateControl: (id, reason) => browserControl?.invalidate(id, reason) });
+  browserControl = new BrowserControl(browsers, event => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:browser-agent:event', event);
+  }, { prepare: selection => previews.prepare(selection), preview: (selection, scope) => previews.ensure(selection, scope),
+    expand: (selection, scope, port) => previews.expand(selection, scope, port), previewState: id => previews.offered(id) });
+  const humanPreviews = new BrowserHumanPreview(browsers, previews, browserControl,
+    nativeHumanPreviewConfirmation(window, (parent, options) => dialog.showMessageBox(parent, options)));
+  const disposeBrowserIPC = enableBrowserTabs ? installBrowserIPC(window, browsers, trusted, browserControl, previews, humanPreviews) : () => {};
+  window.once('closed', () => humanPreviews.dispose());
+  window.once('closed', disposeBrowserIPC);
   const handle = (name: string, action: (...args: any[]) => unknown) => {
     ipcMain.handle(`whip:${name}`, (event, ...args: unknown[]) => { trusted(event); return action(...args); });
   };
@@ -316,7 +346,7 @@ async function start() {
     if (!quitting) void localRuntime.approveUpdate(undefined, runtimeLifetime.signal).catch(() => {});
   });
   app.on('before-quit', event => { if (!quitApproved) { event.preventDefault(); void requestClose('quit'); } });
-  app.on('will-quit', () => { runtimeLifetime.abort(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
+  app.on('will-quit', () => { runtimeLifetime.abort(); humanPreviews.dispose(); browserControl?.dispose(); browsers.dispose(); void previews.dispose(); disposeBrowserIPC(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
   app.on('second-instance', () => { window.show(); window.focus(); });
   app.on('activate', () => { window.show(); window.focus(); });
   window.on('close', event => {

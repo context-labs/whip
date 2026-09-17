@@ -153,6 +153,44 @@ CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
 
+## Native Browser workspace boundary
+
+Desktop Browser tabs use the same split-workspace descriptors and tab strip as
+sessions, files and terminals. [`BrowserWorkspace`](../packages/app/src/browser-workspace.ts)
+owns renderer observation/admission and pane routing; Electron
+[`BrowserManager`](../apps/desktop/src/browser-manager.ts) owns the actual
+`WebContentsView` pages, profile partitions and live inventory. A descriptor
+stores only its ID, URL, title hint and optional inert preview-environment ID—not
+a daemon, agent attachment or network grant. Missing native support preserves
+these descriptors as unavailable rather than erasing them. New Browser tabs are
+capped at eight (within 32 total workspace tabs), with four presented guests;
+otherwise-valid over-cap restore metadata remains available for recovery.
+
+[`BrowserPlatform`](../packages/app/src/browser-types.ts) is the optional,
+versioned human-tab API. Mutations quote native epoch/tab/generation; presentation
+is a full monotonic CSS-viewport geometry snapshot. Shared overlay owner tokens
+must await native **hide acknowledgement before mounting interactive overlays**.
+Restoring metadata does not navigate, and creating a page requires explicit
+workspace admission before realization. Native snapshots are observations, never
+instructions to admit an unknown page. Model-created tabs enter the captured
+originating pane in the background.
+
+Agent control is deliberately separate:
+[`BrowserAssociations`](../packages/app/src/browser-provider.ts) records the
+user's explicit conversation/provider/tab/pane choice;
+[`client.browser`](../packages/sdk/src/browser.ts) owns selected-holder transport,
+command IDs, cancellation, upload and teardown; the daemon owns durable scoped
+permission decisions. [`BrowserAgentBridge`](../packages/app/src/browser-agent-types.ts)
+is a trusted native adapter, not an arbitrary-CDP method on `BrowserPlatform`.
+The controlled page is the human's page. Reconnect, focus changes, restored IDs
+and a copied attachment ID never select a provider or grant authority. Releasing
+an attachment does not close a human tab. Preview-network authority is separate
+again, bound to the verified SSH connection and tab environment; URL connections
+are not SSH preview providers. Standalone human preview admission uses a
+parented native confirmation sheet in Electron main, not the SSH authentication
+prompt flow; it cannot create agent authority. See [desktop Browser behavior](desktop.md#browser-tabs-experimental)
+and [agent operations](browser-computer-use.md#desktop-browser-tabs).
+
 ## Native mobile companion
 
 [`apps/mobile`](../apps/mobile) is a separate Expo Router renderer for iOS and

@@ -8,6 +8,24 @@ import {PendingRequests} from '../src/requests';
 import {RuntimeContext} from '../src/context';
 import type {AppRuntime} from '../src/runtime';
 
+it.each(['browser.open', 'browser.attach', 'browser.allow_preview_port'])('keeps %s resource consent Once-only and distinct from tab lifetime', async operation => {
+  const queue = permissionQueue();
+  const permission = queue.root.permissions![0]!;
+  permission.operation = operation;
+  permission.command = 'Agent control: tab preview-tab\nSSH preview network: host saved-host, runtime verified-runtime, 127.0.0.1 ports [3000]';
+  permission.rule = 'browser:*'; // A stale/unsupported rule must not expose broad approval.
+  render(queue.ui());
+  expect(screen.getByLabelText('Requested operation').textContent).toBe(permission.command);
+  expect(screen.queryByRole('combobox', {name: 'Permission scope'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Allow and remember'})).toBeNull();
+  expect(screen.getByText(/cannot be remembered for other tabs or hosts/)).toBeTruthy();
+  expect(screen.getByText(operation === 'browser.allow_preview_port'
+    ? /also authorizes the requested preview port/
+    : /also authorizes that network scope/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
+  await waitFor(() => expect(queue.decide).toHaveBeenCalledWith({root_id: 'root', permission_id: 'first', allow: true}));
+});
+
 function permissionQueue() {
   const root = {
     agents: [{id: 'root:explorer', name: 'Explore repository'}, {id: 'root:reviewer', name: 'Review changes'}],

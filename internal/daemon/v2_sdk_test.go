@@ -86,7 +86,10 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	frontend := "http://" + listener.Addr().String()
 	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
-	var factory Factory = func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+	var factory Factory = func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		if meta.Kind == session.SessionKindToolHost {
+			return Components{Runner: NewToolRunner(tools.NewServices())}, nil
+		}
 		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
 		value.services.SetExternalPermissions(true)
 		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {

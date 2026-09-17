@@ -6,6 +6,38 @@ export const manifest = {
   "minor": 8,
   "operations": [
     {
+      "name": "browser.command.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserCommandResultParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "browser.provider.bind",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderBindParams",
+      "result_type": "BrowserProviderBindResult"
+    },
+    {
+      "name": "browser.provider.event",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderEventParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "browser.provider.unbind",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderUnbindParams",
+      "result_type": "Accepted"
+    },
+    {
       "name": "command.status",
       "surface": "rpc",
       "execution": "query",
@@ -1104,6 +1136,9 @@ export const manifest = {
     }
   ],
   "events": {
+    "browser.command": "BrowserCommand",
+    "browser.command.cancel": "BrowserCommandCancel",
+    "browser.provider.revoked": "BrowserProviderRevoked",
     "event": "EventNotification",
     "hook.cancel": "ToolCancelParams",
     "hook.invoke": "HookInvokeParams",
