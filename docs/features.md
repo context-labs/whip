@@ -719,6 +719,13 @@ relay: full device login + key mint, store round-trip, key validation),
   `TestWaitingOnSubagentsDuringForegroundSubagent` — a real turn blocked on a
   live foreground subagent reports waiting, then flips false),
   `internal/tui/queue_test.go` (`TestBusyPlaceholderReflectsRouting`).
+- **Built-in terminal themes.** Bare `/theme` opens a scrollable picker with
+  live preview; enter persists the selected theme and escape restores the prior
+  choice. `/theme <name>` selects the same embedded catalog directly. `auto`
+  follows terminal appearance, while `light`, `dark`, and named themes share
+  semantic UI, Markdown, code, diff, border, and surface colors. Theme changes
+  invalidate the Markdown/Chroma cache without requiring a restart. Custom
+  theme files are intentionally not loaded.
 - **Settings commands run mid-turn.** `/theme`, `/mouse`, `/effort`, `/subagents` (alias `/tasks`),
   `/help`, `/cd`, `/pwd`, and the non-submitting `/goal` forms (bare, `clear`,
   `rounds`) execute immediately while busy instead of queueing — queued text
