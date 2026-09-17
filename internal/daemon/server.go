@@ -188,6 +188,8 @@ func (s *Server) Serve(listener net.Listener) error {
 func (s *Server) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		// Queue native teardown while connections are still writable; transport loss is the fallback.
+		s.daemon.browserProviders.shutdown()
 		s.lifeMu.Lock()
 		s.closed.Store(true)
 		s.cancel()
@@ -254,7 +256,7 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -346,6 +348,7 @@ func (s *Server) unregister(connection *serverConn) {
 	delete(s.clients, connection)
 	s.mu.Unlock()
 	s.daemon.executors.disconnect(connection)
+	s.daemon.browserProviders.disconnect(connection)
 	if s.daemon.terminals != nil {
 		s.daemon.terminals.Detach(connection)
 	}
@@ -365,6 +368,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		return result, failure
 	}
 	if result, failure, handled := s.handleDefinitions(connection, request); handled {
+		return result, failure
+	}
+	if result, failure, handled := s.handleBrowser(connection, request); handled {
 		return result, failure
 	}
 	if result, failure, handled := s.handleExecutor(connection, request); handled {

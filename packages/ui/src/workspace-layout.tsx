@@ -175,7 +175,7 @@ export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, 
             onPointerDownCapture={event => focusFromPointer(panel.paneId, event)} onFocusCapture={() => onFocusPane(panel.paneId)}
             {...stylex.props(styles.content, !rect && styles.unmeasured)} style={rect}>{panel.content}</section>;
         })}
-        {preview && <div aria-hidden="true" data-workspace-drop={preview.drop.edge ?? 'tab'} {...stylex.props(styles.preview)} style={preview.rect}/>}
+        {drag.visible && preview && <div aria-hidden="true" data-workspace-drop={preview.drop.edge ?? 'tab'} {...stylex.props(styles.preview)} style={preview.rect}/>}
       </div>
       {drag.preview}
     </workspaceDragContext.Provider>

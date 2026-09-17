@@ -36,6 +36,26 @@ ordinary responses without changing delegation or authorization. See
 [agent inspection](tools.md#choosing-between-models-and-agents) for retrieval
 and response-shape migration examples.
 
+## Desktop Browser authority
+
+The experimental desktop Browser path is available through the same
+host module in Starlark and JavaScript; it adds no model-facing tool or execution
+engine. The [Browser guide](browser-computer-use.md#desktop-browser-tabs) owns the
+lifecycle/helper contract. A fresh root must have Browser module grants and an
+explicitly selected provider. Historical roots are not silently broadened.
+
+Open, attach and preview-port expansion resolve the exact native resource before
+durable permission admission and recheck it after Once-only approval. Saved
+permission rules do not authorize Browser v1 resource requests. Attachment IDs
+alone are not grants: `agents.spawn` must explicitly name
+`browser_attachments=[attachment_id]`. A successful handoff creates child-bound
+control and leaves the parent with delegation/revocation authority, not shared
+control; ancestry remains checked on use. Detach, stop and revoke cascade to
+retire dependent control without closing the human tab. Reconnect/restart does
+not restore native selection or replay uncertain page effects; see the
+[SDK provider lifetime](../packages/sdk/README.md#experimental-native-browser-provider).
+This contract does not imply packaged-release acceptance.
+
 ## Durable communication
 
 Spawn returns immediately with the child’s admission metadata. The child’s

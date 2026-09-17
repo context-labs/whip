@@ -129,6 +129,10 @@ var rpcOperations = []Operation{
 	rpc[DefinitionRegisterParams, DefinitionRegisterResult]("definitions.register", Ephemeral, "host-runtime", false),
 	rpc[DefinitionParams, DefinitionRecord]("definitions.get", Query, "host-runtime", false),
 	rpc[Empty, DefinitionList]("definitions.list", Query, "host-runtime", false),
+	rpc[BrowserProviderBindParams, BrowserProviderBindResult]("browser.provider.bind", Ephemeral, "browser-provider", false),
+	rpc[BrowserProviderUnbindParams, Accepted]("browser.provider.unbind", Ephemeral, "browser-provider", false),
+	rpc[BrowserCommandResultParams, Accepted]("browser.command.result", Ephemeral, "browser-provider", false),
+	rpc[BrowserProviderEventParams, Accepted]("browser.provider.event", Ephemeral, "browser-provider", false),
 	rpc[ExecutorBindParams, ExecutorBindResult]("executor.bind", Ephemeral, "host-runtime", false),
 	rpc[ExecutorPendingParams, ExecutorPendingResult]("executor.pending", Query, "executor-lease", false),
 	rpc[ToolResultParams, Accepted]("tool.result", Ephemeral, "executor-lease", false),
@@ -201,15 +205,18 @@ func Lookup(name string) (Operation, bool) {
 
 func Events() map[string]reflect.Type {
 	return map[string]reflect.Type{
-		"event":               reflect.TypeFor[EventNotification](),
-		"subscription.failed": reflect.TypeFor[SubscriptionFailure](),
-		"tool.invoke":         reflect.TypeFor[ToolInvokeParams](),
-		"tool.cancel":         reflect.TypeFor[ToolCancelParams](),
-		"hook.invoke":         reflect.TypeFor[HookInvokeParams](),
-		"hook.cancel":         reflect.TypeFor[ToolCancelParams](),
-		"terminal.output":     reflect.TypeFor[TerminalOutputParams](),
-		"terminal.exited":     reflect.TypeFor[TerminalExitedParams](),
-		"terminal.detached":   reflect.TypeFor[TerminalDetachedParams](),
+		"event":                    reflect.TypeFor[EventNotification](),
+		"subscription.failed":      reflect.TypeFor[SubscriptionFailure](),
+		"browser.provider.revoked": reflect.TypeFor[BrowserProviderRevoked](),
+		"browser.command":          reflect.TypeFor[BrowserCommand](),
+		"browser.command.cancel":   reflect.TypeFor[BrowserCommandCancel](),
+		"tool.invoke":              reflect.TypeFor[ToolInvokeParams](),
+		"tool.cancel":              reflect.TypeFor[ToolCancelParams](),
+		"hook.invoke":              reflect.TypeFor[HookInvokeParams](),
+		"hook.cancel":              reflect.TypeFor[ToolCancelParams](),
+		"terminal.output":          reflect.TypeFor[TerminalOutputParams](),
+		"terminal.exited":          reflect.TypeFor[TerminalExitedParams](),
+		"terminal.detached":        reflect.TypeFor[TerminalDetachedParams](),
 	}
 }
 

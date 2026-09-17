@@ -479,6 +479,10 @@ func readSnapshotCapabilities(ctx context.Context, tx *sql.Tx, rootID string, sn
 			return err
 		}
 		record.Scopes = scopes.Paths
+		record.Browser = scopes.Browser
+		record.BrowserIssuerID = scopes.BrowserIssuerID
+		record.BrowserIssuerGeneration = scopes.BrowserIssuerGeneration
+		record.BrowserDelegationOnly = scopes.BrowserDelegationOnly
 		if scopes.ExpiresAt != "" {
 			record.ExpiresAt, err = time.Parse(time.RFC3339Nano, scopes.ExpiresAt)
 			if err != nil {

@@ -26,7 +26,19 @@ export function draftDestination(pathname: string): string | undefined {
   try { return decodeURIComponent(match[1]!); } catch { return; }
 }
 
+export function browserDestination(pathname: string): string | undefined {
+  const match = /^\/browser\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return;
+  try { return decodeURIComponent(match[1]!); } catch { return; }
+}
+
+export async function openBrowserTab(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: { url?: string; environmentId?: string; paneId?: string } = {}) {
+  try { const tab = await runtime.browser.create(options.url, options.environmentId, options.paneId); await navigate(tabDestination(tab)); }
+  catch (error) { runtime.reportWorkspace(error); }
+}
+
 export function tabDestination(tab: SessionTab) {
+  if (tab.kind === 'browser') return { to: '/browser/$viewId' as const, params: { viewId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
@@ -75,7 +87,7 @@ export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate']
 
 /** After the last tab closes, keep a place to type: a New Chat on the closed tab's host and folder (the default host when that host is gone). Closing a New Chat itself empties the workspace. */
 export function openAfterLastClose(runtime: AppRuntime, navigate: AnyRouter['navigate'], closed?: { kind: SessionTab['kind']; runtimeId?: string }, cwd?: string) {
-  if (closed && closed.kind !== 'new') {
+  if (closed && closed.kind !== 'new' && closed.kind !== 'browser') {
     const known = runtime.getSnapshot().hosts.some(host => host.runtimeId === closed.runtimeId);
     openNewChat(runtime, navigate, known ? { runtimeId: closed.runtimeId, cwd: cwd || undefined } : {}, true);
     return;
@@ -133,6 +145,12 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       observedLocation = current;
       runtime.clearWorkspaceError();
       if (capacityNotice !== current.href) capacityNotice = undefined;
+      const browserId = browserDestination(current.pathname);
+      if (browserId) {
+        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'browser' && tab.id === browserId);
+        if (tab) runtime.tabs.activate(tab.id);
+        return;
+      }
       const terminal = terminalDestination(current.pathname);
       if (terminal) {
         // A terminal URL selects an open tab; it never starts a shell, so a

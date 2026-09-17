@@ -589,6 +589,7 @@ func (session *AgentSession) bind(root *Session) error {
 		return errors.New("agent services are required")
 	}
 	session.agent.Services.SetMCPProvider(root.mcpProvider)
+	session.agent.Services.SetDesktopBrowserProvider(root.desktopBrowserProvider)
 	// Binary MCP result parts become content handles owned by this agent. The
 	// id is read at call time: bind runs before a fresh agent's id is assigned.
 	session.agent.Services.SetMCPAttachmentStore(func(ctx context.Context, mime string, data []byte) (string, error) {

@@ -1,3 +1,7 @@
+import type { BrowserPlatform } from './browser-types';
+import type { BrowserAgentBridge } from './browser-agent-types';
+export type { BrowserAgentBridge, BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserAgentPreview } from './browser-agent-types';
+export type { BrowserPlatform, BrowserTarget, BrowserRestoreTab, BrowserTabState, BrowserInventory, BrowserPresentation, BrowserAction, BrowserShortcut, BrowserEvent } from './browser-types';
 import type { ConnectionProfile, ConnectionTarget } from './connections';
 import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor, SSHProfileList } from './platform';
 export type { LocalRuntimeStatus } from './platform';
@@ -28,6 +32,8 @@ export type DesktopEvent =
 
 export interface DesktopBridge {
   readonly version: 2;
+  readonly browser?: BrowserPlatform;
+  readonly browserAgent?: BrowserAgentBridge;
   readonly appVersion: string;
   /** 'inset' when the host hides the native title bar (macOS hiddenInset) and
    * the renderer owns the top chrome, including window drag regions. */

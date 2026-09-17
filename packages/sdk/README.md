@@ -67,6 +67,50 @@ node examples/client/node.mjs /path/to/daemon.sock /host/project 'Review the cha
 node examples/client/node.mjs http://127.0.0.1:8080 /host/project 'Review the changes'
 ```
 
+## Experimental native Browser provider
+
+A trusted desktop host can advertise `browserProvider: true` when constructing
+its `WhipClient`. Advertising support is not authority: only an explicit user
+selection calls `client.browser.select(offer, bridge, options)`. The offer uses
+the generated `BrowserProviderBindParams` shape and names one root, native
+window/profile and exact offered resources. `BrowserProviderBridge` is structural;
+the SDK never imports Electron or app UI code.
+
+```ts
+// Run in response to the user's explicit selection, not on connect/focus.
+const selection = await client.browser.select(offer, nativeBridge, {
+  connectionId: selectedSSHProfileId, // omit for non-SSH providers
+  projectId: selectedProjectKey,     // inert identity, not a path grant
+  onError: showProviderUnavailable,
+});
+// User release removes this exact provider epoch; human tabs stay open.
+await selection.release();
+```
+
+The SDK bounds broker binding and native acknowledgement by one selection
+deadline (`timeoutMs`, default 30 seconds). Abort, disconnect or revocation rejects
+a pending selection; a late acknowledgement releases only its old epoch. It
+waits for acknowledgement before dispatching commands or observations, matches
+root/provider/command/attachment identity, and drops duplicate commands and stale
+results, forwards cancellation and ordered observations, and uploads screenshot
+bytes through the same connection's root/agent-scoped chunk RPCs—even for
+WebSocket providers. HTTP upload would lose exact-holder provenance. Commands are
+never replayed after an uncertain native delivery. Native admission events remain
+app-owned; the SDK forwards provider observations only. The observation queue is
+bounded to 64 events and 2 MiB, with ten-second RPC acknowledgements. Overflow or
+a sequence/authority error visibly releases the provider rather than silently
+dropping live observations. Only a structured `browser_event_stale` broker error
+retires that exact attachment's queue without disturbing unrelated attachments.
+
+`selection.active` is an observation, not a durable grant. Exact-epoch revocation
+calls `onError` and releases native authority. Observe the client's connection
+state as well: transport loss releases all its native selections, and reconnect
+never rebinds them. Public `release()` also sends exact-holder
+`browser.provider.unbind`; it cannot unbind a replacement epoch. Selection is
+in-memory only and should be disposed with its app owner. Generated protocol
+methods remain available through `client.call`, but arbitrary page control must
+never be exposed on the human-tab API or to a website guest.
+
 ## Three operation lifetimes
 
 `client.call(method, params)` exposes every generated RPC. Runtime conveniences

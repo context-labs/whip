@@ -23,7 +23,7 @@ positional arguments and does not contact the daemon.
 | `context` | `inspect`, `search`, `read` supplied or history handles |
 | `files` | `list`, `search`, `read`, `write`, `patch` |
 | `shell` | `run` (blocking, 120 s cap), `read` handle-backed output, background jobs: `start`, `poll`, `tail`, `wait`, `kill`, `list` |
-| `browser` | `run` |
+| `browser` | `run`; [desktop attachment lifecycle](browser-computer-use.md#desktop-browser-tabs) |
 | `computer` | `run` |
 | `models` | `call`, `batch` for stateless model work |
 | `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
@@ -59,6 +59,23 @@ Unsupported bindings are reported; see the scratch contract in
 check its scratch warning and do not repeat external effects merely to save
 the checkpoint. Use `state`, `artifacts`, messages, and retained children for
 important durable work.
+
+## Desktop Browser helper mode
+
+Desktop Browser remains **experimental, off by default, and release-gated**.
+When explicitly offered to a conversation, `browser.open` (`browser_open` for
+MCP clients) starts the attachment lifecycle; `browser.run` with `attachment_id`
+uses the existing helper language against that same human-visible page. Do not
+mix an attachment target with a legacy browser session. Missing selection or
+authority fails closed, without launching or falling back to another browser.
+
+Open, attach and preview-port expansion require scoped, Once-only consent;
+attachment control is not implicit in a tab ID or generic browser capability.
+See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
+for the operation inventory, delegation and unsupported helpers, and the
+[SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+for explicit selection/release and transport ownership. Neither API discovery
+nor experimental enablement grants authority.
 
 ## Structured state
 
@@ -234,8 +251,9 @@ consent.
 
 ## Authorization and output
 
-- File, shell, and MCP operations use the capability dispatcher with the calling
-  agent’s identity and grants.
+- File, shell, MCP, and desktop Browser operations use the capability dispatcher
+  with the calling agent’s identity and grants. Browser v1 resource consent is
+  Once-only; the remembered-rule behavior below does not apply to it.
 - Omitted child capabilities inherit the parent set; an explicit list may
   only narrow it.
 - Permission approval is human/protocol-side and revalidates the exact

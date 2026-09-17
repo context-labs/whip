@@ -55,13 +55,14 @@ type Grant struct {
 	Scopes        []string
 	MCP           []MCPSelector
 	MCPAll        bool
+	Browser       *BrowserScope
 	Generation    int64
 	ExpiresAt     time.Time
 }
 
 type Reference struct {
-	ID         string
-	Generation int64
+	ID         string `json:"id"`
+	Generation int64  `json:"generation"`
 }
 
 // Authority is one agent's dispatcher identity and capability references.

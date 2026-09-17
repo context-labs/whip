@@ -87,6 +87,10 @@ func CommandRules(command string) (rules []string, ok bool) {
 // and what must all be covered before a prompt is skipped. ok is false when
 // the operation has no rule.
 func PermissionRule(operation string, arguments json.RawMessage, canonicalPath string) (command string, rules []string, ok bool) {
+	// Desktop browser consent is Once-only; legacy browser_exec is unchanged.
+	if strings.HasPrefix(operation, "browser.") {
+		return browserPermissionSummary(operation, arguments), nil, false
+	}
 	switch operation {
 	case "mcp.call":
 		var call MCPCall

@@ -459,8 +459,139 @@ export interface BoundedTranscriptPage {
       }[];
 }
 
+export interface BrowserCommand {
+  command_id: string;
+  operation_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_epoch: string;
+  scope: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  expected_document?: string;
+  deadline_millis: string;
+  kind: string;
+  arguments: unknown;
+}
+
+export interface BrowserCommandCancel {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  reason: string;
+}
+
+export interface BrowserCommandResultParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  document_revision: string;
+  result?: unknown;
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+  screenshot?: null | {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+}
+
 export interface BrowserDriverParams {
   driver: string;
+}
+
+export interface BrowserProviderBindParams {
+  root_id: string;
+  version: number;
+  desktop_id: string;
+  window_id: string;
+  offer_revision: string;
+  create_profile_id: string;
+  expected_provider_epoch?: string;
+  offered_tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        profile_id: string;
+        document_revision?: string;
+        url?: string;
+        title?: string;
+        preview?: null | {
+          host_id: string;
+          host_identity: string;
+          connection_generation: string;
+          environment_id: string;
+          loopback: string;
+          ports: null | number[];
+        };
+      }[];
+  offered_preview_hosts:
+    | null
+    | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: string;
+        ports: null | number[];
+      }[];
+}
+
+export interface BrowserProviderBindResult {
+  version: number;
+  provider_id: string;
+  provider_epoch: string;
+}
+
+export interface BrowserProviderEventParams {
+  root_id: string;
+  provider_epoch: string;
+  tab_id: string;
+  tab_generation: string;
+  attachment_id: string;
+  attachment_generation: string;
+  sequence: string;
+  operation_id?: string;
+  document_revision: string;
+  kind: string;
+  method?: string;
+  params?: unknown;
+  url?: string;
+  title?: string;
+}
+
+export interface BrowserProviderRevoked {
+  root_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  reason: string;
+}
+
+export interface BrowserProviderUnbindParams {
+  root_id: string;
+  provider_epoch: string;
 }
 
 export interface BrowserStatusResult {
@@ -507,6 +638,27 @@ export interface CapabilityRecord {
         definition: string;
       }[];
   mcp_all: boolean;
+  browser?: null | {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  browser_issuer_id?: string;
+  browser_issuer_generation?: number;
+  browser_delegation_only?: boolean;
   generation: string;
   status: string;
   expires_at: string;
@@ -1062,8 +1214,10 @@ export interface ExecutorPendingResult {
             provider: string;
             effort: string;
             mcp_tools?: unknown;
+            browser_attachments?: null | string[];
           };
           resolved: {
+            browser_attachments?: null | string[];
             definition: string;
             modules: null | string[];
             capabilities: null | string[];
@@ -1132,8 +1286,10 @@ export interface HookInvokeParams {
       provider: string;
       effort: string;
       mcp_tools?: unknown;
+      browser_attachments?: null | string[];
     };
     resolved: {
+      browser_attachments?: null | string[];
       definition: string;
       modules: null | string[];
       capabilities: null | string[];
@@ -1169,6 +1325,7 @@ export interface HookResultParams {
     provider: string;
     effort: string;
     mcp_tools?: unknown;
+    browser_attachments?: null | string[];
   };
   context?: string;
   error?: string;
@@ -2318,6 +2475,27 @@ export interface RootCollectionPage {
                 definition: string;
               }[];
           mcp_all: boolean;
+          browser?: null | {
+            provider_id: string;
+            provider_epoch: string;
+            tab_id: string;
+            tab_generation: string;
+            profile_id: string;
+            attachment_id?: string;
+            attachment_generation?: string;
+            rights: null | string[];
+            preview?: null | {
+              host_id: string;
+              host_identity: string;
+              connection_generation: string;
+              environment_id: string;
+              loopback: string;
+              ports: null | number[];
+            };
+          };
+          browser_issuer_id?: string;
+          browser_issuer_generation?: number;
+          browser_delegation_only?: boolean;
           generation: string;
           status: string;
           expires_at: string;
@@ -2466,6 +2644,27 @@ export interface RootCollectionPage {
                     definition: string;
                   }[];
               mcp_all: boolean;
+              browser?: null | {
+                provider_id: string;
+                provider_epoch: string;
+                tab_id: string;
+                tab_generation: string;
+                profile_id: string;
+                attachment_id?: string;
+                attachment_generation?: string;
+                rights: null | string[];
+                preview?: null | {
+                  host_id: string;
+                  host_identity: string;
+                  connection_generation: string;
+                  environment_id: string;
+                  loopback: string;
+                  ports: null | number[];
+                };
+              };
+              browser_issuer_id?: string;
+              browser_issuer_generation?: number;
+              browser_delegation_only?: boolean;
               generation: string;
               status: string;
               expires_at: string;
@@ -2798,6 +2997,27 @@ export interface RootSnapshot {
               definition: string;
             }[];
         mcp_all: boolean;
+        browser?: null | {
+          provider_id: string;
+          provider_epoch: string;
+          tab_id: string;
+          tab_generation: string;
+          profile_id: string;
+          attachment_id?: string;
+          attachment_generation?: string;
+          rights: null | string[];
+          preview?: null | {
+            host_id: string;
+            host_identity: string;
+            connection_generation: string;
+            environment_id: string;
+            loopback: string;
+            ports: null | number[];
+          };
+        };
+        browser_issuer_id?: string;
+        browser_issuer_generation?: number;
+        browser_delegation_only?: boolean;
         generation: string;
         status: string;
         expires_at: string;
@@ -3446,7 +3666,15 @@ export interface ContractTypes {
   ArchiveParams: ArchiveParams;
   ArchiveResult: ArchiveResult;
   BoundedTranscriptPage: BoundedTranscriptPage;
+  BrowserCommand: BrowserCommand;
+  BrowserCommandCancel: BrowserCommandCancel;
+  BrowserCommandResultParams: BrowserCommandResultParams;
   BrowserDriverParams: BrowserDriverParams;
+  BrowserProviderBindParams: BrowserProviderBindParams;
+  BrowserProviderBindResult: BrowserProviderBindResult;
+  BrowserProviderEventParams: BrowserProviderEventParams;
+  BrowserProviderRevoked: BrowserProviderRevoked;
+  BrowserProviderUnbindParams: BrowserProviderUnbindParams;
   BrowserStatusResult: BrowserStatusResult;
   BudgetCapParams: BudgetCapParams;
   BudgetState: BudgetState;
@@ -3712,6 +3940,10 @@ export interface EventPayloadTypes {
   "turn.succeeded": LifecycleEvent | ContentEventPayload;
 }
 export interface RpcMethods {
+  "browser.command.result": { params: BrowserCommandResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.event": { params: BrowserProviderEventParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
   "command.status": { params: CommandStatusParams; result: CommandResult; execution: "query"; permission: "client-command-namespace"; sensitive: false };
   "command.submit": { params: CommandParams; result: CommandResult; execution: "command"; permission: "operation-specific"; sensitive: false };
   "config.get": { params: Empty; result: RuntimeConfiguration; execution: "query"; permission: "none"; sensitive: false };

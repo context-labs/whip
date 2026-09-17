@@ -136,7 +136,7 @@ export class HostConnections {
       clientId = crypto.randomUUID();
       this.platform.storage.setItem('whip.web.client.v1', clientId);
     }
-    return createWhipClient({ endpoint, clientId, clientKind: 'human', recoveryStorage: this.recovery, reconnect });
+    return createWhipClient({ endpoint, clientId, clientKind: 'human', browserProvider: !!this.platform.browserAgent, recoveryStorage: this.recovery, reconnect });
   }
   connect(id = 'local'): Promise<void> {
     if (this.closed) return Promise.reject(new Error('Application has been disposed'));

@@ -173,6 +173,57 @@ body. Completion notifications are not implemented because the current metadata
 does not provide a durable completion event. Fully quitting ends observation.
 An unchanged permission count cannot identify a replacement pending request.
 
+## Browser tabs (experimental)
+
+Browser tabs are enabled by default in packaged and development builds. Set
+`WHIP_DESKTOP_BROWSER_TABS=0` in the app's launch environment to disable them
+(restart required). Disabled launches expose neither Browser bridges nor Browser
+IPC handlers; saved descriptors are retained as unavailable metadata. This switch
+controls availability, not agent permission or SSH preview approval.
+
+Browser tabs embed native web pages in the existing split workspace, rather than
+putting websites in the application renderer. The address bar, back/forward,
+reload/stop, find, zoom and tab movement use the shared UI; Electron main owns
+isolated page profiles, navigation policy and page lifetime. Moving a tab keeps
+the same page. Duplicate/reopen creates a new identity without inheriting agent
+control. Closing honours `beforeunload`; a cancelled close keeps the descriptor.
+The web-only application retains Browser descriptors as unavailable metadata.
+
+Agent access is an explicit **Offer to conversation** action, not a consequence
+of opening a tab or focusing a conversation. Choose the connected execution host
+and conversation. Offering advertises exact resources; agent open/attach and
+preview-port expansion still pass through the existing durable permission
+system. Browser v1 resource requests are **Allow once** or **Deny**, with no
+remembered wildcard rule. Approval grants scoped attachment control, not one
+individual click. Detach/revoke/disconnect ends that control; human pages remain
+open. Reconnection never automatically reselects a provider. Conversations
+created before Browser module support must be replaced with a fresh conversation,
+not silently upgraded to broader authority.
+
+SSH previews use **saved SSH connections only**. Their isolation identity combines
+saved host, verified remote runtime, live SSH generation and project metadata.
+The stable `cwd:<absolute project path>` key is an isolation label, not filesystem
+permission. Localhost URLs stay localhost URLs in the page: a private authenticated
+proxy routes only explicitly approved literal `127.0.0.1` or `::1` ports through
+the same authenticated SSH master. There is no Mac-local or direct fallback on
+failure, and IPv4 approval does not imply IPv6 approval. URL/Tailscale-style
+connections do not provide preview environments.
+
+Network access belongs to the tab's preview environment, independently of agent
+control. Expanding a project's port policy requires explicit approval and
+invalidates incompatible controllers. Master loss revokes control and makes the
+page unavailable; restore/reconnect metadata is not renewed consent. The last
+page closes the environment's routes and private proxy. Initial standalone human
+preview admission uses a parented native confirmation sheet owned by Electron
+main, separate from SSH authentication prompts. Cancel is the default; approval
+never mints an agent grant.
+
+This feature is still under integrated/packaged acceptance, not a broad-release
+claim. See the [implementation evidence](../.ai-docs/plans/browser-tabs/implementation.md)
+for tested seams and remaining gates. Browser guest screenshots alone do not
+prove compositor or overlay behavior; scripted transports do not prove the full
+SDK/preload/native path.
+
 ## Terminal tabs
 
 A terminal tab is a login shell running where the session's daemon runs: on This

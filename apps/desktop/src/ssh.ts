@@ -8,6 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { ConnectionTarget } from '@whip/app/platform';
 import type { HostPrompt } from '@whip/app/desktop-bridge';
 import { parseDaemonStatus } from './runtime';
+import { acquireSSHPreviewRoute, validatePreviewRequest, type PreviewSSHMaster, type SSHPreviewRequest, type SSHPreviewRoute } from './preview-ssh-route';
+export type { SSHPreviewRequest, SSHPreviewRoute } from './preview-ssh-route';
 
 type Target = Extract<ConnectionTarget, { kind: 'ssh' }>;
 type Prompt = (prompt: Omit<HostPrompt, 'id' | 'attemptId'>, signal: AbortSignal) => Promise<string[] | null>;
@@ -41,6 +43,29 @@ export class SSHConnection {
   private authenticated = false;
   private authenticationRequired = false;
   private cleanupAttempt?: () => Promise<void>;
+  private previewMaster?: PreviewSSHMaster;
+  private previewRoutes = new Set<SSHPreviewRoute>();
+  private pendingPreviewRoutes = 0;
+  get previewConnection(): Readonly<{ generation: string; signal: AbortSignal }> | undefined {
+    const master = this.previewMaster;
+    return master && !master.signal.aborted && this.master && !this.master.exited && !this.signal.aborted
+      ? { generation: master.generation, signal: master.signal } : undefined;
+  }
+  async acquirePreviewRoute(request: SSHPreviewRequest, signal: AbortSignal): Promise<SSHPreviewRoute> {
+    validatePreviewRequest(request); signal.throwIfAborted(); this.signal.throwIfAborted();
+    const master = this.previewMaster;
+    if (!master || !this.previewConnection || this.authenticationRequired || master.generation !== request.expectedGeneration)
+      throw new Error('The approved SSH preview connection is no longer active');
+    if (this.previewRoutes.size + this.pendingPreviewRoutes >= 16) throw new Error('SSH preview route limit reached');
+    this.pendingPreviewRoutes++;
+    try {
+      const route = await acquireSSHPreviewRoute(master, request, signal);
+      this.previewRoutes.add(route);
+      route.signal.addEventListener('abort', () => this.previewRoutes.delete(route), { once: true });
+      if (route.signal.aborted) this.previewRoutes.delete(route);
+      return route;
+    } finally { this.pendingPreviewRoutes--; }
+  }
   constructor(private options: Options) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
     this.signal.addEventListener('abort', () => { void this.dispose().catch(() => {}); }, { once: true });
@@ -155,11 +180,11 @@ export class SSHConnection {
       await Promise.allSettled([...this.jobs].map(job => job.done));
       await rm(directory, { recursive: true, force: true });
     })();
-    const command = async (additional: string[], timeout = 15_000) => {
+    const command = async (additional: string[], timeout = 15_000, operationSignal: AbortSignal = signal) => {
       // All follow-up commands address this already authenticated control socket.
       // Do not inherit unrelated user forwards or fall back to a second connection.
       const job = this.job(['-F', '/dev/null', '-S', control, '-o', 'ProxyCommand=false', '-T', ...additional], env,
-        AbortSignal.any([signal, AbortSignal.timeout(timeout)]));
+        AbortSignal.any([signal, operationSignal, AbortSignal.timeout(timeout)]));
       const result = await job.done;
       if (result.code !== 0) throw new Error(`SSH failed: ${result.stderr.slice(-2048) || `exit ${result.code}`}`);
       return result.stdout;
@@ -218,6 +243,15 @@ export class SSHConnection {
       await command(['-O', 'forward', '-L', `${socket}:${status.socket}`, target.host]);
       if (!(await lstat(socket)).isSocket()) throw new Error('SSH did not create the Whip socket');
       this.socket = socket; this.authenticated = true;
+      const lifetime = new AbortController();
+      const previewMaster: PreviewSSHMaster = {
+        generation: randomBytes(24).toString('hex'), directory,
+        signal: AbortSignal.any([signal, lifetime.signal]),
+        command: (additional, operationSignal) => command([...additional, target.host], 15_000, operationSignal),
+      };
+      this.previewMaster = previewMaster;
+      const invalidate = () => { lifetime.abort(); if (this.previewMaster === previewMaster) this.previewMaster = undefined; };
+      void this.master.done.then(invalidate, invalidate);
       return socket;
     } catch (error) {
       await this.cleanupAttempt(); this.socket = undefined; this.master = undefined;

@@ -67,7 +67,16 @@
         "effort": {
           "type": "string"
         },
-        "mcp_tools": true
+        "mcp_tools": true,
+        "browser_attachments": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
       },
       "required": [
         "prompt",

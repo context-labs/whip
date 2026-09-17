@@ -16,15 +16,19 @@ import (
 )
 
 type storedCapabilityScopes struct {
-	Paths                []string                 `json:"paths,omitempty"`
-	FileScope            string                   `json:"file_scope,omitempty"`
-	FileIssuerID         string                   `json:"file_issuer_id,omitempty"`
-	FileIssuerGeneration int64                    `json:"file_issuer_generation,omitempty"`
-	ExpiresAt            string                   `json:"expires_at,omitempty"`
-	MCP                  []capability.MCPSelector `json:"mcp,omitempty"`
-	MCPAll               bool                     `json:"mcp_all,omitempty"`
-	MCPIssuerID          string                   `json:"mcp_issuer_id,omitempty"`
-	MCPIssuerGeneration  int64                    `json:"mcp_issuer_generation,omitempty"`
+	Paths                   []string                 `json:"paths,omitempty"`
+	FileScope               string                   `json:"file_scope,omitempty"`
+	FileIssuerID            string                   `json:"file_issuer_id,omitempty"`
+	FileIssuerGeneration    int64                    `json:"file_issuer_generation,omitempty"`
+	ExpiresAt               string                   `json:"expires_at,omitempty"`
+	MCP                     []capability.MCPSelector `json:"mcp,omitempty"`
+	MCPAll                  bool                     `json:"mcp_all,omitempty"`
+	MCPIssuerID             string                   `json:"mcp_issuer_id,omitempty"`
+	MCPIssuerGeneration     int64                    `json:"mcp_issuer_generation,omitempty"`
+	Browser                 *capability.BrowserScope `json:"browser,omitempty"`
+	BrowserIssuerID         string                   `json:"browser_issuer_id,omitempty"`
+	BrowserIssuerGeneration int64                    `json:"browser_issuer_generation,omitempty"`
+	BrowserDelegationOnly   bool                     `json:"browser_delegation_only,omitempty"`
 }
 
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
@@ -52,8 +56,9 @@ type RootGrants struct {
 func FullRootGrants() RootGrants {
 	return RootGrants{
 		Files: []string{"read", "write", "edit", "workspace.write"},
-		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"},
-		MCP:   true,
+		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
+			"browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"},
+		MCP: true,
 	}
 }
 
@@ -105,7 +110,8 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 	}
 	authority := capability.Authority{RootID: rootID, AgentID: agentID}
 	rows, err := s.db.QueryContext(ctx, `SELECT id,operations,generation FROM capabilities
-		WHERE root_id=? AND agent_id=? AND status='active' ORDER BY id`, rootID, agentID)
+		WHERE root_id=? AND agent_id=? AND status='active'
+		AND json_extract(scopes,'$.browser') IS NULL ORDER BY id`, rootID, agentID)
 	if err != nil {
 		return capability.Authority{}, nil, err
 	}
@@ -158,7 +164,7 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 				if !slices.Contains(names, "shell") {
 					names = append(names, "shell")
 				}
-			case "browser_exec":
+			case "browser_exec", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
 				if authority.Shell.ID == "" {
 					authority.Shell = capability.Reference{ID: id, Generation: generation}
 				}
@@ -456,6 +462,17 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if grant.ID == "" || grant.RootID == "" || grant.AgentID == "" || len(grant.Operations) == 0 {
 		return errors.New("capability grant identity and operations are required")
 	}
+	if grant.Browser != nil {
+		if grant.AgentID != grant.RootID || grant.IssuerAgentID != "" || len(grant.Scopes) != 0 ||
+			grant.MCPAll || len(grant.MCP) != 0 || !validBrowserScope(*grant.Browser, true) {
+			return capability.ErrDenied
+		}
+		for _, operation := range grant.Operations {
+			if operation != "browser.run" && operation != "browser.detach" && operation != "browser.allow_preview_port" {
+				return capability.ErrDenied
+			}
+		}
+	}
 	hasMCP := slices.Contains(grant.Operations, "mcp.call")
 	if hasMCP {
 		// Child MCP grants must record a validated issuer reference through delegation.
@@ -473,7 +490,7 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if err != nil {
 		return err
 	}
-	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll}
+	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll, Browser: grant.Browser}
 	for _, scope := range grant.Scopes {
 		canonical, err := workspace.Canonicalize(scope)
 		if err != nil {
@@ -552,6 +569,8 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 	// A remembered rule turns the prompt into a lease before the admission is
 	// stored, so the durable record says the operation never needed a human.
 	command, rules, hasRule := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+	// Once-only requests still carry their resource summary in events and spans.
+	// hasRule governs remembered approval, never whether command is displayed.
 	rule := capability.RuleLabel(rules)
 	var ruleSource string
 	if admission.RequirePermission && hasRule {
@@ -704,6 +723,9 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, capability.ErrStaleAdmission
 	}
 	admission = stored
+	if strings.HasPrefix(admission.Request.Operation, "browser.") && decision.Remember != "" {
+		return capability.Ticket{}, capability.ErrDenied
+	}
 	if !decision.Allow {
 		if err := s.terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
 			return capability.Ticket{}, err
@@ -837,6 +859,12 @@ func validateCapabilityAgent(ctx context.Context, tx *sql.Tx, rootID, agentID st
 }
 
 func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capability.Admission) error {
+	if strings.HasPrefix(admission.Request.Operation, "browser.") {
+		if !browserOperation(admission.Request.Operation) {
+			return capability.ErrDenied
+		}
+		return validateBrowserAdmissionTx(ctx, tx, admission)
+	}
 	if admission.Request.Operation == "mcp.call" {
 		var call capability.MCPCall
 		decoder := json.NewDecoder(bytes.NewReader(admission.Request.Arguments))

@@ -326,8 +326,15 @@ func TestMCPTestCLIReady(t *testing.T) {
 	if !strings.Contains(out, "✓ connected") {
 		t.Fatalf("doctor should report the connection:\n%s", out)
 	}
-	if !strings.Contains(out, "tools:") || !strings.Contains(out, "read") {
-		t.Errorf("doctor should list the served tools:\n%s", out)
+	if !strings.Contains(out, "— 9 tools") {
+		t.Errorf("doctor should report the complete served-tool count:\n%s", out)
+	}
+	wantPreview := "  tools: mcp__self__bash, mcp__self__browser_allow_preview_port, mcp__self__browser_attach, mcp__self__browser_detach, mcp__self__browser_open, …"
+	if !strings.Contains(out, wantPreview+"\n") {
+		t.Errorf("doctor should list the first five sorted tools and explicit truncation:\n%s", out)
+	}
+	if strings.Contains(out, "mcp__self__read") || strings.Contains(out, "mcp__self__browser_run") {
+		t.Errorf("doctor preview must remain bounded rather than listing all tools:\n%s", out)
 	}
 }
 
