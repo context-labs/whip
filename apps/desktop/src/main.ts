@@ -25,7 +25,7 @@ import { DesktopUpdates, readDesktopConfig } from './updates';
 import { sessionLinkPath } from './links';
 import { attachStartupProbe } from './startup-probe';
 
-const enableBrowserTabs = browserTabsEnabled(app.isPackaged, process.env.WHIP_DESKTOP_BROWSER_TABS);
+const enableBrowserTabs = browserTabsEnabled(process.env.WHIP_DESKTOP_BROWSER_TABS);
 
 protocol.registerSchemesAsPrivileged([{ scheme: desktopScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);

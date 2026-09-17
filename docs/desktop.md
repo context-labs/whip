@@ -175,6 +175,12 @@ An unchanged permission count cannot identify a replacement pending request.
 
 ## Browser tabs (experimental)
 
+Browser tabs are enabled by default in packaged and development builds. Set
+`WHIP_DESKTOP_BROWSER_TABS=0` in the app's launch environment to disable them
+(restart required). Disabled launches expose neither Browser bridges nor Browser
+IPC handlers; saved descriptors are retained as unavailable metadata. This switch
+controls availability, not agent permission or SSH preview approval.
+
 Browser tabs embed native web pages in the existing split workspace, rather than
 putting websites in the application renderer. The address bar, back/forward,
 reload/stop, find, zoom and tab movement use the shared UI; Electron main owns

@@ -309,8 +309,22 @@ Retained local evidence (not repository payloads):
 
 ## Release gate status
 
-Implementation remains experimental and packaged default-OFF. Signed Beta
-builds and substantial development/native/selected-host tests have passed.
+Implementation remains experimental. The user subsequently requested default-ON
+Browser tabs; current source enables them in packaged and development builds,
+with `WHIP_DESKTOP_BROWSER_TABS=0` as the explicit opt-out. This availability
+decision does not waive the remaining release gates. The signed Beta and its
+packaged observations above predate that source change; those artifacts have
+not been rebuilt or relabeled as default-ON acceptance. Substantial
+development/native/selected-host tests have passed.
+
+Default-ON source validation: desktop **118 passed / 10 opt-in SSH skips**,
+distribution/release tests **92 passed**, startup-probe self-test, desktop
+TypeScript and packaged-harness syntax passed. Eight fail-before-effects CLI
+checks covered default/explicit modes and conflicting/duplicate/unknown flags.
+No GUI, SSH fixture or packaged acceptance run was started for this change.
+The harness now leaves the override unset for default launches, sends `0` for
+`--disabled` (or `enabled:false` commands), and records the chosen override.
+
 Local enabled loading, input/navigation and graceful quit/restart/restore pass
 in the explicitly consented normal-HOME environment. Packaged human SSH IPv4
 loading, negative-network checks, fresh-approval recovery and fail-closed tab

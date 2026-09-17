@@ -155,6 +155,10 @@ to route every piece of state through a framework.
 
 ## Native Browser workspace boundary
 
+Browser tabs are enabled by default in desktop builds; main honors
+`WHIP_DESKTOP_BROWSER_TABS=0` as an explicit launch-time opt-out. Availability
+does not grant agent control or preview-network authority.
+
 Desktop Browser tabs use the same split-workspace descriptors and tab strip as
 sessions, files and terminals. [`BrowserWorkspace`](../packages/app/src/browser-workspace.ts)
 owns renderer observation/admission and pane routing; Electron

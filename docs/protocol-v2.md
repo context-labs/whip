@@ -285,8 +285,9 @@ Configuration writes require a revision and preserve host-side atomic writes.
 
 ## Desktop Browser provider lifetime
 
-Desktop Browser is **experimental, default off, and release-gated**. Advertising
-`desktop-browser-v1` during initialization does not authorize control.
+Desktop Browser is **experimental and release-gated**; native tabs are enabled
+by default, with a [desktop launch-time opt-out](desktop.md#browser-tabs-experimental).
+Advertising `desktop-browser-v1` during initialization does not authorize control.
 `browser.provider.bind` explicitly associates one root with its exact
 authenticated connection and a fresh provider epoch; another connection is not
 a replacement merely because it is newer. The [SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)

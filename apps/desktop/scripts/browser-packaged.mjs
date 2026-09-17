@@ -1,10 +1,11 @@
 // Signed shipping-fuse Browser acceptance fixture. UI interaction is deliberately
 // external (native Accessibility/manual); no CDP, injected bridge, or app patch.
-// Run: node apps/desktop/scripts/browser-packaged.mjs '/path/to/Whip Beta.app' [--enabled] [--user-home]
+// Run: node apps/desktop/scripts/browser-packaged.mjs '/path/to/Whip Beta.app' [--enabled | --disabled] [--user-home]
 // --user-home requires consent to normal macOS keychain use. Only the app gets
 // the real HOME; daemon home, app data, browser profile and temp files stay isolated.
-// Write {"action":"launch","enabled":true}, {"action":"stop"}, or
-// {"action":"quit"} to the printed fixture's command.json. Default launch is OFF.
+// Write {"action":"launch"} (default), {"action":"launch","enabled":false},
+// {"action":"stop"}, or {"action":"quit"} to the printed fixture's command.json.
+// Default launch leaves the override unset (ON); explicit modes exercise 1 / 0.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -16,12 +17,14 @@ import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import asar from '@electron/asar';
 import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
+import { browserTabsEnabled } from '../src/browser-feature.ts';
 import { verifyDesktop } from './verify.mjs';
 
 const exec = promisify(execFile);
 assert.equal(process.platform, 'darwin');
 const flags = process.argv.slice(3);
-assert.ok(process.argv[2] && flags.every(flag => ['--enabled', '--user-home'].includes(flag)) && new Set(flags).size === flags.length, 'Pass a signed Beta app bundle and optional --enabled / --user-home');
+assert.ok(process.argv[2] && flags.every(flag => ['--enabled', '--disabled', '--user-home'].includes(flag)) && new Set(flags).size === flags.length
+  && !(flags.includes('--enabled') && flags.includes('--disabled')), 'Pass a signed Beta app bundle and optional --enabled OR --disabled, plus --user-home');
 const userHome = flags.includes('--user-home');
 assert.ok(!userHome || path.isAbsolute(process.env.HOME ?? ''), '--user-home requires an absolute HOME');
 const bundle = await realpath(process.argv[2]);
@@ -91,9 +94,11 @@ async function stop() {
   appPID = undefined; launcher = undefined; await snapshot();
 }
 async function launch(flag) {
-  await stop(); enabled = flag;
-  // Exercise the packaged default with the opt-in absent, not explicitly false.
-  const launchEnv = { ...env, ...(userHome ? { HOME: minimal.HOME } : {}), ...(flag ? { WHIP_DESKTOP_BROWSER_TABS: '1' } : {}) };
+  await stop();
+  const override = flag === undefined ? undefined : flag ? '1' : '0';
+  enabled = browserTabsEnabled(override);
+  // Exercise the packaged default with no override; disabled launches must pass 0.
+  const launchEnv = { ...env, ...(userHome ? { HOME: minimal.HOME } : {}), ...(override === undefined ? {} : { WHIP_DESKTOP_BROWSER_TABS: override }) };
   launcher = spawn('/usr/bin/open', ['-n', '-W', '-a', bundle, ...Object.entries(launchEnv).flatMap(([key, value]) => ['--env', `${key}=${value}`]), '--args', ownership], { env: minimal, stdio: ['ignore', 'ignore', 'pipe'] });
   launcher.stderr.on('data', data => process.stderr.write(data));
   let launchError;
@@ -106,7 +111,7 @@ async function launch(flag) {
     await delay(100);
   }
   assert(appPID, 'No owned app PID after LaunchServices launch');
-  record('launch', { enabled, userHome, appPID }); await snapshot(); console.log(JSON.stringify({ fixture, appPID, enabled, url }));
+  record('launch', { enabled, override: override ?? null, userHome, appPID }); await snapshot(); console.log(JSON.stringify({ fixture, appPID, enabled, url }));
 }
 process.once('SIGINT', () => { interrupted = true; });
 process.once('SIGTERM', () => { interrupted = true; });
@@ -125,7 +130,7 @@ try {
   await writeFile(path.join(env.WHIPCODE_HOME, 'models.json'), JSON.stringify({ 'browser-fixture': { fetchedAt: new Date().toISOString(), baseUrl,
     models: [{ id: 'browser-fixture', contextLength: 65536, maxCompletionTokens: 256, pricing: { prompt: '0', completion: '0' } }] } }), { mode: 0o600 });
   await exec(executable, ['daemon', 'start'], { env, cwd: path.join(fixture, 'work'), timeout: 15_000 });
-  await launch(flags.includes('--enabled'));
+  await launch(flags.includes('--enabled') ? true : flags.includes('--disabled') ? false : undefined);
   const deadline = Date.now() + 45 * 60_000;
   while (!interrupted && Date.now() < deadline) {
     let command;
@@ -135,7 +140,7 @@ try {
       await rm(path.join(fixture, 'command.json'));
       if (command.action === 'quit') break;
       if (command.action === 'stop') { await stop(); record('stop'); }
-      else if (command.action === 'launch' && typeof command.enabled === 'boolean') await launch(command.enabled);
+      else if (command.action === 'launch' && (command.enabled === undefined || typeof command.enabled === 'boolean')) await launch(command.enabled);
       else throw new Error('Unsupported fixture command');
       await snapshot();
     }

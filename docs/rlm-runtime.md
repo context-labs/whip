@@ -38,7 +38,7 @@ and response-shape migration examples.
 
 ## Desktop Browser authority
 
-The experimental, default-off desktop Browser path is available through the same
+The experimental desktop Browser path is available through the same
 host module in Starlark and JavaScript; it adds no model-facing tool or execution
 engine. The [Browser guide](browser-computer-use.md#desktop-browser-tabs) owns the
 lifecycle/helper contract. A fresh root must have Browser module grants and an

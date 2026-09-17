@@ -168,7 +168,7 @@ code. The repository’s analyzer and race tests enforce this ownership rule.
 
 ## Desktop Browser ownership
 
-The experimental, default-off desktop Browser path has a separate native
+The experimental desktop Browser path has a separate native
 lifetime, not a newest-client-wins destination. The broker binds each root to
 one exact authenticated connection/provider epoch and admits at most eight
 active attachments. Each tab serializes an entire helper batch with **one active

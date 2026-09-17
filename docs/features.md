@@ -653,10 +653,11 @@ provider message passed; see the
 
 ### Experimental desktop Browser tabs
 
-Native Browser tabs are implemented for explicit dogfood, not accepted for broad
-rollout. **Packaged builds default OFF**; `WHIP_DESKTOP_BROWSER_TABS=1` opts in at
-launch. Development builds enable the feature. Main owns the decision; renderer
-storage, URLs and restored descriptors cannot enable it or restore authority.
+Native Browser tabs are experimental and **enabled by default** in packaged and
+development builds. Set `WHIP_DESKTOP_BROWSER_TABS=0` at launch to disable them.
+Main owns the decision; renderer storage, URLs and restored descriptors cannot
+enable a disabled feature or restore authority. Default availability does not
+grant agent control or SSH network access, or complete broad-release acceptance.
 See [desktop behavior](desktop.md#browser-tabs-experimental) and the
 [agent control contract](browser-computer-use.md#desktop-browser-tabs).
 
@@ -665,7 +666,7 @@ See [desktop behavior](desktop.md#browser-tabs-experimental) and the
 | Human navigation, find/zoom, split-pane movement and metadata recovery without an execution daemon; web-only pages remain unavailable metadata. Native guests have no app preload, and interactive overlays wait for native hide ACK. | [Workspace coordinator](../packages/app/src/browser-workspace.ts), [native manager](../apps/desktop/src/browser-manager.ts), [shared overlay boundary](../packages/ui/src/native-surfaces.tsx) | [Workspace/UI regressions](../packages/app/test/browser-workspace.test.tsx), [actual renderer→preload→IPC restore seam](../apps/desktop/scripts/browser-workspace-native-renderer.ts), [native policy tests](../apps/desktop/tests/browser-policy.test.ts) |
 | Explicit host/conversation selection offers exact resources, not permission. Browser v1 open/attach/port expansion use durable Once-only approval; release or disconnect ends agent control without closing human pages, and reconnect never reselects automatically. Historical roots are not upgraded. | [Provider controls](../packages/app/src/browser-provider-controls.tsx), [SDK provider transport](../packages/sdk/src/browser.ts), [daemon Browser operations](../internal/tools/browser_desktop.go) | [Selection/UI tests](../packages/app/test/browser-provider.test.tsx), [SDK lifecycle tests](../packages/sdk/test/browser.test.ts), [daemon provider tests](../internal/daemon/browser_provider_test.go) |
 | Human SSH previews need no agent/root selection: choose a saved connected SSH host, verified runtime catalog project and literal-loopback URL, then confirm natively before routes commit. Network policy belongs to the project environment, separately from agent grants; no URL-host, Mac-local or direct fallback exists. | [Human preview controls](../packages/app/src/browser-preview-controls.tsx), [native confirmation/admission](../apps/desktop/src/browser-human-preview.ts), [environment lifecycle](../apps/desktop/src/preview-environments.ts) | [Preview UI/admission tests](../packages/app/test/browser-preview.test.tsx), [native human-preview tests](../apps/desktop/tests/browser-human-preview.test.ts), [selected-host SSH fixture](../apps/desktop/scripts/browser-preview-native-main.ts) |
-| Packaged opt-in is independent of persisted metadata; disabling the feature must not erase saved addresses or make old clients/providers authoritative. | [Main-owned feature gate](../apps/desktop/src/browser-feature.ts), [workspace persistence](../packages/app/src/session-tabs.ts) | [Feature-gate tests](../apps/desktop/tests/browser-feature.test.ts), [workspace downgrade/recovery regressions](../packages/app/test/browser-workspace.test.tsx) |
+| The main-process opt-out is independent of persisted metadata; disabling the feature must not erase saved addresses or make old clients/providers authoritative. | [Main-owned feature gate](../apps/desktop/src/browser-feature.ts), [workspace persistence](../packages/app/src/session-tabs.ts) | [Feature-gate tests](../apps/desktop/tests/browser-feature.test.ts), [workspace downgrade/recovery regressions](../packages/app/test/browser-workspace.test.tsx) |
 
 These links identify implemented behavior and its test seams, not blanket
 acceptance. The [rollout milestone](roadmap.md) remains unchecked pending the
