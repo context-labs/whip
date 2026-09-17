@@ -98,7 +98,8 @@ func (a *Agent) Workflows() *workflow.Manager {
 	a.wfMu.Lock()
 	defer a.wfMu.Unlock()
 	if a.wf == nil {
-		a.wf = workflow.NewManager(a.runWorkflowAgent, "")
+		cwd, _ := os.Getwd()
+		a.wf = workflow.NewManager(a.runWorkflowAgent, cwd)
 		a.wf.OnSettle = a.onWorkflowSettle
 	}
 	return a.wf

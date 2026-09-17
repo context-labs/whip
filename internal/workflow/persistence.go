@@ -112,16 +112,32 @@ type JournalEntry struct {
 
 // PersistedRun is the JSON shape of ~/.whip/workflows/runs/<runId>.json.
 type PersistedRun struct {
-	RunID      string         `json:"runId"`
-	Name       string         `json:"name"`
-	ScriptPath string         `json:"scriptPath,omitempty"`
-	Status     string         `json:"status"` // running | complete | error | stopped
-	Args       any            `json:"args,omitempty"`
-	Journal    []JournalEntry `json:"journal"`
-	Result     any            `json:"result,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	StartedAt  int64          `json:"startedAt"`
-	FinishedAt int64          `json:"finishedAt,omitempty"`
+	RunID      string                   `json:"runId"`
+	Name       string                   `json:"name"`
+	ScriptPath string                   `json:"scriptPath,omitempty"`
+	Workdir    string                   `json:"workdir,omitempty"`
+	Status     string                   `json:"status"` // running | complete | error | stopped
+	Args       any                      `json:"args,omitempty"`
+	Phase      string                   `json:"phase,omitempty"`
+	Agents     []PersistedAgentSnapshot `json:"agents,omitempty"`
+	Logs       []string                 `json:"logs,omitempty"`
+	Journal    []JournalEntry           `json:"journal"`
+	Result     any                      `json:"result,omitempty"`
+	Error      string                   `json:"error,omitempty"`
+	StartedAt  int64                    `json:"startedAt"`
+	FinishedAt int64                    `json:"finishedAt,omitempty"`
+}
+
+// PersistedAgentSnapshot records enough live state to diagnose a failed or
+// interrupted workflow after the originating whip process exits.
+type PersistedAgentSnapshot struct {
+	Index  int    `json:"index"`
+	Label  string `json:"label"`
+	Phase  string `json:"phase,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Tokens int    `json:"tokens,omitempty"`
 }
 
 // SaveRun writes the run journal. Persistence is best-effort: a failed write
