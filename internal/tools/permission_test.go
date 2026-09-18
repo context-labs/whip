@@ -1,6 +1,36 @@
 package tools
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestCheckGate(t *testing.T) {
+	old := Gate
+	t.Cleanup(func() { Gate = old })
+
+	Gate = nil
+	if got := checkGate("bash", "git status"); got != "" {
+		t.Fatalf("nil gate rejected: %q", got)
+	}
+	Gate = func(req GateRequest) (GateDecision, string) {
+		if req.Tool != "bash" || req.Command != "git status" || req.Rule != "git status" {
+			t.Fatalf("gate request = %+v", req)
+		}
+		return GateAllowOnce, ""
+	}
+	if got := checkGate("bash", "git status"); got != "" {
+		t.Fatalf("allow gate rejected: %q", got)
+	}
+	Gate = func(GateRequest) (GateDecision, string) { return GateReject, "use read instead" }
+	if got := checkGate("bash", "cat file"); !strings.Contains(got, "use read instead") {
+		t.Fatalf("redirect rejection = %q", got)
+	}
+	Gate = func(GateRequest) (GateDecision, string) { return GateReject, "" }
+	if got := checkGate("write", "file"); got != "Permission denied: the user rejected this action" {
+		t.Fatalf("default rejection = %q", got)
+	}
+}
 
 func TestCommandRule(t *testing.T) {
 	cases := []struct{ in, want string }{
