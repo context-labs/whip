@@ -117,6 +117,25 @@ func TestRenderBodyTextResumesAfterNestedStyle(t *testing.T) {
 	}
 }
 
+func TestBlockRenderCachesBodyTextStyle(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+	SetLightTheme(false)
+
+	b := block{text: "plain " + errStyle.Render("error") + " tail"}
+	first := b.renderAt(80)
+	if !strings.Contains(first, "\x1b[38;2;238;238;238m") {
+		t.Fatalf("block lacks body foreground: %q", first)
+	}
+	if b.stale {
+		t.Fatal("rendered block should have a warm cache")
+	}
+	if second := b.renderAt(80); second != first {
+		t.Fatalf("cached render changed: first=%q second=%q", first, second)
+	}
+}
+
 func TestThemeSwitchRefreshesPlainTextAndInput(t *testing.T) {
 	m := compactCmdModel()
 	m.Update(mkWinSize(80, 30))

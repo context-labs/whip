@@ -1448,7 +1448,7 @@ func (b *block) renderAt(width int) string {
 	if !b.stale && b.width == width {
 		return b.rendered
 	}
-	b.rendered = b.render(width)
+	b.rendered = renderBodyText(b.render(width))
 	b.lines = lipgloss.Height(b.rendered)
 	b.width, b.stale = width, false
 	return b.rendered
@@ -5242,7 +5242,7 @@ func (m *model) View() string {
 			m.inputLines[i] = strings.TrimRight(ansi.Strip(ln), " \t")
 		}
 	}
-	return renderBodyText(v)
+	return v
 }
 
 // renderBodyText supplies the semantic default foreground without asking
