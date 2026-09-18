@@ -1169,9 +1169,6 @@ func (m *model) persist() {
 
 func (m *model) previewTheme(name string) {
 	m.themeHow = m.applyTheme(name)
-	if m.uiMode == opencodeMode {
-		m.applyUIMode(opencodeMode)
-	}
 	m.refreshVP()
 }
 
@@ -2262,13 +2259,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case themePollMsg:
-		if m.cfg.Theme != "" { // explicit pick: nothing to track, keep the tick alive
+		if m.cfg.Theme != "" || (m.palette != nil && m.palette.top() != nil && m.palette.top().kind == panelTheme) {
+			// Explicit picks and named-theme previews do not follow terminal
+			// appearance. Keep the tick alive without polling until auto is active.
 			return m, themePollTick()
 		}
 		return m, tea.Batch(pollClientTheme, themePollTick())
 
 	case themeSyncMsg:
-		if !msg.ok || m.cfg.Theme != "" {
+		if !msg.ok || m.cfg.Theme != "" || (m.palette != nil && m.palette.top() != nil && m.palette.top().kind == panelTheme) {
 			return m, nil
 		}
 		mdMu.Lock()
@@ -5140,7 +5139,7 @@ func (m *model) currentViewCapped() string {
 	if liveCap == 0 {
 		return ""
 	}
-	return streamTail(m.currentView(), liveCap)
+	return renderBodyText(streamTail(m.currentView(), liveCap))
 }
 
 // thinkViewCapped is thinkView trimmed the same way for the live reasoning line.

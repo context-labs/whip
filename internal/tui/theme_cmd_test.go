@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,6 +78,15 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 	setSchemeOverride("") // theme state is process-global: restore detection mode
 }
 
+func TestThemeLabelsUseDisplayNames(t *testing.T) {
+	if got := themeLabel("tokyonight"); got != "☾  Tokyo Night" {
+		t.Fatalf("Tokyo Night label = %q", got)
+	}
+	if got := themeLabel("neon-city-dark"); got != "☾  Neon City Dark" {
+		t.Fatalf("Neon City Dark label = %q", got)
+	}
+}
+
 func TestThemeNamesGroupDarkBeforeLight(t *testing.T) {
 	names := themeNames()
 	if len(names) == 0 || names[0] != "auto" {
@@ -114,6 +124,20 @@ func TestRenderBodyTextResumesAfterNestedStyle(t *testing.T) {
 	want := "\x1b[0m\x1b[38;2;238;238;238m tail"
 	if !strings.Contains(got, want) {
 		t.Fatalf("body color not resumed after nested reset: %q", got)
+	}
+}
+
+func TestLiveStreamUsesBodyTextStyle(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+	SetLightTheme(false)
+
+	m := compactCmdModel()
+	m.width, m.height, m.busy, m.current = 80, 30, true, "live text"
+	got := m.currentViewCapped()
+	if !strings.Contains(got, "\x1b[38;2;238;238;238m") {
+		t.Fatalf("live stream lacks body foreground: %q", got)
 	}
 }
 
@@ -157,6 +181,46 @@ func TestThemeSwitchRefreshesPlainTextAndInput(t *testing.T) {
 	if darkBody == lightBody {
 		t.Fatal("theme switch did not change the plain text foreground")
 	}
+	setSchemeOverride("")
+}
+
+func TestThemePickerPreviewPreservesOpenCodeState(t *testing.T) {
+	oldOC := ocActive
+	t.Cleanup(func() { ocActive = oldOC })
+	m := compactCmdModel()
+	m.uiMode = opencodeMode
+	m.applyUIMode(opencodeMode)
+	m.command("/theme")
+	placeholder := m.input.Placeholder
+	spinnerFPS := m.spin.Spinner.FPS
+	spinnerFrames := append([]string(nil), m.spin.Spinner.Frames...)
+
+	m.previewTheme("light")
+	if m.input.Placeholder != placeholder {
+		t.Fatalf("preview changed placeholder: got %q, want %q", m.input.Placeholder, placeholder)
+	}
+	if m.spin.Spinner.FPS != spinnerFPS || !slices.Equal(m.spin.Spinner.Frames, spinnerFrames) {
+		t.Fatal("preview rebuilt the spinner")
+	}
+	m.setTheme("dark")
+	setSchemeOverride("")
+}
+
+func TestThemePickerPreviewIgnoresAppearancePoll(t *testing.T) {
+	m := compactCmdModel()
+	m.cfg.Theme = ""
+	m.command("/theme")
+	m.previewTheme("dark")
+	before := len(m.blocks)
+
+	m.Update(themeSyncMsg{light: true, ok: true})
+	if CurrentTheme() != "dark" || len(m.blocks) != before {
+		t.Fatalf("appearance poll changed preview: theme=%q blocks=%d, want dark/%d", CurrentTheme(), len(m.blocks), before)
+	}
+	if _, cmd := m.Update(themePollMsg{}); cmd == nil {
+		t.Fatal("preview should keep the appearance tick alive")
+	}
+	m.setTheme("dark")
 	setSchemeOverride("")
 }
 

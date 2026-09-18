@@ -78,12 +78,15 @@ func themeNames() []string {
 
 func themeLabel(name string) string {
 	if name == "auto" {
-		return "◐  auto"
+		return "◐  Auto"
 	}
-	if spec, ok := uitheme.Builtin(name); ok && spec.Dark {
-		return "☾  " + name
+	if spec, ok := uitheme.Builtin(name); ok {
+		if spec.Dark {
+			return "☾  " + spec.Label()
+		}
+		return "☀  " + spec.Label()
 	}
-	return "☀  " + name
+	return name
 }
 
 func knownThemeName(name string) bool {

@@ -140,6 +140,27 @@ func TestThemePanelShowsColorPreviewWhenWide(t *testing.T) {
 	}
 }
 
+func TestThemePanelRowsDoNotWrap(t *testing.T) {
+	m := compactCmdModel()
+	m.width, m.height = 80, 30
+	m.cfg.Theme = "neon-city-dark"
+	m.command("/theme")
+	pp := m.palette.top()
+	for i, name := range pp.list {
+		if name == "neon-city-dark" {
+			pp.midx = i
+			break
+		}
+	}
+	view := m.panelView(pp)
+	if strings.Contains(view, "Neon City Dark\n") {
+		t.Fatalf("selected theme row wrapped unexpectedly:\n%s", view)
+	}
+	if !strings.Contains(view, "Neon City Dark") {
+		t.Fatalf("theme display name missing:\n%s", view)
+	}
+}
+
 func TestPaletteCtrlCClosesNotQuits(t *testing.T) {
 	m := compactCmdModel()
 	m.openPalette()

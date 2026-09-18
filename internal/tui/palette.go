@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/config"
@@ -1135,8 +1136,13 @@ func (m *model) panelView(pp *ppanel) string {
 			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
 		}
 		if m.width >= 64 {
+			const listWidth = 27
+			listRows := strings.Split(strings.TrimRight(list.String(), "\n"), "\n")
+			for i, row := range listRows {
+				listRows[i] = ansi.Truncate(row, listWidth, "…")
+			}
 			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
-				lipgloss.NewStyle().Width(27).Render(strings.TrimRight(list.String(), "\n")),
+				lipgloss.NewStyle().Width(listWidth).Render(strings.Join(listRows, "\n")),
 				themePreview(),
 			))
 		} else {
