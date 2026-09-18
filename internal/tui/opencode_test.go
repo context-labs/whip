@@ -566,13 +566,20 @@ func TestThemeSync(t *testing.T) {
 	mdLight, mdKnown = true, true // currently light
 	mdMu.Unlock()
 
-	m := &model{cfg: &config.Config{}, input: newInput()}
+	m := &model{cfg: &config.Config{}, input: newInput(), blocks: []block{{text: "cached"}}}
+	m.spin.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff"))
 	m.Update(themeSyncMsg{light: false, ok: true}) // terminal flipped dark
 	mdMu.Lock()
 	nowLight := mdLight
 	mdMu.Unlock()
-	if nowLight || len(m.blocks) == 0 || !strings.Contains(m.blocks[len(m.blocks)-1].text, "auto → dark") {
+	if nowLight || len(m.blocks) < 2 || !strings.Contains(m.blocks[len(m.blocks)-1].text, "auto → dark") {
 		t.Fatalf("flip not applied: light=%v blocks=%d", nowLight, len(m.blocks))
+	}
+	if !m.blocks[0].stale {
+		t.Fatal("theme flip must invalidate cached transcript blocks")
+	}
+	if got, want := m.spin.Style.GetForeground(), currentTheme().Spinner.GetForeground(); got != want {
+		t.Fatalf("spinner color not refreshed: got %v, want %v", got, want)
 	}
 	// same theme again: no duplicate note
 	n := len(m.blocks)

@@ -2251,10 +2251,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		lipgloss.SetHasDarkBackground(!msg.light)
 		bgCache = bgResult{light: msg.light, valid: true} // no RGB from the theme report
 		refreshBaseStyles()
-		if m.uiMode == opencodeMode {
-			m.applyUIMode(opencodeMode) // re-bake input styles/spinner for the new scheme
-		}
-		m.refreshVP()
+		m.applyThemeStyles()
 		word := "dark"
 		if msg.light {
 			word = "light"
