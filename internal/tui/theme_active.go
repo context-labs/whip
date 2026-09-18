@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"slices"
 	"sort"
 	"sync"
 
@@ -35,7 +36,7 @@ func rebuildTheme() {
 
 	var bg color.Color
 	if known && bgCache.valid && bgCache.hasRGB {
-		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff}
+		bg = color.RGBA{R: byte(bgCache.r), G: byte(bgCache.g), B: byte(bgCache.b), A: 0xff} //nolint:gosec // OSC RGB components are parsed in the 0..255 range.
 	}
 	spec := uitheme.Neutral()
 	switch {
@@ -86,10 +87,5 @@ func themeLabel(name string) string {
 }
 
 func knownThemeName(name string) bool {
-	for _, candidate := range themeNames() {
-		if name == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(themeNames(), name)
 }

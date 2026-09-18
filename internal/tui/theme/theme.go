@@ -20,7 +20,11 @@ type Theme struct {
 	Border, BorderFocus           color.Color
 	Bg, DiffAdd, DiffDel          color.Color
 	Panel, Element, Hover         color.Color
-	spec                          Spec
+
+	Body, MutedText, FaintText                    lipgloss.Style
+	Selected, ErrorText, WarningText, SuccessText lipgloss.Style
+	Spinner                                       lipgloss.Style
+	spec                                          Spec
 }
 
 // Resolve converts a validated spec into terminal colors and local surfaces.
@@ -38,7 +42,7 @@ func Resolve(spec Spec, bg color.Color) *Theme {
 		base = bg
 	}
 	s := shared.Surfaces(spec, base)
-	return &Theme{
+	t := &Theme{
 		Name: spec.Name, Dark: spec.Dark, Neutral: spec.Neutral(), spec: spec,
 		Text: col(p.Text), Muted: col(p.Muted), Faint: col(p.Faint),
 		Primary: col(p.Primary), Accent: col(p.Accent),
@@ -48,6 +52,15 @@ func Resolve(spec Spec, bg color.Color) *Theme {
 		DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
 		Panel: s.Panel, Element: s.Element, Hover: s.Hover,
 	}
+	t.Body = t.On(t.Text, nil)
+	t.MutedText = t.On(t.Muted, nil)
+	t.FaintText = t.On(t.Faint, nil)
+	t.Selected = t.On(t.OnPrimary, t.Primary)
+	t.ErrorText = t.On(t.Error, nil)
+	t.WarningText = t.On(t.Warning, nil)
+	t.SuccessText = t.On(t.Success, nil)
+	t.Spinner = t.On(t.Info, nil)
+	return t
 }
 
 func (t *Theme) On(fg, bg color.Color) lipgloss.Style {

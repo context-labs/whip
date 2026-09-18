@@ -22,6 +22,26 @@ func TestBuiltinsValidateAndHaveUniqueNames(t *testing.T) {
 	}
 }
 
+func TestRequestedBuiltins(t *testing.T) {
+	for name, label := range map[string]string{
+		"seti":           "Seti",
+		"tokyonight":     "Tokyo Night",
+		"neon-city-dark": "Neon City Dark",
+	} {
+		spec, ok := Builtin(name)
+		if !ok {
+			t.Errorf("missing built-in theme %q", name)
+			continue
+		}
+		if got := spec.Label(); got != label {
+			t.Errorf("%s label = %q, want %q", name, got, label)
+		}
+		if !spec.Dark {
+			t.Errorf("%s should be a dark theme", name)
+		}
+	}
+}
+
 func TestSurfacesDeriveInThemeDirection(t *testing.T) {
 	for _, spec := range []Spec{Dark(), Light()} {
 		base := ParseColor(spec.Palette.Bg)

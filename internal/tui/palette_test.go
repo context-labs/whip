@@ -6,6 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -113,6 +115,31 @@ func TestPaletteViewRendersCategories(t *testing.T) {
 
 // The palette must not swallow the agent's interrupt keys while a turn runs:
 // it routes through key() only as a modal, and ctrl+c closes it like esc.
+func TestThemePanelShowsColorPreviewWhenWide(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+
+	m := compactCmdModel()
+	m.width, m.height = 80, 30
+	m.command("/theme")
+	wide := m.panelView(m.palette.top())
+	for _, want := range []string{"Theme preview", "Primary", "Accent", "Success", "Warning", "Error", "Code: func()", "+ added", "- removed"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf("wide theme panel missing %q:\n%s", want, wide)
+		}
+	}
+	if !strings.Contains(wide, "\x1b[") {
+		t.Fatalf("theme preview should contain ANSI colors: %q", wide)
+	}
+
+	m.width = 50
+	narrow := m.panelView(m.palette.top())
+	if strings.Contains(narrow, "Theme preview") {
+		t.Fatalf("narrow theme panel should hide preview:\n%s", narrow)
+	}
+}
+
 func TestPaletteCtrlCClosesNotQuits(t *testing.T) {
 	m := compactCmdModel()
 	m.openPalette()

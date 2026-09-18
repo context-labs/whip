@@ -149,38 +149,47 @@ func ocPanelBg() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Panel)
 }
+
 func ocElementBg() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Element)
 }
+
 func ocAgentCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Info)
 }
+
 func ocTextCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Text)
 }
+
 func ocMutedCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Muted)
 }
+
 func ocWarnCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Warning)
 }
+
 func ocSuccessCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Success)
 }
+
 func ocAccentCol() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Accent)
 }
+
 func ocSelBg() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.Primary)
 }
+
 func ocSelFg() lipgloss.TerminalColor {
 	t := currentTheme()
 	return t.Terminal(t.OnPrimary)
@@ -612,7 +621,7 @@ func ocToolRow(name, args string, failed bool) string {
 	icon, subject := ocToolIcon(name), toolSubject(name, args)
 	label, sep := ocToolLabel(name)
 	if failed {
-		e := lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
+		e := currentTheme().ErrorText
 		return "   " + e.Render(icon+" "+label+sep+subject)
 	}
 	txt := lipgloss.NewStyle().Foreground(ocTextCol())
@@ -638,7 +647,7 @@ func ocToolResult(lines []string, expanded, isErr, hover bool, width int) string
 		style = lipgloss.NewStyle().Foreground(ocTextCol())
 	}
 	if isErr {
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
+		style = currentTheme().ErrorText
 	}
 	// short results (a launch confirmation, a one-line answer) read inline —
 	// a "↳ 1 line · expand" hint for one line is pure friction
@@ -1083,19 +1092,21 @@ func (m *model) applyUIMode(mode string) {
 		m.uiMode = opencodeMode
 		ocActive = true
 		m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
-		m.spin.Style = lipgloss.NewStyle().Foreground(ocAgentCol())
+		m.spin.Style = currentTheme().Spinner
 		m.input.Prompt = "" // opencodePrompt supplies the ┃ bar per line
 		// opencode's placeholder carries a random example (picked once, not cycled)
 		examples := []string{"Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"}
 		m.input.Placeholder = fmt.Sprintf("Ask anything… %q", examples[rand.IntN(len(examples))]) //nolint:gosec // G404: cosmetic placeholder pick, not security-sensitive
 		// Fill the textarea with the element background so the input box reads as
 		// a filled panel (opencode's prompt box).
-		elem := lipgloss.NewStyle().Background(ocElementBg())
+		th := currentTheme()
+		elem := th.On(th.Text, th.Element)
+		placeholder := th.On(th.Muted, th.Element)
 		m.input.FocusedStyle.Text = elem
 		m.input.FocusedStyle.CursorLine = elem
-		m.input.FocusedStyle.Placeholder = dimStyle.Background(ocElementBg())
+		m.input.FocusedStyle.Placeholder = placeholder
 		m.input.BlurredStyle.Text = elem
-		m.input.BlurredStyle.Placeholder = dimStyle.Background(ocElementBg())
+		m.input.BlurredStyle.Placeholder = placeholder
 		if tuiRunning && m.mouseOn {
 			// a runtime toggle INTO opencode mode must arm all-motion tracking
 			// itself — Run's ?1003h only covers sessions that start here
@@ -1105,12 +1116,13 @@ func (m *model) applyUIMode(mode string) {
 		m.uiMode = ""
 		ocActive = false
 		m.spin = spinner.New(spinner.WithSpinner(spinner.Dot))
+		m.spin.Style = currentTheme().Spinner
 		m.input.Prompt = "┃ "
 		m.input.Placeholder = whipPlaceholder
-		m.input.FocusedStyle.Text = lipgloss.NewStyle()
-		m.input.FocusedStyle.CursorLine = lipgloss.NewStyle()
+		m.input.FocusedStyle.Text = currentTheme().Body
+		m.input.FocusedStyle.CursorLine = currentTheme().Body
 		m.input.FocusedStyle.Placeholder = dimStyle
-		m.input.BlurredStyle.Text = lipgloss.NewStyle()
+		m.input.BlurredStyle.Text = currentTheme().Body
 		m.input.BlurredStyle.Placeholder = dimStyle
 		if tuiRunning && m.mouseOn {
 			fmt.Fprint(os.Stdout, "\x1b[?1003l") // drop all-motion tracking with the mode

@@ -56,11 +56,11 @@ func refreshBaseStyles() {
 	th := currentTheme()
 	youStyle = th.On(th.Info, nil).Bold(true)
 	botStyle = th.On(th.Accent, nil).Bold(true)
-	toolStyle = th.On(th.Warning, nil)
-	dimStyle = th.On(th.Muted, nil)
-	errStyle = th.On(th.Error, nil)
-	growStyle = th.On(th.Success, nil)
-	thinkingStyle = th.On(th.Muted, nil).Italic(true)
+	toolStyle = th.WarningText
+	dimStyle = th.MutedText
+	errStyle = th.ErrorText
+	growStyle = th.SuccessText
+	thinkingStyle = th.MutedText.Italic(true)
 	diffAddStyle = th.On(nil, th.DiffAdd)
 	diffDelStyle = th.On(nil, th.DiffDel)
 }
@@ -1228,7 +1228,34 @@ func (m *model) applyTheme(name string) (how string) {
 		setSchemeOverride(name)
 	}
 	refreshBaseStyles()
+	m.applyThemeStyles()
 	return how
+}
+
+// applyThemeStyles refreshes stateful Bubble components and cached transcript
+// blocks after the active semantic palette changes.
+func (m *model) applyThemeStyles() {
+	th := currentTheme()
+	m.spin.Style = th.Spinner
+	if m.uiMode == opencodeMode {
+		m.input.FocusedStyle.Text = th.On(th.Text, th.Element)
+		m.input.FocusedStyle.CursorLine = th.On(th.Text, th.Element)
+		m.input.FocusedStyle.Placeholder = th.On(th.Muted, th.Element)
+		m.input.BlurredStyle.Text = th.On(th.Text, th.Element)
+		m.input.BlurredStyle.Placeholder = th.On(th.Muted, th.Element)
+	} else {
+		m.input.FocusedStyle.Text = th.Body
+		m.input.FocusedStyle.CursorLine = th.Body
+		m.input.FocusedStyle.Placeholder = th.MutedText
+		m.input.BlurredStyle.Text = th.Body
+		m.input.BlurredStyle.Placeholder = th.MutedText
+	}
+	m.input.Focus() // textarea snapshots a pointer to the focused style
+	for i := range m.blocks {
+		m.blocks[i].stale = true
+	}
+	invalidateMDRenderer()
+	m.refreshVP()
 }
 
 // setEffort changes the reasoning effort and stores it both ways: as the new
@@ -5124,7 +5151,30 @@ func (m *model) View() string {
 			m.inputLines[i] = strings.TrimRight(ansi.Strip(ln), " \t")
 		}
 	}
-	return v
+	return renderBodyText(v)
+}
+
+// renderBodyText supplies the semantic default foreground without asking
+// lipgloss to render a multiline rectangle (which pads blank lines).
+func renderBodyText(s string) string {
+	style := currentTheme().Body
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		styled := style.Render(line)
+		// Inner semantic styles reset the terminal foreground. Resume the body
+		// color after each reset so following unstyled text still uses the theme.
+		probe := style.Render("x")
+		prefix := strings.TrimSuffix(probe, "x\x1b[0m")
+		if prefix != probe && strings.HasSuffix(styled, "\x1b[0m") {
+			body := strings.TrimSuffix(styled, "\x1b[0m")
+			styled = strings.ReplaceAll(body, "\x1b[0m", "\x1b[0m"+prefix) + "\x1b[0m"
+		}
+		lines[i] = styled
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) viewBody() string {

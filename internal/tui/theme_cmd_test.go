@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/context-labs/whip/internal/config"
 	uitheme "github.com/context-labs/whip/internal/tui/theme"
@@ -100,6 +102,43 @@ func TestThemeNamesGroupDarkBeforeLight(t *testing.T) {
 		}
 		previous = name
 	}
+}
+
+func TestRenderBodyTextResumesAfterNestedStyle(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+	SetLightTheme(false)
+
+	got := renderBodyText("plain " + errStyle.Render("error") + " tail")
+	want := "\x1b[0m\x1b[38;2;238;238;238m tail"
+	if !strings.Contains(got, want) {
+		t.Fatalf("body color not resumed after nested reset: %q", got)
+	}
+}
+
+func TestThemeSwitchRefreshesPlainTextAndInput(t *testing.T) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(80, 30))
+	m.input.SetValue("plain input")
+	m.append("plain transcript")
+
+	m.applyTheme("light")
+	lightBody := currentTheme().Body.GetForeground()
+	lightInput := m.input.FocusedStyle.Text.GetForeground()
+	if lightBody != currentTheme().Terminal(currentTheme().Text) || lightInput != lightBody {
+		t.Fatalf("light text styles not applied: body=%v input=%v", lightBody, lightInput)
+	}
+
+	m.applyTheme("dark")
+	darkBody := currentTheme().Body.GetForeground()
+	if darkBody != currentTheme().Terminal(currentTheme().Text) || m.input.FocusedStyle.Text.GetForeground() != darkBody {
+		t.Fatalf("dark text styles not applied: body=%v input=%v", darkBody, m.input.FocusedStyle.Text.GetForeground())
+	}
+	if darkBody == lightBody {
+		t.Fatal("theme switch did not change the plain text foreground")
+	}
+	setSchemeOverride("")
 }
 
 func TestThemePickerPreviewCancelRestoresSelection(t *testing.T) {

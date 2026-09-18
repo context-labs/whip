@@ -229,37 +229,6 @@ func opencodeMDStyle(light bool) glamouransi.StyleConfig {
 	return st
 }
 
-// neutralStyle is the unknown-background style: auto mode with no reliable
-// signal — e.g. mosh+tmux, where the OSC 11 query is structurally unanswerable
-// (mosh's terminal emulator doesn't implement it, so neither tmux nor the
-// passthrough copy ever gets a reply). The old fallback here was glamour's
-// ASCII style, which reads as broken: literal ## headings, kept ** markers,
-// raw table pipes, zero color.
-//
-// This keeps the dark style's STRUCTURE (styled headings, italic/bold, • items,
-// box-drawing tables) but drops or remaps every color that assumes a dark
-// background to a basic ANSI color (0–15) — those come from the terminal's own
-// palette, so they stay legible on any background. Code blocks render without
-// syntax highlighting: chroma's fixed hex palettes need a known background.
-func neutralStyle() glamouransi.StyleConfig {
-	st := styles.DarkStyleConfig
-	st.Document.Color = nil // terminal default foreground
-	st.Heading.Color = new("4")
-	st.H1.Color, st.H1.BackgroundColor = nil, nil // no color chip
-	st.H1.Prefix, st.H1.Suffix = "# ", ""
-	st.H6.Color = nil
-	st.HorizontalRule.Color = new("8")
-	st.Link.Color = new("4")
-	st.LinkText.Color = new("6")
-	st.Image.Color = new("4")
-	st.ImageText.Color = new("8")
-	st.Code.Color = new("1") // inline code: ANSI red, no chip
-	st.Code.BackgroundColor = nil
-	st.CodeBlock.Color = nil
-	st.CodeBlock.Chroma = nil
-	return st
-}
-
 // mdRenderer returns a cached renderer per width (glamour builds a
 // style-traversed renderer per Render call otherwise).
 func mdRenderer(width int) *glamour.TermRenderer {

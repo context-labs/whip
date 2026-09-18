@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
+	sharedtheme "github.com/context-labs/whip/internal/theme"
 )
 
 // paletteItem is one row in the ctrl+p command palette. It mirrors opencode's
@@ -963,6 +965,27 @@ func paletteState(m *model, it paletteItem) string {
 	return ""
 }
 
+// themePreview renders the active theme's semantic roles next to the picker.
+func themePreview() string {
+	th := currentTheme()
+	row := func(label string, fg, bg color.Color) string {
+		return th.On(fg, bg).Render("  " + label + strings.Repeat(" ", 17-len(label)))
+	}
+	return strings.Join([]string{
+		th.On(th.Text, th.Panel).Bold(true).Render("  Theme preview     "),
+		row("Primary", th.OnPrimary, th.Primary),
+		row("Accent", th.Text, th.Accent),
+		row("Success", th.Success, th.Element),
+		row("Warning", th.Warning, th.Element),
+		row("Error", th.Error, th.Element),
+		row("Info / link", th.Info, th.Element),
+		row("Muted text", th.Muted, th.Element),
+		row("Code: func()", sharedtheme.ParseColor(th.Spec().SyntaxColors().Function), th.Element),
+		row("+ added", th.Success, th.DiffAdd),
+		row("- removed", th.Error, th.DiffDel),
+	}, "\n")
+}
+
 // panelView renders the active sub-panel.
 func (m *model) panelView(pp *ppanel) string {
 	var b strings.Builder
@@ -1091,8 +1114,9 @@ func (m *model) panelView(pp *ppanel) string {
 		lo := max(pp.midx-rows/2, 0)
 		hi := min(lo+rows, len(pp.list))
 		lo = max(hi-rows, 0)
+		var list strings.Builder
 		if lo > 0 {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
+			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
 		}
 		for i := lo; i < hi; i++ {
 			name := pp.list[i]
@@ -1102,15 +1126,23 @@ func (m *model) panelView(pp *ppanel) string {
 			}
 			label := themeLabel(name)
 			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+label) + mark + "\n")
+				list.WriteString(botStyle.Render(" → "+label) + mark + "\n")
 			} else {
-				b.WriteString("   " + label + mark + "\n")
+				list.WriteString("   " + label + mark + "\n")
 			}
 		}
 		if hi < len(pp.list) {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
+			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
 		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ preview · enter apply · esc cancel"))
+		if m.width >= 64 {
+			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
+				lipgloss.NewStyle().Width(27).Render(strings.TrimRight(list.String(), "\n")),
+				themePreview(),
+			))
+		} else {
+			b.WriteString(list.String())
+		}
+		b.WriteString("\n\n" + dimStyle.Render("  ↑/↓ preview · enter apply · esc cancel"))
 
 	case panelBrowser:
 		for i, name := range pp.list {
