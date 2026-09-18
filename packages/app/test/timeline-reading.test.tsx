@@ -13,7 +13,10 @@ import { ReadingPositions } from '../src/reading-positions';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
-const harness = vi.hoisted(() => ({ scrolls: [] as number[] }));
+const harness = vi.hoisted(() => ({ scrolls: [] as number[], virtual: undefined as undefined | {
+  elementsCache: Map<string, HTMLElement>;
+  shouldAdjustScrollPositionOnItemSizeChange?: (item: { index: number }) => boolean;
+} }));
 vi.mock('@tanstack/react-virtual', () => {
   let options: {
     count: number;
@@ -21,6 +24,7 @@ vi.mock('@tanstack/react-virtual', () => {
     getItemKey(index: number): string | number;
   };
   const virtual = {
+    elementsCache: new Map<string, HTMLElement>(),
     options: {} as Record<string, unknown>,
     // Row zero is the separately measured history control; this layout mock
     // leaves it at zero height and gives each message a fixed 100px height.
@@ -41,7 +45,9 @@ vi.mock('@tanstack/react-virtual', () => {
         index,
         start: Math.max(0, index - 1) * 100,
       })),
-    measureElement: () => {},
+    measureElement: (element: HTMLElement | null) => {
+      if (element?.dataset.readingId) virtual.elementsCache.set(element.dataset.readingId, element);
+    },
   };
   return {
     defaultRangeExtractor: () => [],
@@ -49,6 +55,7 @@ vi.mock('@tanstack/react-virtual', () => {
     useVirtualizer: (value: typeof options) => {
       options = value;
       virtual.options = value;
+      harness.virtual = virtual;
       return virtual;
     },
   };
@@ -62,6 +69,7 @@ const rows: TimelineRow[] = Array.from({ length: 6 }, (_, seq) => ({
 beforeEach(() => {
   vi.useFakeTimers();
   harness.scrolls.length = 0;
+  harness.virtual?.elementsCache.clear();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
     setTimeout(() => callback(0), 16),
   );
@@ -396,4 +404,47 @@ it('keeps clipboard failures on the affected message without reporting globally'
   expect(alert.closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('copy-row');
   expect(alert.closest('[data-error-owner]')?.getAttribute('data-error-owner')).toBe('copy:copy-row');
   expect(f.report).not.toHaveBeenCalled();
+});
+
+it('replacing a focused gap control keeps keyboard focus at recovered content without loading older history', async () => {
+  const f = fixture();
+  const missing: TimelineRow = { id: 'history-gap:1:3', role: 'history-gap', text: '', seq: 2, historyGap: { fromSeq: 2, toSeq: 3, status: 'error' } };
+  const mounted = render(f.app(undefined, undefined, true, [rows[0]!, rows[1]!, missing, rows[4]!, rows[5]!]));
+  act(() => screen.getByRole('button', { name: 'Retry', exact: true }).focus());
+  mounted.rerender(f.app(undefined, undefined, true, rows));
+  await act(async () => { vi.advanceTimersByTime(32); });
+  expect(document.activeElement?.getAttribute('data-reading-id')).toBe('row-2');
+  expect(f.loadOlder).not.toHaveBeenCalled();
+});
+
+it('Latest loads an evicted suffix and an upward gesture cancels the pending jump', async () => {
+  const f = fixture();
+  let resolve!: () => void;
+  const loadLatest = vi.fn(() => new Promise<void>(done => { resolve = done; }));
+  const app = () => <RuntimeContext.Provider value={f.runtime}><UIProvider><Timeline rows={rows} hasMore={false} loadOlder={f.loadOlder}
+    latestMissing loadLatest={loadLatest} readBody={() => {}} /></UIProvider></RuntimeContext.Provider>;
+  render(app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+  expect(loadLatest).toHaveBeenCalledTimes(1);
+  fireEvent.wheel(root, { deltaY: -20 }); root.scrollTop = 240;
+  await act(async () => { resolve(); });
+  await act(async () => { vi.advanceTimersByTime(32); });
+  expect(root.scrollTop).toBe(240);
+  expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
+  expect(f.loadOlder).not.toHaveBeenCalled();
+});
+
+it('anchors visible focused content when a preceding stored message or image grows', () => {
+  const f = fixture(); render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  fireEvent.wheel(root, { deltaY: -1 }); root.scrollTop = 200; fireEvent.scroll(root);
+  const row = screen.getByText('Message 2').closest<HTMLElement>('[data-reading-id]')!;
+  act(() => row.focus());
+  expect(harness.virtual?.shouldAdjustScrollPositionOnItemSizeChange?.({ index: 2 })).toBe(true);
+  expect(harness.virtual?.shouldAdjustScrollPositionOnItemSizeChange?.({ index: 3 })).toBe(false);
+  expect(harness.virtual?.shouldAdjustScrollPositionOnItemSizeChange?.({ index: 4 })).toBe(false);
+  expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
+  fireEvent.wheel(root, { deltaY: -20 });
+  expect(harness.virtual?.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined();
 });

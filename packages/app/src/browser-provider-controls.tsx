@@ -1,7 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SessionCatalogPage } from '@whip/protocol';
-import { Button, Checkbox, Dialog, Field, Input, Select } from '@whip/ui';
+import { Button, Checkbox, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
+import { MessagesSquare } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import type { HostConnection } from './hosts';
@@ -20,9 +21,11 @@ export function BrowserProviderControls({ tabId }: { tabId?: string }) {
   const [open, setOpen] = useState(false);
   const active = associations.filter(item => item.status === 'selected').length;
   return <>
-    <Button variant="ghost" size="sm" disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
-      {tabId ? 'Conversation access' : 'Manage conversation access'}{active ? ` (${active})` : ''}…
-    </Button>
+    {tabId ? <IconButton variant="ghost" label={`Conversation access${active ? ` (${active})` : ''}…`} disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
+      <MessagesSquare size={16} aria-hidden="true"/>
+    </IconButton> : <Button variant="ghost" size="sm" disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
+      Manage conversation access{active ? ` (${active})` : ''}…
+    </Button>}
     <Dialog open={open} onOpenChange={setOpen} title="Conversation Browser access" description="Choose exactly which conversation can request this Browser. Every operation remains subject to its permissions; offering a tab is not an approval.">
       {open && <BrowserProviderDialog tabId={tabId}/>}
     </Dialog>
@@ -63,7 +66,7 @@ function BrowserProviderDialog({ tabId }: { tabId?: string }) {
       {associations.map(item => <div key={item.key} {...stylex.props(layout.column)}>
         <div {...stylex.props(layout.row)}><span {...stylex.props(layout.grow)}>{item.title || 'Untitled conversation'} · {item.hostName} · {item.rootId.slice(-8)}</span>
           <Button variant="secondary" size="sm" aria-label={`Release Browser access for ${item.title || item.rootId}`} onClick={() => { void runtime.browserAssociations.release(item.key).catch(error => setError(errorMessage(error))); }}>Release</Button></div>
-        <p role="status">{item.status === 'selected' ? 'Selected — permission requests may use this window' : item.status === 'selecting' ? 'Selecting…' : item.status === 'unavailable' ? 'Unavailable — explicit selection required' : 'Browser access was not selected'}{item.error ? `: ${item.error}` : ''}</p>
+        <p role="status">{item.status === 'selected' ? 'Selected — permission requests may use this window' : item.status === 'available' ? 'Available for new-tab requests — no page access granted' : item.status === 'selecting' ? 'Selecting…' : item.status === 'unavailable' ? 'Unavailable — explicit selection required' : 'Browser access was not selected'}{item.error ? `: ${item.error}` : ''}</p>
       </div>)}
     </section>
     <p {...stylex.props(layout.muted)}>Release revokes this association; it does not close human Browser tabs or cancel unrelated conversation work.</p>

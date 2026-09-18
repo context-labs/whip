@@ -1,4 +1,4 @@
-import type { DeepReadonly, HistoryView } from '@whip/sdk/state';
+import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/sdk/state';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
 import { admittedText, isChatInput, type InboxInput, type SubmittedInput } from './input-presentation';
 
@@ -27,6 +27,7 @@ export interface TimelineRow {
   truncated?: boolean;
   /** Original retained prose, supplied once before splitting a message for display. */
   copyText?: string;
+  historyGap?: DeepReadonly<HistoryGap>;
 }
 export interface ImagePart {
   url: string;
@@ -57,6 +58,11 @@ export function messagePresentation(content: unknown): {
 }
 type Presentation = DeepReadonly<RootSnapshot['presentation']>;
 
+/** Stable within this agent's reading view as pages fill the leading edge. */
+export function historyGapRows(history: DeepReadonly<HistoryView> | undefined): TimelineRow[] {
+  return (history?.gaps ?? []).map(gap => ({ id: `history-gap:${history!.revision}:${gap.toSeq}`, role: 'history-gap', text: '', seq: gap.fromSeq, historyGap: gap }));
+}
+
 /** Presentation grouping never changes authored messages or daemon history. */
 export function timelineRows(
   history: DeepReadonly<HistoryView> | undefined,
@@ -65,9 +71,19 @@ export function timelineRows(
 ): TimelineRow[] {
   const rows: TimelineRow[] = [];
   const calls = new Map<string, TimelineRow>();
+  const gaps = historyGapRows(history);
+  let gapIndex = 0;
   for (const entry of history?.messages ?? []) {
+    while (gaps[gapIndex] && gaps[gapIndex]!.historyGap!.toSeq < entry.seq) {
+      rows.push(gaps[gapIndex++]!);
+      calls.clear();
+    }
     const message = entry.message;
     const id = `h:${history?.revision}:${entry.seq}`;
+    // Provider-facing user messages also carry runtime deliveries (including
+    // screenshots). Only authored input belongs in the desktop/web user bubble.
+    const sourceRole = message?.role ?? entry.role ?? 'notice';
+    const role = rich && sourceRole === 'user' && !(message?.authored ?? entry.authored) ? 'internal' : sourceRole;
     const metadata = message?.presentation ?? entry.presentation;
     const orderedParts = rich && metadata?.version === 1 ? metadata.parts ?? [] : [];
     const resultPart = orderedParts.find(part => part.kind === 'result' && part.call_id);
@@ -98,7 +114,7 @@ export function timelineRows(
       }
       if (message?.role === 'assistant' || !message) {
         if (metadata!.omitted && prose) detailed.push({ id, seq: entry.seq, role: 'assistant', text: prose });
-        if (entry.body && !detailed.some(row => row.body)) detailed.push({ id, seq: entry.seq, role: entry.role || 'notice', text: '', body: entry.body ?? undefined });
+        if (entry.body && !detailed.some(row => row.body)) detailed.push({ id, seq: entry.seq, role, text: '', body: entry.body ?? undefined });
         const images = messagePresentation(message?.content).images;
         if (images.length) detailed.push({ id: `${id}:images`, seq: entry.seq, role: 'assistant', text: '', images });
         let copied = false;
@@ -111,7 +127,7 @@ export function timelineRows(
       rows.push({
         id,
         seq: entry.seq,
-        role: entry.role || 'notice',
+        role,
         text: '',
         sentAt: entry.sent_at ?? undefined,
         ...(entry.body ? { body: entry.body ?? undefined } : {}),
@@ -148,7 +164,7 @@ export function timelineRows(
       rows.push({
         id,
         seq: entry.seq,
-        role: digest ? 'mailbox' : message.role,
+        role: digest ? 'mailbox' : role,
         text: parts.text,
         images: parts.images,
         sentAt: message.sent_at ?? entry.sent_at ?? undefined,

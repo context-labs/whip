@@ -134,6 +134,44 @@ it('uses retained event identity after a prefix is dropped instead of joining by
   expect(result.filter(isActivityGroup).flatMap(group => group.cells).filter(cell => cell.id === 'current')).toHaveLength(1);
 });
 
+it('does not append old unplaced executions after newer responses or move their copy footer', () => {
+  const rows = [
+    tool('recorded', 1),
+    { id: 'old-reply', role: 'assistant', text: 'Earlier response.' },
+    { id: 'input', role: 'user', text: 'Follow-up' },
+    { id: 'reply', role: 'assistant', text: 'Current response.' },
+  ];
+  const executions = [
+    { ...cell('recorded', 1), turnId: 'old' },
+    { ...cell('unmatched'), turnId: 'old', historyUnmatched: true },
+    { ...cell('unrecorded'), turnId: 'old' },
+    { ...cell('stale-running', undefined, 'running'), turnId: 'old' },
+    cell('unknown-turn'),
+  ];
+  for (const activeTurn of [undefined, 'new']) {
+    const output = conversationActivityRows(rows, executions, [], activeTurn);
+    expect(output.map(row => isActivityGroup(row) ? row.cells.map(cell => cell.id) : row.id)).toEqual([
+      ['recorded'], 'old-reply', 'input', 'reply',
+    ]);
+    expect([...responseCopies(output, false).keys()]).toEqual(['old-reply', 'reply']);
+  }
+  expect(executions).toHaveLength(5); // Evidence stays available to the REPL.
+});
+
+it('shows unplaced work only for the active turn and keeps its identity when history arrives', () => {
+  const execution = { ...cell('missing-prefix', undefined, 'running'), turnId: 'turn' };
+  const pending = conversationActivityRows([], [execution], [], 'turn').filter(isActivityGroup);
+  expect(pending).toHaveLength(1);
+  expect(pending[0]!.cells).toEqual([execution]);
+  // A settled operation can still belong to a turn that is continuing to work.
+  const completed = { ...execution, status: 'completed' as const };
+  expect(conversationActivityRows([], [completed], pending, 'turn')[0]!.id).toBe(pending[0]!.id);
+  expect(conversationActivityRows([], [completed], pending)).toEqual([]);
+  expect(conversationActivityRows([], [execution], pending, 'next-turn')).toEqual([]);
+  const restored = conversationActivityRows([tool('missing-prefix', 4)], [{ ...completed, seq: 4 }], pending);
+  expect(restored[0]!.id).toBe(pending[0]!.id);
+});
+
 it('merged groups preserve bookmarks for both prior identities', () => {
   const cells = [cell('a', 1), cell('b', 2)];
   const previous = conversationActivityRows([tool('a', 1), { id: 'boundary', role: 'notice', text: 'Old boundary' }, tool('b', 2)], cells).filter(isActivityGroup);
@@ -252,4 +290,26 @@ it('renders immediately, rotates only during work, and stops timers on hidden, w
   expect(view.container.textContent).toBe('');
   expect(vi.getTimerCount()).toBe(0);
   view.unmount(); hidden.mockRestore(); vi.useRealTimers();
+});
+
+it('missing raw records split activity, prevent cross-gap call binding, and mark available copies incomplete', () => {
+  const history = { revision: '1', throughSeq: 6, nextSeq: 1, hasMore: false, loading: false, truncated: false,
+    gaps: [{ fromSeq: 3, toSeq: 4, status: 'paused' as const }], messages: [
+      { seq: 1, message: { role: 'assistant', content: 'Before the missing input.' } },
+      { seq: 2, message: { role: 'assistant', content: '', tool_calls: [{ id: 'reused', function: { name: 'rlm_exec', arguments: '{}' } }] } },
+      { seq: 5, message: { role: 'tool', tool_call_id: 'reused', content: 'Unproven result' } },
+      { seq: 6, message: { role: 'assistant', content: 'After the missing input.' } },
+    ] };
+  const rows = timelineRows(history, [], true);
+  expect(rows.find(row => row.seq === 2)?.text).toBe('');
+  expect(rows.map(row => row.seq)).toEqual([1, 2, 3, 5, 6]);
+  expect(rows.find(row => row.historyGap)?.id).toBe('history-gap:1:4');
+  const projected = conversationActivityRows(rows, [{ ...cell('first', 2), callId: 'reused' }]);
+  const copies = [...responseCopies(projected, false).values()];
+  expect(copies).toEqual([
+    { label: 'Copy visible response', text: 'Before the missing input.' },
+    { label: 'Copy visible response', text: 'After the missing input.' },
+  ]);
+  history.gaps[0]!.fromSeq = 4;
+  expect(timelineRows(history, [], true).find(row => row.historyGap)?.id).toBe('history-gap:1:4');
 });

@@ -70,10 +70,16 @@ node examples/client/node.mjs http://127.0.0.1:8080 /host/project 'Review the ch
 ## Experimental native Browser provider
 
 A trusted desktop host can advertise `browserProvider: true` when constructing
-its `WhipClient`. Advertising support is not authority: only an explicit user
-selection calls `client.browser.select(offer, bridge, options)`. The offer uses
-the generated `BrowserProviderBindParams` shape and names one root, native
-window/profile and exact offered resources. `BrowserProviderBridge` is structural;
+its `WhipClient`. Advertising support is not authority. A v2 offer with
+`availability: true`, `offered_tabs: []` and `offered_preview_hosts: []` registers
+an inert create destination for an exact open conversation/host/window/pane via
+`client.browser.select(offer, bridge, options)`. It neither selects a controller
+nor grants page/network authority. The daemon promotes an unambiguous candidate
+only after the existing create permission policy admits the operation.
+Human-page offers still require explicit user selection and exact resources.
+The offer uses generated `BrowserProviderBindParams`; both ends negotiate
+`desktop-browser-v2` for availability/discovery, while explicit v1 offers remain
+supported without discovery. `BrowserProviderBridge` is structural;
 the SDK never imports Electron or app UI code.
 
 ```ts
@@ -86,6 +92,15 @@ const selection = await client.browser.select(offer, nativeBridge, {
 // User release removes this exact provider epoch; human tabs stay open.
 await selection.release();
 ```
+
+The optional native `inventory(request)` adapter services bounded `browser.inventory`
+notifications only after native acknowledgement and only for the current provider.
+It returns current metadata for the exact requested tab generations via
+`browser.inventory.result`; it never dispatches a control command or enables a
+preview route. A late metadata response to a cancelled request is not replayed
+and cannot invalidate an independent control association. The daemon authorizes
+`browser.list_tabs()` and attaches only the calling agent's handles to results.
+No discovery inventory is injected into model prompts.
 
 The SDK bounds broker binding and native acknowledgement by one selection
 deadline (`timeoutMs`, default 30 seconds). Abort, disconnect or revocation rejects
@@ -262,6 +277,24 @@ Views combine consistent snapshots, ordered subscriptions, history revisions
 and paginated collections. Stale state remains visible during recovery. Root and
 child presentation remains separate from committed transcript entries. Inspecting
 a child never adds its transcript to another agent's model context.
+
+`snapshot.history[agentId].gaps` describes missing raw records between retained
+sections as inclusive `fromSeq`/`toSeq` ranges with `pending`, `loading`, `paused`
+or `error` status. Offloaded message bodies are present records, not gaps.
+`throughSeq` is the known end; `nextSeq`/`hasMore` still describe older paging.
+The view repairs pending gaps after resuming its stream, sharing reads per agent
+and limiting an automatic pass to four 128-record / 256-KiB pages. Failed or
+paused gaps remain explicit until requested or reconnected; render their controls
+without treating them as a disconnected session.
+
+Use `await view.loadHistoryGap(agentId, gap.toSeq)` to retry/continue one page.
+The upper bound stays stable as the beginning fills. Explicit reads retain the
+requested page within the existing 512-record / 8-MiB bounds. If navigation evicts
+newer history, `history.latestMissing` is true: call `await view.loadLatest(agentId)`
+before jumping to the newest content. Keep gap state scoped to agent and revision;
+never concatenate response prose or activity groups across an unresolved gap.
+All recovery uses the existing root subscription and `history.page`, with no
+implicit body reads or child transcript subscriptions.
 
 Pass the displayed revision to `session.history.clear(revision)` just as with
 rewind, so another client's destructive edit causes a conflict instead of an

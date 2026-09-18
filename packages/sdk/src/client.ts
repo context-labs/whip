@@ -5,7 +5,7 @@ import {
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
   type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
   type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams,
-  type BrowserCommand, type BrowserCommandCancel, type BrowserProviderRevoked,
+  type BrowserInventoryRequest, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderRevoked,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
@@ -22,6 +22,7 @@ import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from 
 export type SdkEvent = RootEvent;
 /** Notifications the daemon addresses to one connection: executor leases and terminal attachments. */
 export interface Notifications {
+  'browser.inventory': BrowserInventoryRequest;
   'browser.command': BrowserCommand; 'browser.command.cancel': BrowserCommandCancel;
   'browser.provider.revoked': BrowserProviderRevoked;
   'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams;
@@ -185,7 +186,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1'] : [])],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');

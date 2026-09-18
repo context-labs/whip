@@ -93,6 +93,47 @@ class Host {
   }
 }
 
+test('a long committed turn recovers the interior history interval and its five observed executions', async t => {
+  const host = new Host();
+  const messages = Array.from({ length: 1658 }, (_, i) => ({ seq: i + 1, message: { role: 'assistant', content: `Record ${i + 1}` } }));
+  messages[1588]!.message = { role: 'user', content: 'Synthetic long-turn request' };
+  for (const seq of [1590, 1592, 1594, 1596, 1598]) {
+    messages[seq - 1]!.message = { role: 'assistant', content: '', tool_calls: [{ id: `call-${seq}`, function: { name: 'rlm_exec', arguments: '{"code":"42"}' } }],
+      presentation: { version: 1, turn_id: 'long', parts: [{ id: `part-${seq}`, kind: 'tool', call_id: `call-${seq}`, tool_name: 'rlm_exec' }] } } as typeof messages[number]['message'];
+  }
+  const recent = (first: number, last: number) => {
+    const page = messages.slice(first - 1, last);
+    host.root.messages = page.map(item => item.message);
+    host.root.message_seqs = page.map(item => item.seq);
+    host.root.omitted = { messages: true };
+  };
+  recent(1530, 1588);
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let eventSeq = 10;
+  for (const seq of [1590, 1592, 1594, 1596, 1598]) host.streams[0]!.push(String(++eventSeq), 'stream.tool.started', {
+    id: `call-${seq}`, name: 'rlm_exec', part_id: `part-${seq}`, turn_id: 'long',
+  });
+  await until(() => view.getSnapshot().root?.cursor === String(eventSeq));
+  const ids = executionRows(view.getSnapshot(), 'root').map(row => row.id);
+  host.root.cursor = String(eventSeq);
+  recent(1601, 1658);
+  host.history = async params => {
+    assert.equal(params.after_seq, 1588);
+    assert.equal(params.through_seq, 1600);
+    assert.equal(params.revision, '1');
+    return { history_revision: '1', through_seq: 1600, next_seq: 1600, has_more: false, messages: messages.slice(1588, 1600) };
+  };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.some(item => item.seq === 1589));
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), messages.slice(1529).map(item => item.seq));
+  const cells = executionRows(view.getSnapshot(), 'root');
+  assert.deepEqual(cells.map(row => row.id), ids);
+  assert.deepEqual(cells.map(row => row.seq), [1590, 1592, 1594, 1596, 1598]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+});
+
 test('text and reasoning retain one part across interleaved usage and host updates', async t => {
   const host = new Host();
   host.root.active_turns = { root: 'turn' };
@@ -638,8 +679,8 @@ test('empty root history and omitted bodies do not imply older messages', async 
     assert.equal(view.getSnapshot().history.root!.messages.length, 0);
     host.root.omitted = { messages: true };
     await view.refresh();
-    assert.equal(view.getSnapshot().history.root!.hasMore, true, 'An omitted empty snapshot can be recovered');
-    await view.loadOlder();
+    await until(() => view.getSnapshot().history.root!.messages.length === 1);
+    assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1, 'An omitted empty snapshot is recovered automatically');
     assert.equal(view.getSnapshot().history.root!.hasMore, false);
     assert.equal(host.calls.at(-1)?.params.through_seq, -1);
     assert.equal(host.calls.at(-1)?.params.before_seq, undefined);
@@ -980,4 +1021,207 @@ test('saved child failure survives refresh without inventing an execution cell',
   host.streams.at(-1)!.push('14', 'agent.turn.succeeded', { agent_id: 'child', turn_id: 'next-turn', status: 'succeeded' });
   await until(() => view.getSnapshot().root?.agents?.[0]?.last_turn?.status === 'succeeded');
   assert.equal(view.getSnapshot().root?.agents?.[0]?.last_turn?.error, undefined);
+});
+
+function historyRecords(first: number, last: number) {
+  return Array.from({ length: last - first + 1 }, (_, index) => ({ seq: first + index, message: { role: 'assistant', content: `record ${first + index}` } }));
+}
+function historySnapshot(host: Host, first: number, last: number) {
+  const records = historyRecords(first, last);
+  host.root.messages = records.map(item => item.message);
+  host.root.message_seqs = records.map(item => item.seq);
+}
+function gapPage(params: Record<string, unknown>, count = 128) {
+  const first = Number(params.after_seq) + 1, last = Math.min(Number(params.through_seq), first + count - 1);
+  return { history_revision: '1', through_seq: params.through_seq, next_seq: last, has_more: last < Number(params.through_seq), messages: historyRecords(first, last) };
+}
+
+test('gap repair is capped, shares readers, consumes live events, and preserves its retry identity', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let release!: (page: unknown) => void;
+  host.history = () => new Promise(resolve => { release = resolve; });
+  historySnapshot(host, 20, 22);
+  await view.refresh();
+  const history = view.getSnapshot().history.root!;
+  assert.deepEqual(history.gaps, [{ fromSeq: 2, toSeq: 19, status: 'loading', error: undefined }]);
+  assert.equal(history.loading, false, 'Gap loading leaves the current transcript usable');
+  const shared = view.loadHistoryGap('root', 19);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+  host.streams.at(-1)!.push('11', 'stream.text', { text: 'still streaming', turn_id: 'next' });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  host.history = async params => gapPage(params, 2);
+  release(gapPage({ after_seq: 1, through_seq: 19 }, 2));
+  await shared;
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'paused');
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 4);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps?.map(gap => [gap.fromSeq, gap.toSeq]), [[10, 19]]);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 4, 'Ordinary refresh cannot restart exhausted work');
+  await view.loadHistoryGap('root', 19);
+  assert.equal(view.getSnapshot().history.root!.gaps?.[0]?.fromSeq, 12);
+  assert.equal(view.getSnapshot().history.root!.gaps?.[0]?.status, 'paused');
+  assert.ok(host.calls.filter(call => call.method === 'history.page').every(call => call.params.limit === 128 && call.params.max_bytes === 256 * 1024));
+});
+
+for (const invalid of ['empty', 'out-of-order', 'wrong-end', 'error']) test(`invalid gap read (${invalid}) stays local and supports explicit retry`, async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 5, 7);
+  host.history = async params => {
+    if (invalid === 'error') throw new Error('x'.repeat(2048));
+    const page = gapPage(params);
+    return { ...page, ...(invalid === 'empty' ? { messages: [] } : invalid === 'wrong-end' ? { through_seq: 99 } : { messages: [...page.messages].reverse() }) };
+  };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(view.getSnapshot().error, undefined);
+  assert.ok(view.getSnapshot().history.root!.gaps![0]!.error!.length <= 512);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+  host.history = async params => gapPage(params);
+  await view.loadHistoryGap('root', 4);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  assert.equal(view.getSnapshot().history.root!.hasMore, false);
+});
+
+test('refresh and revision changes reject both stale gap successes and errors', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  let reject!: (error: Error) => void;
+  host.history = () => new Promise((_, fail) => { reject = fail; });
+  historySnapshot(host, 5, 7);
+  await view.refresh();
+  host.root = snapshot('20', '2');
+  await view.refresh();
+  reject(new Error('obsolete'));
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.revision, '2');
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  assert.equal(view.getSnapshot().error, undefined);
+  let resolve!: (value: unknown) => void;
+  host.history = () => new Promise(done => { resolve = done; });
+  historySnapshot(host, 5, 7);
+  await view.refresh();
+  host.root = snapshot('30', '3');
+  await view.refresh();
+  resolve({ ...gapPage({ after_seq: 1, through_seq: 4 }), history_revision: '2' });
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.revision, '3');
+  assert.equal(view.getSnapshot().history.root!.messages.length, 1);
+});
+
+test('opened child coverage repairs without opening other agents and close/reopen rejects late reads', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async () => ({ history_revision: '1', through_seq: 1, next_seq: 1, has_more: false, messages: historyRecords(1, 1) });
+  await view.openAgent('child');
+  host.history = async params => params.after_seq !== undefined ? gapPage(params) : { history_revision: '1', through_seq: 7, next_seq: 5, has_more: true, messages: historyRecords(5, 7) };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.child?.messages.length === 7);
+  assert.deepEqual(Object.keys(view.getSnapshot().history).sort(), ['child', 'root']);
+  assert.equal(host.streams.filter(stream => !stream.closed).length, 1);
+  let resolve!: (value: unknown) => void;
+  host.history = () => new Promise(done => { resolve = done; });
+  const oldRead = view.loadLatest('child');
+  view.closeAgent('child');
+  host.history = async () => ({ history_revision: '1', through_seq: 8, next_seq: 8, has_more: false, messages: historyRecords(8, 8) });
+  const reopened = view.openAgent('child');
+  resolve({ history_revision: '1', through_seq: 99, next_seq: 99, has_more: false, messages: historyRecords(99, 99) });
+  await Promise.all([oldRead, reopened]);
+  assert.deepEqual(view.getSnapshot().history.child!.messages.map(item => item.seq), [8]);
+});
+
+test('omitting every snapshot message reads a bounded recent page even with older retained history', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.root.messages = []; host.root.message_seqs = []; host.root.omitted = { messages: true };
+  host.history = async params => params.after_seq !== undefined ? gapPage(params) : { history_revision: '1', through_seq: 10, next_seq: 5, has_more: true, messages: historyRecords(5, 10) };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.length === 10);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 2);
+});
+
+test('manual recovery retains its page, exposes an evicted suffix, and Latest restores recent records within budget', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { maxMessages: 6 });
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 20, 21);
+  host.history = async () => { throw new Error('offline history'); };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.history = async params => params.after_seq !== undefined ? gapPage(params, 6) : { history_revision: '1', through_seq: 21, next_seq: 16, has_more: true, messages: historyRecords(16, 21) };
+  await view.loadHistoryGap('root', 19);
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [2, 3, 4, 5, 6, 7]);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+  await view.loadLatest();
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [16, 17, 18, 19, 20, 21]);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.ok(view.getSnapshot().retainedBytes <= 8 * 1024 * 1024);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+});
+
+test('reconnection retries a failed range, and contiguous offloaded bodies are not gaps', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 5, 7);
+  host.history = async () => { throw new Error('try after reconnect'); };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.notify('stale');
+  host.history = async params => ({ ...gapPage(params), messages: historyRecords(2, 4).map(({ seq }) => ({ seq, role: 'assistant', body: { reference_id: `body-${seq}`, size: '999999', digest: 'digest', media_type: 'application/json' } })) });
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live' && view.getSnapshot().history.root!.gaps?.length === 0);
+  assert.equal(view.getSnapshot().history.root!.messages.filter(item => item.body).length, 3);
+  assert.ok(host.calls.every(call => call.method !== 'content.read'));
+});
+
+test('new snapshot gaps and a cached paused gap keep independent recovery state', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async params => gapPage(params, 1);
+  historySnapshot(host, 20, 22);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'paused');
+  historySnapshot(host, 25, 27);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.some(item => item.seq === 24));
+  assert.deepEqual(view.getSnapshot().history.root!.gaps?.map(gap => [gap.fromSeq, gap.toSeq, gap.status]), [[6, 19, 'paused']]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 6);
+});
+
+test('manual gap navigation keeps a dropped zero-based root prefix reachable', async t => {
+  const host = new Host();
+  historySnapshot(host, 0, 0);
+  const view = createSessionView(host.session(), { maxMessages: 3 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async () => { throw new Error('defer recovery'); };
+  historySnapshot(host, 10, 10);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.history = async params => gapPage(params, 3);
+  await view.loadHistoryGap('root', 9);
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [1, 2, 3]);
+  assert.equal(view.getSnapshot().history.root!.hasMore, true, 'The evicted record zero stays pageable');
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
 });

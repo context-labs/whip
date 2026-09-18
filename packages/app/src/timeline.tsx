@@ -2,6 +2,7 @@ import { ErrorNotice } from './error-feedback';
 import {
   isValidElement,
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -13,9 +14,11 @@ import {
 } from 'react';
 import { Markdown } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
+import { useQuery } from '@tanstack/react-query';
+import type { WhipClient } from '@whip/sdk';
 import type { DeepReadonly, HistoryView } from '@whip/sdk/state';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
-import { Button, CodeBlock, CopyButton, IconButton, Menu } from '@whip/ui';
+import { Button, CodeBlock, CopyButton, Dialog, IconButton, Menu, Spinner } from '@whip/ui';
 import {
   ChevronRight,
   Code2,
@@ -34,6 +37,7 @@ import {
 import { useRuntime } from './context';
 import { layout } from './styles';
 import { ReadingList } from './reading-list';
+import { HistoryGapControl } from './history-gap';
 import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
@@ -45,9 +49,15 @@ import {
   type SubmittedInput,
 } from './input-presentation';
 
-export function ImageAttachment({ image }: { image: ImagePart }) {
-  const [visible, setVisible] = useState(false);
-  const [failed, setFailed] = useState(false);
+export function ImageAttachment({ image, thumbnail, label = 'Image attachment' }: { image: ImagePart; thumbnail?: boolean; label?: string }) {
+  const [failed, setFailed] = useState<string>();
+  const [loaded, setLoaded] = useState<string>();
+  const [preview, setPreview] = useState<string>();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const measureImage = useCallback((element: HTMLImageElement | null) => {
+    // Cached images can finish before React attaches the load listener.
+    if (element?.complete && element.naturalWidth > 0) setLoaded(image.url);
+  }, [image.url]);
   const embedded = /^data:image\/(?:png|jpeg|gif|webp);base64,/.test(image.url);
   const remote = /^https?:\/\//.test(image.url);
   if (!embedded)
@@ -63,19 +73,30 @@ export function ImageAttachment({ image }: { image: ImagePart }) {
     ) : (
       <p>Image preview is unavailable for this format.</p>
     );
-  if (image.width && image.height && image.width * image.height > 16_000_000)
-    return (
-      <p>
-        Image is too large to preview here. Inspect the original attachment.
-      </p>
-    );
+  if (thumbnail) return (
+    <>
+      <Button ref={trigger} aria-label={failed === image.url ? `${label} could not be loaded` : `Open ${label.toLowerCase()}`}
+        aria-busy={loaded !== image.url && failed !== image.url || undefined}
+        aria-haspopup="dialog" disabled={failed === image.url} xstyle={styles.thumbnail}
+        onClick={() => setPreview(image.url)}>
+        {failed === image.url ? <span role="status">Image unavailable</span> : <>
+          <img ref={measureImage} src={image.url} alt="Attached image" loading="lazy" decoding="async"
+            width={image.width} height={image.height}
+            onLoad={() => setLoaded(image.url)} onError={() => setFailed(image.url)}
+            {...stylex.props(styles.thumbnailImage, loaded !== image.url && styles.imageLoading)} />
+          {loaded !== image.url && <Spinner label={`Loading ${label.toLowerCase()}`} size={14} />}
+        </>}
+      </Button>
+      <Dialog open={preview === image.url} onOpenChange={open => setPreview(open ? image.url : undefined)}
+        title={label} finalFocus={trigger} xstyle={styles.imageDialog}>
+        <img src={image.url} alt="Image attachment preview" width={image.width} height={image.height}
+          {...stylex.props(styles.imagePreview)} />
+      </Dialog>
+    </>
+  );
   return (
     <div {...stylex.props(layout.column)}>
-      <Button variant="ghost" onClick={() => setVisible((value) => !value)}>
-        {visible ? 'Hide image attachment' : 'View image attachment'}
-      </Button>
-      {visible &&
-        (failed ? (
+      {failed === image.url ? (
           <p role="status">This image could not be decoded.</p>
         ) : (
           <img
@@ -83,10 +104,12 @@ export function ImageAttachment({ image }: { image: ImagePart }) {
             alt="Attached image"
             loading="lazy"
             decoding="async"
-            onError={() => setFailed(true)}
+            width={image.width}
+            height={image.height}
+            onError={() => setFailed(image.url)}
             {...stylex.props(styles.image)}
           />
-        ))}
+        )}
     </div>
   );
 }
@@ -126,6 +149,32 @@ const styles = stylex.create({
     backgroundColor: colors.element,
     color: colors.foreground,
   },
+  attachments: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+    maxWidth: { default: '80%', [scale.phone]: '94%' },
+    marginBottom: 8,
+  },
+  thumbnail: {
+    position: 'relative',
+    flexShrink: 0,
+    width: 80,
+    height: 80,
+    padding: 0,
+    borderRadius: 10,
+    borderColor: surface.controlBorder,
+    overflow: 'hidden',
+    backgroundColor: { default: 'transparent', ':hover': 'transparent' },
+    color: surface.secondaryText,
+    fontSize: typography.size12,
+    whiteSpace: 'normal',
+  },
+  thumbnailImage: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' },
+  imageLoading: { visibility: 'hidden' },
+  imageDialog: { width: 'min(960px, 90vw)' },
+  imagePreview: { display: 'block', width: '100%', height: 'auto', maxHeight: '75vh', objectFit: 'contain' },
   actions: {
     position: 'absolute',
     bottom: 0,
@@ -176,8 +225,10 @@ const styles = stylex.create({
     borderRadius: 6,
   },
   image: {
+    display: 'block',
     maxWidth: '100%',
     width: 420,
+    height: 'auto',
     maxHeight: 420,
     objectFit: 'contain',
     borderRadius: 8,
@@ -334,7 +385,16 @@ export const Prose = memo(function Prose({
   );
 });
 
-function MessageDisclosure({ row, readBody }: { row: TimelineRow; readBody(row: TimelineRow): void }) {
+function MessageDetails({ row, readBody }: { row: TimelineRow; readBody(row: TimelineRow): void }) {
+  return <>
+    {row.args && <CodeBlock code={executionCode(row.args)} language={row.label === 'Starlark execution' ? 'starlark' : 'json'} />}
+    {row.text && <pre {...stylex.props(layout.pre)}>{row.text}</pre>}
+    {row.images?.map((image, index) => <ImageAttachment key={index} image={image} />)}
+    {row.body && <Button variant="ghost" onClick={() => readBody(row)}>Read stored message · {row.body.size} bytes</Button>}
+  </>;
+}
+
+function MessageDisclosure({ row, readBody, children }: { row: TimelineRow; readBody(row: TimelineRow): void; children?: ReactNode }) {
   const runtime = useRuntime();
   const density = useSyncExternalStore(runtime.subscribe, () => runtime.getSnapshot().preferences.toolDensity);
   const [disclosed, setDisclosed] = useState<{ id: string; open: boolean }>();
@@ -348,44 +408,78 @@ function MessageDisclosure({ row, readBody }: { row: TimelineRow; readBody(row: 
               {row.label ||
                 (row.role === 'mailbox'
                   ? `Mailbox update${row.deliveries ? ` · ${row.deliveries} deliveries` : ''}`
-                  : 'Reasoning')}
+                  : row.role === 'internal' ? 'Activity details' : 'Reasoning')}
             </span>
             {row.live && <span>· in progress</span>}
             {!open && row.role === 'tool' && density === 'comfortable' && <span data-tool-preview {...stylex.props(styles.toolPreview)}>{(row.text || (row.args ? executionCode(row.args) : '')).slice(0, 512).split('\n').slice(0, 3).join('\n')}</span>}
           </summary>
           {open && <div {...stylex.props(styles.details)}>
-            {row.args && (
-              <CodeBlock
-                code={executionCode(row.args)}
-                language={
-                  row.label === 'Starlark execution' ? 'starlark' : 'json'
-                }
-              />
-            )}
-            {row.text && <pre {...stylex.props(layout.pre)}>{row.text}</pre>}
-            {row.images?.map((image, index) => (
-              <ImageAttachment key={index} image={image} />
-            ))}
-            {row.body && (
-              <Button variant="ghost" onClick={() => readBody(row)}>
-                Read stored message · {row.body.size} bytes
-              </Button>
-            )}
+            {children ?? <MessageDetails row={row} readBody={readBody} />}
           </div>}
         </details>
   );
+}
+
+export interface MessageScope {
+  client: WhipClient;
+  rootId: string;
+  agentId: string;
+}
+
+/** A history-page byte limit is a transport detail, not a message disclosure.
+ * Only mounted chat rows read bodies; tool/reasoning details still opt in. */
+function StoredMessageRow({ row, scope, connected, historyRevision, onProse, detailsOnly, ...props }: {
+  row: TimelineRow;
+  scope: MessageScope;
+  connected: boolean;
+  historyRevision?: string;
+  detailsOnly?: boolean;
+  onProse(row: TimelineRow, text: string): void;
+  readBody(row: TimelineRow): void;
+  historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
+}) {
+  const runtime = useRuntime();
+  const body = row.body!;
+  const query = useQuery({
+    queryKey: ['chat-message', scope.client.getSnapshot().info?.runtime_id, scope.rootId, scope.agentId, historyRevision, body.reference_id, body.digest],
+    queryFn: async ({ signal }) => {
+      const value = await scope.client.content(body, scope).readJSON({ maxBytes: 64 << 20, signal });
+      if (!value || typeof value !== 'object' || !('content' in value)) throw new Error('Stored message has no content.');
+      return messagePresentation(value.content);
+    },
+    enabled: connected,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  }, runtime.queries);
+  useEffect(() => {
+    if (row.role === 'assistant' && query.data) onProse(row, query.data.text);
+  }, [row, query.data, onProse]);
+  if (query.data) {
+    const loaded = { ...row, ...query.data, body: undefined };
+    return detailsOnly ? <MessageDetails row={loaded} readBody={props.readBody} /> : <MessageRow {...props} row={loaded} />;
+  }
+  const content = query.error ? <ErrorNotice type="resource" owner={`${scope.rootId}:${scope.agentId}:${row.id}`} title="Could not load message" error={query.error}
+      action={<Button variant="ghost" disabled={!connected} onClick={() => void query.refetch()}>Retry</Button>} />
+    : <p role="status" {...stylex.props(layout.muted)}>{connected ? 'Loading message…' : 'Reconnect to load this message.'}</p>;
+  return detailsOnly ? content : <MessageRow {...props} row={row} content={content} />;
 }
 
 export const MessageRow = memo(function MessageRow({
   row,
   readBody,
   historyAction,
+  content,
+  details,
 }: {
   row: TimelineRow;
   readBody(row: TimelineRow): void;
   historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
+  content?: ReactNode;
+  details?: ReactNode;
 }) {
-  const disclosure = ['tool', 'reasoning', 'mailbox'].includes(row.role);
+  const disclosure = ['tool', 'reasoning', 'mailbox', 'internal'].includes(row.role);
   const user = row.role === 'user';
   const assistant = row.role === 'assistant';
   const stamp = row.sentAt ? new Date(row.sentAt) : undefined;
@@ -399,23 +493,22 @@ export const MessageRow = memo(function MessageRow({
       {...stylex.props(messageMarker, styles.article, user && styles.authored, user && styles.user)}
     >
       {disclosure ? (
-        <MessageDisclosure row={row} readBody={readBody} />
+        <MessageDisclosure row={row} readBody={readBody}>{details}</MessageDisclosure>
       ) : user ? (
         <>
-          <div data-user-bubble {...stylex.props(styles.bubble)}>
-            {row.body ? (
+          {content == null && !row.body && !!row.images?.length && <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
+            {row.images.map((image, index, images) => <ImageAttachment key={index} image={image} thumbnail
+              label={`Image ${index + 1} of ${images.length}`} />)}
+          </div>}
+          {(content != null || row.body || row.text) && <div data-user-bubble {...stylex.props(styles.bubble)}>
+            {content ?? (row.body ? (
               <Button variant="ghost" onClick={() => readBody(row)}>
                 Read stored message · {row.body.size} bytes
               </Button>
             ) : (
-              <>
-                <Prose text={row.text} />
-                {row.images?.map((image, index) => (
-                  <ImageAttachment key={index} image={image} />
-                ))}
-              </>
-            )}
-          </div>
+              <Prose text={row.text} />
+            ))}
+          </div>}
           {row.delivery && (
             <div role="status" {...stylex.props(styles.delivery)}>
               {row.delivery}
@@ -463,7 +556,7 @@ export const MessageRow = memo(function MessageRow({
               {copy}
             </div>
           )}
-          {row.body ? (
+          {content ?? (row.body ? (
             <Button variant="ghost" onClick={() => readBody(row)}>
               Read stored message · {row.body.size} bytes
             </Button>
@@ -474,7 +567,7 @@ export const MessageRow = memo(function MessageRow({
                 <ImageAttachment key={index} image={image} />
               ))}
             </>
-          )}
+          ))}
         </>
       )}
     </article>
@@ -499,6 +592,9 @@ export function Timeline({
   onAgent,
   hasMore,
   loadOlder,
+  loadGap,
+  loadLatest,
+  latestMissing,
   readBody,
   historyAction,
   bookmarkKey,
@@ -511,6 +607,7 @@ export function Timeline({
   density = 'compact',
   active = false,
   footer,
+  messageScope,
 }: {
   rows: ConversationActivityRow[];
   agents?: readonly TranscriptAgent[];
@@ -519,6 +616,9 @@ export function Timeline({
   onAgent?(id: string): void;
   hasMore: boolean;
   loadOlder(): Promise<void>;
+  loadGap?(toSeq: number): Promise<void>;
+  loadLatest?(): Promise<void>;
+  latestMissing?: boolean;
   readBody(row: TimelineRow): void;
   historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
   bookmarkKey?: string;
@@ -531,6 +631,7 @@ export function Timeline({
   density?: 'compact' | 'comfortable' | 'detailed';
   active?: boolean;
   footer?: ReactNode;
+  messageScope?: MessageScope;
 }) {
   const rows = useCoalescedTranscript(incomingRows);
   const availableMotion = useTranscriptMotion() && connected;
@@ -539,7 +640,34 @@ export function Timeline({
   // Reattachment/visibility resumes with one final-state paint before allowing
   // new arrivals to animate. Work received while absent is already history.
   const motion = availableMotion && wasAvailable;
-  const copies = useMemo(() => responseCopies(rows, active || !connected || !historyReady, hasMore), [rows, active, connected, historyReady, hasMore]);
+  // Keep only bounded copy text after a virtual message unmounts, never image
+  // bodies. The SDK's history and activity identities remain authoritative.
+  const [storedProse, setStoredProse] = useState<ReadonlyMap<string, { digest: string; text: string }>>(new Map());
+  const retainProse = useCallback((row: TimelineRow, text: string) => {
+    if (text.length > 256 * 1024) return;
+    setStoredProse(previous => {
+      if (previous.get(row.id)?.digest === row.body?.digest) return previous;
+      const next = new Map(previous);
+      next.set(row.id, { digest: row.body!.digest, text });
+      let size = [...next.values()].reduce((sum, value) => sum + value.text.length, 0);
+      for (const [id, value] of next) {
+        if (size <= 256 * 1024 && next.size <= 512) break;
+        next.delete(id); size -= value.text.length;
+      }
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    const bodies = new Map(rows.filter(row => row.body).map(row => [row.id, row.body!.digest]));
+    setStoredProse(previous => {
+      const retained = [...previous].filter(([id, value]) => bodies.get(id) === value.digest);
+      return retained.length === previous.size ? previous : new Map(retained);
+    });
+  }, [rows]);
+  const copies = useMemo(() => responseCopies(rows.map(row => {
+    const prose = storedProse.get(row.id);
+    return prose && prose.digest === row.body?.digest ? { ...row, body: undefined, copyText: prose.text } : row;
+  }), active || !connected || !historyReady, hasMore), [rows, storedProse, active, connected, historyReady, hasMore]);
   const parsed = useRef<Parameters<typeof markdownRows>[1]>(new Map());
   const blocks = useMemo(() => markdownRows(rows, parsed.current), [rows]);
   const region = useRef<HTMLDivElement>(null);
@@ -564,9 +692,10 @@ export function Timeline({
   for (const id of arrivals.current.keys()) if (!keys.has(id)) arrivals.current.delete(id);
   if (seen.current && active && connected && motion) {
     for (const row of blocks) {
+      if (row.historyGap) continue;
       const items = isActivityGroup(row) ? activityItems(row) : [];
       let stagger = 0;
-      for (const id of [row.id, ...items.map(item => item.id)]) {
+      for (const id of [...(row.seq === undefined ? [row.id] : []), ...items.filter(item => (item.row?.seq ?? item.cell?.seq) === undefined).map(item => item.id)]) {
         if (!seen.current.has(id) && !arrivals.current.has(id)) arrivals.current.set(id, { time: performance.now(), delay: items.length && id !== row.id ? (seen.current.has(row.id) ? 0 : transcriptMotion.first) + stagger++ * transcriptMotion.stagger : 0 });
       }
     }
@@ -650,7 +779,7 @@ export function Timeline({
     if (!isMarkdownRow(row) || !following || !isMarkdownRow(following) || following.ownerId !== owner) displayRows.at(-1)!.copy = copies.get(owner);
   }
   return <MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
-    <ReadingList rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} chatFollow
+    <ReadingList rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} loadLatest={loadLatest} latestMissing={latestMissing} chatFollow
       bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
       canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
       label="Conversation" earlierLabel="Load earlier messages" footer={footer}
@@ -658,13 +787,19 @@ export function Timeline({
         const source = row.source;
         return <>
           <RowMotion arrival={row.group || isAgentActivity(source) ? arrivals.current.get(row.id) : undefined} closing={!!row.item && closing.has(row.group!.id)}>
-            {row.group ? row.item ? row.detail
+            {source.historyGap ? <HistoryGapControl gap={source.historyGap} connected={connected} load={() => loadGap?.(source.historyGap!.toSeq) ?? Promise.resolve()} />
+            : row.group ? row.item ? row.detail
               ? <ActivityDetail item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
               : <ActivityStep item={row.item} groupId={row.group.id} open={!!row.open} toggle={() => toggle(row.item!.id, !!row.open)} connected={connected} last={!!row.last} />
               : <ActivityHeader group={row.group} open={!!row.open} toggle={() => toggle(row.group!.id, !!row.open)} connected={connected} density={density} />
             : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} active={!!activeTurns[source.agentHost.display?.child_id ?? '']} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
             : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
-            : <MessageRow row={source} readBody={readBody} historyAction={historyAction} />}
+            : source.body && messageScope && (source.role === 'user' || source.role === 'assistant')
+              ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} historyAction={historyAction} />
+              : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
+                  details={source.role === 'internal' && source.body && messageScope
+                    ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} detailsOnly />
+                    : undefined} />}
           </RowMotion>
           {row.copy && <div data-response-actions {...stylex.props(styles.responseActions)}><MessageCopy key={source.id} owner={source.id} label={row.copy.label} text={row.copy.text} /></div>}
         </>;

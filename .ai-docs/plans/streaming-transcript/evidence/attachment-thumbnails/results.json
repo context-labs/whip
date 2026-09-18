@@ -1,0 +1,53 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "de36cbcfc70c72610af71df029bf3f6ac732c9a5130905a462fe4a1ea0b3984c",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 10,
+      "mounted": 17,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true
+    }
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "de36cbcfc70c72610af71df029bf3f6ac732c9a5130905a462fe4a1ea0b3984c",
+    "messages": {
+      "encodedImageBytes": 1030422,
+      "contentReads": 12,
+      "mounted": 17,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true
+    }
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "de36cbcfc70c72610af71df029bf3f6ac732c9a5130905a462fe4a1ea0b3984c",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 12,
+      "mounted": 16,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true
+    }
+  }
+]

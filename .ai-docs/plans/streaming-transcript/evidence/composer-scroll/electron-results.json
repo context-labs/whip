@@ -1,0 +1,34 @@
+[
+  {
+    "label": "multiline draft with attachment, pinned",
+    "top": 6641,
+    "viewport": 506,
+    "input": 79,
+    "frames": 62,
+    "maximumScrollDrift": 0
+  },
+  {
+    "label": "multiline draft with attachment, reading history",
+    "top": 6241,
+    "viewport": 506,
+    "input": 79,
+    "frames": 61,
+    "maximumScrollDrift": 0
+  },
+  {
+    "label": "maximum-height draft, pinned",
+    "top": 6782,
+    "viewport": 365,
+    "input": 220,
+    "frames": 63,
+    "maximumScrollDrift": 0
+  },
+  {
+    "label": "narrow pane with wrapped draft, pinned",
+    "top": 7108,
+    "viewport": 399,
+    "input": 138,
+    "frames": 60,
+    "maximumScrollDrift": 0
+  }
+]

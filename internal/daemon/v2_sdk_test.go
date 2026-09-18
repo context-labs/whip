@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -404,12 +405,34 @@ func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []
 	if err != nil {
 		return "", err
 	}
-	output, err := r.Turn(ctx, string(data), true, started, accepted)
+	prompt := string(data)
+	if os.Getenv("WHIP_WEB_INLINE_IMAGES_FIXTURE") == "1" {
+		// Keep a screenshot-sized attachment in the authored record without
+		// echoing its base64 as a megabyte-long assistant response.
+		prompt = input
+	}
+	output, err := r.Turn(ctx, prompt, true, started, accepted)
 	r.mu.Lock()
 	for index := len(r.history) - 1; index >= 0; index-- {
 		if r.history[index].Role == "user" {
 			r.history[index].Content = input
 			r.history[index].Parts = parts
+			if os.Getenv("WHIP_WEB_INLINE_IMAGES_FIXTURE") == "1" && input == "Internal screenshot fixture" {
+				var images []llm.ContentPart
+				for _, part := range parts {
+					if part.Type == "image_url" {
+						images = append(images, part)
+					}
+				}
+				if len(images) > 0 {
+					// Match SteerImages: provider-facing user records with no
+					// Authored flag, one inline and one beyond the page budget.
+					caption := "images attached (browser/computer screenshots or MCP results):"
+					small := llm.Message{Role: "user", Content: caption, Parts: []llm.ContentPart{images[len(images)-1]}}
+					large := llm.Message{Role: "user", Content: caption, Parts: []llm.ContentPart{images[0], images[0]}}
+					r.history = slices.Insert(r.history, index+1, small, large)
+				}
+			}
 			break
 		}
 	}
@@ -418,6 +441,9 @@ func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []
 }
 
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	if input == "history-gap:count" || input == "history-gap:bytes" || input == "history-gap:large" {
+		return r.historyGapTurn(ctx, input, started)
+	}
 	if input == "scratch-result" {
 		return r.scratchResult(ctx, started)
 	}

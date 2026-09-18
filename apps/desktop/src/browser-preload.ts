@@ -6,6 +6,7 @@ export function browserAgentPreload(ipc: IpcRenderer): BrowserAgentBridge {
     identity: () => ipc.invoke('whip:browser-agent:identity'),
     preview: input => ipc.invoke('whip:browser-agent:preview', input),
     select: input => ipc.invoke('whip:browser-agent:select', input),
+    inventory: input => ipc.invoke('whip:browser-agent:inventory', input),
     dispatch: input => ipc.invoke('whip:browser-agent:dispatch', input),
     cancel: input => { void ipc.invoke('whip:browser-agent:cancel', input).catch(() => {}); },
     release: input => ipc.invoke('whip:browser-agent:release', input),

@@ -30,6 +30,8 @@ type browserProviders struct {
 	mu           sync.Mutex
 	store        *session.Store
 	roots        map[string]*browserLease
+	available    map[browserReleaseKey]*browserLease
+	inventory    map[string]*browserInventoryPending
 	pending      map[string]*browserPending
 	closed       bool
 	released     map[browserReleaseKey]string
@@ -47,6 +49,7 @@ type browserLease struct {
 	cancel            context.CancelFunc
 	attachments       map[string]*browserAttachment
 	tabs              map[string]*browserTab
+	created           map[string]browserCreatedTab
 }
 type browserAttachment struct {
 	lease           *browserLease
@@ -78,7 +81,7 @@ type browserPending struct {
 }
 
 func newBrowserProviders(store *session.Store) *browserProviders {
-	return &browserProviders{store: store, roots: map[string]*browserLease{}, pending: map[string]*browserPending{}, released: map[browserReleaseKey]string{}}
+	return &browserProviders{store: store, roots: map[string]*browserLease{}, available: map[browserReleaseKey]*browserLease{}, inventory: map[string]*browserInventoryPending{}, pending: map[string]*browserPending{}, released: map[browserReleaseKey]string{}}
 }
 func browserID() string { return rand.Text() }
 func browserFailure(kind, message string) error {
@@ -95,8 +98,14 @@ func cloneBrowserScope(scope capability.BrowserScope) capability.BrowserScope {
 }
 
 func (p *browserProviders) bind(c *serverConn, params protocol.BrowserProviderBindParams) (protocol.BrowserProviderBindResult, error) {
-	if !slices.Contains(c.client.Capabilities, "desktop-browser-v1") || params.Version != 1 || params.RootID == "" || params.DesktopID == "" || params.WindowID == "" || params.OfferRevision == "" || params.CreateProfileID == "" {
+	if !slices.Contains(c.client.Capabilities, "desktop-browser-v1") || (params.Version != 1 && params.Version != 2) || params.RootID == "" || params.DesktopID == "" || params.WindowID == "" || params.OfferRevision == "" || params.CreateProfileID == "" {
 		return protocol.BrowserProviderBindResult{}, errors.New("browser provider requires desktop-browser-v1 and an explicit versioned root/window offer")
+	}
+	if params.Version == 2 && !slices.Contains(c.client.Capabilities, "desktop-browser-v2") {
+		return protocol.BrowserProviderBindResult{}, errors.New("browser discovery requires desktop-browser-v2")
+	}
+	if params.Availability && (params.Version != 2 || len(params.OfferedTabs) != 0 || len(params.OfferedPreviewHosts) != 0) {
+		return protocol.BrowserProviderBindResult{}, errors.New("availability is a v2 create-only candidate, not an inventory offer")
 	}
 	if _, _, err := p.store.Load(params.RootID); err != nil {
 		return protocol.BrowserProviderBindResult{}, err
@@ -131,9 +140,17 @@ func (p *browserProviders) bind(c *serverConn, params protocol.BrowserProviderBi
 		p.mu.Unlock()
 		return protocol.BrowserProviderBindResult{}, errors.New("browser provider broker is closed")
 	}
+	key := browserReleaseKey{holder: c, rootID: params.RootID}
 	old := p.roots[params.RootID]
+	if params.Availability {
+		old = p.available[key]
+		if selected := p.roots[params.RootID]; selected != nil && selected.holder == c {
+			p.mu.Unlock()
+			return protocol.BrowserProviderBindResult{}, errors.New("this connection already has a selected Browser destination")
+		}
+	}
 	count := 0
-	for _, lease := range p.roots {
+	for _, lease := range p.leasesLocked() {
 		if lease.holder == c {
 			count++
 		}
@@ -151,16 +168,20 @@ func (p *browserProviders) bind(c *serverConn, params protocol.BrowserProviderBi
 		return protocol.BrowserProviderBindResult{}, errors.New("browser association epoch is stale")
 	}
 	ctx, cancel := context.WithCancel(c.ctx)
-	lease := &browserLease{holder: c, rootID: params.RootID, id: browserID(), epoch: browserID(), offer: params, ctx: ctx, cancel: cancel, attachments: map[string]*browserAttachment{}, tabs: map[string]*browserTab{}}
+	lease := &browserLease{holder: c, rootID: params.RootID, id: browserID(), epoch: browserID(), offer: params, ctx: ctx, cancel: cancel, attachments: map[string]*browserAttachment{}, tabs: map[string]*browserTab{}, created: map[string]browserCreatedTab{}}
 	if old != nil {
 		old.cancel()
 	}
-	p.roots[params.RootID] = lease
+	if params.Availability {
+		p.available[key] = lease
+	} else {
+		p.roots[params.RootID] = lease
+	}
 	p.mu.Unlock()
 	if old != nil {
 		p.revokeLease(old, "replaced")
 	}
-	return protocol.BrowserProviderBindResult{Version: 1, ProviderID: lease.id, ProviderEpoch: lease.epoch}, nil
+	return protocol.BrowserProviderBindResult{Version: params.Version, ProviderID: lease.id, ProviderEpoch: lease.epoch}, nil
 }
 func validateBrowserPreview(s capability.BrowserPreviewScope) error {
 	if s.HostID == "" || s.HostIdentity == "" || s.ConnectionGeneration == "" || s.EnvironmentID == "" || (s.Loopback != "127.0.0.1" && s.Loopback != "::1") || len(s.Ports) > 64 {
@@ -184,10 +205,10 @@ func (p *browserProviders) disconnect(c *serverConn) {
 	}
 	p.releaseOrder = slices.DeleteFunc(p.releaseOrder, func(key browserReleaseKey) bool { return key.holder == c })
 	var leases []*browserLease
-	for root, lease := range p.roots {
+	for _, lease := range p.leasesLocked() {
 		if lease.holder == c {
 			lease.cancel()
-			delete(p.roots, root)
+			p.removeLeaseLocked(lease)
 			leases = append(leases, lease)
 		}
 	}
@@ -204,12 +225,15 @@ func (p *browserProviders) unbind(c *serverConn, params protocol.BrowserProvider
 		return nil
 	}
 	lease := p.roots[params.RootID]
+	if candidate := p.available[key]; candidate != nil && candidate.epoch == params.ProviderEpoch {
+		lease = candidate
+	}
 	if lease == nil || lease.holder != c || lease.epoch != params.ProviderEpoch || lease.ctx.Err() != nil {
 		p.mu.Unlock()
 		return errors.New("browser unbind does not match the current lease on this connection")
 	}
 	lease.cancel()
-	delete(p.roots, params.RootID)
+	p.removeLeaseLocked(lease)
 	p.rememberReleaseLocked(key, params.ProviderEpoch)
 	p.mu.Unlock()
 	p.revokeLease(lease, "unbound")
@@ -254,9 +278,9 @@ func (p *browserProviders) Resolve(ctx context.Context, identity browser.Desktop
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	lease := p.roots[identity.RootID]
-	if lease == nil || lease.ctx.Err() != nil {
-		return capability.BrowserCall{}, browserFailure("desktop_unavailable", "no selected desktop provider")
+	lease, err := p.destinationLocked(identity.RootID)
+	if err != nil {
+		return capability.BrowserCall{}, err
 	}
 	if operation != "browser.open" && operation != "browser.attach" {
 		a := lease.attachments[args.AttachmentID]
@@ -270,6 +294,9 @@ func (p *browserProviders) Resolve(ctx context.Context, identity browser.Desktop
 			return capability.BrowserCall{}, browserFailure("unsupported_operation", "a preview attachment and valid port are required")
 		}
 		return capability.BrowserCall{Scope: cloneBrowserScope(a.scope), Grant: a.grant, Arguments: raw}, nil
+	}
+	if operation == "browser.open" && len(lease.created) >= 32 {
+		return capability.BrowserCall{}, browserFailure("browser_busy", "Created tab discovery capacity reached; list tabs to refresh closed pages")
 	}
 	count := 0
 	for id, a := range lease.attachments {
@@ -298,7 +325,16 @@ func (p *browserProviders) Resolve(ctx context.Context, identity browser.Desktop
 	result := browser.DesktopResult{Network: browser.DesktopNetwork{Kind: "mac", Ports: []int{}}, SupportedOperations: []string{"run", "detach"}, Media: []string{}}
 	if operation == "browser.attach" {
 		found := false
-		for _, tab := range lease.offer.OfferedTabs {
+		offered := []protocol.BrowserOfferedTab{}
+		if identity.AgentID == identity.RootID {
+			offered = append(offered, lease.offer.OfferedTabs...)
+		}
+		for _, created := range lease.created {
+			if created.owner == identity.AgentID {
+				offered = append(offered, created.offer)
+			}
+		}
+		for _, tab := range offered {
 			if tab.TabID == args.TabID {
 				found = true
 				scope.TabID = tab.TabID
@@ -370,8 +406,15 @@ func (p *browserProviders) Resolve(ctx context.Context, identity browser.Desktop
 	return capability.BrowserCall{Scope: cloneBrowserScope(scope), Arguments: raw}, nil
 }
 func (p *browserProviders) findLocked(call capability.BrowserCall) (*browserAttachment, error) {
-	for _, lease := range p.roots {
+	for _, lease := range p.leasesLocked() {
 		if lease.id != call.Scope.ProviderID || lease.epoch != call.Scope.ProviderEpoch {
+			continue
+		}
+		current, err := p.destinationLocked(lease.rootID)
+		if err != nil {
+			return nil, err
+		}
+		if current != lease {
 			continue
 		}
 		a := lease.attachments[call.Scope.AttachmentID]
@@ -417,6 +460,7 @@ func cloneBrowserResult(v browser.DesktopResult) browser.DesktopResult {
 	v.Network.Ports = slices.Clone(v.Network.Ports)
 	v.SupportedOperations = slices.Clone(v.SupportedOperations)
 	v.Media = slices.Clone(v.Media)
+	v.Tabs = slices.Clone(v.Tabs)
 	return v
 }
 
@@ -511,11 +555,12 @@ func (p *browserProviders) shutdown() {
 	p.mu.Lock()
 	p.closed = true
 	leases := make([]*browserLease, 0, len(p.roots))
-	for _, lease := range p.roots {
+	for _, lease := range p.leasesLocked() {
 		lease.cancel()
 		leases = append(leases, lease)
 	}
 	clear(p.roots)
+	clear(p.available)
 	clear(p.released)
 	p.releaseOrder = nil
 	p.mu.Unlock()

@@ -6,6 +6,8 @@ import { Code2, Info, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
+import { historyGapRows, type TimelineRow } from './conversation-rows';
+import { HistoryGapControl } from './history-gap';
 import { ContentRead } from './details/shared';
 import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
@@ -27,6 +29,17 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   const languageLabel = executionLabel(root?.meta?.execution_engine);
   const history = state.history[agentId];
   const rows = useMemo(() => executionRows(state, agentId), [state, agentId]);
+  const displayRows = useMemo(() => {
+    const result: (typeof rows[number] | TimelineRow)[] = [];
+    const gaps = historyGapRows(history);
+    let index = 0;
+    for (const row of rows) {
+      while (gaps[index] && row.seq !== undefined && gaps[index]!.historyGap!.toSeq < row.seq) result.push(gaps[index++]!);
+      result.push(row);
+    }
+    result.push(...gaps.slice(index));
+    return result;
+  }, [rows, history]);
   const cells = rows.filter(row => row.kind === 'cell');
   const ordinals = new Map(cells.map((row, index) => [row.id, index + 1]));
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -54,13 +67,15 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
     </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
     {state.executions?.truncated && <p role="status" {...stylex.props(styles.notice)}>Some observed execution details were omitted to keep this view within its memory limit.</p>}
-    <ReadingList rows={rows} label="REPL executions" earlierLabel="Load older executions"
+    <ReadingList rows={displayRows} label="REPL executions" earlierLabel="Load older executions"
       hasMore={history?.hasMore ?? false} canLoadOlder={connected} loadingHistory={history?.loading}
-      loadOlder={() => view.loadOlder(agentId)} historyRevision={history?.revision ?? root?.history_revision}
+      loadOlder={() => view.loadOlder(agentId)} loadLatest={() => view.loadLatest(agentId)} latestMissing={history?.latestMissing} historyRevision={history?.revision ?? root?.history_revision}
       historyReady={!!history && !history.loading} bookmarkKey={`${runtimeId}:${viewId}:${agentId}:repl`}
       contentStyle={styles.content}
       empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded turn error below.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : `Cells appear here when this agent runs ${languageLabel}.`}</span></div>}
-      renderRow={row => row.kind === 'restart'
+      renderRow={row => !('kind' in row)
+        ? <HistoryGapControl gap={row.historyGap!} connected={connected} load={() => view.loadHistoryGap(agentId, row.historyGap!.toSeq)} />
+        : row.kind === 'restart'
         ? <div {...stylex.props(styles.restart)} data-repl-restart><RotateCcw size={14} /><span>{row.text}{row.historyUnmatched ? ' · observed; historical match unavailable' : ''}</span></div>
         : <Cell row={row} number={ordinals.get(row.id)!} view={view} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
     />

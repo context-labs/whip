@@ -9,6 +9,7 @@ import (
 // BrowserProviderBindParams records an explicit user-selected root association.
 // Advertising willingness during initialize never implicitly selects a provider.
 type BrowserProviderBindParams struct {
+	Availability          bool                             `json:"availability,omitempty"`
 	RootID                string                           `json:"root_id"`
 	Version               int                              `json:"version"`
 	DesktopID             string                           `json:"desktop_id"`
@@ -99,6 +100,28 @@ type BrowserProviderEventParams struct {
 	Params               json.RawMessage `json:"params,omitempty"`
 	URL                  string          `json:"url,omitempty"`
 	Title                string          `json:"title,omitempty"`
+}
+
+// BrowserInventoryRequest reads only the listed metadata on an exact provider.
+// It grants neither page control nor authority to enumerate the whole window.
+type BrowserInventoryRequest struct {
+	RequestID     string                   `json:"request_id"`
+	RootID        string                   `json:"root_id"`
+	AgentID       string                   `json:"agent_id"`
+	ProviderID    string                   `json:"provider_id"`
+	ProviderEpoch string                   `json:"provider_epoch"`
+	Tabs          []BrowserInventoryTarget `json:"tabs"`
+}
+type BrowserInventoryTarget struct {
+	TabID         string `json:"tab_id"`
+	TabGeneration string `json:"tab_generation"`
+}
+type BrowserInventoryResultParams struct {
+	RequestID     string                `json:"request_id"`
+	RootID        string                `json:"root_id"`
+	ProviderEpoch string                `json:"provider_epoch"`
+	Tabs          []browser.DesktopTab  `json:"tabs"`
+	Error         *browser.DesktopError `json:"error,omitempty"`
 }
 
 // BrowserTransferArguments requests an all-or-nothing native handoff.

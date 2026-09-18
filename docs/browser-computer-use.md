@@ -41,19 +41,33 @@ flowchart TB
 This experimental path controls **the same embedded page the human sees**, using
 the existing browser helper parser and Rod adapter over a scoped native CDP
 transport. It does not launch a second automation browser, expose a production
-debugging port, or fall back to any legacy browser mode. The user must explicitly
-offer a desktop window/resource to a conversation first.
+debugging port, or fall back to any legacy browser mode. Desktop advertises inert
+availability for an exact open conversation and native window even with zero
+Browser tabs. An unambiguous destination can service an approved agent create;
+multiple candidate windows require explicit selection. Existing human pages must
+still be explicitly offered to a conversation before discovery or attachment.
 
-The RLM browser module adds `open`, `attach`, `allow_preview_port` and `detach`;
+The RLM browser module adds `list_tabs`, `open`, `attach`, `allow_preview_port` and `detach`;
 `run` accepts an `attachment_id` as an alternative to its legacy session target.
-The MCP tool host exposes corresponding `browser_open`, `browser_attach`,
+The MCP tool host exposes corresponding `browser_list_tabs`, `browser_open`, `browser_attach`,
 `browser_run`, `browser_allow_preview_port` and `browser_detach` tools. An unpaired
 MCP client can discover these names but receives an unavailable/denied result,
 not another browser. Do not combine legacy and attachment targets.
 
+`browser.list_tabs()` requires Browser module authority, but not create/control
+approval. It returns current, bounded metadata for explicitly root-offered tabs,
+caller-created tabs and caller-owned attachments, not the window's private tab
+inventory. Page titles and URLs are untrusted data. Discovery never creates a
+page, acquires control, enables a preview route or injects inventories into prompts.
+An available Desktop with no shared pages returns `availability: "available"`
+and `tabs: []`; unavailable, ambiguous and older providers return structured
+errors. A listed `tab_id` is only a candidate for permission-gated `attach`.
+
 Open, attach and port expansion resolve exact provider/tab/profile/preview
 identity **before** entering the existing durable permission dispatcher. Browser
-v1 requests are Once-only. Permission waiting does not consume the page execution
+resource requests remain Once-only in prompt mode; existing automatic permission
+mode is respected. Availability and discovery do not bypass either policy.
+Permission waiting does not consume the page execution
 timeout; after approval, identity and authority are checked again. A run is
 serialized for its entire batch, with bounded queuing, cancellation, document
 revision checks and no replay of an uncertain delivered mutation. Screenshots
@@ -66,7 +80,9 @@ Attachment IDs alone convey no authority. Child use requires explicit
 ancestor revocation tracking; implicit inheritance is not allowed. Historical
 roots without Browser module grants stay denied—start a fresh conversation.
 Provider release, disconnect or revocation ends agent control without closing the
-human's page. Reconnect requires a new explicit selection.
+human's page. Reconnect can re-advertise availability, never restore control.
+Existing explicit human-page offers require reselection; old roots are not
+silently given new discovery grants.
 
 For SSH previews, only approved literal remote loopback ports on the selected
 saved SSH connection are reachable; there is no Mac-local fallback. Preview

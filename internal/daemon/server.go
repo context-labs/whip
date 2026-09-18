@@ -256,7 +256,7 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1", "desktop-browser-v2"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {

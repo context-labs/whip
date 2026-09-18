@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "availability": {
+      "type": "boolean"
+    },
     "root_id": {
       "type": "string"
     },

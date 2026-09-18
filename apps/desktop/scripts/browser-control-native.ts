@@ -25,14 +25,19 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
       if (event.kind === 'admission' && window.acceptBrowserAdmission) void whipDesktop.browser.admitted({ epoch: event.epoch, tabId: event.tab.id, generation: event.tab.generation });
     }); void 0;`);
     const identity = await call<BrowserAgentIdentity>('identity');
-    const rootId = randomUUID(), agentId = randomUUID(), provider = { version: 1, provider_id: randomUUID(), provider_epoch: randomUUID() };
-    const offer = { version: 1, root_id: rootId, desktop_id: identity.desktopId, window_id: identity.windowId, create_profile_id: identity.createProfileId,
+    const rootId = randomUUID(), agentId = randomUUID(), provider = { version: 2, provider_id: randomUUID(), provider_epoch: randomUUID() };
+    const offer = { version: 2, availability: true, root_id: rootId, desktop_id: identity.desktopId, window_id: identity.windowId, create_profile_id: identity.createProfileId,
       offer_revision: randomUUID(), offered_tabs: [], offered_preview_hosts: [] };
     await assert.rejects(call('select', { offer: { ...offer, desktop_id: 'different' }, provider }), /identity changed/);
     await call('select', { offer, provider });
+    const inventoryRequest = { request_id: randomUUID(), root_id: rootId, agent_id: agentId, provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tabs: [] };
+    assert.deepEqual((await call<{ tabs: unknown[] }>('inventory', inventoryRequest)).tabs, []);
+    assert.equal(manager.snapshot().tabs.length, 0, 'availability must not create a page');
+    await assert.rejects(call('inventory', { ...inventoryRequest, provider_epoch: randomUUID() }), /stale/);
+
     let scope: BrowserAgentScope = { provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tab_id: randomUUID(), tab_generation: randomUUID(),
       profile_id: identity.createProfileId, attachment_id: randomUUID(), attachment_generation: randomUUID(), rights: ['create', 'control'] };
-    let operationId = randomUUID(), holder = agentId;
+    let operationId = '5bc1ca6a5da15c4077dbecef67be7406:4:call_m6f3ny27oDXJdbMOSyWM29t2:024047879dbbcbcbd2d4b016b00a94f8', holder = agentId;
     const command = (kind: string, args: unknown = {}): BrowserCommand => ({ command_id: randomUUID(), operation_id: operationId, root_id: rootId, agent_id: holder,
       provider_epoch: provider.provider_epoch, deadline_millis: String(Date.now() + 5000), kind, scope: structuredClone(scope), arguments: args });
     const dispatch = (kind: string, args: unknown = {}) => call<BrowserAgentResult>('dispatch', command(kind, args));
@@ -68,6 +73,12 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
     assert.ok(events.some(event => event.kind === 'provider' && event.event.kind === 'document' && !event.event.operation_id));
     assert.equal((await dispatch('cdp', { method: 'Runtime.evaluate', params: { expression: '1' } })).error?.kind, 'attachment_revoked');
     assert.equal((await dispatch('end')).error, undefined);
+    const inventoryTarget = { tab_id: scope.tab_id, tab_generation: scope.tab_generation };
+    const discovered = await call<{ tabs: { tab_id: string; document_revision: string; state: string; requestable: boolean }[] }>('inventory', { ...inventoryRequest, tabs: [inventoryTarget] });
+    assert.equal(discovered.tabs[0]?.tab_id, scope.tab_id); assert.ok(discovered.tabs[0]?.document_revision);
+    assert.equal(discovered.tabs[0]?.state, 'busy'); assert.equal(discovered.tabs[0]?.requestable, false);
+    await assert.rejects(call('inventory', { ...inventoryRequest, agent_id: randomUUID(), tabs: [inventoryTarget] }), /not shared/);
+    assert.deepEqual((await call<{ tabs: unknown[] }>('inventory', { ...inventoryRequest, tabs: [{ ...inventoryTarget, tab_generation: randomUUID() }] })).tabs, []);
     const parent = structuredClone(scope), childId = randomUUID(), child = { ...scope, attachment_id: randomUUID(), attachment_generation: randomUUID() };
     const badMove = await dispatch('transfer', { child_agent_id: childId, attachments: [{ parent_scope: parent, child_scope: child }, { parent_scope: { ...parent, tab_id: randomUUID() }, child_scope: child }] });
     assert.ok(badMove.error);

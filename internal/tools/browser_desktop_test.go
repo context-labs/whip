@@ -23,6 +23,32 @@ type testDesktopProvider struct {
 	backend  *fakeBackend
 	resolves atomic.Int64
 	executes atomic.Int64
+	lists    atomic.Int64
+}
+
+func (p *testDesktopProvider) ListTabs(context.Context, browser.DesktopIdentity) (browser.DesktopResult, error) {
+	p.lists.Add(1)
+	return browser.DesktopResult{Availability: "available", Tabs: []browser.DesktopTab{}}, nil
+}
+
+func TestDesktopBrowserDiscoveryRequiresModuleButNoControlAdmission(t *testing.T) {
+	s, ledger, p, authority := desktopTestServices(t)
+	s.SetGate(func(context.Context, GateRequest) (GateDecision, string) {
+		t.Error("discovery requested control permission")
+		return GateReject, ""
+	})
+	result := callDesktop(t, s, "browser.list_tabs", "{}")
+	if result.Error != nil || result.Availability != "available" || p.lists.Load() != 1 || p.resolves.Load() != 0 || p.executes.Load() != 0 || ledger.begins.Load() != 0 {
+		t.Fatalf("discovery crossed admission boundary: %+v", result)
+	}
+	authority.AgentID = "unrelated-child"
+	if err := s.BindDispatcher(ledger, p.store.Workspaces(), p.store.Processes(), authority); err != nil {
+		t.Fatal(err)
+	}
+	result = callDesktop(t, s, "browser.list_tabs", "{}")
+	if result.Error == nil || result.Error.Kind != "permission_denied" || p.lists.Load() != 1 {
+		t.Fatalf("ungranted discovery reached provider: %+v", result)
+	}
 }
 
 func (p *testDesktopProvider) Resolve(_ context.Context, _ browser.DesktopIdentity, op string, args browser.DesktopArguments) (capability.BrowserCall, error) {

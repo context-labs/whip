@@ -1,0 +1,40 @@
+[
+  {
+    "kind": "count",
+    "snapshotMessages": 64,
+    "missingFrom": 720,
+    "missingThrough": 747,
+    "gapRequests": 1,
+    "recoveredOperations": 5,
+    "anchorDrift": 0,
+    "retainedBytes": 50094,
+    "retainedRecords": 156,
+    "mounted": 23
+  },
+  {
+    "kind": "bytes",
+    "snapshotMessages": 37,
+    "missingFrom": 812,
+    "missingThrough": 846,
+    "gapRequests": 2,
+    "recoveredOperations": 5,
+    "retainedBytes": 561732,
+    "retainedRecords": 228,
+    "mounted": 12
+  },
+  {
+    "kind": "large",
+    "retainedRecords": 512,
+    "gaps": [
+      {
+        "fromSeq": 1398,
+        "toSeq": 1533,
+        "status": "paused"
+      }
+    ],
+    "hasMore": true,
+    "automaticPages": 4,
+    "explicitPages": 1,
+    "peakRows": 35
+  }
+]

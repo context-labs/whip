@@ -31,7 +31,7 @@ export async function testBrowserControlRegressions(window: BrowserWindow, origi
     expand: async (_selection, _scope, port) => { enteredExpansion(); await gate; control.invalidateEnvironment(environmentId, 'Preview destination scope changed'); currentPreview = { ...currentPreview, ports: [...currentPreview.ports, port].sort((a, b) => a - b) }; },
   });
   try {
-    const identity = control.identity(), root = randomUUID(), agent = randomUUID(), provider = { version: 1, provider_id: randomUUID(), provider_epoch: randomUUID() };
+    const identity = control.identity(), root = randomUUID(), agent = root, provider = { version: 1, provider_id: randomUUID(), provider_epoch: randomUUID() };
     await control.select({ provider, offer: { version: 1, root_id: root, desktop_id: identity.desktopId, window_id: identity.windowId, create_profile_id: identity.createProfileId,
       offer_revision: randomUUID(), offered_tabs: [], offered_preview_hosts: [preview] } });
     const scope = (): BrowserAgentScope => ({ provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tab_id: randomUUID(), tab_generation: randomUUID(),

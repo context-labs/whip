@@ -1,4 +1,4 @@
-import type { BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams } from '@whip/protocol';
+import type { BrowserInventoryRequest, BrowserInventoryResultParams, BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams } from '@whip/protocol';
 import type { BrowserTabState } from './browser-types';
 
 export type BrowserAgentScope = BrowserCommand['scope'];
@@ -26,6 +26,7 @@ export interface BrowserAgentBridge {
   /** Metadata-only verified SSH offer; never starts routes before permission. */
   preview(input: { connectionId: string; runtimeId: string; projectId: string; loopback: '127.0.0.1' | '::1' }): Promise<BrowserAgentPreview>;
   select(input: BrowserAgentSelection): Promise<void>;
+  inventory?(request: BrowserInventoryRequest): Promise<BrowserInventoryResultParams>;
   dispatch(command: BrowserCommand): Promise<BrowserAgentResult>;
   cancel(input: BrowserCommandCancel): void;
   release(input: { rootId: string; providerEpoch: string }): Promise<void>;

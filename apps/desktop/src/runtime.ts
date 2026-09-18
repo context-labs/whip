@@ -6,6 +6,7 @@ import type { LocalRuntimeStatus } from '@whip/app/platform';
 import { access, chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { manifest as protocol } from '@whip/protocol';
 import { providerEnvironmentNames } from './provider-environment.ts';
 
 const exec = promisify(execFile);
@@ -124,13 +125,12 @@ export async function runtimeEnvironment(signal: AbortSignal, providerKeys = fal
 }
 
 type LocalRuntimeOptions = {
-  source: string;
-  manifest: RuntimeManifest;
   settingsFile: string;
   defaultExecutable?: string;
   env?: NodeJS.ProcessEnv;
   confirmUpdate?: (message: string) => Promise<boolean>;
-};
+} & ({ mode?: 'managed'; source: string; manifest: RuntimeManifest } |
+  { mode: 'attach'; defaultExecutable: string });
 
 type ManagedRuntime = { sha256: string; channel: 'stable' | 'beta'; approvedVersion?: string };
 type RuntimeSettings = { executable: string; managed?: ManagedRuntime };
@@ -176,6 +176,8 @@ export class LocalRuntime {
   }
 
   private async selected(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+    // An explicit development target must not be redirected by saved GUI settings.
+    if (this.options.mode === 'attach') return absolutePath(this.options.defaultExecutable);
     const saved = await this.settings();
     if (saved) return saved.executable;
     if (this.options.defaultExecutable) return absolutePath(this.options.defaultExecutable);
@@ -210,11 +212,14 @@ export class LocalRuntime {
     let info: { distribution?: string; buildId?: string; protocolMajor?: number; protocolMinor?: number; schemaVersion?: number };
     try { info = JSON.parse(await run(executable, ['_desktop-runtime-info'], env, signal, 5000)); }
     catch { signal.throwIfAborted(); throw new Error('The executable did not return valid whipcode build information within 5 seconds. Choose a current whipcode build.'); }
-    const compatibility = this.options.manifest.compatibility;
+    const compatibility = this.options.mode === 'attach'
+      ? { protocolMajor: protocol.major, protocolMinor: 0 }
+      : this.options.manifest.compatibility;
     if (info.distribution !== 'whipcode') throw new Error('This executable is not a whipcode distribution. Choose whipcode, or install the packaged build.');
     if (typeof info.buildId !== 'string' || !/^[a-zA-Z0-9.+-]{1,128}$/.test(info.buildId) ||
         info.protocolMajor !== compatibility.protocolMajor || !Number.isSafeInteger(info.protocolMinor) ||
-        info.protocolMinor! < compatibility.protocolMinor || info.schemaVersion !== compatibility.schemaVersion)
+        info.protocolMinor! < compatibility.protocolMinor ||
+        ('schemaVersion' in compatibility && info.schemaVersion !== compatibility.schemaVersion))
       throw new Error('This whipcode build is incompatible with this desktop app. Install a matching backend build before connecting.');
     return info as typeof info & { buildId: string };
   }
@@ -224,7 +229,9 @@ export class LocalRuntime {
     if (!executable || !await stat(executable).then(() => true, error => {
       if (error.code === 'ENOENT') return false;
       throw new Error('Cannot read the selected whipcode executable. Check its permissions or choose another path.');
-    })) return { ...base, state: 'missing', canInstall: true, message: 'The local service is not installed. Choose Set up this Mac to continue.' };
+    })) return { ...base, state: 'missing', canInstall: this.options.mode !== 'attach', message: this.options.mode === 'attach'
+      ? 'The selected whipcode executable is missing. Pass --executable and --home for an existing daemon.'
+      : 'The local service is not installed. Choose Set up this Mac to continue.' };
     let clientBuild: string;
     try { clientBuild = (await this.metadata(executable, env, signal)).buildId; }
     catch (error) {
@@ -234,6 +241,25 @@ export class LocalRuntime {
     }
     try {
       const status = parseDaemonStatus(await run(executable, ['daemon', 'status', '--json'], env, signal, 5000));
+      if (this.options.mode === 'attach') {
+        if (status.state !== 'running') return { ...base, state: status.state, clientBuild,
+          message: `The selected daemon is ${status.state}. Attach mode never starts or repairs a daemon. Start it separately, or select another --home and --executable.` };
+        // Check the service itself: the selected file may be newer than its live process.
+        const { createWhipClient, unixSocket } = await import('@whip/sdk/node');
+        const client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: 'desktop-dev-attach-probe', reconnect: false });
+        try {
+          await client.connect({ signal });
+          const info = client.getSnapshot().info!;
+          if (info.protocol_minor < protocol.minor) return { ...base, state: 'incompatible', clientBuild, daemonBuild: info.build_id,
+            message: `This desktop requires daemon protocol ${protocol.major}.${protocol.minor}; the running daemon provides ${info.protocol_major}.${info.protocol_minor}. Update it separately when its work can be interrupted.` };
+          return { ...base, state: 'running', clientBuild, daemonBuild: info.build_id, socket: status.socket,
+            message: `Attached to the existing daemon (${info.build_id}). Backend updates are managed separately.` };
+        } catch (error) {
+          signal.throwIfAborted();
+          return { ...base, state: 'incompatible', clientBuild,
+            message: `Cannot attach to the running daemon: ${(error as Error).message.slice(0, 2048)}. The daemon was left unchanged.` };
+        } finally { client.close(); }
+      }
       const daemonBuild = typeof status.daemon_build === 'string' ? status.daemon_build.slice(0, 128) : undefined;
       const message = status.state === 'running'
         ? `Connected to the local daemon.${daemonBuild !== clientBuild ? ' The running daemon uses a different build; an explicit restart will use the selected executable.' : ''}`
@@ -262,6 +288,7 @@ export class LocalRuntime {
   }
 
   async choose(executable: string, signal: AbortSignal): Promise<LocalRuntimeStatus> {
+    this.requireManaged();
     return this.mutation(async () => {
       const env = await this.environment(signal);
       executable = absolutePath(executable);
@@ -282,6 +309,7 @@ export class LocalRuntime {
 
   async install(executable: string, signal: AbortSignal): Promise<LocalRuntimeStatus> {
     return this.mutation(async () => {
+      if (this.options.mode === 'attach') throw new Error(attachOnlyMessage);
       executable = absolutePath(executable);
       const env = await this.environment(signal);
       await verifyRuntime(this.options.source, this.options.manifest, signal);
@@ -320,6 +348,7 @@ export class LocalRuntime {
 
   /** First-run installation keeps the selected path and never replaces another backend. */
   async installDefault(signal: AbortSignal): Promise<LocalRuntimeStatus> {
+    this.requireManaged();
     const env = await this.environment(signal);
     const status = await this.probe(env, await this.selected(env), signal);
     if (status.state !== 'missing') {
@@ -329,9 +358,17 @@ export class LocalRuntime {
     return this.install(status.executable ?? path.join(env.HOME || homedir(), '.local/bin/whipcode'), signal);
   }
 
-  private get channel(): 'stable' | 'beta' { return this.options.manifest.version.includes('-') ? 'beta' : 'stable'; }
+  private requireManaged() {
+    if (this.options.mode === 'attach') throw new Error(attachOnlyMessage);
+  }
+
+  private get channel(): 'stable' | 'beta' {
+    if (this.options.mode === 'attach') throw new Error(attachOnlyMessage);
+    return this.options.manifest.version.includes('-') ? 'beta' : 'stable';
+  }
 
   async approveUpdate(version: string | undefined, signal: AbortSignal) {
+    this.requireManaged();
     if (version !== undefined && !/^[a-zA-Z0-9.+-]{1,128}$/.test(version)) throw new Error('Invalid update version');
     if (this.synchronizing) await this.synchronizing;
     return this.mutation(async () => {
@@ -341,6 +378,8 @@ export class LocalRuntime {
   }
 
   async synchronize(signal: AbortSignal, progress: (message: string) => void = () => {}) {
+    signal.throwIfAborted();
+    if (this.options.mode === 'attach') return;
     if (this.synchronizing) return this.synchronizing;
     this.synchronizing = (async () => {
       // Startup and host restoration may request synchronization together, or
@@ -358,6 +397,8 @@ export class LocalRuntime {
   // Called under the mutation lock. Results live only for this attempt; updates
   // return no cached probe so callers validate the replacement before attaching.
   private async synchronizeAttempt(env: NodeJS.ProcessEnv, signal: AbortSignal, progress: (message: string) => void) {
+    if (this.options.mode === 'attach') return;
+    const { manifest } = this.options;
     const saved = await this.settings();
     if (!saved?.managed) return;
     if (saved.managed.channel !== this.channel) throw new Error('This backend belongs to another Whip release channel. Switch its installation explicitly before connecting.');
@@ -383,7 +424,7 @@ export class LocalRuntime {
     const args = ['_desktop-runtime-sync', '--executable', saved.executable, '--expected-sha256', saved.managed.sha256, '--sha256', expected];
     const apply = async (interrupt: boolean) => {
       const result = JSON.parse(await run(source, [...args, ...(interrupt ? ['--interrupt'] : [])], env, signal, 45_000));
-      if (!['ready', 'approval-required'].includes(result.state) || result.buildId !== this.options.manifest.buildId || result.executable !== saved.executable)
+      if (!['ready', 'approval-required'].includes(result.state) || result.buildId !== manifest.buildId || result.executable !== saved.executable)
         throw new Error('The backend updater returned an invalid result. Retry the update.');
       return result.state as 'ready' | 'approval-required';
     };
@@ -413,7 +454,8 @@ export class LocalRuntime {
       const status = verified ?? await this.probe(env, executable, signal);
       if (!executable || status.state === 'missing' || status.state === 'incompatible' || (status.state === 'unhealthy' && !status.stale))
         throw new Error(status.message + (status.state === 'missing' ? '' : ' Open Settings → Servers for connection diagnostics.'));
-      if (!verified) await this.save(executable, signal);
+      if (this.options.mode === 'attach' && status.state !== 'running') throw new Error(status.message);
+      if (!verified && this.options.mode !== 'attach') await this.save(executable, signal);
       if (status.state === 'running') { progress('Attaching to the local daemon…'); return status.socket!; }
       progress('Starting the canonical whipcode daemon…');
       let failure = '';
@@ -427,6 +469,7 @@ export class LocalRuntime {
   }
 
   async restart(signal: AbortSignal): Promise<LocalRuntimeStatus> {
+    this.requireManaged();
     return this.mutation(async () => {
       const env = await this.environment(signal);
       const executable = await this.selected(env);
@@ -446,3 +489,5 @@ function startupFailure(error: unknown): string {
   if (/permission denied/i.test(detail)) return 'whipcode could not start because access was denied. Check executable and home-directory permissions, then retry.';
   return 'whipcode could not start or restart within the allowed time. Inspect whipcode daemon status and daemon logs for this home, then retry. No alternate backend was started.';
 }
+
+const attachOnlyMessage = 'Attach mode does not install, update, restart, or change the selected backend. Manage the daemon separately; use --home and --executable to change the target.';

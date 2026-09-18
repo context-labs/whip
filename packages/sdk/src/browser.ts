@@ -1,4 +1,4 @@
-import { assertValid, type BrowserCommand, type BrowserCommandCancel, type BrowserCommandResultParams, type BrowserProviderBindParams, type BrowserProviderBindResult, type BrowserProviderEventParams } from '@whip/protocol';
+import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserCommandResultParams, type BrowserProviderBindParams, type BrowserProviderBindResult, type BrowserProviderEventParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { RpcError, WhipError, asError } from './errors.js';
 import { upload } from './content.js';
@@ -7,6 +7,7 @@ import { byteLength, withSignal } from './util.js';
 /** Structural native adapter. SDK never imports Electron or application packages. */
 export interface BrowserProviderBridge {
   select(input: { offer: BrowserProviderBindParams; provider: BrowserProviderBindResult; connectionId?: string; projectId?: string }): Promise<void>;
+  inventory?(request: BrowserInventoryRequest): Promise<BrowserInventoryResultParams>;
   dispatch(command: BrowserCommand): Promise<BrowserCommandResultParams & { screenshotBytes?: Uint8Array }>;
   cancel(input: BrowserCommandCancel): void;
   release(input: { rootId: string; providerEpoch: string }): Promise<void>;
@@ -28,6 +29,7 @@ export interface BrowserSelection {
 export class BrowserProviders {
   private readonly roots = new Map<string, SelectedBrowser>();
   constructor(private readonly client: WhipClient) {
+    client.onNotification('browser.inventory', request => this.roots.get(request.root_id)?.inventory(request));
     client.onNotification('browser.command', command => this.roots.get(command.root_id)?.receive(command));
     client.onNotification('browser.command.cancel', command => this.roots.get(command.root_id)?.cancel(command));
     client.onNotification('browser.provider.revoked', event => this.roots.get(event.root_id)?.revoke(event.provider_epoch, event.reason));
@@ -59,6 +61,7 @@ class SelectedBrowser {
   private readonly revoked = new Map<string, string>();
   private readonly seen = new Set<string>();
   private events = Promise.resolve();
+  private inventoryCount = 0;
   private eventCount = 0;
   private eventBytes = 0;
   private readonly retiredEvents = new Set<string>();
@@ -113,6 +116,7 @@ class SelectedBrowser {
       const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.options.timeoutMs ?? 30_000), ...(this.options.signal ? [this.options.signal] : [])]);
       const binding = await this.client.call('browser.provider.bind', this.offer, { ...this.options, signal });
       this.binding = binding;
+      if (binding.version !== this.offer.version || (binding.version === 2 && !this.bridge.inventory)) throw new WhipError('unavailable_capability', 'Browser discovery requires an updated native Desktop');
       const revoked = this.revoked.get(binding.provider_epoch);
       if (revoked !== undefined) { this.revoke(binding.provider_epoch, revoked); throw new WhipError('unavailable_capability', 'Browser provider was revoked before selection completed'); }
       this.revoked.clear();
@@ -133,6 +137,28 @@ class SelectedBrowser {
     } catch (error) { void this.release().catch(releaseError => this.report(releaseError)); throw error; }
   }
   private matches(root: string, epoch: string): boolean { return this.live && root === this.offer.root_id && epoch === this.binding?.provider_epoch; }
+  inventory(request: BrowserInventoryRequest): void {
+    if (!this.live || this.inventoryCount >= 32) return;
+    this.inventoryCount++;
+    void this.ready.then(async () => {
+      if (!this.matches(request.root_id, request.provider_epoch)) return;
+      let result: BrowserInventoryResultParams;
+      try {
+        if (!this.bridge.inventory) throw new WhipError('unavailable_capability', 'Native tab discovery is unavailable');
+        result = await withSignal(this.bridge.inventory(request), AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(10_000)]));
+        assertValid('BrowserInventoryResultParams', result);
+        if (result.request_id !== request.request_id || result.root_id !== request.root_id || result.provider_epoch !== request.provider_epoch || byteLength(JSON.stringify(result)) > 64 * 1024) {
+          throw new WhipError('invalid_arguments', 'Native inventory identity or size mismatch');
+        }
+      } catch {
+        result = { request_id: request.request_id, root_id: request.root_id, provider_epoch: request.provider_epoch, tabs: [], error: { kind: 'desktop_unavailable', message: 'Native inventory could not complete safely' } };
+      }
+      if (this.matches(request.root_id, request.provider_epoch)) await this.client.call('browser.inventory.result', result, { signal: this.lifetime.signal, timeoutMs: 10_000 });
+    }).catch(() => {
+      // A metadata reply may outlive the caller's cancelled/expired request.
+      // Never replay it or change an independent control association's state.
+    }).finally(() => { this.inventoryCount--; });
+  }
   receive(command: BrowserCommand): void {
     // Commands may race the bind reply; never dispatch until native selection ACKs.
     if (!this.live || this.seen.has(command.command_id)) return;

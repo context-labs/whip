@@ -6,6 +6,7 @@ import { EventEmitter, once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { testBrowserControlRegressions } from './browser-control-regressions';
 import { testBrowserControl } from './browser-control-native';
+import { testBrowserDiscovery } from './browser-discovery-native';
 import { BrowserManager } from '../src/browser-manager';
 import { nativeHumanPreviewConfirmation } from '../src/browser-human-confirmation';
 import { ScopedBrowserDebugger } from '../src/browser-cdp';
@@ -199,6 +200,7 @@ async function run() {
   pass('manager disposal destroys owned guests and unregisters the real IPC handlers');
   await testBrowserControl(window, origin);
   await testBrowserControlRegressions(window, origin);
+  await testBrowserDiscovery(window, directory);
 
   // Regression: native BrowserWindow.webContents throws after close. No pre-dispose is allowed.
   const emitter = new EventEmitter(), shellEmitter = new EventEmitter(); let fakeClosed = false;

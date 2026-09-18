@@ -4,6 +4,7 @@ import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import type { HistoryView } from '@whip/sdk/state';
 import { executionCode, Prose, Timeline, timelineRows } from '../src/timeline';
+import { responseCopies } from '../src/chat-activity-rows';
 
 const history = (messages: HistoryView['messages']): HistoryView => ({
   revision: '9007199254740993',
@@ -169,4 +170,25 @@ it('keeps image evidence when a multimodal tool reply merges into its call', () 
   expect(rows).toHaveLength(1);
   expect(rows[0]?.text).toBe('Screenshot captured');
   expect(rows[0]?.images).toHaveLength(1);
+});
+
+it('distinguishes authored attachments from internal image deliveries, including stored bodies', () => {
+  const content = [{ type: 'text', text: 'images attached (browser/computer screenshots or MCP results):' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }];
+  const body = { reference_id: 'large-image', size: '2000000', digest: 'a'.repeat(64), media_type: 'application/json' };
+  const input = history([
+    { seq: 0, message: { role: 'user', authored: true, content } },
+    { seq: 1, message: { role: 'assistant', content: 'Taking a screenshot.' } },
+    { seq: 2, message: { role: 'user', content } },
+    { seq: 3, role: 'user', body },
+    { seq: 4, message: { role: 'assistant', content: 'Here is what I found.' } },
+    { seq: 5, role: 'user', authored: true, body },
+  ]);
+  const rows = timelineRows(input, null, true);
+  expect(rows.map(row => row.role)).toEqual(['user', 'assistant', 'internal', 'internal', 'assistant', 'user']);
+  expect(rows[2]?.images).toHaveLength(1);
+  expect(rows[3]?.body).toEqual(body);
+  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Taking a screenshot.\n\nHere is what I found.', label: 'Copy response' }]);
+  // The mobile projection remains unchanged.
+  expect(timelineRows(input, null).map(row => row.role)).toEqual(['user', 'assistant', 'user', 'user', 'assistant', 'user']);
 });

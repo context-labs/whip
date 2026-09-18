@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { AlertDialog, Button, IconButton, Input, Menu } from '@whip/ui';
-import { ArrowLeft, ArrowRight, Globe, MoreHorizontal, RotateCw, Search, X } from 'lucide-react';
+import { AlertDialog, Button, IconButton, Input, Menu, Tooltip } from '@whip/ui';
+import { ArrowLeft, ArrowRight, Globe, MoreHorizontal, RotateCw, Search, Server, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { colors, scale, typography } from '@whip/ui/tokens.stylex';
+import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { selectedSessionTab, type BrowserTab } from './session-tabs';
 import type { BrowserAction } from './browser-types';
 import { browserAddress } from './browser-address';
@@ -58,13 +58,20 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
     else if (event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
     else if (event.key.toLowerCase() === 'r') { event.preventDefault(); act({ kind: 'reload' }); }
   }}>
-    <form aria-label="Browser navigation" {...stylex.props(styles.toolbar)} onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <IconButton type="button" variant="ghost" label="Back" disabled={!state?.canGoBack} onClick={() => act({ kind: 'back' })}><ArrowLeft size={15}/></IconButton>
-      <IconButton type="button" variant="ghost" label="Forward" disabled={!state?.canGoForward} onClick={() => act({ kind: 'forward' })}><ArrowRight size={15}/></IconButton>
-      <IconButton type="button" variant="ghost" label={state?.loading ? 'Stop loading' : 'Reload page'} disabled={!runtime.platform.browser} onClick={() => act({ kind: state?.loading ? 'stop' : 'reload' })}>{state?.loading ? <X size={15}/> : <RotateCw size={15}/>}</IconButton>
-      <Input ref={addressInput} aria-label="Browser address" placeholder="Enter a web address" value={address} autoComplete="off" spellCheck={false} xstyle={styles.address}
-        readOnly={!runtime.platform.browser} onFocus={() => { editing.current = true; }} onBlur={() => { editing.current = false; }} onChange={event => setAddress(event.target.value)}
-        onKeyDown={event => { if (event.key === 'Escape') { editing.current = false; setAddress(tab.url === 'about:blank' ? '' : tab.url); addressInput.current?.blur(); if (available) act({ kind: 'focus' }); } }}/>
+    <div role="group" aria-label="Browser toolbar" {...stylex.props(styles.toolbar)}>
+      <form aria-label="Browser navigation" {...stylex.props(styles.navigation)} onSubmit={event => { event.preventDefault(); void submit(); }}>
+        <IconButton type="button" variant="ghost" label="Back" disabled={!state?.canGoBack} onClick={() => act({ kind: 'back' })}><ArrowLeft size={15}/></IconButton>
+        <IconButton type="button" variant="ghost" label="Forward" disabled={!state?.canGoForward} onClick={() => act({ kind: 'forward' })}><ArrowRight size={15}/></IconButton>
+        <IconButton type="button" variant="ghost" label={state?.loading ? 'Stop loading' : 'Reload page'} disabled={!runtime.platform.browser} onClick={() => act({ kind: state?.loading ? 'stop' : 'reload' })}>{state?.loading ? <X size={15}/> : <RotateCw size={15}/>}</IconButton>
+        <div {...stylex.props(styles.location)}>
+          <Tooltip label={tab.environmentId ? 'SSH preview' : 'This Mac'}><span role="img" aria-label={tab.environmentId ? 'SSH preview' : 'This Mac'} {...stylex.props(styles.provenance)}>{tab.environmentId ? <Server size={14} aria-hidden="true"/> : <Globe size={14} aria-hidden="true"/>}</span></Tooltip>
+          <Input ref={addressInput} aria-label="Browser address" placeholder="Enter a web address" value={address} autoComplete="off" spellCheck={false} xstyle={[styles.address, styles.locationInput]}
+          readOnly={!runtime.platform.browser} onFocus={() => { editing.current = true; }} onBlur={() => { editing.current = false; }} onChange={event => setAddress(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Escape') { editing.current = false; setAddress(tab.url === 'about:blank' ? '' : tab.url); addressInput.current?.blur(); if (available) act({ kind: 'focus' }); } }}/>
+        </div>
+      </form>
+      <BrowserPreviewControls tabId={tab.id}/>
+      {attachmentControls}
       <Menu trigger={<IconButton type="button" variant="ghost" label="Browser actions"><MoreHorizontal size={16}/></IconButton>} items={[
         { id: 'find', label: 'Find in page', disabled: !available, onSelect: openFind },
         { id: 'copy', label: 'Copy address', onSelect: () => { void runtime.platform.copy(tab.url).catch(error => setError(String(error))); } },
@@ -76,8 +83,8 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
         { id: 'clear', label: 'Clear browser profile data…', disabled: !runtime.platform.browser, onSelect: () => setClear(true) },
         { id: 'forget', label: 'Forget closed Browser addresses', onSelect: () => runtime.tabs.forgetBrowserHistory() },
       ]}/>
-    </form>
-    <div {...stylex.props(styles.provenance)}><Globe size={12} aria-hidden="true"/><span>{tab.environmentId ? 'SSH preview' : 'This Mac'}</span>{state?.loading && <span role="status">Loading…</span>}<BrowserPreviewControls tabId={tab.id}/>{attachmentControls}</div>
+    </div>
+    {state?.loading && <span role="status" {...stylex.props(styles.srOnly)}>Loading…</span>}
     {findOpen && <form aria-label="Find in page" {...stylex.props(styles.toolbar)} onSubmit={event => { event.preventDefault(); act({ kind: 'find', text: query, findNext: true }); }}>
       <Search size={14} aria-hidden="true"/><Input ref={findInput} aria-label="Find text" value={query} xstyle={styles.address} onChange={event => { setQuery(event.target.value); if (event.target.value) act({ kind: 'find', text: event.target.value }); else act({ kind: 'stop-find', action: 'clear' }); }}/>
       <span role="status" {...stylex.props(styles.findStatus)}>{matches}</span>
@@ -97,9 +104,13 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
 }
 const styles = stylex.create({
   root: { display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, minHeight: 0, color: colors.foreground, backgroundColor: colors.background },
-  toolbar: { display: 'flex', alignItems: 'center', gap: scale.space1, padding: scale.space2, minWidth: 0, borderBottom: `1px solid ${colors.border}` },
+  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, gap: scale.space1, padding: scale.space2, minWidth: 0, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
+  navigation: { display: 'flex', alignItems: 'center', flex: '1 1 0', gap: scale.space1, minWidth: 'min-content' },
+  location: { display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 80, borderRadius: scale.radiusControl, backgroundColor: { default: 'transparent', ':focus-within': colors.panel } },
   address: { flex: '1 1 0', minWidth: 0, width: 0, fontSize: typography.size12 },
-  provenance: { display: 'flex', alignItems: 'center', gap: scale.space2, paddingInline: scale.space3, paddingBlock: scale.space1, fontSize: typography.size11, color: colors.muted, flexWrap: 'wrap' },
+  locationInput: { backgroundColor: { default: 'transparent', ':hover': colors.hover, ':focus': colors.panel }, borderColor: { default: 'transparent', ':focus': surface.secondaryText } },
+  provenance: { display: 'flex', alignItems: 'center', flexShrink: 0, paddingInline: scale.space1, color: surface.secondaryText },
+  srOnly: { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' },
   viewport: { flex: '1 1 auto', minHeight: 80, minWidth: 0, overflow: 'hidden' },
   notice: { padding: scale.space2, fontSize: typography.size12, color: colors.foreground, overflowWrap: 'anywhere' },
   unavailable: { flex: 1, padding: scale.space4, overflow: 'auto', fontSize: typography.size13 },

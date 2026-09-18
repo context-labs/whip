@@ -39,7 +39,21 @@ type DesktopNetwork struct {
 	Ports  []int  `json:"ports"`
 }
 
+// DesktopTab is metadata only. IDs never grant control by themselves.
+type DesktopTab struct {
+	TabID            string `json:"tab_id"`
+	TabGeneration    string `json:"tab_generation"`
+	DocumentRevision string `json:"document_revision"`
+	URL              string `json:"url"`
+	Title            string `json:"title"`
+	State            string `json:"state"`
+	Requestable      bool   `json:"requestable"`
+	AttachmentID     string `json:"attachment_id,omitempty"`
+}
+
 type DesktopResult struct {
+	Tabs                []DesktopTab   `json:"tabs"`
+	Availability        string         `json:"availability,omitempty"`
 	AttachmentID        string         `json:"attachment_id,omitempty"`
 	TabID               string         `json:"tab_id,omitempty"`
 	DocumentRevision    string         `json:"document_revision,omitempty"`
@@ -70,6 +84,12 @@ type DesktopProvider interface {
 	Transfer(context.Context, DesktopIdentity, DesktopIdentity, []string) ([]DesktopResult, error)
 	Attachments(context.Context, DesktopIdentity) []DesktopResult
 	RevokeAgent(context.Context, DesktopIdentity) error
+}
+
+// DesktopInventoryProvider supports scoped metadata discovery without control.
+// Older providers remain usable for their existing operations.
+type DesktopInventoryProvider interface {
+	ListTabs(context.Context, DesktopIdentity) (DesktopResult, error)
 }
 
 // DecodeDesktopArguments accepts no authority-bearing caller fields.

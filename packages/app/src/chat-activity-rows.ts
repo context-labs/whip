@@ -41,6 +41,7 @@ export function responseCopies(rows: readonly ConversationActivityRow[], active:
   };
   for (const row of rows) {
     if (row.queued) continue;
+    if (row.historyGap) { incomplete = true; finish(); incomplete = true; continue; }
     if (row.role === 'user') { finish(); continue; }
     last = row.id;
     if (row.role !== 'assistant') continue;
@@ -80,6 +81,7 @@ export function cellActivityLabel(cell: ExecutionCell): string {
 /** A pure display projection; typed SDK evidence owns operation reconciliation. */
 export function conversationActivityRows(
   rows: readonly TimelineRow[], executions: readonly ExecutionRow[], previous: readonly ActivityGroup[] = [],
+  activeTurnId?: string,
 ): ConversationActivityRow[] {
   const cells = executions.filter((row): row is ExecutionCell => row.kind === 'cell');
   const recorded = new Map(cells.filter(cell => cell.seq !== undefined).map(cell => [JSON.stringify([cell.seq, cell.callId]), cell]));
@@ -148,7 +150,9 @@ export function conversationActivityRows(
     else { flush(); output.push(row); }
   }
   flush();
-  for (const cell of cells.filter(cell => !used.has(cell.id) && cell.seq === undefined)) {
+  // A missing live prefix may leave current work without a transcript row.
+  // Older unplaced evidence belongs in the REPL, never under a later response.
+  for (const cell of cells.filter(cell => activeTurnId && cell.turnId === activeTurnId && !used.has(cell.id) && cell.seq === undefined)) {
     addCell(cell, { id: cell.id, role: 'tool', text: '', turnId: cell.turnId }); flush();
   }
   const tail = [...output].reverse().find(row => !row.queued);

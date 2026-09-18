@@ -57,7 +57,7 @@ func FullRootGrants() RootGrants {
 	return RootGrants{
 		Files: []string{"read", "write", "edit", "workspace.write"},
 		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
-			"browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"},
+			"browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"},
 		MCP: true,
 	}
 }
@@ -164,7 +164,7 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 				if !slices.Contains(names, "shell") {
 					names = append(names, "shell")
 				}
-			case "browser_exec", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
+			case "browser_exec", "browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
 				if authority.Shell.ID == "" {
 					authority.Shell = capability.Reference{ID: id, Generation: generation}
 				}

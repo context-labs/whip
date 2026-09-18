@@ -41,6 +41,15 @@
     }
   },
   {
+    "type": "BrowserInventoryResultParams",
+    "value": {
+      "request_id": "",
+      "root_id": "",
+      "provider_epoch": "",
+      "tabs": []
+    }
+  },
+  {
     "type": "BrowserProviderBindParams",
     "value": {
       "root_id": "",

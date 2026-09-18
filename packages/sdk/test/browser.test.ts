@@ -33,6 +33,40 @@ function setup(overrides: Partial<BrowserProviderBridge> = {}, options: Scripted
   return { client, fixture, bridge, dispatched, released, cancelled, emit: (event: BrowserProviderEventParams) => listener?.({ kind: 'provider', event }) };
 }
 
+test('metadata discovery uses the exact live v2 provider without dispatch or admission', async t => {
+  let inventories = 0;
+  const s = setup({ inventory: async request => { inventories++; return { request_id: request.request_id, root_id: request.root_id, provider_epoch: request.provider_epoch, tabs: [] }; } }, {
+    request(request, connection) { connection.reply(request, request.method === 'browser.provider.bind' ? { ...provider, version: 2 } : { accepted: true }); },
+  });
+  t.after(() => s.client.close()); await s.client.connect();
+  assert.ok((s.fixture.current.requests[0]!.params.capabilities as string[]).includes('desktop-browser-v2'));
+  const selection = await s.client.browser.select({ ...offer, version: 2, availability: true }, s.bridge);
+  const inventory = { request_id: 'inventory', root_id: 'root', agent_id: 'root', provider_id: 'provider', provider_epoch: 'epoch', tabs: [] };
+  s.fixture.current.notify('browser.inventory', { ...inventory, provider_epoch: 'retired' }); await flush();
+  assert.equal(inventories, 0);
+  s.fixture.current.notify('browser.inventory', inventory); await flush(); await flush();
+  assert.equal(inventories, 1); assert.equal(s.dispatched.length, 0);
+  assert.deepEqual(s.fixture.current.requests.find(request => request.method === 'browser.inventory.result')?.params, { request_id: 'inventory', root_id: 'root', provider_epoch: 'epoch', tabs: [] });
+  await selection.release(); s.fixture.current.notify('browser.inventory', inventory); await flush(); assert.equal(inventories, 1);
+});
+
+test('a rejected late inventory reply neither replays nor poisons live control', async t => {
+  const errors: Error[] = []; let replies = 0;
+  const s = setup({ inventory: async request => ({ request_id: request.request_id, root_id: request.root_id, provider_epoch: request.provider_epoch, tabs: [] }) }, {
+    request(request, connection) {
+      if (request.method === 'browser.inventory.result') { replies++; connection.error(request, 'request_expired', -32009); return; }
+      connection.reply(request, request.method === 'browser.provider.bind' ? { ...provider, version: 2 } : { accepted: true });
+    },
+  });
+  t.after(() => s.client.close()); await s.client.connect();
+  const selected = await s.client.browser.select({ ...offer, version: 2, availability: true }, s.bridge, { onError: error => errors.push(error) });
+  s.fixture.current.notify('browser.inventory', { request_id: 'cancelled', root_id: 'root', agent_id: 'root', provider_id: 'provider', provider_epoch: 'epoch', tabs: [] });
+  await flush(); await flush();
+  assert.equal(replies, 1); assert.equal(selected.active, true); assert.deepEqual(errors, []);
+  s.fixture.current.notify('browser.command', command('after-inventory')); await flush();
+  assert.equal(s.dispatched.length, 1);
+});
+
 test('Browser provider capability is opt-in and selection binds an exact root before native dispatch', async t => {
   const s = setup(); t.after(() => s.client.close()); await s.client.connect();
   assert.ok((s.fixture.current.requests[0]!.params.capabilities as string[]).includes('desktop-browser-v1'));

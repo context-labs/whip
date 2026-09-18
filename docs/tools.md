@@ -62,14 +62,19 @@ important durable work.
 
 ## Desktop Browser helper mode
 
-Desktop Browser remains **experimental, off by default, and release-gated**.
-When explicitly offered to a conversation, `browser.open` (`browser_open` for
-MCP clients) starts the attachment lifecycle; `browser.run` with `attachment_id`
+Desktop Browser remains **experimental and release-gated**, enabled by default
+unless launched with `WHIP_DESKTOP_BROWSER_TABS=0`. An exact, unambiguous Desktop
+can service permission-gated `browser.open` (`browser_open` for MCP clients)
+without a manually created or offered tab. `browser.list_tabs`
+(`browser_list_tabs`) discovers only scoped current metadata on demand, without
+creating a page or granting control. No inventory is injected into prompts.
+Opening starts the attachment lifecycle; `browser.run` with `attachment_id`
 uses the existing helper language against that same human-visible page. Do not
 mix an attachment target with a legacy browser session. Missing selection or
 authority fails closed, without launching or falling back to another browser.
 
-Open, attach and preview-port expansion require scoped, Once-only consent;
+Open, attach and preview-port expansion use the existing permission policy
+(Once-only consent in prompt mode, or the current automatic mode);
 attachment control is not implicit in a tab ID or generic browser capability.
 See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
 for the operation inventory, delegation and unsupported helpers, and the

@@ -46,6 +46,9 @@ func (p *browserProviders) Execute(ctx context.Context, request browser.DesktopR
 	defer release()
 	p.mu.Lock()
 	_, err = p.findLocked(request.Call)
+	if err == nil {
+		err = p.claimLocked(a.lease)
+	}
 	live := a.live
 	delegated := a.delegated
 	document := a.result.DocumentRevision
@@ -151,6 +154,9 @@ func (p *browserProviders) Execute(ctx context.Context, request browser.DesktopR
 		a.result.DocumentRevision = result.DocumentRevision
 	}
 	a.live = true
+	if request.Operation == "browser.open" {
+		a.lease.created[a.scope.TabID] = browserCreatedTab{owner: a.identity.AgentID, offer: protocol.BrowserOfferedTab{TabID: a.scope.TabID, TabGeneration: a.scope.TabGeneration, ProfileID: a.scope.ProfileID, Preview: a.scope.Preview}}
+	}
 	var previous []*browserAttachment
 	if fresh {
 		for _, other := range a.lease.attachments {

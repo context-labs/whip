@@ -25,6 +25,7 @@ export function installBrowserIPC(window: BrowserWindow, manager: BrowserManager
     identity: () => control.identity(),
     preview: (value: unknown) => { if (!previews) throw new Error('Preview unavailable'); return previews.describe(value); },
     select: (value: unknown) => control.select(value),
+    inventory: (value: unknown) => control.inventory(value),
     dispatch: (value: unknown) => control.dispatch(value),
     cancel: (value: unknown) => control.cancel(value),
     release: (value: unknown) => control.release(value),

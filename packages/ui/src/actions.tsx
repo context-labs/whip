@@ -9,6 +9,7 @@ import { LoaderCircle, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import type { ComponentPropsWithRef, ReactElement, ReactNode } from 'react';
 import { styles } from './styles.stylex';
+import { scale } from './tokens.stylex';
 import { useNativeOverlay } from './native-surfaces';
 
 export type Styled = {xstyle?: StyleXStyles};
@@ -27,7 +28,7 @@ export function Tooltip({label, children, delay, disableHoverablePopup, xstyle, 
   return <BaseTooltip.Root {...overlay} disableHoverablePopup={disableHoverablePopup}><BaseTooltip.Trigger render={children} delay={delay}/><BaseTooltip.Portal><BaseTooltip.Positioner sideOffset={7} {...position} {...stylex.props(styles.positioner)}><BaseTooltip.Popup {...stylex.props(styles.tooltip, xstyle)}>{label}</BaseTooltip.Popup></BaseTooltip.Positioner></BaseTooltip.Portal></BaseTooltip.Root>;
 }
 const spin = stylex.keyframes({from: {transform: 'rotate(0deg)'}, to: {transform: 'rotate(360deg)'}});
-const spinnerStyles = stylex.create({spin: {animationName: spin, animationDuration: '1s', animationTimingFunction: 'linear', animationIterationCount: 'infinite'}});
+const spinnerStyles = stylex.create({spin: {animationName: {default: spin, [scale.reducedMotion]: 'none'}, animationDuration: '1s', animationTimingFunction: 'linear', animationIterationCount: 'infinite'}});
 export function Spinner({label = 'Loading', size = 14}: {label?: string; size?: number}) {
   return <LoaderCircle {...stylex.props(spinnerStyles.spin)} width={size} height={size} aria-label={label} role="img" />;
 }

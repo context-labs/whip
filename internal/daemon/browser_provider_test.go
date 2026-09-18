@@ -121,7 +121,7 @@ func connectBrowserWire(t *testing.T, s *Server, willing bool) *browserWire {
 	})
 	caps := []string{}
 	if willing {
-		caps = append(caps, "desktop-browser-v1")
+		caps = append(caps, "desktop-browser-v1", "desktop-browser-v2")
 	}
 	reply := w.rpc("initialize", protocol.InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "same-client-id", ClientKind: "test", Capabilities: caps})
 	if reply.Error != nil {

@@ -25,12 +25,15 @@ func (host *recursiveHost) browser(ctx context.Context, operation string, argume
 		return host.invoke(ctx, "browser_exec", arguments)
 	}
 	switch operation {
-	case "open", "attach", "run", "detach", "allow_preview_port":
+	case "list_tabs", "open", "attach", "run", "detach", "allow_preview_port":
 	default:
 		return nil, fmt.Errorf("unknown browser operation %q", operation)
 	}
 	if session {
 		return nil, errors.New("session is only valid for legacy browser.run")
+	}
+	if arguments == nil {
+		arguments = map[string]any{}
 	}
 	raw, err := json.Marshal(arguments)
 	if err != nil {

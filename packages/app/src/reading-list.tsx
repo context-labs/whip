@@ -19,12 +19,14 @@ const styles = stylex.create({
 
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
 export function ReadingList<Row extends { id: string; seq?: number }>({
-  rows, hasMore, loadOlder, bookmarkKey, historyRevision, historyReady = true,
+  rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyReady = true,
   label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false, chatFollow = false,
 }: {
   rows: readonly Row[];
   hasMore: boolean;
   loadOlder(): Promise<void>;
+  loadLatest?(): Promise<void>;
+  latestMissing?: boolean;
   bookmarkKey?: string;
   historyRevision?: string;
   historyReady?: boolean;
@@ -49,19 +51,37 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const lastOffset = useRef(0);
   const content = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const protectedAnchor = useRef<string | undefined>(undefined);
   const saved = useRef(
     bookmarkKey ? runtime.readingPositions.get(bookmarkKey) : undefined,
   );
   const follow = useRef(saved.current?.follow ?? true);
   const [atEnd, setAtEnd] = useState(follow.current);
   const [loading, setLoading] = useState(false);
+  const [loadingLatest, setLoadingLatest] = useState(false);
+  const latestIntent = useRef(0);
   const loadingRef = useRef(false);
   const [pinned, setPinned] = useState<string[]>([]);
   const [positionNotice, setPositionNotice] = useState('');
   const appliedRevision = useRef<string | undefined>(undefined);
   const restoring = useRef(false);
   const restoreFrame = useRef(0);
-  const virtual = useVirtualizer({
+  const previousRows = useRef(rows);
+  const insertionAnchor = useRef<{ id: string; offset: number } | undefined>(undefined);
+  if (previousRows.current !== rows) {
+    const changed = previousRows.current.length !== rows.length || previousRows.current.some((row, index) => row.id !== rows[index]?.id);
+    if (changed && !follow.current && !restoring.current && appliedRevision.current === historyRevision && viewport.current) {
+      const root = viewport.current, top = root.getBoundingClientRect().top;
+      const retained = new Set(rows.map(row => row.id));
+      // TanStack anchors the first visible item. That item can be the gap
+      // being removed, so preserve the next surviving visible row instead.
+      const anchor = [...root.querySelectorAll<HTMLElement>('[data-reading-id]')]
+        .find(element => retained.has(element.dataset.readingId!) && element.getBoundingClientRect().bottom > top);
+      if (anchor) insertionAnchor.current = { id: anchor.dataset.readingId!, offset: anchor.getBoundingClientRect().top - top };
+    }
+    previousRows.current = rows;
+  }
+  const virtual = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length + 1,
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (index === 0 ? 0 : 140),
@@ -74,10 +94,12 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     scrollEndThreshold: chatFollow ? (follow.current && historyReady && !jumping.current && !pressed.current ? Infinity : -1) : 64,
     scrollToFn: (offset, options, instance) => {
       elementScroll(offset, options, instance);
-      if (chatFollow && viewport.current) programmatic.current = viewport.current.scrollTop;
+      if (viewport.current) programmatic.current = viewport.current.scrollTop;
     },
     rangeExtractor: (range) => {
       const indices = [0, ...defaultRangeExtractor(range)];
+      const anchorIndex = insertionAnchor.current ? rows.findIndex(row => row.id === insertionAnchor.current!.id) : -1;
+      if (anchorIndex >= 0) indices.push(anchorIndex + 1);
       const selected = pinned
         .map((id) => rows.findIndex((row) => row.id === id))
         .filter((index) => index >= 0)
@@ -93,6 +115,13 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     },
   });
   const total = virtual.getTotalSize();
+  // A selected/focused row is the reader's anchor even when the preceding
+  // loading message still spans the viewport edge. The default virtualizer
+  // predicate only compensates remeasured rows entirely above that edge.
+  const protectedIndex = chatFollow && protectedAnchor.current ? rows.findIndex(row => row.id === protectedAnchor.current) + 1 : 0;
+  virtual.shouldAdjustScrollPositionOnItemSizeChange = protectedIndex > 0
+    ? item => item.index < protectedIndex
+    : undefined;
   const setFollowing = (value: boolean) => {
     follow.current = value;
     if (chatFollow) {
@@ -149,12 +178,16 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const stopRestore = () => {
     cancelAnimationFrame(restoreFrame.current);
     restoring.current = false;
+    insertionAnchor.current = undefined;
   };
   const userScroll = (direction: 'up' | 'down' | 'drag') => {
+    protectedAnchor.current = undefined;
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     stopRestore();
+    latestIntent.current++;
+    programmatic.current = undefined;
     if (!chatFollow) return;
     cancelJump();
-    programmatic.current = undefined;
     intent.current = direction;
     lastOffset.current = viewport.current?.scrollTop ?? 0;
     const root = viewport.current;
@@ -250,9 +283,26 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     };
     restoreFrame.current = requestAnimationFrame(align);
   }, [bookmarkKey, historyRevision, historyReady, rows, runtime, virtual]);
+  useLayoutEffect(() => {
+    const anchor = insertionAnchor.current;
+    if (!anchor || restoring.current) return;
+    restoring.current = true;
+    let attempts = 0;
+    const align = () => {
+      const root = viewport.current;
+      const element = root && [...root.querySelectorAll<HTMLElement>('[data-reading-id]')].find(row => row.dataset.readingId === anchor.id);
+      if (!root || !element) { stopRestore(); return; }
+      const delta = element.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset;
+      if (Math.abs(delta) > 0.5) virtual.scrollToOffset(root.scrollTop + delta);
+      if (++attempts < 8) restoreFrame.current = requestAnimationFrame(align);
+      else { stopRestore(); savePosition.current(); }
+    };
+    align();
+  }, [rows, virtual]);
   useLayoutEffect(
     () => () => {
       savePosition.current();
+      latestIntent.current++;
       cancelJump();
       cancelAnimationFrame(resumeFrame.current);
       intent.current = undefined;
@@ -300,7 +350,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       const root = viewport.current;
       if (!root) return;
       const selection = document.getSelection();
-      if (chatFollow && selection && !selection.isCollapsed && (root.contains(selection.anchorNode) || root.contains(selection.focusNode))) { cancelJump(); intent.current = undefined; setFollowing(false); }
+      if (chatFollow && selection && !selection.isCollapsed && (root.contains(selection.anchorNode) || root.contains(selection.focusNode))) { latestIntent.current++; cancelJump(); intent.current = undefined; setFollowing(false); }
       const nodes = [
         selection?.anchorNode,
         selection?.focusNode,
@@ -311,6 +361,16 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         const row = element?.closest<HTMLElement>('[data-reading-id]');
         return row && root.contains(row) ? [row.dataset.readingId!] : [];
       });
+      if (chatFollow) {
+        // Capture visibility at the interaction, not during a resize render:
+        // scroll compensation can precede the new row transforms in that frame.
+        const bounds = root.getBoundingClientRect();
+        const anchor = ids.map(id => virtual.elementsCache?.get(id)).find(element => element && element.getBoundingClientRect().bottom > bounds.top && element.getBoundingClientRect().top < bounds.bottom);
+        protectedAnchor.current = anchor?.dataset.readingId;
+        virtual.shouldAdjustScrollPositionOnItemSizeChange = anchor
+          ? item => item.index < Number(anchor.dataset.index)
+          : undefined;
+      }
       setPinned((previous) =>
         previous.join('\n') === ids.join('\n') ? previous : ids,
       );
@@ -361,7 +421,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           if (restoring.current) return;
           const target = event.currentTarget;
           const offset = target.scrollTop;
-          if (chatFollow && programmatic.current !== undefined && Math.abs(offset - programmatic.current) < 1) {
+          if (programmatic.current !== undefined && Math.abs(offset - programmatic.current) < 1) {
             programmatic.current = undefined; lastOffset.current = offset; savePosition.current(); return;
           }
           programmatic.current = undefined;
@@ -386,6 +446,8 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
                 data-reading-id={
                   item.index === 0 ? undefined : rows[item.index - 1]!.id
                 }
+                data-reading-seq={item.index === 0 ? undefined : rows[item.index - 1]!.seq}
+                tabIndex={-1}
                 ref={virtual.measureElement}
                 style={{
                   position: 'absolute',
@@ -418,19 +480,29 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           {footer}
         </div>
       </div>
-      {!atEnd && (
+      {(!atEnd || latestMissing) && (
         <Button
           variant="secondary"
           xstyle={styles.jump}
-          onClick={() => {
+          loading={loadingLatest}
+          disabled={loadingLatest || (latestMissing && !canLoadOlder)}
+          onClick={() => { void (async () => {
             stopRestore();
+            const request = ++latestIntent.current;
+            if (latestMissing && loadLatest) {
+              cancelJump(); setFollowing(false); setLoadingLatest(true);
+              try { await loadLatest(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
+              catch { return; }
+              finally { setLoadingLatest(false); }
+              if (request !== latestIntent.current || !viewport.current) return;
+            }
             intent.current = undefined;
             const root = viewport.current;
             jumping.current = chatFollow && motion && !!root && root.scrollHeight - root.scrollTop - root.clientHeight > 2;
             setFollowing(true);
             if (jumping.current && root) root.scrollTo({ top: root.scrollHeight, behavior: 'smooth' });
             else pinBottom();
-          }}
+          })(); }}
         >
           <ArrowDown size={14} /> Latest
         </Button>

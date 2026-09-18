@@ -200,8 +200,9 @@ export function SessionContent({
     true,
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
+  const activeTurn = root?.active_turns[agentId];
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
-  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current), [rows, executions]);
+  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current, activeTurn), [rows, executions, activeTurn]);
   useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
   const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
   const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
@@ -227,7 +228,6 @@ export function SessionContent({
     return () => { current = false; clearTimeout(timer); };
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
   const agent = useSelectedAgent(view, state, agentId, connected);
-  const activeTurn = root?.active_turns[agentId];
   const delivery = rows.filter(row => row.role === 'user' && row.delivery).at(-1)?.delivery;
   const status = activityStatus(state, agentId, executions, connected, agent, delivery);
   useEffect(() => {
@@ -291,7 +291,7 @@ export function SessionContent({
         owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
         action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
       {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
-      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn ? (
+      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn || history?.hasMore || history?.latestMissing ? (
         <Timeline
           active={!!activeTurn}
           activeTurnId={activeTurn}
@@ -316,7 +316,11 @@ export function SessionContent({
           loadingHistory={history?.loading}
           hasMore={history?.hasMore ?? false}
           loadOlder={() => view.loadOlder(agentId)}
+          loadGap={toSeq => view.loadHistoryGap(agentId, toSeq)}
+          loadLatest={() => view.loadLatest(agentId)}
+          latestMissing={history?.latestMissing}
           readBody={(row) => void readBody(row)}
+          messageScope={{ client: session.client, rootId: session.rootId, agentId }}
           historyAction={
             agentId === session.rootId && connected && root
               ? (row, action) => {

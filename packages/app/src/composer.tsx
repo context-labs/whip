@@ -110,10 +110,16 @@ export function Composer({
   const files = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     const element = input.current;
-    if (!element) return;
+    const box = element?.parentElement;
+    if (!element || !box) return;
     const fit = () => {
+      // Measuring a collapsed input must not temporarily enlarge the transcript
+      // viewport: the browser would clamp its scrollTop before we restore it.
+      const minimum = box.style.minHeight;
+      box.style.minHeight = `${box.getBoundingClientRect().height}px`;
       element.style.height = '0px';
       element.style.height = `${Math.min(220, Math.max(40, element.scrollHeight))}px`;
+      box.style.minHeight = minimum;
     };
     fit();
     let width = element.clientWidth;

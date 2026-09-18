@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { assertValid, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams } from '@whip/protocol';
+import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams } from '@whip/protocol';
 import type { BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserTarget, BrowserEvent } from '@whip/app/desktop-bridge';
 import { BrowserManager } from './browser-manager';
 import { ScopedBrowserDebugger } from './browser-cdp';
-import { browserID, browserURL, object } from './browser-policy';
+import { boundedString, browserID, browserURL, object } from './browser-policy';
 
-type Selection = { input: BrowserAgentSelection; epoch: string; lifetime: AbortController; seen: Set<string> };
+type Selection = { input: BrowserAgentSelection; epoch: string; lifetime: AbortController; seen: Set<string>; created: Map<string, { agentId: string; scope: BrowserAgentScope }> };
 type Operation = { id: string; lifetime: AbortController; navigating?: boolean };
 type Attachment = { selection: Selection; scope: BrowserAgentScope; agentId: string; target: BrowserTarget; sequence: bigint; debugger?: ScopedBrowserDebugger; operation?: Operation; live: boolean; lastState?: string };
 class ControlError extends Error { constructor(readonly kind: string, message: string) { super(message); } }
@@ -42,13 +42,44 @@ export class BrowserControl {
           document_revision: String(tab.documentGeneration), url: tab.url, title: tab.title, ...(preview ? { preview } : {}) }];
       }) };
   }
+  inventory(value: unknown): BrowserInventoryResultParams {
+    assertValid('BrowserInventoryRequest', value);
+    const request = value as BrowserInventoryRequest;
+    for (const id of [request.request_id, request.root_id, request.agent_id, request.provider_id, request.provider_epoch]) browserID(id);
+    if (!Array.isArray(request.tabs)) fail('permission_denied', 'Inventory targets are required');
+    if (request.tabs.length > 72 || Buffer.byteLength(JSON.stringify(request)) > 32 * 1024) fail('browser_busy', 'Inventory request exceeds its limit');
+    const selection = this.selections.get(request.root_id);
+    if (!selection || selection.lifetime.signal.aborted || selection.input.provider.provider_id !== request.provider_id || selection.input.provider.provider_epoch !== request.provider_epoch || selection.epoch !== this.manager.snapshot().epoch) fail('desktop_unavailable', 'Inventory provider is stale');
+    const current = this.identity();
+    const seen = new Set<string>();
+    const tabs = request.tabs.flatMap(target => {
+      browserID(target.tab_id); browserID(target.tab_generation);
+      if (seen.has(target.tab_id)) fail('permission_denied', 'Duplicate inventory target');
+      seen.add(target.tab_id);
+      const live = current.tabs.find(tab => tab.tab_id === target.tab_id && tab.tab_generation === target.tab_generation);
+      if (!live) return [];
+      const offered = request.agent_id === request.root_id && selection.input.offer.offered_tabs?.some(tab => tab.tab_id === target.tab_id && tab.tab_generation === target.tab_generation);
+      const created = selection.created.get(target.tab_id);
+      const attachment = this.attachments.get(target.tab_id);
+      const owned = attachment?.selection === selection && attachment.agentId === request.agent_id && attachment.scope.tab_generation === target.tab_generation && attachment.live;
+      if (!offered && !owned && !(created?.agentId === request.agent_id && created.scope.tab_generation === target.tab_generation)) fail('permission_denied', 'Page metadata is not shared with this agent');
+      let url = '';
+      try { const address = new URL(live.url ?? 'about:blank'); address.username = ''; address.password = ''; url = address.href; } catch { /* Invalid metadata is omitted. */ }
+      return [{ tab_id: target.tab_id, tab_generation: target.tab_generation, document_revision: live.document_revision ?? '', url,
+        title: [...(live.title ?? '')].slice(0, 128).join(''), state: attachment?.live ? 'busy' : 'available', requestable: !attachment?.live }];
+    });
+    const result = { request_id: request.request_id, root_id: request.root_id, provider_epoch: request.provider_epoch, tabs };
+    if (Buffer.byteLength(JSON.stringify(result)) > 64 * 1024) fail('browser_busy', 'Inventory result exceeds its limit');
+    return result;
+  }
   async select(value: unknown): Promise<void> {
     const input = object(value, ['offer', 'provider', 'connectionId', 'projectId']) as unknown as BrowserAgentSelection;
     assertValid('BrowserProviderBindParams', input.offer); assertValid('BrowserProviderBindResult', input.provider);
     const { offer, provider } = input;
     browserID(offer.root_id); browserID(provider.provider_id); browserID(provider.provider_epoch);
-    if (offer.version !== 1 || provider.version !== 1 || offer.desktop_id !== this.desktopId || offer.window_id !== this.windowId || offer.create_profile_id !== this.profileId) fail('desktop_unavailable', 'Native provider identity changed');
+    if (![1, 2].includes(offer.version) || provider.version !== offer.version || offer.desktop_id !== this.desktopId || offer.window_id !== this.windowId || offer.create_profile_id !== this.profileId) fail('desktop_unavailable', 'Native provider identity changed');
     if ((offer.offered_tabs?.length ?? 0) > 32 || (offer.offered_preview_hosts?.length ?? 0) > 16 || this.selections.size >= 32 && !this.selections.has(offer.root_id)) fail('browser_busy', 'Native provider capacity reached');
+    if (offer.availability && (offer.version !== 2 || offer.offered_tabs?.length || offer.offered_preview_hosts?.length)) fail('permission_denied', 'Availability cannot share pages or previews');
     const current = this.identity(), seen = new Set<string>();
     for (const tab of offer.offered_tabs ?? []) {
       const live = current.tabs.find(value => value.tab_id === tab.tab_id);
@@ -60,7 +91,7 @@ export class BrowserControl {
     const epoch = this.manager.snapshot().epoch;
     const old = this.selections.get(offer.root_id);
     if (old) this.release({ rootId: offer.root_id, providerEpoch: old.input.provider.provider_epoch });
-    this.selections.set(offer.root_id, { input: clone(input), epoch, lifetime: new AbortController(), seen: new Set() });
+    this.selections.set(offer.root_id, { input: clone(input), epoch, lifetime: new AbortController(), seen: new Set(), created: new Map() });
   }
   release(value: unknown): void {
     const input = object(value, ['rootId', 'providerEpoch']);
@@ -165,7 +196,9 @@ export class BrowserControl {
     let acquired: Attachment | undefined;
     try {
       if (Buffer.byteLength(JSON.stringify(command)) > 256 * 1024) fail('unsupported_operation', 'Browser command exceeds its limit');
-      for (const id of [command.command_id, command.operation_id, command.root_id, command.agent_id, command.scope.tab_id, command.scope.tab_generation, command.scope.attachment_id, command.scope.attachment_generation]) browserID(id);
+      // Operation IDs are opaque daemon invocation IDs, not native tab IDs.
+      boundedString(command.operation_id, 1024);
+      for (const id of [command.command_id, command.root_id, command.agent_id, command.scope.tab_id, command.scope.tab_generation, command.scope.attachment_id, command.scope.attachment_generation]) browserID(id);
       if (!command.scope.rights?.includes('control') || command.scope.rights.some(right => !['create', 'control', 'route'].includes(right))) fail('permission_denied', 'Unsupported browser rights');
       const selection = this.current(command);
       if (selection.seen.has(command.command_id)) fail('outcome_unknown', 'Duplicate browser command is not replayed');
@@ -203,7 +236,8 @@ export class BrowserControl {
             await this.manager.waitForAdmission(target, signal);
           } catch (error) { this.manager.discardUnadmitted(target); throw error; }
         } else {
-          const offered = selection.input.offer.offered_tabs?.find(tab => tab.tab_id === command.scope.tab_id);
+          const created = selection.created.get(command.scope.tab_id);
+          const offered = (command.agent_id === command.root_id ? selection.input.offer.offered_tabs?.find(tab => tab.tab_id === command.scope.tab_id) : undefined) ?? (created?.agentId === command.agent_id ? this.identity().tabs.find(tab => tab.tab_id === command.scope.tab_id && tab.tab_generation === created.scope.tab_generation) : undefined);
           if (!offered || offered.tab_generation !== command.scope.tab_generation || offered.profile_id !== command.scope.profile_id || !same(offered.preview ?? null, command.scope.preview ?? null)) fail('permission_denied', 'This browser page is not offered');
           target = { epoch: selection.epoch, tabId: command.scope.tab_id, generation: command.scope.tab_generation };
         }
@@ -213,6 +247,11 @@ export class BrowserControl {
         if (contents.isDevToolsOpened() || contents.debugger.isAttached()) fail('browser_busy', 'Page DevTools or another debugger is attached');
         const attachment: Attachment = { selection, scope: clone(command.scope), agentId: command.agent_id, target, sequence: 0n, live: true };
         this.attachments.set(command.scope.tab_id, attachment); acquired = attachment; result.result = this.metadata(attachment);
+        if (command.kind === 'open') {
+          const tabs = this.manager.snapshot().tabs;
+          for (const [id, created] of selection.created) if (!tabs.some(tab => tab.id === id && tab.generation === created.scope.tab_generation)) selection.created.delete(id);
+          selection.created.set(command.scope.tab_id, { agentId: command.agent_id, scope: clone(command.scope) });
+        }
       } else if (command.kind === 'transfer') {
         const args = object(command.arguments, ['child_agent_id', 'attachments']); browserID(args.child_agent_id);
         if (!Array.isArray(args.attachments) || !args.attachments.length || args.attachments.length > 8) fail('permission_denied', 'Invalid transfer');

@@ -189,16 +189,27 @@ the same page. Duplicate/reopen creates a new identity without inheriting agent
 control. Closing honours `beforeunload`; a cancelled close keeps the descriptor.
 The web-only application retains Browser descriptors as unavailable metadata.
 
-Agent access is an explicit **Offer to conversation** action, not a consequence
-of opening a tab or focusing a conversation. Choose the connected execution host
-and conversation. Offering advertises exact resources; agent open/attach and
-preview-port expansion still pass through the existing durable permission
-system. Browser v1 resource requests are **Allow once** or **Deny**, with no
-remembered wildcard rule. Approval grants scoped attachment control, not one
-individual click. Detach/revoke/disconnect ends that control; human pages remain
-open. Reconnection never automatically reselects a provider. Conversations
-created before Browser module support must be replaced with a fresh conversation,
-not silently upgraded to broader authority.
+An open conversation advertises an inert, exact Desktop destination even with
+zero Browser tabs. The agent can request `browser.open`; create/control still
+passes through the existing durable permission policy before a native tab exists.
+Multiple Desktop windows serving the same conversation require an explicit choice,
+never a newest/focused-window guess. Approved pages enter the originating pane in
+the background.
+
+Sharing an existing human page remains an explicit **Offer to conversation**
+action: choose the connected execution host and conversation. `browser.list_tabs()`
+discovers only root-offered pages, the caller's created pages and its own live
+attachments. It grants neither control nor preview networking. No tab inventory
+is injected into agent prompts.
+
+Open/attach and preview-port expansion use **Allow once** or **Deny** in prompt
+mode, with no remembered wildcard rule; automatic permission mode is unchanged.
+Approval grants scoped attachment control, not one individual click.
+Detach/revoke/disconnect ends that control; human pages remain open. Reconnection
+may advertise inert availability but never restores old grants or replays a
+create. Explicit page offers require reselection. Older conversations retain
+their original Browser grants; start a fresh conversation for new operations,
+never silently upgrade stored authority.
 
 SSH previews use **saved SSH connections only**. Their isolation identity combines
 saved host, verified remote runtime, live SSH generation and project metadata.

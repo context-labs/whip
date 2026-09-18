@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { SessionCatalogPage } from '@whip/protocol';
-import { Button, Dialog, Field, Input, Select } from '@whip/ui';
+import { Button, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
+import { PanelsTopLeft } from 'lucide-react';
+import { scale, typography } from '@whip/ui/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import { browserPreviewAddress } from './browser-address';
@@ -34,10 +36,12 @@ export function BrowserPreviewControls({ tabId }: { tabId?: string }) {
     }).catch(error => setError(errorMessage(error))).finally(() => setRequest(undefined));
   }, [request, runtime, navigate]);
   return <>
-    <Button variant="ghost" size="sm" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>Open SSH preview…</Button>
-    {request && <span role="status">Waiting for SSH preview confirmation…</span>}
-    {error && <span role="alert">Could not open SSH preview: {error}</span>}
-    {notice && <span role="status">{notice}</span>}
+    {tabId ? <IconButton variant="ghost" label="Open SSH preview…" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>
+      <PanelsTopLeft size={16} aria-hidden="true"/>
+    </IconButton> : <Button variant="ghost" size="sm" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>Open SSH preview…</Button>}
+    {request && <span role="status" {...stylex.props(!!tabId && styles.notice)}>Waiting for SSH preview confirmation…</span>}
+    {error && <span role="alert" {...stylex.props(!!tabId && styles.notice)}>Could not open SSH preview: {error}</span>}
+    {notice && <span role="status" {...stylex.props(!!tabId && styles.notice)}>{notice}</span>}
     {open && <Dialog open onOpenChange={setOpen} title="Open SSH preview" description="Browse a project on a connected SSH host. This does not select a conversation or grant any agent access. Native confirmation is required before a network route is opened.">
       <PreviewForm onSubmit={input => {
         const workspace = runtime.tabs.workspace();
@@ -47,6 +51,10 @@ export function BrowserPreviewControls({ tabId }: { tabId?: string }) {
     </Dialog>}
   </>;
 }
+const styles = stylex.create({
+  notice: { flexBasis: '100%', order: 1, minWidth: 0, paddingInline: scale.space1, fontSize: typography.size12, overflowWrap: 'anywhere' },
+});
+
 function PreviewForm({ onSubmit }: { onSubmit(input: Omit<PreviewRequest, 'paneId'>): void }) {
   const { hosts } = useAppState();
   const [hostId, setHostId] = useState('');

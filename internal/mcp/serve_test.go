@@ -88,7 +88,7 @@ func TestServeInProcess(t *testing.T) {
 	for _, tool := range list.Tools {
 		names[tool.Name] = true
 	}
-	wantNames := []string{"bash", "read", "write", "edit", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"}
+	wantNames := []string{"bash", "read", "write", "edit", "browser_list_tabs", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"}
 	if len(list.Tools) != len(wantNames) || names["rlm_exec"] {
 		t.Fatalf("served tools = %v (want exactly %v)", names, wantNames)
 	}

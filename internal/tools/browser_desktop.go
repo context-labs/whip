@@ -46,7 +46,7 @@ func desktopOperation(operation string) string {
 
 func isDesktopBrowserOperation(operation string) bool {
 	switch operation {
-	case "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
+	case "browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
 		return true
 	}
 	return false
@@ -118,6 +118,14 @@ func (s *Services) RunDesktopBrowser(ctx context.Context, operation string, argu
 	if err != nil {
 		return fail(err)
 	}
+	if operation == "browser.list_tabs" {
+		inventory, ok := provider.(browser.DesktopInventoryProvider)
+		if !ok {
+			return fail(&browser.DesktopError{Kind: "unsupported_operation", Message: "Desktop provider does not support tab discovery"})
+		}
+		result, err := inventory.ListTabs(ctx, identity)
+		return desktopFailure(result, err), nil
+	}
 	// Each inert reservation belongs to this invocation, including denied prompts.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -168,6 +176,11 @@ func decodeDesktopArguments(operation string, data json.RawMessage) (browser.Des
 		return args, errors.New("browser arguments require an object")
 	}
 	switch operation {
+	case "browser.list_tabs":
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil || len(fields) != 0 {
+			return args, errors.New("list_tabs accepts no arguments")
+		}
 	case "browser.open":
 		if args.URL == "" || args.TabID != "" || args.AttachmentID != "" || args.Code != "" {
 			return args, errors.New("open requires url and optional preview_host_id only")
@@ -332,13 +345,15 @@ func (s *Services) RevokeDesktopAttachments(ctx context.Context) error {
 	return provider.RevokeAgent(ctx, identity)
 }
 
-var desktopToolOperations = map[string]string{"browser_open": "browser.open", "browser_attach": "browser.attach", "browser_run": "browser.run", "browser_detach": "browser.detach", "browser_allow_preview_port": "browser.allow_preview_port"}
+var desktopToolOperations = map[string]string{"browser_list_tabs": "browser.list_tabs", "browser_open": "browser.open", "browser_attach": "browser.attach", "browser_run": "browser.run", "browser_detach": "browser.detach", "browser_allow_preview_port": "browser.allow_preview_port"}
 
 func desktopToolDefinitions() []llm.Tool {
 	var defs []llm.Tool
-	for _, name := range []string{"browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"} {
+	for _, name := range []string{"browser_list_tabs", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"} {
 		var schema string
 		switch name {
+		case "browser_list_tabs":
+			schema = `{"type":"object","properties":{},"additionalProperties":false}`
 		case "browser_open":
 			schema = `{"type":"object","properties":{"url":{"type":"string"},"preview_host_id":{"type":"string"}},"required":["url"],"additionalProperties":false}`
 		case "browser_attach":

@@ -29,6 +29,15 @@ func (s *Server) handleBrowser(c *serverConn, request rpcMessage) (any, *RPCErro
 			return nil, rpcFailure(-32009, err.Error()), true
 		}
 		return protocol.Accepted{Accepted: true}, nil, true
+	case "browser.inventory.result":
+		var params protocol.BrowserInventoryResultParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error()), true
+		}
+		if err := s.daemon.browserProviders.settleInventory(c, params); err != nil {
+			return nil, rpcFailure(-32009, err.Error()), true
+		}
+		return protocol.Accepted{Accepted: true}, nil, true
 	case "browser.command.result":
 		var params protocol.BrowserCommandResultParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {
@@ -182,6 +191,9 @@ func (p *browserProviders) event(c *serverConn, event protocol.BrowserProviderEv
 	}
 	if event.Title != "" {
 		a.result.Title = event.Title
+	}
+	if event.Kind == "closed" {
+		delete(lease.created, event.TabID)
 	}
 	revoke := event.Kind == "closed" || event.Kind == "revoked" || event.Kind == "preview_disconnected"
 	if revoke {

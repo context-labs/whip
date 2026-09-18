@@ -180,14 +180,28 @@ instructions to admit an unknown page. Model-created tabs enter the captured
 originating pane in the background.
 
 Agent control is deliberately separate:
-[`BrowserAssociations`](../packages/app/src/browser-provider.ts) records the
-user's explicit conversation/provider/tab/pane choice;
+[`BrowserAssociations`](../packages/app/src/browser-provider.ts) advertises inert
+Browser v2 availability for an exact open conversation, verified execution host,
+native window and captured pane, even when no Browser tabs exist. It also records
+the user's explicit conversation/provider/tab/pane offers. Availability shares no
+human pages, creates no tab and grants no preview-network or control authority.
+The daemon promotes an unambiguous candidate only after create approval through
+the existing permission policy. Multiple candidate windows require explicit
+selection; connection order and focus never choose a destination.
+`browser.list_tabs()` requests bounded current metadata on demand, limited to
+root-offered pages, the caller's created pages and its live attachments. The
+native main process verifies provider epochs and tab generations; the daemon
+adds only the caller's attachment handles. Titles and URLs are untrusted data,
+not instructions. Neither tab inventories nor attachment inventories are injected
+into turn prompts.
+
 [`client.browser`](../packages/sdk/src/browser.ts) owns selected-holder transport,
 command IDs, cancellation, upload and teardown; the daemon owns durable scoped
 permission decisions. [`BrowserAgentBridge`](../packages/app/src/browser-agent-types.ts)
 is a trusted native adapter, not an arbitrary-CDP method on `BrowserPlatform`.
-The controlled page is the human's page. Reconnect, focus changes, restored IDs
-and a copied attachment ID never select a provider or grant authority. Releasing
+The controlled page is the human's page. Reconnect may re-advertise inert
+availability, but never restores attachment grants or replays commands. Focus
+changes, restored IDs and copied attachment IDs never grant authority. Releasing
 an attachment does not close a human tab. Preview-network authority is separate
 again, bound to the verified SSH connection and tab environment; URL connections
 are not SSH preview providers. Standalone human preview admission uses a
@@ -613,6 +627,7 @@ update their source, boundary tests, and this table together.
 | Search | One 64-item / 256 KiB page per included host while open; recent results reuse each host’s catalog | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
 | Attention | One 64-item / 256 KiB advisory page per connected host | [attention.tsx](../packages/app/src/attention.tsx) |
 | Agent mailbox pages | At most 4 bounded Query pages | [observation.tsx](../packages/app/src/details/observation.tsx) |
+| Visible stored chat messages | Automatic scoped reads up to 64 MiB per body; Query deduplication, cancellation and zero inactive cache lifetime; retained response-copy prose at most 256 Ki characters / 512 entries per timeline | [timeline.tsx](../packages/app/src/timeline.tsx) |
 | Explicit content inspection | 1 MiB text read; 64 MiB download; rendering has its own smaller caps | [shared.tsx](../packages/app/src/details/shared.tsx) |
 
 Payload limits do not equal total JavaScript heap limits. Preserve visible
@@ -798,6 +813,30 @@ the reader; the exhausted control is hidden, disabled, and excluded from accessi
 Transcript pages can contain no execution cells, so cell count does not determine
 exhaustion. The SDK keeps the older cursor and availability consistent with the
 retained history across refreshes, revision changes and cache eviction.
+`SessionView` also tracks interior gaps in raw transcript sequence coverage.
+A snapshot boundary is not proof that every record before it is loaded. After
+resuming event consumption, the SDK automatically repairs pending gaps for the
+root and opened children through revision-pinned `history.page` requests. Reads
+are shared per agent; each automatic pass is capped at four sequential pages of
+128 records / 256 KiB. Requests are cancelled on refresh, disconnect, child closure
+and disposal. Errors stay local to the gap; exhausted passes expose an explicit
+one-page continuation. Ordinary refreshes do not restart failed/paused gaps;
+reconnection allows another bounded attempt. Gap descriptors (at most 511 per
+agent, with 512-character errors) count against the existing 8 MiB view budget.
+
+Chat, REPL and native mobile expose the same loading/retry boundary. It splits
+activity groups and marks available response copies incomplete; a body handle
+alone is not a gap. Recovered records reconcile existing execution identities
+and appear without arrival motion. The shared reading list preserves a surviving
+visible row when a gap control disappears, using its existing virtualizer and
+bounded restoration loop. Keyboard focus moves to recovered content only if the
+focused control disappears; selection and manual disclosures remain intact.
+Programmatic compensation never triggers history paging. Explicit gap navigation
+can evict a newer suffix; `latestMissing` keeps Latest available, and `loadLatest`
+reloads a recent window before scrolling. User scrolling cancels a pending jump.
+Memory pressure may evict an entire retained edge; ordinary older paging and
+Latest keep those edges reachable without an automatic refetch loop.
+
 REPL bookmarks use a mode suffix within the existing runtime/view/agent namespace;
 closing the view forgets both modes. Output previews show six lines, following
 the tail while running and the beginning after completion. Expanded output IDs
@@ -1264,7 +1303,10 @@ operations stay in place, even if their enclosing execution catches the error.
 Summary counts count invocations and deduplicate edits only by exact typed file
 target. The enclosing execution is not counted again. SDK reconciliation scopes
 identities to root, agent, revision, turn, part, tool and invocation; the UI does
-not replay events or fetch traces. Unmatched evidence remains separate.
+not replay events or fetch traces. Executions without a matching transcript row
+may appear at the chat tail only while their known turn is active. Older unplaced
+evidence remains available in the REPL; it must not drift under later responses
+or move their copy footers. Matched activity stays at its recorded position.
 
 Group headers, operation steps, expanded details and top-level Markdown blocks
 are individual rows in the existing virtual list. There is no six-cell or
@@ -1351,7 +1393,10 @@ transcript cannot move an action away from the pointer between down and up.
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
 model/effort trigger, permission-mode toggle, and Send. It omits a visible
-heading and shortcut hints. Toolbar controls wrap in narrow panes so Send/Pause
+heading and shortcut hints. Autosizing reserves the composer's current height
+while measuring the collapsed textarea, then releases it after applying the new
+height. The measurement must not temporarily enlarge the transcript viewport and
+clamp its scroll position on each keystroke. Toolbar controls wrap in narrow panes so Send/Pause
 stays reachable. `model-selection.tsx` provides separate model and
 reasoning popovers that apply the selected option immediately; the inspector
 retains explicit Apply actions and exact model/provider entry. The controls
@@ -1388,6 +1433,31 @@ keeps the controls available. Show recorded `sent_at` values when supplied, and
 never invent timestamps for historical messages that lack them.
 Agent responses omit a repeated author heading and show one left-aligned copy
 control in the completed response footer, with no per-paragraph copy control.
+
+A large image attachment must not replace its message with a “Read stored message”
+button. Mounted user/assistant rows automatically fetch referenced transcript
+bodies through the existing SDK content API and render their text and embedded
+images inline. Reads are keyed by runtime/root/agent, history revision and immutable
+content identity, cancelled on unmount, and released from Query when no row uses
+them. They do not expand the SDK history window or subscribe to additional agents.
+A failed transfer exposes an in-place Retry; a disconnected host shows a reconnect
+status. User image attachments sit above the text bubble in a right-aligned,
+wrapping strip of 80 px square thumbnails. Each reserves its space during native
+lazy loading/decoding and shows its own small spinner until ready, or an inline
+failure if decoding fails. Clicking a thumbnail opens the original in the shared
+accessible dialog; image-only messages have no empty text bubble. Assistant/tool
+images retain their larger inline presentation. External image URLs retain the
+existing explicit-link behavior. Full tool outputs still require disclosure.
+
+The desktop/web projection distinguishes the provider's `user` role from actual
+authored input using `authored` on the message or its bounded history entry.
+Unauthored deliveries, including browser/computer screenshots and MCP images,
+stay in collapsed **Activity details**, never user bubbles or attachment strips.
+They do not split response-copy boundaries. Referenced internal bodies use the
+same scoped content reader only while their details are explicitly open; closing
+the disclosure cancels the read and releases its inactive cache. The portable
+mobile projection is unchanged. Do not identify internal images by caption text
+or associate them with a particular tool invocation without a recorded identity.
 
 Committed history only includes a turn's messages after that turn finishes.
 `input-presentation.ts` therefore owns window-local submission previews (at most
@@ -1426,6 +1496,10 @@ instructions. Keep URL/content checks in the existing rendering paths.
 kept mounted for keyboard access. When the final page removes the control,
 TanStack compensates for its height change along with the prepended messages;
 the control must not introduce an unmeasured offset outside the virtual list.
+In chat, a visible selected/focused row becomes the resize anchor: delayed
+message/image growth before it is compensated through the same virtualizer,
+including a loading row that spans the viewport edge. REPL keeps its default
+measurement behavior.
 
 Browser reading-position checks must let scrolling and row measurement settle
 before recording an anchor. Touch scrolling can defer a size correction beyond
@@ -1716,7 +1790,8 @@ Tool density belongs to AppRuntime: Compact shows summaries, Comfortable adds at
 most three lines/512 characters of already-loaded content, and Detailed initially
 opens available tool details. Manual disclosure state wins for the mounted row.
 Density does not auto-open reasoning or mailbox details and never dereferences a
-body handle; full content still requires an explicit user action.
+tool/reasoning body handle; full tool content still requires an explicit user action.
+Ordinary user/assistant message bodies load automatically when their virtual rows mount.
 
 Increased contrast adapts semantic foregrounds and control/focus boundaries while
 preserving the chosen palette. System contrast uses the browser media query, with
@@ -1781,7 +1856,9 @@ Malformed known messages are protocol errors. Feature components must not create
 their own WebSocket clients or handwritten JSON-RPC envelopes.
 
 The browser uses the daemon's WebSocket API and scoped HTTP content transfers.
-Content references remain references until explicitly opened within limits.
+Content references remain references until a bounded consumer reads them. Visible
+user/assistant chat rows automatically read their stored message bodies through
+the SDK; tool output, reasoning and inspector content still require disclosure.
 The daemon validates root/agent/reference association; a browser URL must not
 bypass that scope. Web serving has host/origin checks despite the absence of
 connection authentication. SDK Node scripts may use Unix sockets with networking
@@ -1897,6 +1974,12 @@ restart, uncertain admission, multiple clients answering requests, history
 revision changes, large outputs, slow consumers, and StrictMode cleanup when
 touching those paths. Measure latency, retained data, subscriptions, and polling
 volume before optimizing. Never weaken daemon durability to improve a UI number.
+
+`WHIP_CHAT_MESSAGES_ONLY=1 node apps/web/scripts/chat-activity.mjs` checks real
+image uploads, referenced history, automatic inline rendering, failed transfers,
+reopening, long-history paging, narrow panes and delayed-image selection anchors
+in Chromium and Firefox. After `npm run build:desktop`, include Electron with
+`WHIP_WEB_BROWSERS=chromium,firefox,electron`. These fixtures use isolated runtimes.
 
 Automated viewport, Axe, and WebKit tests do not establish physical-mobile,
 VoiceOver, or actual Safari coverage. State the exact coverage and remaining

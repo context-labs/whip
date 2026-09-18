@@ -18,8 +18,8 @@ afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 const roots = [{ id: 'root_older', title: 'Older explicit root', cwd: '/project/one' }, { id: 'root_latest', title: 'Newest root', cwd: '/project/two' }];
 const choose = { hostId: 'local', rootId: roots[0]!.id, title: roots[0]!.title, tabId: 'human_tab' };
-function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true) {
-  const tabs = new SessionTabs(); tabs.openBrowser({ id: 'human_tab', url: 'https://example.com', titleHint: 'Human page' });
+function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true, discovery = false) {
+  const tabs = new SessionTabs(); if (!discovery) tabs.openBrowser({ id: 'human_tab', url: 'https://example.com', titleHint: 'Human page' });
   const events = new Set<(event: BrowserAgentEvent) => void>(), hostListeners = new Set<() => void>();
   const preview = { host_id: 'ssh:host', host_identity: 'verified_runtime', connection_generation: 'connection_1', environment_id: 'environment_1', loopback: '127.0.0.1', ports: [] };
   const identity = { desktopId: 'desktop_1', windowId: 'window_1', createProfileId: 'profile_create', tabs: [
@@ -27,6 +27,7 @@ function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true) {
     { tab_id: 'not_offered', tab_generation: 'generation_other', profile_id: 'profile_other' },
   ] };
   const bridge: BrowserAgentBridge = { identity: vi.fn(async () => identity), preview: vi.fn(async () => preview), select: vi.fn(async () => {}),
+    ...(discovery ? { inventory: vi.fn() } : {}),
     dispatch: vi.fn(), cancel: vi.fn(), release: vi.fn(async () => {}), onEvent: listener => { events.add(listener); return () => { events.delete(listener); }; } };
   let options: BrowserSelectionOptions | undefined;
   const releases: ReturnType<typeof vi.fn>[] = [];
@@ -60,6 +61,29 @@ function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true) {
 }
 
 describe('explicit Browser provider associations', () => {
+  it('advertises a zero-tab destination without sharing pages or preview network, then admits the approved create', async () => {
+    const f = fixture('local', true, true);
+    const session = f.tabs.open('verified_runtime', 'root_older', 'Conversation');
+    await waitFor(() => expect(f.associations.getSnapshot()[0]?.status).toBe('available'));
+    expect(f.select).toHaveBeenCalledWith(expect.objectContaining({ version: 2, availability: true, root_id: 'root_older', offered_tabs: [], offered_preview_hosts: [] }), f.bridge, expect.any(Object));
+    expect(f.tabs.workspace().tabs.some(tab => tab.kind === 'browser')).toBe(false);
+    expect(f.admit).not.toHaveBeenCalled(); expect(f.bridge.preview).not.toHaveBeenCalled();
+    f.emit({ kind: 'admission', commandId: 'approved', rootId: 'root_older', providerEpoch: 'provider_1', epoch: 'epoch', tab: { id: 'created', generation: 'generation', url: 'about:blank' } } as BrowserAgentEvent);
+    await waitFor(() => expect(f.admit).toHaveBeenCalledOnce());
+    expect(f.admit.mock.calls[0]?.[2]).toBe('main'); expect(f.close).not.toHaveBeenCalled();
+    expect(f.associations.getSnapshot()[0]?.status).toBe('selected');
+    await f.associations.release(f.associations.getSnapshot()[0]!.key);
+    f.tabs.openNew({}); await Promise.resolve();
+    expect(f.select).toHaveBeenCalledOnce(); expect(f.tabs.workspace().tabs.some(tab => tab.id === session)).toBe(true);
+  });
+  it('re-advertises only inert availability after reconnect, without replaying a create', async () => {
+    const f = fixture('local', true, true); f.tabs.open('verified_runtime', 'root_older');
+    await waitFor(() => expect(f.associations.getSnapshot()[0]?.status).toBe('available'));
+    f.disconnect(); f.reconnect();
+    await waitFor(() => expect(f.select).toHaveBeenCalledTimes(2));
+    expect(f.select.mock.calls[1]?.[0]).toMatchObject({ availability: true, offered_tabs: [], offered_preview_hosts: [] });
+    expect(f.admit).not.toHaveBeenCalled(); expect(f.bridge.dispatch).not.toHaveBeenCalled();
+  });
   it('offers exactly the chosen root and current tab, never newest/all tabs; release leaves human browsing intact', async () => {
     const f = fixture(); expect(f.select).not.toHaveBeenCalled();
     await f.associations.select(choose);

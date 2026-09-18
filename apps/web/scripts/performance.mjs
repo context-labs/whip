@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { createSessionView } from '../../../packages/sdk/dist/state.js';
+import { checkComposerReading } from './composer-reading.mjs';
 import {
   eventually,
   startFixture,
@@ -243,6 +244,7 @@ const frame = () =>
   await frame();
   metrics.initialRenderedRows = await page.locator('[data-reading-id]').count();
   assert.ok(metrics.initialRenderedRows < 80);
+  metrics.composerReading = await checkComposerReading(page);
   // Repeated real paging must retain the visible row at exactly the same offset.
   const anchors = [];
   for (let index = 0; index < 4; index++) {

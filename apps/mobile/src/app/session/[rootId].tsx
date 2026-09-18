@@ -175,6 +175,8 @@ function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onIns
     (root.inbox ?? []).filter(i => i.agent_id === agentId), ownInputs, new Map(state.commands.filter(c => !c.accepted).map(c => [c.record.commandId, c.status === 'checking' ? 'Checking delivery' : c.status]))),
   [history, root, agentId, rootId, submitted, state.commands]);
   const list = useRef<FlashListRef<TimelineRow>>(null);
+  const latestIntent = useRef(0);
+  const [loadingLatest, setLoadingLatest] = useState(false);
   const [follow, setFollow] = useState(true); const followRef = useRef(true);
   const [bookmark, setBookmark] = useState<ReadingBookmark | null>();
   const anchor = useRef<ReadingBookmark | null | undefined>(undefined); const appliedRevision = useRef<string | undefined>(undefined);
@@ -206,7 +208,7 @@ function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onIns
     list.current = instance;
   }, []);
   useLayoutEffect(() => () => { savePlace.current(); restoreEpoch.current++; restoring.current = false; }, [key, runtime]);
-  useLayoutEffect(() => { restoreEpoch.current++; restoring.current = false; }, [history?.revision, state.active]);
+  useLayoutEffect(() => { latestIntent.current++; restoreEpoch.current++; restoring.current = false; }, [history?.revision, state.active]);
   useEffect(() => {
     let mounted = true;
     void runtime.storage.get<unknown>('bookmarks', key).then(value => {
@@ -285,18 +287,32 @@ function Conversation({ view, runtimeId, snapshot, agentId, name, enabled, onIns
   return <KeyboardAvoidingView behavior="padding" automaticOffset style={{ flex: 1 }}>
     {!!placeNotice && <Notice>{placeNotice}</Notice>}
     {bookmark === undefined ? <Loading label="Restoring your reading place…" /> : <FlashList ref={listRef} data={rows} keyExtractor={row => row.id} getItemType={row => row.role} keyboardShouldPersistTaps="handled"
-      renderItem={({ item }) => <ConversationRow row={item} onInspect={onInspect}
+      renderItem={({ item }) => item.historyGap ? <Stack style={{ paddingHorizontal: 16 }}>
+        <Notice>{item.historyGap.status === 'loading' || item.historyGap.status === 'pending' ? 'Loading missing messages…' : item.historyGap.status === 'error' ? "Couldn't load messages." : 'Some messages are not loaded.'}</Notice>
+        <Actions items={[{ label: item.historyGap.status === 'error' ? 'Retry' : 'Load missing messages', secondary: true,
+          disabled: !enabled || item.historyGap.status === 'loading' || item.historyGap.status === 'pending',
+          onPress: () => { void view.loadHistoryGap(agentId, item.historyGap!.toSeq).catch(() => {}); } }]} />
+      </Stack> : <ConversationRow row={item} onInspect={onInspect}
         onPageChange={() => { void readTextPage(item.id).catch(runtime.report); }} />}
       maintainVisibleContentPosition={{ autoscrollToBottomThreshold: follow ? 0.2 : undefined, animateAutoScrollToBottom: false, startRenderingFromBottom: rows.length > 12 && (!bookmark || bookmark.follow) }}
+      onScrollBeginDrag={() => { latestIntent.current++; }}
       onLoad={() => { listLoaded.current = true; void restore(); }} onScroll={scroll} scrollEventThrottle={100} onMomentumScrollEnd={() => savePlace.current()} onScrollEndDrag={() => savePlace.current()}
       ListHeaderComponent={<Stack style={{ paddingHorizontal: 16 }}>{history?.hasMore && <Actions items={[{ label: history.loading ? 'Loading earlier messages…' : 'Load earlier messages', secondary: true, disabled: !enabled || history.loading, onPress: () => { void view.loadOlder(agentId).catch(runtime.report); } }]} />}{history?.error && <Notice danger>{history.error.message}</Notice>}</Stack>}
       ListEmptyComponent={<View style={{ minHeight: 300 }}>{history?.loading ? <Loading /> : <EmptyState title="What are we working on?" description="Ask a question, plan a change, or give your agent something to build." />}</View>} />}
-    {!follow && <View style={{ paddingHorizontal: 16 }}><Actions items={[{ label: 'Jump to latest', secondary: true, onPress: () => {
+    {(!follow || history?.latestMissing) && <View style={{ paddingHorizontal: 16 }}><Actions items={[{ label: loadingLatest ? 'Loading latest…' : 'Jump to latest', secondary: true, disabled: loadingLatest || (!!history?.latestMissing && !enabled), onPress: () => { void (async () => {
+      const request = ++latestIntent.current;
+      if (history?.latestMissing) {
+        followRef.current = false; setFollow(false); setLoadingLatest(true);
+        try { await view.loadLatest(agentId); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
+        catch (error) { runtime.report(error); return; }
+        finally { setLoadingLatest(false); }
+        if (request !== latestIntent.current || !list.current || !runtime.getSnapshot().active) return;
+      }
       restoreEpoch.current++; restoring.current = false; followRef.current = true; setFollow(true); setPlaceNotice('');
       if (historyReady) appliedRevision.current = history?.revision;
       if (anchor.current) anchor.current = { ...anchor.current, follow: true };
       list.current?.scrollToEnd({ animated: !display.reducedMotion }); savePlace.current();
-    } }]} /></View>}
+    })(); } }]} /></View>}
     <Stack style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: Math.max(12, insets.bottom), gap: 8 }}>
       {!!draft.text && <Label muted={draftStatus !== 'failed'} accessibilityLiveRegion="polite" style={{ fontSize: 12, ...(draftStatus === 'failed' ? { color: theme.colors.error } : {}) }}>
         {draftStatus === 'saving' ? 'Saving draft…' : draftStatus === 'failed' ? 'Draft not saved. Copy your text before leaving.' : 'Draft saved on this phone.'}

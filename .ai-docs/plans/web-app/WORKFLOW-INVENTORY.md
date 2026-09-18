@@ -9,7 +9,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | Registry operation | Status | Surface and behavior |
 | --- | --- | --- |
 | `rpc:browser.command.result` | Internal | Native Browser provider SDK returns exact-command results and scoped screenshot references; unavailable in web-only clients. |
-| `rpc:browser.provider.bind` | Web | Experimental desktop Browser access dialog explicitly selects one connected host, conversation, native window/profile and offered tab; never binds on connect or focus. |
+| `rpc:browser.provider.bind` | Web | Desktop advertises inert zero-tab availability for an exact visible conversation/host/window/pane; Browser access explicitly offers a human tab. Availability is not control or preview-network authority. |
+| `rpc:browser.inventory.result` | Internal | Bounded on-demand native metadata response, fenced by request, holder, root, epoch and requested tab generations; never dispatched as a page-control command. |
 | `rpc:browser.provider.event` | Internal | Selected native provider observations, fenced by root, holder, epoch and attachment identity; no page authority inferred from events. |
 | `rpc:browser.provider.unbind` | Web | Explicit release in desktop Browser access settings removes only the current exact-holder/epoch association and leaves human tabs open. |
 | `rpc:command.status` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |

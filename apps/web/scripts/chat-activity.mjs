@@ -8,11 +8,15 @@ import { createHash } from 'node:crypto';
 import { _electron, chromium, firefox, expect } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { checkComposerReading } from './composer-reading.mjs';
+import { checkHistoryRecovery } from './history-gap.mjs';
+import { checkStoredMessages } from './stored-messages.mjs';
 
 // Production renderer, real SDK subscription and durable fixed event fixtures.
 // No live provider, user daemon, credentials, editor or displayed command is used.
 process.env.WHIP_WEB_REPL_FIXTURE = '1';
 process.env.WHIP_WEB_STREAMING_FIXTURE = '1';
+if (process.env.WHIP_CHAT_MESSAGES_ONLY === '1') process.env.WHIP_WEB_INLINE_IMAGES_FIXTURE = '1';
 const directory = process.env.WHIP_CHAT_ACTIVITY_RESULTS ?? '/tmp/whip-chat-activity-results';
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const exec = promisify(execFile);
@@ -23,7 +27,7 @@ async function surface(name) {
   if (name !== 'electron') {
     const browser = await ({ chromium, firefox }[name]).launch();
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, recordVideo: { dir: directory, size: { width: 1280, height: 900 } } });
-    return { page, close: () => browser.close() };
+    return { page, close: async () => { await page.context().close(); await browser.close(); } };
   }
   const temporary = await mkdtemp('/tmp/whip-chat-desktop-');
   for (const name of ['user', 'home', 'data', 'bin']) await mkdir(join(temporary, name), { mode: 0o700 });
@@ -88,6 +92,16 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     await page.goto(url);
     await page.getByRole('textbox', { name: 'Message WHIP', exact: true }).waitFor();
+    if (process.env.WHIP_CHAT_MESSAGES_ONLY === '1') {
+      report.push({ browser: name, rendererDigest: manifest.digest, messages: await checkStoredMessages({ page, client, root, directory, name }) });
+      assert.deepEqual(errors, []);
+      continue;
+    }
+    if (process.env.WHIP_CHAT_HISTORY_ONLY === '1') {
+      report.push({ browser: name, rendererDigest: manifest.digest, history: await checkHistoryRecovery({ page, client, fixture, root, directory, name }) });
+      assert.deepEqual(errors, []);
+      continue;
+    }
     await expect(page.locator('[data-inline-agent="repl-child"]')).toHaveCount(1);
     const saved = page.locator('[data-activity-group]').filter({ hasText: 'Thought' });
     await saved.getByRole('button').focus();
@@ -108,6 +122,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       assert.equal(chrome.height, 48); assert.equal(chrome.drag, 'drag'); assert.equal(chrome.tab, 'no-drag');
       await writeFile(join(directory, 'electron-session-chrome.json'), JSON.stringify(chrome, null, 2));
     }
+    await writeFile(join(directory, `${name}-composer-reading.json`), JSON.stringify(await checkComposerReading(page), null, 2));
     const work = client.session(root).submit({ text: 'hold:chat-activity' });
     await work.accepted();
     await eventually(async () => (await client.session(root).snapshot()).active_turns[root]);
@@ -368,13 +383,35 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const maximumTreeRows = await page.evaluate(() => window.stopTreeMeasurement());
     assert.ok(maximumTreeRows < 80, `Tree entrance/fold mounted ${maximumTreeRows} rows`);
     await writeFile(join(directory, `${name}-tree-bounds.json`), JSON.stringify({ maximumTreeRows }, null, 2));
+    // These injected executions have no matching journal records. They must
+    // remain in the REPL, not accumulate below subsequent chat responses.
+    for (const text of ['First follow-up without tools', 'Second follow-up without tools']) {
+      await client.session(root).submit({ text }).result();
+      const reply = reading.locator('[data-markdown-block]').filter({ hasText: text });
+      await expect.poll(async () => {
+        await reading.evaluate(element => { element.scrollTop = element.scrollHeight; });
+        return reply.isVisible();
+      }).toBe(true);
+      await expect(group).toHaveCount(0);
+      await expect.poll(() => reading.evaluate(element => {
+        const rows = [...element.querySelectorAll('[data-reading-id]')];
+        return !!rows.at(-1)?.querySelector('[data-markdown-block]');
+      })).toBe(true);
+    }
+    await screenshot('settled-follow-up');
+    await page.getByRole('button', { name: 'Open REPL', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
+    await expect(notebook).toContainText('Review complete.');
+    await page.goBack();
+    await expect(reading).toBeVisible();
+    await checkHistoryRecovery({ page, client, fixture, root, directory, name });
     // Normal scrolling must leave the activity dock available without extra subscriptions.
     await reading.evaluate(element => { element.scrollTop = 300; });
     await expect(page.getByRole('textbox', { name: 'Message WHIP', exact: true })).toBeInViewport();
     await assertLayout();
     assert.deepEqual(errors, []);
     assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
-    report.push({ browser: name, rendererDigest: manifest.digest, checks: ['identical embedded renderer', 'restored reasoning and typed inline agent', 'grouped executions', 'live-open operation tree', 'accurate host phase', 'no phase polling', 'keyboard disclosure', 'shared REPL state', 'snapshot recovery', 'shared reduced motion', '390/320px bounds', 'light/dark themes with minimum/maximum system type', 'selection through completion', 'automatic fold after selection release', '128-operation virtual tree under 80 mounted rows', 'streamed Markdown, Unicode and highlighted code', 'accessibility tree', 'bounded production history', ...(browser.app ? ['staged main/preload', '400% native zoom'] : [])] });
+    report.push({ browser: name, rendererDigest: manifest.digest, checks: ['identical embedded renderer', 'restored reasoning and typed inline agent', 'grouped executions', 'live-open operation tree', 'accurate host phase', 'no phase polling', 'keyboard disclosure', 'shared REPL state', 'snapshot recovery', 'shared reduced motion', '390/320px bounds', 'light/dark themes with minimum/maximum system type', 'selection through completion', 'automatic fold after selection release', '128-operation virtual tree under 80 mounted rows', 'streamed Markdown, Unicode and highlighted code', 'old unplaced executions stay in REPL after later replies', 'accessibility tree', 'bounded production history', ...(browser.app ? ['staged main/preload', '400% native zoom'] : [])] });
     await writeFile(join(directory, 'results.json'), JSON.stringify(report, null, 2));
   } catch (error) {
     await screenshot('failure').catch(() => {});

@@ -521,7 +521,44 @@ export interface BrowserDriverParams {
   driver: string;
 }
 
+export interface BrowserInventoryRequest {
+  request_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+      }[];
+}
+
+export interface BrowserInventoryResultParams {
+  request_id: string;
+  root_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        document_revision: string;
+        url: string;
+        title: string;
+        state: string;
+        requestable: boolean;
+        attachment_id?: string;
+      }[];
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+}
+
 export interface BrowserProviderBindParams {
+  availability?: boolean;
   root_id: string;
   version: number;
   desktop_id: string;
@@ -3670,6 +3707,8 @@ export interface ContractTypes {
   BrowserCommandCancel: BrowserCommandCancel;
   BrowserCommandResultParams: BrowserCommandResultParams;
   BrowserDriverParams: BrowserDriverParams;
+  BrowserInventoryRequest: BrowserInventoryRequest;
+  BrowserInventoryResultParams: BrowserInventoryResultParams;
   BrowserProviderBindParams: BrowserProviderBindParams;
   BrowserProviderBindResult: BrowserProviderBindResult;
   BrowserProviderEventParams: BrowserProviderEventParams;
@@ -3941,6 +3980,7 @@ export interface EventPayloadTypes {
 }
 export interface RpcMethods {
   "browser.command.result": { params: BrowserCommandResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.inventory.result": { params: BrowserInventoryResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
   "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
   "browser.provider.event": { params: BrowserProviderEventParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
   "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };

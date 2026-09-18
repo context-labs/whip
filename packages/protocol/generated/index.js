@@ -14,6 +14,14 @@ export const manifest = {
       "result_type": "Accepted"
     },
     {
+      "name": "browser.inventory.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserInventoryResultParams",
+      "result_type": "Accepted"
+    },
+    {
       "name": "browser.provider.bind",
       "surface": "rpc",
       "execution": "ephemeral",
@@ -1138,6 +1146,7 @@ export const manifest = {
   "events": {
     "browser.command": "BrowserCommand",
     "browser.command.cancel": "BrowserCommandCancel",
+    "browser.inventory": "BrowserInventoryRequest",
     "browser.provider.revoked": "BrowserProviderRevoked",
     "event": "EventNotification",
     "hook.cancel": "ToolCancelParams",

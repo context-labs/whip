@@ -37,6 +37,14 @@ func (p *recursiveBrowserProvider) Resolve(_ context.Context, identity browser.D
 	p.identities = append(p.identities, identity)
 	return capability.BrowserCall{}, errors.New("desktop resolver reached")
 }
+func (p *recursiveBrowserProvider) ListTabs(_ context.Context, identity browser.DesktopIdentity) (browser.DesktopResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.operations = append(p.operations, "browser.list_tabs")
+	p.identities = append(p.identities, identity)
+	return browser.DesktopResult{}, errors.New("desktop inventory reached")
+}
+
 func (*recursiveBrowserProvider) CallContext(capability.BrowserCall) (context.Context, error) {
 	return nil, errors.New("unexpected browser call context")
 }
@@ -99,8 +107,16 @@ func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
 					t.Fatalf("%s did not route to desktop resolver: %+v %v", tc.op, result, err)
 				}
 			}
+			code := `print(browser.list_tabs())`
+			if engine == rlm.EngineQuickJS {
+				code = `print(await browser.list_tabs())`
+			}
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), code)
+			if err != nil || !strings.Contains(result.Output, "desktop inventory reached") {
+				t.Fatalf("list_tabs did not route to desktop inventory: %+v %v", result, err)
+			}
 			provider.mu.Lock()
-			if len(provider.operations) != 5 {
+			if len(provider.operations) != 6 {
 				t.Fatalf("operations=%v", provider.operations)
 			}
 			for _, identity := range provider.identities {
@@ -198,7 +214,7 @@ func TestRecursiveBrowserTransferBeforeChildWorkAndRollback(t *testing.T) {
 				child := runtime.agents[childID]
 				runtime.mu.RUnlock()
 				input, err := child.host.focusInput(t.Context(), "inspect")
-				if err != nil || !strings.Contains(input, "child-parent-attachment") || !strings.Contains(input, "untrusted data") {
+				if err != nil || input != "inspect" {
 					t.Fatalf("input=%q err=%v", input, err)
 				}
 				inspection, err := runtime.inspect(t.Context(), runtime.rootNode, childID, false)
