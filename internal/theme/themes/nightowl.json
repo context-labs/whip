@@ -1,0 +1,44 @@
+{
+  "name": "nightowl",
+  "dark": true,
+  "palette": {
+    "text": "#d6deeb",
+    "muted": "#5f7e97",
+    "faint": "#5f7e97",
+    "primary": "#82aaff",
+    "accent": "#c792ea",
+    "success": "#c5e478",
+    "warning": "#ecc48d",
+    "error": "#ef5350",
+    "info": "#82aaff",
+    "link": "#82aaff",
+    "emphasis": "#c792ea",
+    "border": "#5f7e97",
+    "borderFocus": "#82aaff",
+    "bg": "#011627",
+    "diffAdd": "#0a2e1a",
+    "diffDel": "#2d1b1b",
+    "onPrimary": "#011627"
+  },
+  "surfaces": {
+    "panel": "#0b253a",
+    "element": "#0b253a",
+    "hover": "#1a3246"
+  },
+  "syntax": {
+    "keyword": "#c792ea",
+    "string": "#ecc48d",
+    "number": "#f78c6c",
+    "comment": "#637777",
+    "function": "#82aaff",
+    "type": "#c5e478",
+    "operator": "#7fdbca",
+    "punctuation": "#d6deeb"
+  },
+  "markdown": {
+    "heading": "#82aaff",
+    "strong": "#ecc48d",
+    "code": "#c5e478",
+    "quote": "#5f7e97"
+  }
+}

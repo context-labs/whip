@@ -80,6 +80,7 @@ as a compatible fallback route. OAuth credentials are only sent to
 /goal <text>        work until done
 /model              pick a model — type to filter (new) entries come from the
                     provider catalog, no config needed
+/theme              preview and select from the built-in terminal themes
 ```
 
 Drop a `.mcp.json` in your repo and MCP servers just appear (`/mcp` to see

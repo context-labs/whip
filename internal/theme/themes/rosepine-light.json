@@ -1,0 +1,44 @@
+{
+  "name": "rosepine-light",
+  "dark": false,
+  "palette": {
+    "text": "#575279",
+    "muted": "#9893a5",
+    "faint": "#f4ede8",
+    "primary": "#31748f",
+    "accent": "#d7827e",
+    "success": "#286983",
+    "warning": "#ea9d34",
+    "error": "#b4637a",
+    "info": "#56949f",
+    "link": "#d7827e",
+    "emphasis": "#ea9d34",
+    "border": "#dfdad9",
+    "borderFocus": "#31748f",
+    "bg": "#faf4ed",
+    "diffAdd": "#e5f2f3",
+    "diffDel": "#fce5e8",
+    "onPrimary": "#faf4ed"
+  },
+  "surfaces": {
+    "panel": "#fffaf3",
+    "element": "#f2e9e1",
+    "hover": "#e3dbd4"
+  },
+  "syntax": {
+    "keyword": "#286983",
+    "string": "#ea9d34",
+    "number": "#907aa9",
+    "comment": "#9893a5",
+    "function": "#d7827e",
+    "type": "#56949f",
+    "operator": "#797593",
+    "punctuation": "#797593"
+  },
+  "markdown": {
+    "heading": "#907aa9",
+    "strong": "#b4637a",
+    "code": "#286983",
+    "quote": "#9893a5"
+  }
+}

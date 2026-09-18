@@ -1,0 +1,44 @@
+{
+  "name": "tokyonight-light",
+  "dark": false,
+  "palette": {
+    "text": "#3760bf",
+    "muted": "#8990a3",
+    "faint": "#9699a8",
+    "primary": "#2e7de9",
+    "accent": "#b15c00",
+    "success": "#587539",
+    "warning": "#b15c00",
+    "error": "#f52a65",
+    "info": "#2e7de9",
+    "link": "#007197",
+    "emphasis": "#8c6c3e",
+    "border": "#737a8c",
+    "borderFocus": "#5a607d",
+    "bg": "#e1e2e7",
+    "diffAdd": "#d5e5d5",
+    "diffDel": "#f7d8db",
+    "onPrimary": "#e1e2e7"
+  },
+  "surfaces": {
+    "panel": "#d5d6db",
+    "element": "#c8c9ce",
+    "hover": "#bcbdc2"
+  },
+  "syntax": {
+    "keyword": "#9854f1",
+    "string": "#587539",
+    "number": "#b15c00",
+    "comment": "#8990a3",
+    "function": "#2e7de9",
+    "type": "#8c6c3e",
+    "operator": "#007197",
+    "punctuation": "#3760bf"
+  },
+  "markdown": {
+    "heading": "#9854f1",
+    "strong": "#b15c00",
+    "code": "#587539",
+    "quote": "#8c6c3e"
+  }
+}

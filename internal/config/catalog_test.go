@@ -5,6 +5,21 @@ import (
 	"time"
 )
 
+func TestCatalogEfforts(t *testing.T) {
+	cat := Catalog{Models: []ModelInfoLite{
+		{ID: "reasoning", ReasoningEfforts: []string{"none", "low", "high"}},
+		{ID: "plain"},
+	}}
+	if got := cat.Efforts("reasoning"); len(got) != 3 || got[0] != "" || got[1] != "low" || got[2] != "high" {
+		t.Fatalf("reasoning efforts = %v", got)
+	}
+	for _, id := range []string{"plain", "missing"} {
+		if got := cat.Efforts(id); len(got) != 1 || got[0] != "" {
+			t.Errorf("Efforts(%q) = %v", id, got)
+		}
+	}
+}
+
 func TestCatalogPricing(t *testing.T) {
 	cat := Catalog{Models: []ModelInfoLite{
 		{ID: "priced", InPrice: 1e-6, OutPrice: 5e-6, CacheReadPrice: 1e-7},

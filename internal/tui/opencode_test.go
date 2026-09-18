@@ -48,14 +48,17 @@ func TestSetThemeRefreshesOpencodeInputStyles(t *testing.T) {
 	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
 
 	m := &model{cfg: &config.Config{}, input: newInput()}
-	t.Cleanup(func() { m.applyUIMode("") }) // don't leak ocActive into other tests
+	t.Cleanup(func() {
+		m.applyUIMode("")
+		setSchemeOverride("")
+	}) // don't leak UI or theme state into other tests
 	mdMu.Lock()
 	mdKnown = false // start unknown: styles bake NoColor
 	mdMu.Unlock()
 	m.applyUIMode(opencodeMode)
 	m.setTheme("light") // must re-bake the input styles with the light palette
-	if got := m.input.FocusedStyle.Placeholder.GetBackground(); got != lipgloss.Color("#e1e1e1") {
-		t.Fatalf("placeholder bg after /theme light = %v, want #e1e1e1", got)
+	if got := m.input.FocusedStyle.Placeholder.GetBackground(); got != lipgloss.Color("#dcdcdc") {
+		t.Fatalf("placeholder bg after /theme light = %v, want #dcdcdc", got)
 	}
 }
 
@@ -563,13 +566,20 @@ func TestThemeSync(t *testing.T) {
 	mdLight, mdKnown = true, true // currently light
 	mdMu.Unlock()
 
-	m := &model{cfg: &config.Config{}, input: newInput()}
+	m := &model{cfg: &config.Config{}, input: newInput(), blocks: []block{{text: "cached"}}}
+	m.spin.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff"))
 	m.Update(themeSyncMsg{light: false, ok: true}) // terminal flipped dark
 	mdMu.Lock()
 	nowLight := mdLight
 	mdMu.Unlock()
-	if nowLight || len(m.blocks) == 0 || !strings.Contains(m.blocks[len(m.blocks)-1].text, "auto → dark") {
+	if nowLight || len(m.blocks) < 2 || !strings.Contains(m.blocks[len(m.blocks)-1].text, "auto → dark") {
 		t.Fatalf("flip not applied: light=%v blocks=%d", nowLight, len(m.blocks))
+	}
+	if !m.blocks[0].stale {
+		t.Fatal("theme flip must invalidate cached transcript blocks")
+	}
+	if got, want := m.spin.Style.GetForeground(), currentTheme().Spinner.GetForeground(); got != want {
+		t.Fatalf("spinner color not refreshed: got %v, want %v", got, want)
 	}
 	// same theme again: no duplicate note
 	n := len(m.blocks)
@@ -734,8 +744,9 @@ func TestOcBgShift(t *testing.T) {
 	if c, ok := ocBgShift(10); !ok || c != lipgloss.Color("#ebebe1") {
 		t.Fatalf("light shift = %v %v, want #ebebe1", c, ok)
 	}
-	// panels/element derive from the cache when present
+	// Semantic surfaces derive from the cache when the active theme is rebuilt.
 	bgCache = bgResult{light: false, valid: true, r: 0x26, g: 0x28, b: 0x2c, hasRGB: true}
+	rebuildTheme()
 	if got := ocPanelBg(); got != lipgloss.Color("#303236") {
 		t.Fatalf("panel = %v, want derived", got)
 	}

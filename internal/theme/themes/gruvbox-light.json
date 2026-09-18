@@ -1,0 +1,44 @@
+{
+  "name": "gruvbox-light",
+  "dark": false,
+  "palette": {
+    "text": "#3c3836",
+    "muted": "#7c6f64",
+    "faint": "#d5c4a1",
+    "primary": "#076678",
+    "accent": "#427b58",
+    "success": "#79740e",
+    "warning": "#af3a03",
+    "error": "#9d0006",
+    "info": "#b57614",
+    "link": "#79740e",
+    "emphasis": "#8f3f71",
+    "border": "#bdae93",
+    "borderFocus": "#3c3836",
+    "bg": "#fbf1c7",
+    "diffAdd": "#dcd8a4",
+    "diffDel": "#e2c7c3",
+    "onPrimary": "#fbf1c7"
+  },
+  "surfaces": {
+    "panel": "#ebdbb2",
+    "element": "#d5c4a1",
+    "hover": "#c8b897"
+  },
+  "syntax": {
+    "keyword": "#9d0006",
+    "string": "#b57614",
+    "number": "#8f3f71",
+    "comment": "#7c6f64",
+    "function": "#79740e",
+    "type": "#427b58",
+    "operator": "#af3a03",
+    "punctuation": "#3c3836"
+  },
+  "markdown": {
+    "heading": "#076678",
+    "strong": "#af3a03",
+    "code": "#b57614",
+    "quote": "#7c6f64"
+  }
+}

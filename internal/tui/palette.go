@@ -2,16 +2,19 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"slices"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
+	sharedtheme "github.com/context-labs/whip/internal/theme"
 )
 
 // paletteItem is one row in the ctrl+p command palette. It mirrors opencode's
@@ -93,7 +96,8 @@ type ppanel struct {
 
 	mcps []mcpRow // panelMCP: the two source toggles then one row per server
 
-	err string // inline error from a failed apply (bad compact model, …)
+	err     string // inline error from a failed apply (bad compact model, …)
+	initial string // panelTheme: selection restored when preview is cancelled
 
 	// direct marks a panel a slash command opened straight into (bare /effort,
 	// /theme): enter applies and closes the whole palette instead of popping
@@ -338,12 +342,12 @@ func (m *model) paletteItems() []paletteItem {
 			dynDesc: func(m *model) string { return "current: " + CurrentTheme() },
 			dynHint: func(m *model) string { return "/theme " + slashHint(m, "/theme") },
 			panel: func(m *model) *ppanel {
-				list := []string{"auto", "light", "dark"}
+				list := themeNames()
 				cur := m.cfg.Theme
 				if cur == "" {
 					cur = "auto"
 				}
-				pp := &ppanel{kind: panelTheme, title: "Theme", list: list}
+				pp := &ppanel{kind: panelTheme, title: "Theme", list: list, initial: cur}
 				for i, t := range list {
 					if t == cur {
 						pp.midx = i
@@ -728,16 +732,19 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 	case panelTheme:
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
+			m.previewTheme(pp.initial)
 			pop()
 		case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
 			pp.midx = (pp.midx - 1 + len(pp.list)) % len(pp.list)
+			m.previewTheme(pp.list[pp.midx])
 		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
 			pp.midx = (pp.midx + 1) % len(pp.list)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyEnter:
-			m.setTheme(pp.list[pp.midx]) // applies live; re-renders the transcript
-			if msg.Type == tea.KeyEnter {
-				pop()
-			}
+			m.previewTheme(pp.list[pp.midx])
+		case tea.KeyLeft, tea.KeyRight:
+			m.previewTheme(pp.list[pp.midx])
+		case tea.KeyEnter:
+			m.setTheme(pp.list[pp.midx])
+			pop()
 		}
 
 	case panelBrowser:
@@ -959,6 +966,27 @@ func paletteState(m *model, it paletteItem) string {
 	return ""
 }
 
+// themePreview renders the active theme's semantic roles next to the picker.
+func themePreview() string {
+	th := currentTheme()
+	row := func(label string, fg, bg color.Color) string {
+		return th.On(fg, bg).Render("  " + label + strings.Repeat(" ", 17-len(label)))
+	}
+	return strings.Join([]string{
+		th.On(th.Text, th.Panel).Bold(true).Render("  Theme preview     "),
+		row("Primary", th.OnPrimary, th.Primary),
+		row("Accent", th.Text, th.Accent),
+		row("Success", th.Success, th.Element),
+		row("Warning", th.Warning, th.Element),
+		row("Error", th.Error, th.Element),
+		row("Info / link", th.Info, th.Element),
+		row("Muted text", th.Muted, th.Element),
+		row("Code: func()", sharedtheme.ParseColor(th.Spec().SyntaxColors().Function), th.Element),
+		row("+ added", th.Success, th.DiffAdd),
+		row("- removed", th.Error, th.DiffDel),
+	}, "\n")
+}
+
 // panelView renders the active sub-panel.
 func (m *model) panelView(pp *ppanel) string {
 	var b strings.Builder
@@ -1083,18 +1111,46 @@ func (m *model) panelView(pp *ppanel) string {
 		if cur == "" {
 			cur = "auto"
 		}
-		for i, name := range pp.list {
-			mark := ""
+		rows := max(m.height-8, 3)
+		lo := max(pp.midx-rows/2, 0)
+		hi := min(lo+rows, len(pp.list))
+		lo = max(hi-rows, 0)
+		var list strings.Builder
+		if lo > 0 {
+			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
+		}
+		const listWidth = 27
+		for i := lo; i < hi; i++ {
+			name := pp.list[i]
+			markText := ""
 			if name == cur {
-				mark = dimStyle.Render("  (current)")
+				markText = "  (current)"
 			}
+			label := themeLabel(name)
+			if m.width >= 64 {
+				// Truncate plain text before styling. Cutting an ANSI-styled row can
+				// drop its closing reset and leak the current/dim color into later rows.
+				label = ansi.Truncate(label, max(listWidth-3-ansi.StringWidth(markText), 1), "…")
+			}
+			mark := dimStyle.Render(markText)
 			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+name) + mark + "\n")
+				list.WriteString(botStyle.Render(" → "+label) + mark + "\n")
 			} else {
-				b.WriteString("   " + name + mark + "\n")
+				list.WriteString("   " + label + mark + "\n")
 			}
 		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
+		if hi < len(pp.list) {
+			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
+		}
+		if m.width >= 64 {
+			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
+				lipgloss.NewStyle().Width(listWidth).Render(strings.TrimRight(list.String(), "\n")),
+				themePreview(),
+			))
+		} else {
+			b.WriteString(list.String())
+		}
+		b.WriteString("\n\n" + dimStyle.Render("  ↑/↓ preview · enter apply · esc cancel"))
 
 	case panelBrowser:
 		for i, name := range pp.list {

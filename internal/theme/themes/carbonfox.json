@@ -1,0 +1,44 @@
+{
+  "name": "carbonfox",
+  "dark": true,
+  "palette": {
+    "text": "#f2f4f8",
+    "muted": "#7d848f",
+    "faint": "#262626",
+    "primary": "#33b1ff",
+    "accent": "#ff7eb6",
+    "success": "#25be6a",
+    "warning": "#f1c21b",
+    "error": "#ee5396",
+    "info": "#78a9ff",
+    "link": "#33b1ff",
+    "emphasis": "#be95ff",
+    "border": "#303030",
+    "borderFocus": "#33b1ff",
+    "bg": "#161616",
+    "diffAdd": "#0f2418",
+    "diffDel": "#2a1216",
+    "onPrimary": "#161616"
+  },
+  "surfaces": {
+    "panel": "#1a1a1a",
+    "element": "#1e1e1e",
+    "hover": "#2c2c2c"
+  },
+  "syntax": {
+    "keyword": "#be95ff",
+    "string": "#25be6a",
+    "number": "#3ddbd9",
+    "comment": "#7d848f",
+    "function": "#8cb6ff",
+    "type": "#08bdba",
+    "operator": "#a9afbc",
+    "punctuation": "#a9afbc"
+  },
+  "markdown": {
+    "heading": "#8cb6ff",
+    "strong": "#ffffff",
+    "code": "#25be6a",
+    "quote": "#7d848f"
+  }
+}

@@ -94,6 +94,7 @@ var (
 	mdAtWidth     int
 	mdAtLight     bool // theme the cached renderer was built for
 	mdAtKnown     bool // whether the cached renderer was built with a known bg
+	mdAtThemeGen  int  // semantic palette generation used by the cached renderer
 	mdRendererC   *glamour.TermRenderer
 	mdRendererErr bool   // style init failed once: don't retry per message
 	mdLight       bool   // light terminal background detected (set at startup)
@@ -114,6 +115,7 @@ func SetLightTheme(light bool) {
 	mdLight, mdKnown = light, true
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	rebuildTheme()
 }
 
 // SetUnknownTheme records that the terminal background could NOT be determined
@@ -126,6 +128,7 @@ func SetUnknownTheme() {
 	mdKnown = false
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	rebuildTheme()
 }
 
 // setSchemeOverride records an explicit scheme pick ("light"/"dark", "" = back
@@ -134,6 +137,7 @@ func setSchemeOverride(s string) {
 	mdMu.Lock()
 	mdScheme = s
 	mdMu.Unlock()
+	rebuildTheme()
 }
 
 // CurrentTheme reports the active scheme ("light"/"dark"/"auto") for the UI.
@@ -187,26 +191,7 @@ func invalidateMDRenderer() {
 // glamour's default cell padding wastes ~4 columns per cell, which is the
 // difference between a readable table and wrapped mush at narrow widths.
 func mdStyle() glamouransi.StyleConfig {
-	if ocActive && mdKnown { // unknown bg → fall through to neutralStyle (no light/dark assumption)
-		return opencodeMDStyle(mdLight)
-	}
-	var st glamouransi.StyleConfig
-	switch {
-	case !mdKnown:
-		st = neutralStyle()
-	case mdLight:
-		st = styles.LightStyleConfig
-		st.Code.Color = new("124")           // dark red
-		st.Code.BackgroundColor = new("255") // lightest gray chip
-	default:
-		st = styles.DarkStyleConfig
-	}
-	st.Table.ColumnSeparator = new("│")
-	st.Table.CenterSeparator = new("┼")
-	st.Table.RowSeparator = new("─")
-	zero := uint(0)
-	st.Table.Margin = &zero
-	return st
+	return currentTheme().Markdown()
 }
 
 // opencodeMDStyle renders assistant markdown in opencode's palette (both
@@ -244,37 +229,6 @@ func opencodeMDStyle(light bool) glamouransi.StyleConfig {
 	return st
 }
 
-// neutralStyle is the unknown-background style: auto mode with no reliable
-// signal — e.g. mosh+tmux, where the OSC 11 query is structurally unanswerable
-// (mosh's terminal emulator doesn't implement it, so neither tmux nor the
-// passthrough copy ever gets a reply). The old fallback here was glamour's
-// ASCII style, which reads as broken: literal ## headings, kept ** markers,
-// raw table pipes, zero color.
-//
-// This keeps the dark style's STRUCTURE (styled headings, italic/bold, • items,
-// box-drawing tables) but drops or remaps every color that assumes a dark
-// background to a basic ANSI color (0–15) — those come from the terminal's own
-// palette, so they stay legible on any background. Code blocks render without
-// syntax highlighting: chroma's fixed hex palettes need a known background.
-func neutralStyle() glamouransi.StyleConfig {
-	st := styles.DarkStyleConfig
-	st.Document.Color = nil // terminal default foreground
-	st.Heading.Color = new("4")
-	st.H1.Color, st.H1.BackgroundColor = nil, nil // no color chip
-	st.H1.Prefix, st.H1.Suffix = "# ", ""
-	st.H6.Color = nil
-	st.HorizontalRule.Color = new("8")
-	st.Link.Color = new("4")
-	st.LinkText.Color = new("6")
-	st.Image.Color = new("4")
-	st.ImageText.Color = new("8")
-	st.Code.Color = new("1") // inline code: ANSI red, no chip
-	st.Code.BackgroundColor = nil
-	st.CodeBlock.Color = nil
-	st.CodeBlock.Chroma = nil
-	return st
-}
-
 // mdRenderer returns a cached renderer per width (glamour builds a
 // style-traversed renderer per Render call otherwise).
 func mdRenderer(width int) *glamour.TermRenderer {
@@ -289,7 +243,8 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	// other theme. The registry entry is keyed by name, not theme: drop it
 	// whenever the cached renderer's theme isn't the current one, and also
 	// when the entry's origin is unknown (first call after a theme flip).
-	if mdRendererC != nil && mdAtWidth == width && mdAtLight == mdLight && mdAtKnown == mdKnown {
+	gen := themeGeneration()
+	if mdRendererC != nil && mdAtWidth == width && mdAtLight == mdLight && mdAtKnown == mdKnown && mdAtThemeGen == gen {
 		return mdRendererC
 	}
 	unregisterChromaStyle()
@@ -305,7 +260,7 @@ func mdRenderer(width int) *glamour.TermRenderer {
 		mdRendererErr = true
 		return nil
 	}
-	mdRendererC, mdAtWidth, mdAtLight, mdAtKnown = r, width, mdLight, mdKnown
+	mdRendererC, mdAtWidth, mdAtLight, mdAtKnown, mdAtThemeGen = r, width, mdLight, mdKnown, gen
 	return r
 }
 

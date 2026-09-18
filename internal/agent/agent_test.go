@@ -785,6 +785,10 @@ func TestAppendUser(t *testing.T) {
 func TestSetAndResetUsage(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
 	ag.SetUsage(llm.Usage{PromptTokens: 11, CompletionTokens: 7})
+	ag.SetSubUsage(map[string]llm.Usage{"sub @ provider": {PromptTokens: 3, CompletionTokens: 2}})
+	if u := ag.SubUsage()["sub @ provider"]; u.PromptTokens != 3 || u.CompletionTokens != 2 {
+		t.Fatalf("seeded subagent totals = %+v", ag.SubUsage())
+	}
 	ag.AddUsage(llm.Usage{PromptTokens: 4, CompletionTokens: 1})
 	if u := ag.Usage(); u.PromptTokens != 15 || u.CompletionTokens != 8 {
 		t.Fatalf("seeded totals should keep counting: %+v", u)

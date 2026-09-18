@@ -38,25 +38,32 @@ import (
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tools/bashrun"
+	uitheme "github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
-// UI styles use AdaptiveColor so they stay legible on both dark and light
-// terminal backgrounds (detected at startup by detectColorScheme).
-var (
-	youStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "21", Dark: "12"}).Bold(true) // blue
-	botStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "90", Dark: "13"}).Bold(true) // purple/magenta
-	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
-	growStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "10"})            // green
-	// thinkingStyle renders reasoning tokens: dim and italic so they're
-	// visually distinct from the answer.
-	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
-)
+var youStyle, botStyle, toolStyle, dimStyle, errStyle, growStyle, thinkingStyle lipgloss.Style
+
+func init() { refreshBaseStyles() }
+
+// refreshBaseStyles rebuilds package-level styles from the active semantic
+// palette. Existing render paths can stay unchanged while named themes swap.
+func refreshBaseStyles() {
+	rebuildTheme()
+	th := currentTheme()
+	youStyle = th.On(th.Info, nil).Bold(true)
+	botStyle = th.On(th.Accent, nil).Bold(true)
+	toolStyle = th.WarningText
+	dimStyle = th.MutedText
+	errStyle = th.ErrorText
+	growStyle = th.SuccessText
+	thinkingStyle = th.MutedText.Italic(true)
+	diffAddStyle = th.On(nil, th.DiffAdd)
+	diffDelStyle = th.On(nil, th.DiffDel)
+}
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
 // opencode render mode can swap them (❯→┃, ●→▣) in one place; both defaults
@@ -496,6 +503,11 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// Resolve the theme BEFORE applyUIMode/startupReport: opencode mode bakes
 	// theme-resolved colors into the input styles, and startupReport's
 	// unknown-background notice must reflect the final detection result.
+	invalidTheme := cfg.Theme != "" && !knownThemeName(cfg.Theme)
+	invalidThemeName := cfg.Theme
+	if invalidTheme {
+		cfg.Theme = ""
+	}
 	m.themeHow = m.applyTheme(cfg.Theme)
 	if cfg.UIMode == opencodeMode {
 		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
@@ -505,6 +517,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// option at the moment the pane asks).
 	tmuxEnableExtendedKeys()
 	m.startupReport()
+	if invalidTheme {
+		m.append(errStyle.Render("unknown configured theme " + strconv.Quote(invalidThemeName) + "; using auto"))
+	}
 
 	// Inline rendering (no alt-screen): the transcript lives in the normal
 	// terminal scrollback, so terminal scrollback owns history. Mouse capture
@@ -1152,13 +1167,14 @@ func (m *model) persist() {
 	m.saved = len(m.agent.Messages)
 }
 
-// setTheme switches the color scheme ("light"/"dark"/"auto") live and
-// persists the pick to the global config: markdown re-renders under the new
-// glamour style and every AdaptiveColor UI style follows lipgloss. A theme
-// file change in ANOTHER running whip session is picked up live via
-// syncThemeMsg.
+func (m *model) previewTheme(name string) {
+	m.themeHow = m.applyTheme(name)
+	m.refreshVP()
+}
+
+// setTheme switches the active built-in theme live and persists its stable ID.
 func (m *model) setTheme(theme string) {
-	if theme != "light" && theme != "dark" {
+	if !knownThemeName(theme) {
 		theme = "auto"
 	}
 	how := m.applyTheme(theme)
@@ -1194,21 +1210,51 @@ func (m *model) setTheme(theme string) {
 // explicit picks override detection directly. Called by setTheme, startup, and
 // the config watcher. how (only meaningful for auto) names the detection
 // source so a wrong pick is diagnosable in the transcript note.
-func (m *model) applyTheme(theme string) (how string) {
-	switch theme {
-	case "light":
-		SetLightTheme(true)
-		lipgloss.SetHasDarkBackground(false)
-		setSchemeOverride("light")
-	case "dark":
-		SetLightTheme(false)
-		lipgloss.SetHasDarkBackground(true)
-		setSchemeOverride("dark")
-	default: // auto: don't touch m.cfg.Theme — setTheme owns persistence
+func (m *model) applyTheme(name string) (how string) {
+	switch name {
+	case "", "auto": // don't touch m.cfg.Theme — setTheme owns persistence
 		setSchemeOverride("")
 		how = detectColorScheme()
+	default:
+		spec, ok := uitheme.Builtin(name)
+		if !ok {
+			setSchemeOverride("")
+			how = detectColorScheme()
+			break
+		}
+		SetLightTheme(!spec.Dark)
+		lipgloss.SetHasDarkBackground(spec.Dark)
+		setSchemeOverride(name)
 	}
+	refreshBaseStyles()
+	m.applyThemeStyles()
 	return how
+}
+
+// applyThemeStyles refreshes stateful Bubble components and cached transcript
+// blocks after the active semantic palette changes.
+func (m *model) applyThemeStyles() {
+	th := currentTheme()
+	m.spin.Style = th.Spinner
+	if m.uiMode == opencodeMode {
+		m.input.FocusedStyle.Text = th.On(th.Text, th.Element)
+		m.input.FocusedStyle.CursorLine = th.On(th.Text, th.Element)
+		m.input.FocusedStyle.Placeholder = th.On(th.Muted, th.Element)
+		m.input.BlurredStyle.Text = th.On(th.Text, th.Element)
+		m.input.BlurredStyle.Placeholder = th.On(th.Muted, th.Element)
+	} else {
+		m.input.FocusedStyle.Text = th.Body
+		m.input.FocusedStyle.CursorLine = th.Body
+		m.input.FocusedStyle.Placeholder = th.MutedText
+		m.input.BlurredStyle.Text = th.Body
+		m.input.BlurredStyle.Placeholder = th.MutedText
+	}
+	m.input.Focus() // textarea snapshots a pointer to the focused style
+	for i := range m.blocks {
+		m.blocks[i].stale = true
+	}
+	invalidateMDRenderer()
+	m.refreshVP()
 }
 
 // setEffort changes the reasoning effort and stores it both ways: as the new
@@ -1399,7 +1445,7 @@ func (b *block) renderAt(width int) string {
 	if !b.stale && b.width == width {
 		return b.rendered
 	}
-	b.rendered = b.render(width)
+	b.rendered = renderBodyText(b.render(width))
 	b.lines = lipgloss.Height(b.rendered)
 	b.width, b.stale = width, false
 	return b.rendered
@@ -2213,13 +2259,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case themePollMsg:
-		if m.cfg.Theme != "" { // explicit pick: nothing to track, keep the tick alive
+		if m.cfg.Theme != "" || (m.palette != nil && m.palette.top() != nil && m.palette.top().kind == panelTheme) {
+			// Explicit picks and named-theme previews do not follow terminal
+			// appearance. Keep the tick alive without polling until auto is active.
 			return m, themePollTick()
 		}
 		return m, tea.Batch(pollClientTheme, themePollTick())
 
 	case themeSyncMsg:
-		if !msg.ok || m.cfg.Theme != "" {
+		if !msg.ok || m.cfg.Theme != "" || (m.palette != nil && m.palette.top() != nil && m.palette.top().kind == panelTheme) {
 			return m, nil
 		}
 		mdMu.Lock()
@@ -2232,10 +2280,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		SetLightTheme(msg.light)
 		lipgloss.SetHasDarkBackground(!msg.light)
 		bgCache = bgResult{light: msg.light, valid: true} // no RGB from the theme report
-		if m.uiMode == opencodeMode {
-			m.applyUIMode(opencodeMode) // re-bake input styles/spinner for the new scheme
-		}
-		m.refreshVP()
+		refreshBaseStyles()
+		m.applyThemeStyles()
 		word := "dark"
 		if msg.light {
 			word = "light"
@@ -4654,11 +4700,10 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/theme":
 		if len(fields) > 1 {
-			switch fields[1] {
-			case "light", "dark", "auto":
+			if knownThemeName(fields[1]) {
 				m.setTheme(fields[1])
-			default:
-				m.append(errStyle.Render("usage: /theme light|dark|auto"))
+			} else {
+				m.append(errStyle.Render("unknown theme: " + fields[1] + " (run /theme to browse)"))
 			}
 		} else {
 			m.openPaletteOn("theme") // bare: open the switcher, don't toggle blind
@@ -5094,7 +5139,7 @@ func (m *model) currentViewCapped() string {
 	if liveCap == 0 {
 		return ""
 	}
-	return streamTail(m.currentView(), liveCap)
+	return renderBodyText(streamTail(m.currentView(), liveCap))
 }
 
 // thinkViewCapped is thinkView trimmed the same way for the live reasoning line.
@@ -5197,6 +5242,29 @@ func (m *model) View() string {
 		}
 	}
 	return v
+}
+
+// renderBodyText supplies the semantic default foreground without asking
+// lipgloss to render a multiline rectangle (which pads blank lines).
+func renderBodyText(s string) string {
+	style := currentTheme().Body
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		styled := style.Render(line)
+		// Inner semantic styles reset the terminal foreground. Resume the body
+		// color after each reset so following unstyled text still uses the theme.
+		probe := style.Render("x")
+		prefix := strings.TrimSuffix(probe, "x\x1b[0m")
+		if prefix != probe && strings.HasSuffix(styled, "\x1b[0m") {
+			body := strings.TrimSuffix(styled, "\x1b[0m")
+			styled = strings.ReplaceAll(body, "\x1b[0m", "\x1b[0m"+prefix) + "\x1b[0m"
+		}
+		lines[i] = styled
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) viewBody() string {

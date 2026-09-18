@@ -1,0 +1,44 @@
+{
+  "name": "nord",
+  "dark": true,
+  "palette": {
+    "text": "#eceff4",
+    "muted": "#8b95a7",
+    "faint": "#434c5e",
+    "primary": "#88c0d0",
+    "accent": "#8fbcbb",
+    "success": "#a3be8c",
+    "warning": "#d08770",
+    "error": "#bf616a",
+    "info": "#88c0d0",
+    "link": "#8fbcbb",
+    "emphasis": "#d08770",
+    "border": "#434c5e",
+    "borderFocus": "#4c566a",
+    "bg": "#2e3440",
+    "diffAdd": "#3b4252",
+    "diffDel": "#3b4252",
+    "onPrimary": "#2e3440"
+  },
+  "surfaces": {
+    "panel": "#3b4252",
+    "element": "#434c5e",
+    "hover": "#4e5768"
+  },
+  "syntax": {
+    "keyword": "#81a1c1",
+    "string": "#a3be8c",
+    "number": "#b48ead",
+    "comment": "#8b95a7",
+    "function": "#88c0d0",
+    "type": "#8fbcbb",
+    "operator": "#81a1c1",
+    "punctuation": "#d8dee9"
+  },
+  "markdown": {
+    "heading": "#88c0d0",
+    "strong": "#ebcb8b",
+    "code": "#a3be8c",
+    "quote": "#8b95a7"
+  }
+}

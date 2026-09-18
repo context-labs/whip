@@ -60,8 +60,13 @@ func (m *model) applyCfgSync(msg cfgSyncMsg) {
 		return
 	}
 	if msg.theme != m.cfg.Theme {
-		m.cfg.Theme = msg.theme
-		m.themeHow = m.applyTheme(msg.theme) // keep /report's detection source current
-		m.refreshVP()                        // repaint under the new scheme without a terminal resize
+		name := msg.theme
+		if name != "" && !knownThemeName(name) {
+			name = ""
+			m.append(errStyle.Render("ignored unknown configured theme: " + msg.theme))
+		}
+		m.cfg.Theme = name
+		m.themeHow = m.applyTheme(name) // keep /report's detection source current
+		m.refreshVP()                   // repaint under the new scheme without a terminal resize
 	}
 }

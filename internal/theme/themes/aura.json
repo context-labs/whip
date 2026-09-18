@@ -1,0 +1,44 @@
+{
+  "name": "aura",
+  "dark": true,
+  "palette": {
+    "text": "#edecee",
+    "muted": "#6d6d6d",
+    "faint": "#2d2d2d",
+    "primary": "#a277ff",
+    "accent": "#a277ff",
+    "success": "#61ffca",
+    "warning": "#ffca85",
+    "error": "#ff6767",
+    "info": "#a277ff",
+    "link": "#a277ff",
+    "emphasis": "#ffca85",
+    "border": "#2d2d2d",
+    "borderFocus": "#6d6d6d",
+    "bg": "#0f0f0f",
+    "diffAdd": "#354933",
+    "diffDel": "#3f191a",
+    "onPrimary": "#0f0f0f"
+  },
+  "surfaces": {
+    "panel": "#15141b",
+    "element": "#15141b",
+    "hover": "#232229"
+  },
+  "syntax": {
+    "keyword": "#f694ff",
+    "string": "#61ffca",
+    "number": "#9dff65",
+    "comment": "#6d6d6d",
+    "function": "#a277ff",
+    "type": "#a277ff",
+    "operator": "#f694ff",
+    "punctuation": "#edecee"
+  },
+  "markdown": {
+    "heading": "#a277ff",
+    "strong": "#a277ff",
+    "code": "#61ffca",
+    "quote": "#6d6d6d"
+  }
+}
