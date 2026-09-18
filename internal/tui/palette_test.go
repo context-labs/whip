@@ -141,6 +141,9 @@ func TestThemePanelShowsColorPreviewWhenWide(t *testing.T) {
 }
 
 func TestThemePanelRowsDoNotWrap(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
 	m := compactCmdModel()
 	m.width, m.height = 80, 30
 	m.cfg.Theme = "neon-city-dark"
@@ -156,8 +159,13 @@ func TestThemePanelRowsDoNotWrap(t *testing.T) {
 	if strings.Contains(view, "Neon City Dark\n") {
 		t.Fatalf("selected theme row wrapped unexpectedly:\n%s", view)
 	}
-	if !strings.Contains(view, "Neon City Dark") {
-		t.Fatalf("theme display name missing:\n%s", view)
+	if !strings.Contains(view, "Neon City…") {
+		t.Fatalf("truncated theme display name missing:\n%s", view)
+	}
+	for line := range strings.SplitSeq(view, "\n") {
+		if strings.Contains(line, "Neon City…") && !strings.Contains(line, "\x1b[0m") {
+			t.Fatalf("truncated current row lacks an ANSI reset: %q", line)
+		}
 	}
 }
 

@@ -1119,13 +1119,20 @@ func (m *model) panelView(pp *ppanel) string {
 		if lo > 0 {
 			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
 		}
+		const listWidth = 27
 		for i := lo; i < hi; i++ {
 			name := pp.list[i]
-			mark := ""
+			markText := ""
 			if name == cur {
-				mark = dimStyle.Render("  (current)")
+				markText = "  (current)"
 			}
 			label := themeLabel(name)
+			if m.width >= 64 {
+				// Truncate plain text before styling. Cutting an ANSI-styled row can
+				// drop its closing reset and leak the current/dim color into later rows.
+				label = ansi.Truncate(label, max(listWidth-3-ansi.StringWidth(markText), 1), "…")
+			}
+			mark := dimStyle.Render(markText)
 			if i == pp.midx {
 				list.WriteString(botStyle.Render(" → "+label) + mark + "\n")
 			} else {
@@ -1136,13 +1143,8 @@ func (m *model) panelView(pp *ppanel) string {
 			list.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(pp.list)-hi)) + "\n")
 		}
 		if m.width >= 64 {
-			const listWidth = 27
-			listRows := strings.Split(strings.TrimRight(list.String(), "\n"), "\n")
-			for i, row := range listRows {
-				listRows[i] = ansi.Truncate(row, listWidth, "…")
-			}
 			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
-				lipgloss.NewStyle().Width(listWidth).Render(strings.Join(listRows, "\n")),
+				lipgloss.NewStyle().Width(listWidth).Render(strings.TrimRight(list.String(), "\n")),
 				themePreview(),
 			))
 		} else {
