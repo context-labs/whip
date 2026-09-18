@@ -441,6 +441,13 @@ func awaitValue(vm *goja.Runtime, obj *goja.Object, onOK, onErr func(goja.Value)
 
 // exportErr unwraps a goja error value to a readable string.
 func exportErr(v goja.Value) any {
+	if obj, ok := v.(*goja.Object); ok {
+		if message := obj.Get("message"); message != nil && !goja.IsUndefined(message) && !goja.IsNull(message) {
+			if text := message.String(); text != "" {
+				return text
+			}
+		}
+	}
 	if e := v.Export(); e != nil {
 		if err, ok := e.(error); ok {
 			return err
