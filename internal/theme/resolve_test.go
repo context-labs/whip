@@ -17,6 +17,9 @@ func TestParseColorAndHex(t *testing.T) {
 		{"1", "#800000"},
 		{"16", "#000000"},
 		{"255", "#eeeeee"},
+		{"256", ""},
+		{"-1", ""},
+		{"invalid", ""},
 	}
 	for _, test := range tests {
 		if got := Hex(ParseColor(test.value)); got != test.hex {

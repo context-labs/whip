@@ -26,11 +26,14 @@ func ParseColor(s string) color.Color {
 		n, _ := strconv.ParseUint(s[1:], 16, 32)
 		return color.RGBA{R: uint8((n >> 16) & 0xff), G: uint8((n >> 8) & 0xff), B: uint8(n & 0xff), A: 255}
 	}
-	n, _ := strconv.Atoi(s)
-	if n < 16 {
-		return ansi.BasicColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255; this branch selects 0..15.
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 255 {
+		return nil
 	}
-	return ansi.IndexedColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255.
+	if n < 16 {
+		return ansi.BasicColor(uint8(n))
+	}
+	return ansi.IndexedColor(uint8(n))
 }
 
 // Hex converts a color into an explicit browser color; nil remains empty.
