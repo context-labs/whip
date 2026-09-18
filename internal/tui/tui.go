@@ -229,8 +229,10 @@ type model struct {
 	inputTop     int
 	inputLines   []string    // the input box's rendered lines, ANSI-stripped
 	vpLead       int         // top blank rows viewportView last dropped (selection row mapping)
-	viewTop      int         // screen row of the view's first line (View tracks it; mouse Y is absolute)
-	viewH        int         // height of the last rendered view
+	viewTop      int         // screen row of the view's content (mouse Y is absolute)
+	viewH        int         // height of the view's content, excluding inline anchor padding
+	frameTop     int         // screen row of Bubble Tea's physical inline render frame
+	frameH       int         // tallest fitting inline frame since the last terminal resize
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
 	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
@@ -2117,14 +2119,19 @@ func (m *model) layout() {
 		}
 		chrome += m.dockRows // the blank above the input is already in the base
 	}
-	// Now budget the in-flight streaming area at its cap: fixed chrome + the
-	// capped live rows + the transcript floor must equal the terminal height,
-	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
-	// drops the live area (and its separator) entirely.
-	if m.current != "" || m.curThink != "" {
-		if liveCap := m.streamCap(chrome); liveCap > 0 {
-			chrome += liveCap + 1 // + the blank separator above it
-		}
+	// Now budget the in-flight streaming area: the live partial line renders
+	// below the viewport and is almost always just 1–2 rows, so budget its
+	// ACTUAL rendered height (capped at streamCap) rather than the full cap.
+	// Reserving the full streamCap whenever a partial line existed clamped the
+	// viewport to minTranscriptRows even though the live area was tiny, and the
+	// per-newline gate (m.current != "") then dropped the reservation to 0 the
+	// instant a line folded into the transcript — so vpH oscillated between the
+	// clamped floor and the full height (a ~16-row jump) several times per turn,
+	// and the transcript visibly thrashed between "full chat" and "tail only".
+	// The separator (blank above the live area) is counted only when the live
+	// area itself is non-empty. The height MUST match what viewBody renders.
+	if liveRows := m.liveAreaRows(); liveRows > 0 {
+		chrome += liveRows + 1 // + the blank separator above the live area
 	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
@@ -2150,6 +2157,29 @@ func (m *model) streamCap(fixedChrome int) int {
 	}
 	floor := min(minTranscriptRows, avail-1)
 	return avail - floor
+}
+
+// liveAreaRows is the ACTUAL height the live streaming area contributes to the
+// frame this paint: the wrapped, streamCap-capped height of whichever live
+// view viewBody will render (the partial answer line, or the live reasoning
+// line — never both at once). 0 means nothing renders and no rows (and no
+// separator) are budgeted. This MUST match viewBody, which paints
+// "\n"+thinkViewCapped()+"\n" and "\n"+currentViewCapped()+"\n" for whichever
+// of curThink/current is non-empty.
+func (m *model) liveAreaRows() int {
+	// curThink and current are never live simultaneously (thinkMsg flushes
+	// current first, textMsg flushes curThink first), so claim the whole cap.
+	switch {
+	case m.curThink != "":
+		if cv := m.thinkViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	case m.current != "":
+		if cv := m.currentViewCapped(); cv != "" {
+			return lipgloss.Height(cv)
+		}
+	}
+	return 0
 }
 
 // dockTop returns the screen row of the first TASK row in the dock: the dock
@@ -2220,10 +2250,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		resized := w != m.width // width change → re-wrap the whole transcript
 		m.width, m.height = w, msg.Height
-		// re-anchor the view position: after a resize (and on the first size
-		// at startup) assume the view sits at the bottom — the next View()
-		// computes viewTop = height - viewH from this sentinel.
-		m.viewTop = 1 << 30
+		// Re-anchor the view after a resize (and on the first size). The next
+		// View computes both the physical inline frame and its content from
+		// the terminal bottom; frameH starts a new high-water mark.
+		m.viewTop, m.frameTop = 1<<30, 1<<30
+		m.frameH = 0
 		m.input.SetWidth(w - 2)
 		if resized {
 			m.refreshVP() // every block re-renders at the new width (floored at minRenderWidth)
@@ -4994,10 +5025,49 @@ const menuRows = 8
 
 func (m *model) currentView() string {
 	s := m.current
-	if !m.inMsg {
-		s = botStyle.Render(glyphAssistant) + s
+	if ocActive {
+		// opencode assistant messages carry no bullet: the body is indented 3,
+		// matching the committed blockAssistant render so the live partial does
+		// not flash a "●" the finalized text never has. Indent every wrapped row
+		// — not just the first — so a long in-flight line keeps the same hanging
+		// indent as the committed block instead of wrapping flush-left. The
+		// committed block runs renderMarkdown (glamour adds a 2-space document
+		// margin) then indentLines(_, 3) which subtracts that margin to net 3;
+		// plain wrapped text has no glamour margin, so indent every line a flat 3.
+		w := max(m.width-3, 1)
+		return indentPlain(wrap(s, w), 3)
+	}
+	// Default mode: mirror the committed blockAssistant render — it wraps the
+	// body at width-2, indents every row 2 (glamour's margin already inside the
+	// text nets to 2 via indentLines), then bakes "● " into the first row. Do
+	// the same for the live partial so the marker persists for the whole turn
+	// (gate on busy, not on !inMsg — otherwise the dot vanishes the instant the
+	// first line folds into the transcript) and continuation rows wrap under
+	// the marker instead of flush-left. The marker must read identically live
+	// and final.
+	if m.busy {
+		w := max(m.width-2, 1)
+		body := indentPlain(wrap(s, w), 2)
+		return botStyle.Render(glyphAssistant) + strings.TrimPrefix(body, "  ")
 	}
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush
+}
+
+// indentPlain prepends n spaces to every non-empty line of s (empty lines stay
+// empty). Unlike indentLines it does NOT subtract glamour's document margin —
+// use it for plain wrapped text (the live streaming partial), not for glamour
+// output.
+func indentPlain(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(ansi.Strip(l)) == "" {
+			lines[i] = ""
+			continue
+		}
+		lines[i] = pad + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // minTranscriptRows is the smallest window the transcript viewport keeps while
@@ -5082,14 +5152,13 @@ func (m *model) thinkViewCapped() string {
 	return streamTail(m.thinkView(), liveCap)
 }
 
-// View renders the frame and tracks WHERE it sits on the screen. Mouse events
-// arrive in absolute screen coordinates, so every click/drag mapping needs the
-// view's top row. The inline view starts bottom-anchored (Run moves the cursor
-// to the last row before the first paint); bubbletea's renderer scrolls the
-// top UP when the view grows past the bottom and keeps it FIXED when the view
-// shrinks — so the top row only ever decreases between resizes:
-// viewTop = min(viewTop, height - viewH). A resize resets the sentinel
-// (WindowSizeMsg handler) and the next render re-anchors to the bottom.
+// View renders the frame and tracks WHERE its content sits on the screen.
+// Bubble Tea's inline renderer can move a growing frame up but cannot move a
+// shrinking frame back down. Keep the physical frame at its tallest height
+// since the last resize and prepend blank anchor rows when content shrinks;
+// this returns the visible UI to the terminal bottom instead of leaving it
+// stranded toward the top. Bubble Tea clips oversized frames from the top, so
+// cap the tracked frame to the terminal before deriving mouse coordinates.
 func (m *model) View() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()
@@ -5102,6 +5171,39 @@ func (m *model) View() string {
 	if m.sidebarVisible() {
 		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
 		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
+	}
+	if m.height > 0 {
+		m.viewH = lipgloss.Height(v)
+		if m.uiMode == opencodeMode {
+			// Bottom-anchor the altscreen view BEFORE the overlays splice: the
+			// transcript viewport shrinks to minTranscriptRows while a response
+			// streams (streamCap reserves the rest for the live tail), then
+			// snaps to its natural height when the final markdown flushes and
+			// the live tail drops. Top-anchoring (viewTop=0) made that delta a
+			// visible jump — the input and status bar slid down the instant
+			// markdown landed. Prepend blank rows so the content's bottom sits
+			// at the terminal bottom in both phases; inputTop stays pinned. The
+			// altscreen repaints from row 0 every frame, so (unlike the inline
+			// branch) no high-water mark is needed — lead = height - viewH each
+			// paint. Overlays splice AFTER (onto the anchored frame) so their
+			// frame-relative Y stays anchored to terminal geometry: the toast
+			// keeps its top-right row, centered dialogs keep the upper third,
+			// and the completion popup sits above the input — instead of all of
+			// them riding the content down by `lead` on a short view.
+			lead := max(m.height-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = lead // content's real screen row; mouse Y maps through it
+		} else {
+			m.frameH = min(max(m.frameH, m.viewH), m.height)
+			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
+			lead := max(m.frameH-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = m.frameTop + lead
+		}
 	}
 	if m.uiMode == opencodeMode {
 		switch { // floating dialogs over the dimmed session, opencode-style
@@ -5118,14 +5220,6 @@ func (m *model) View() string {
 		}
 		if m.toast != "" {
 			v = m.ocSpliceToast(v) // top-right toast, over everything
-		}
-	}
-	if m.height > 0 {
-		m.viewH = lipgloss.Height(v)
-		if m.uiMode == opencodeMode {
-			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
-		} else {
-			m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
 		}
 	}
 	// Record the input box's absolute screen rows for drag-select. The input is

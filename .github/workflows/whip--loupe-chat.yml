@@ -63,7 +63,7 @@ jobs:
           include-imports: true
       - name: Respond
         continue-on-error: true
-        uses: context-labs/loupe@v0
+        uses: context-labs/loupe@main
         with:
           config: .loupe/config.json
         env:

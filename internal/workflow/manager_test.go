@@ -196,10 +196,12 @@ func TestManagerScriptError(t *testing.T) {
 	if snap.Status != RunError {
 		t.Fatalf("Status = %q, want error", snap.Status)
 	}
-	// The thrown JS Error object exports as a map; the exact string form is
-	// goja-version-dependent, so just assert the run surfaced an error at all.
-	if snap.Error == "" {
-		t.Fatal("snapshot Error is empty, want the thrown error surfaced")
+	if snap.Error != "boom" {
+		t.Fatalf("snapshot Error = %q, want boom", snap.Error)
+	}
+	persisted := LoadRun(r.ID)
+	if persisted == nil || persisted.Error != "boom" {
+		t.Fatalf("persisted error = %v, want boom", persisted)
 	}
 }
 
@@ -207,6 +209,57 @@ func TestManagerScriptError(t *testing.T) {
 // callbacks (execute) and the contains/phasesOf helpers they call — these
 // run only through Manager.Start, not Run directly. A phased script makes
 // the snapshot accumulate phases and agents.
+func TestManagerPersistsFailedAgentDetails(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := NewManager(func(context.Context, AgentRequest) (any, Usage, error) {
+		return nil, Usage{Total: 42}, context.DeadlineExceeded
+	}, "")
+	r, err := m.Start(metaHeader+`phase('build'); return await agent('x', {label: 'builder', model: 'missing-model'})`, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, m, r.ID)
+	persisted := LoadRun(r.ID)
+	if persisted == nil || persisted.Phase != "build" || len(persisted.Agents) != 1 {
+		t.Fatalf("persisted progress = %+v", persisted)
+	}
+	agent := persisted.Agents[0]
+	if agent.Status != string(RunError) || agent.Error != context.DeadlineExceeded.Error() || agent.Tokens != 42 {
+		t.Fatalf("persisted agent = %+v", agent)
+	}
+	if len(persisted.Logs) == 0 || !strings.Contains(persisted.Logs[len(persisted.Logs)-1], "deadline exceeded") {
+		t.Fatalf("persisted logs = %v", persisted.Logs)
+	}
+}
+
+func TestManagerRejectsConcurrentWorkflowsInSameWorkdir(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cwd := t.TempDir()
+	release := make(chan struct{})
+	runner := func(ctx context.Context, _ AgentRequest) (any, Usage, error) {
+		select {
+		case <-ctx.Done():
+			return nil, Usage{}, ctx.Err()
+		case <-release:
+			return "ok", Usage{}, nil
+		}
+	}
+	first := NewManager(runner, cwd)
+	r, err := first.Start(metaHeader+"return await agent('x')", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := NewManager(echoRunner(nil), cwd)
+	if _, err := second.Start(metaHeader+"return await agent('y')", nil, ""); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("concurrent Start error = %v, want workdir conflict", err)
+	}
+	close(release)
+	waitSettled(t, first, r.ID)
+	if _, err := second.Start(metaHeader+"return await agent('y')", nil, ""); err != nil {
+		t.Fatalf("Start after lock release: %v", err)
+	}
+}
+
 func TestManagerPhasedRun(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	m := NewManager(echoRunner(nil), "")

@@ -3,8 +3,11 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -26,6 +29,7 @@ type AgentSnapshot struct {
 	Model  string
 	Status RunStatus // running | complete | error
 	Error  string
+	Tokens int
 }
 
 // Snapshot is the observable state of one run (manager.ts WorkflowSnapshot).
@@ -79,8 +83,9 @@ type ManagedRun struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu   sync.Mutex
-	snap Snapshot
+	mu       sync.Mutex
+	snap     Snapshot
+	lockFile *os.File
 }
 
 // Manager owns workflow runs: starts them in the background, exposes live
@@ -91,8 +96,9 @@ type Manager struct {
 	runner Runner
 	cwd    string
 
-	mu   sync.Mutex
-	runs map[string]*ManagedRun
+	mu      sync.Mutex
+	runs    map[string]*ManagedRun
+	workdir map[string]string
 
 	// OnSettle fires (from the run goroutine) when a run completes, errors,
 	// or is stopped: the agent wiring steers the result into the parent.
@@ -104,7 +110,7 @@ type Manager struct {
 // NewManager builds a Manager. runner is the subagent bridge; cwd is the
 // script-visible working directory.
 func NewManager(runner Runner, cwd string) *Manager {
-	return &Manager{runner: runner, cwd: cwd, runs: map[string]*ManagedRun{}}
+	return &Manager{runner: runner, cwd: cwd, runs: map[string]*ManagedRun{}, workdir: map[string]string{}}
 }
 
 // Start launches a script in the background and returns a snapshot of its run
@@ -151,12 +157,29 @@ func (m *Manager) Start(script string, args any, resumeFromRunID string) (RunSum
 		Done: make(chan struct{}), ctx: ctx, cancel: cancel,
 		snap: Snapshot{RunID: runID, Name: meta.Name, Status: RunRunning},
 	}
+	if m.cwd != "" {
+		lockFile, lockErr := acquireWorkdirLock(m.cwd)
+		if lockErr != nil {
+			cancel()
+			return RunSummary{}, lockErr
+		}
+		run.lockFile = lockFile
+	}
 	m.mu.Lock()
+	if otherID := m.workdir[m.cwd]; m.cwd != "" && otherID != "" {
+		m.mu.Unlock()
+		releaseWorkdirLock(run.lockFile)
+		cancel()
+		return RunSummary{}, fmt.Errorf("workdir %q is already used by running workflow %s", m.cwd, otherID)
+	}
 	m.runs[runID] = run
+	if m.cwd != "" {
+		m.workdir[m.cwd] = runID
+	}
 	m.mu.Unlock()
 
 	persisted := &PersistedRun{
-		RunID: runID, Name: meta.Name, ScriptPath: scriptPath,
+		RunID: runID, Name: meta.Name, ScriptPath: scriptPath, Workdir: m.cwd,
 		Status: string(RunRunning), Args: args, StartedAt: time.Now().UnixMilli(),
 	}
 	SaveRun(persisted)
@@ -170,11 +193,15 @@ func (m *Manager) execute(run *ManagedRun, script string, args any, persisted *P
 		OnPhase: func(title string) {
 			run.mu.Lock()
 			run.snap.Phase = title
+			persisted.Phase = title
+			SaveRun(persisted)
 			run.mu.Unlock()
 		},
 		OnLog: func(msg string) {
 			run.mu.Lock()
 			run.snap.Logs = append(run.snap.Logs, msg)
+			persisted.Logs = append(persisted.Logs, msg)
+			SaveRun(persisted)
 			run.mu.Unlock()
 		},
 		OnAgentStart: func(index int, label, phase, model string) {
@@ -182,26 +209,40 @@ func (m *Manager) execute(run *ManagedRun, script string, args any, persisted *P
 			run.snap.Agents = append(run.snap.Agents, AgentSnapshot{
 				Index: index, Label: label, Phase: phase, Model: model, Status: RunRunning,
 			})
+			persisted.Agents = append(persisted.Agents, PersistedAgentSnapshot{
+				Index: index, Label: label, Phase: phase, Model: model, Status: string(RunRunning),
+			})
 			for _, p := range phasesOf(run.snap.Agents) {
 				if !contains(run.snap.Phases, p) {
 					run.snap.Phases = append(run.snap.Phases, p)
 				}
 			}
+			SaveRun(persisted)
 			run.mu.Unlock()
 		},
 		OnAgentEnd: func(index int, label, phase string, result any, tokens int, errStr string) {
 			run.mu.Lock()
+			status := RunComplete
+			if errStr != "" {
+				status = RunError
+			}
 			for i := range run.snap.Agents {
 				if run.snap.Agents[i].Index == index {
-					if errStr != "" {
-						run.snap.Agents[i].Status = RunError
-						run.snap.Agents[i].Error = errStr
-					} else {
-						run.snap.Agents[i].Status = RunComplete
-					}
+					run.snap.Agents[i].Status = status
+					run.snap.Agents[i].Error = errStr
+					run.snap.Agents[i].Tokens = tokens
 					break
 				}
 			}
+			for i := range persisted.Agents {
+				if persisted.Agents[i].Index == index {
+					persisted.Agents[i].Status = string(status)
+					persisted.Agents[i].Error = errStr
+					persisted.Agents[i].Tokens = tokens
+					break
+				}
+			}
+			SaveRun(persisted)
 			run.mu.Unlock()
 		},
 		OnJournal: func(e JournalEntry) {
@@ -248,10 +289,46 @@ func (m *Manager) execute(run *ManagedRun, script string, args any, persisted *P
 	run.mu.Unlock()
 	SaveRun(persisted)
 
+	m.mu.Lock()
+	if m.workdir[m.cwd] == run.ID {
+		delete(m.workdir, m.cwd)
+	}
+	m.mu.Unlock()
+	releaseWorkdirLock(run.lockFile)
+
 	if m.OnSettle != nil {
 		m.OnSettle(run.snapshot())
 	}
 	close(run.Done) // broadcast to all waiters
+}
+
+func acquireWorkdirLock(cwd string) (*os.File, error) {
+	dir, err := homeDir()
+	if err != nil {
+		return nil, err
+	}
+	lockDir := filepath.Join(dir, "locks")
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(lockDir, HashString(cwd)+".lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is under whip-owned workflow home.
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("workdir %q is already used by another running workflow", cwd)
+	}
+	return file, nil
+}
+
+func releaseWorkdirLock(file *os.File) {
+	if file == nil {
+		return
+	}
+	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	_ = file.Close()
 }
 
 func runID(run *ManagedRun) string { return run.ID }

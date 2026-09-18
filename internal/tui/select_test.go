@@ -340,3 +340,23 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 		t.Fatal("after release the tick must disarm")
 	}
 }
+
+// An OSC 8 hyperlink is an escape sequence, not text: highlighting a line that
+// carries one must pass the whole sequence through (URI included) and only
+// reverse the visible cells. Before the fix the URI leaked onto the screen
+// as "8;;file:///…" and the line's cell count exploded.
+func TestReverseRangeSkipsOSC8Hyperlink(t *testing.T) {
+	for _, term := range []string{"\x1b\\", "\a"} {
+		line := "at \x1b]8;;file:///tmp/x.md" + term + "/tmp/x.md\x1b]8;;" + term + " ok"
+		got := reverseRange(line, 3, 12)
+		if s := ansi.Strip(got); s != "at /tmp/x.md ok" {
+			t.Fatalf("visible text changed: %q", s)
+		}
+		if !strings.Contains(got, "\x1b]8;;file:///tmp/x.md"+term) {
+			t.Fatalf("hyperlink URI not passed through intact: %q", got)
+		}
+		if want := "\x1b[7m/tmp/x.md"; !strings.Contains(got, want) {
+			t.Fatalf("path not reversed: %q", got)
+		}
+	}
+}
