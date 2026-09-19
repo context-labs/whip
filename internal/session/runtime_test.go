@@ -532,9 +532,9 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	if len(stored) != 9 || stored[1].Content != "q1" || stored[8].Content != "a4" {
 		t.Fatalf("raw history was rewritten: %+v", stored)
 	}
-	// cutoff 4 folds inside the q2 turn, so q2 is re-pinned after the summary.
+	// A legacy record has no explicit pin even though cutoff 4 is inside the q2 turn.
 	_, history, err := st.Load(rootID)
-	if err != nil || len(history) != 8 || history[1].Role != "system" || history[2].Content != "q2" || history[7].Content != "a4" {
+	if err != nil || len(history) != 7 || history[1].Role != "system" || history[2].Content != "a2" || history[6].Content != "a4" {
 		t.Fatalf("compacted reconstruction=%+v err=%v", history, err)
 	}
 }

@@ -55,7 +55,7 @@ func TestHistorySearchUsesRawFieldsAndFrozenPages(t *testing.T) {
 	if err := store.Save(root.ID(), 1, raw, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordRawCompaction(t.Context(), root.ID(), root.ID(), 3, "summary omits original"); err != nil {
+	if err := store.RecordRawCompaction(t.Context(), root.ID(), root.ID(), 3, "summary omits original", false); err != nil {
 		t.Fatal(err)
 	}
 	runtime.rootNode.agent.ReplaceHistory(rlm.FocusedHistory([]llm.Message{{Role: "system", Content: "summary only"}}))

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
@@ -94,8 +95,12 @@ func TestCompactFoldsInsideOversizedTurnAndPinsOpeningMessage(t *testing.T) {
 	ag.Messages = toolPairs(ag.Messages, 12, 2000, "t") // ~6000 tokens in one turn
 	before := EstimateTokens(ag.Messages)
 
-	if _, _, _, err := ag.compact(context.Background()); err != nil {
+	_, _, info, err := ag.compact(context.Background())
+	if err != nil {
 		t.Fatalf("compact: %v", err)
+	}
+	if !info.Pinned {
+		t.Fatal("split fold must record the retained opening message")
 	}
 	after := EstimateTokens(ag.Messages)
 	if after >= before/2 {
@@ -189,12 +194,55 @@ func TestMaybeCompactNothingToFoldMakesNoModelCall(t *testing.T) {
 		llm.Message{Role: "assistant", Content: "working"},
 	)
 	ag.lastPrompt = 9000
-	if err := ag.maybeCompact(context.Background(), Events{}); err != nil {
-		t.Fatalf("expected a quiet stall, got %v", err)
+	for range 3 {
+		if err := ag.maybeCompact(t.Context(), Events{}); err != nil {
+			t.Fatalf("expected a quiet no-op, got %v", err)
+		}
 	}
-	if !ag.compactStalled {
-		t.Fatal("nothing to fold while over the threshold must stall the turn")
+	if ag.compactStalled {
+		t.Fatal("nothing foldable yet must not stall later rounds")
 	}
+}
+
+func TestMaybeCompactRechecksHistoryAfterTurnGrows(t *testing.T) {
+	var summaryCalls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		summaryCalls.Add(1)
+		w.Write([]byte(`{"choices":[{"message":{"content":"folded older pair"}}]}`))
+	}))
+	defer srv.Close()
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, strings.Repeat("s", 10000))
+	ag.ContextLimit, ag.CompactThreshold = 10000, 0.5
+	ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "continue"})
+	ag.Messages = toolPairs(ag.Messages, 1, 12000, "early")
+	if EstimateTokens(ag.Messages) < int(ag.threshold()*float64(ag.ContextLimit)) {
+		t.Fatal("fixture must exceed the proactive threshold before any history is foldable")
+	}
+	// The only pair exceeds the tail budget and must remain, so no model
+	// call is useful yet, even though the context is over the threshold.
+	for range 2 {
+		if err := ag.maybeCompact(t.Context(), Events{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls := summaryCalls.Load(); calls != 0 {
+		t.Fatalf("no history to fold: summary calls=%d", calls)
+	}
+	ag.Messages = toolPairs(ag.Messages, 1, 12000, "later")
+	before := EstimateTokens(ag.Messages)
+	if err := ag.maybeCompact(t.Context(), Events{}); err != nil {
+		t.Fatal(err)
+	}
+	if calls := summaryCalls.Load(); calls != 1 {
+		t.Fatalf("older pair must become foldable in the same turn: summary calls=%d", calls)
+	}
+	if EstimateTokens(ag.Messages) >= before {
+		t.Fatal("folding the older pair must shrink the context")
+	}
+	if !ag.compacted || !ag.compactStalled {
+		t.Fatal("a real fold still above the threshold must retain the stall guard")
+	}
+	assertNoOrphans(t, ag.Messages)
 }
 
 func TestTurnFailsWithCompactionExhaustedWhenNothingFolds(t *testing.T) {

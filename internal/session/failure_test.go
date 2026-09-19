@@ -599,9 +599,9 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The raw log is [q1, first-gen summary, q2, a2]. Folding at 3 replaces
-	// the raw prefix, keeps the prior derived summary, re-pins q2 (the fold
-	// point a2 is inside its turn), and retains the raw tail.
-	if len(got) != 4 {
+	// the raw prefix, keeps the prior derived summary, and retains the raw
+	// tail without inventing a pin for this legacy record.
+	if len(got) != 3 {
 		t.Fatalf("compacted view: %d msgs %+v", len(got), got)
 	}
 	if !strings.Contains(got[0].Content, "second gen") {
@@ -610,11 +610,8 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 	if !strings.Contains(got[1].Content, "first gen") {
 		t.Fatalf("the prior summary must be kept: %q", got[1].Content)
 	}
-	if got[2].Role != "user" || got[2].Content != "q2" {
-		t.Fatalf("the split turn's opening message must be re-pinned: %+v", got[2])
-	}
-	if got[3].Content != "a2" {
-		t.Fatalf("raw tail lost: %+v", got[3:])
+	if got[2].Content != "a2" {
+		t.Fatalf("raw tail lost: %+v", got[2:])
 	}
 }
 
@@ -647,6 +644,9 @@ func TestApplyCompactionRePinsOpeningMessageOfSplitTurn(t *testing.T) {
 	// The live agent folded the first pair of a single long turn (cutoff 3:
 	// the user message and pair t1) and pinned the opening message.
 	if err := st.RecordCompaction(id, 3, "folded pair one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(t.Context(), `UPDATE compactions SET pinned=1 WHERE session_id=?`, id); err != nil {
 		t.Fatal(err)
 	}
 	_, got, err := st.Load(id)

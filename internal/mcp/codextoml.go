@@ -230,11 +230,13 @@ func toInt(v any) (int, bool) {
 		}
 		return int(v), true
 	case float64:
-		// The upper bound is exclusive: float64(math.MaxInt) rounds up on 64-bit hosts.
-		if math.IsNaN(v) || v < float64(math.MinInt) || v >= -float64(math.MinInt) || math.Trunc(v) != v {
+		if math.Trunc(v) != v {
 			return 0, false
 		}
-		return int(v), true
+		// Parse the exact integral value with native-width overflow checking;
+		// float64(math.MaxInt) itself rounds out of range on 64-bit hosts.
+		n, err := strconv.Atoi(strconv.FormatFloat(v, 'f', 0, 64))
+		return n, err == nil
 	}
 	return 0, false
 }

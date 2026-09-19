@@ -74,8 +74,8 @@ async function measurePresentation(page) {
     const check = () => {
       for (let index = pending.length - 1; index >= 0; index--) {
         const item = pending[index];
-        const row = document.querySelector('[data-activity-group] [data-tool-preview]');
-        if (row?.textContent?.includes(item.text)) { samples.push(performance.now() - item.start); pending.splice(index, 1); }
+        const rows = document.querySelectorAll('[data-activity-detail]');
+        if ([...rows].some(row => row.textContent?.includes(item.text))) { samples.push(performance.now() - item.start); pending.splice(index, 1); }
       }
     };
     new MutationObserver(check).observe(document, { subtree: true, childList: true, characterData: true });
@@ -116,6 +116,10 @@ async function selectTheme(page, id) {
   await page.waitForFunction(value => document.documentElement.dataset.theme === value, id);
 }
 async function accessible(page, state) {
+  // Inspect settled presentation, not a random frame of a finite text fade.
+  // Infinite activity indicators remain running and are still checked by Axe.
+  await page.waitForFunction(() => !document.getAnimations().some(animation =>
+    animation.playState === 'running' && Number.isFinite(animation.effect?.getComputedTiming().endTime)));
   // Serve the test probe as an external same-origin script: the production CSP
   // stays intact, and the application bundle gains no test-only dependency.
   if (!(await page.evaluate(() => !!window.axe))) {
@@ -217,7 +221,17 @@ try {
       checks.push('composer grows and shrinks, model/effort selections apply, and draft/model survive reload');
 
       progress('stream grouping, theme switch and reload');
-      await send(page, 'hold:tool-stream');
+      // Compact activity intentionally omits output. Measure painted updates in
+      // the detailed presentation, selected through the same control users use.
+      await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
+      await page.getByRole('navigation', { name: 'Settings categories', exact: true }).getByRole('button', { name: 'Appearance', exact: true }).click();
+      const density = page.getByRole('slider', { name: 'Tool call density', exact: true });
+      await density.focus(); await density.press('End');
+      await eventually(async () => (await density.getAttribute('aria-valuetext')) === 'Detailed');
+      await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+      await ready(page);
+      const toolStreamKey = `tool-stream-browser-${name}`;
+      await send(page, `hold:${toolStreamKey}`);
       const activity = page.locator('[data-activity-group]');
       await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'), { description: 'two cumulative executions in one activity group' });
       assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1, 'Text deltas must append to one live row');
@@ -225,10 +239,9 @@ try {
         const samples = await page.evaluate(() => window.__whipEventToView);
         return samples.length >= 2 && samples;
       }, { description: 'grouped output updates are painted' });
-      await activity.locator('summary').click();
-      const tools = activity.locator('[data-activity-cell]');
+      const tools = page.locator('[data-activity-detail]');
       await eventually(async () => (await tools.count()) === 2);
-      const cellIds = await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-cell')));
+      const cellIds = await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-detail')));
       assert.equal(await modelTrigger.isEnabled(), false);
       assert.equal(await effortTrigger.isEnabled(), false);
       for (let index = 0; index < 2; index++) {
@@ -239,8 +252,9 @@ try {
       }
       const preservedExecutions = async () => {
         await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'));
-        if (!await activity.locator('details').evaluate(element => element.open)) await activity.locator('summary').click();
-        assert.deepEqual(await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-cell'))), cellIds);
+        const toggle = activity.locator('[data-activity-content]');
+        if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+        assert.deepEqual(await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-detail'))), cellIds);
       };
       await page.getByLabel('Message WHIP', { exact: true }).fill(`Unsent ${name} draft`);
       await selectTheme(page, 'nord');
@@ -254,7 +268,7 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'nord');
       assert.equal(await page.getByRole('region', { name: 'Conversation', exact: true }).count(), 1);
       await preservedExecutions();
-      await fixture.release('tool-stream');
+      await fixture.release(toolStreamKey);
       await eventually(async () => Object.keys((await session.snapshot()).active_turns).length === 0, { description: 'held tool turn completes' });
       checks.push('delta/cumulative streams stay grouped across theme changes and reload; draft/theme persist');
 
@@ -274,7 +288,10 @@ try {
       await eventually(async () => (await page.locator('[data-message-id]').filter({ hasText: 'Browser attachment body is visible in history.' }).count()) >= 1, { description: 'text attachment is materialized in transcript' });
       const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
       await page.locator('input[type=file]').setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: png });
-      await page.getByText('tiny.png · Ready', { exact: true }).waitFor();
+      const imagePreview = page.getByRole('button', { name: 'Preview tiny.png', exact: true });
+      await imagePreview.waitFor();
+      await eventually(async () => (await imagePreview.getAttribute('title')) === 'tiny.png', { description: 'PNG upload completes' });
+      await eventually(() => imagePreview.getByAltText('tiny.png', { exact: true }).evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'draft PNG thumbnail decodes' });
       await send(page, 'Inspect the tiny image.');
       await eventually(async () => page.getByAltText('Attached image', { exact: true }).first().evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'inline PNG attachment preview decodes' });
       checks.push('real text and image uploads reach history with automatic inline PNG preview');
@@ -414,10 +431,13 @@ try {
       assert.equal(measurements.overflow, false, JSON.stringify(measurements));
       assert.ok(measurements.bottom <= measurements.viewport && measurements.top >= 0, `Composer outside phone viewport: ${JSON.stringify(measurements)}`);
       const conversation = phone.getByLabel('Conversation', { exact: true });
+      // Following stops on user input, not programmatic layout/scroll changes.
+      await conversation.hover();
+      await phone.mouse.wheel(0, -300);
+      await phone.getByRole('button', { name: 'Latest', exact: true }).waitFor();
       // Reading in the middle isolates incoming output from near-top pagination,
       // which legitimately changes scrollTop while preserving a message anchor.
       await conversation.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
-      await phone.getByRole('button', { name: 'Latest', exact: true }).waitFor();
       const stableAnchor = async () => {
         let previous;
         let stableSince = performance.now();

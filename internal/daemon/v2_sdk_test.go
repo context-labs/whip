@@ -474,7 +474,7 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 			streamSDKPerformance(ctx, r.root)
 		}
 		refreshFixture := strings.HasPrefix(input, "hold:tool-stream-refresh-")
-		if input == "hold:tool-stream" || refreshFixture {
+		if input == "hold:tool-stream" || strings.HasPrefix(input, "hold:tool-stream-") {
 			// Interleave calls so the supervisor cannot coalesce all updates before
 			// they reach the SDK. These payloads are cumulative, not deltas.
 			for _, args := range []string{`{"code":"print(`, `{"code":"print(1)"}`} {

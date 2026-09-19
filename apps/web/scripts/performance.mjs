@@ -487,6 +487,9 @@ const frame = () =>
     .submit({ text: 'hold:performance-stream' });
   await live.accepted();
   await page.locator('[data-message-id^="live:"]').waitFor();
+  // The initial live row can come from root.snapshot before events.subscribe
+  // is active. Start commit probes only after a real stream event is painted.
+  await page.waitForFunction(() => window.__performanceEventLatency.length > 0);
   await textarea.focus();
   await textarea.press('End');
   await frame();

@@ -197,11 +197,11 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			emit("stream.usage", StreamEvent{Usage: &UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage}})
 		}
 	}
-	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {
+	events.OnCompaction = func(summary string, cutoff int, before []llm.Message, info agent.CompactInfo) {
 		rawCutoff := agent.RawCompactionCutoff(before, cutoff)
 		session.mu.Lock()
 		session.turn.Compactions = append(session.turn.Compactions, turnCompaction{
-			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff,
+			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff, Pinned: info.Pinned,
 		})
 		callID := session.turn.LastModelCallID
 		session.mu.Unlock()
@@ -237,7 +237,7 @@ func (session *AgentSession) recordTranscriptMessage(message llm.Message) int {
 func journalCompactions(journal turnJournal) []sessionstore.RootCompaction {
 	result := make([]sessionstore.RootCompaction, len(journal.Compactions))
 	for i, value := range journal.Compactions {
-		result[i] = sessionstore.RootCompaction{Summary: value.Summary, Cutoff: value.Cutoff, RawTailStart: value.RawTailStart, RawCutoff: value.RawCutoff}
+		result[i] = sessionstore.RootCompaction{Summary: value.Summary, Cutoff: value.Cutoff, RawTailStart: value.RawTailStart, RawCutoff: value.RawCutoff, Pinned: value.Pinned}
 	}
 	return result
 }

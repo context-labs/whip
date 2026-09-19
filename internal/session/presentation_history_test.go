@@ -63,7 +63,7 @@ func TestPresentationSurvivesBoundedPagesForkRewindCompactionAndReopen(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordRawCompaction(t.Context(), root, root, 2, "Summary"); err != nil {
+	if err := store.RecordRawCompaction(t.Context(), root, root, 2, "Summary", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.RewindHistory(t.Context(), fork, 2); err != nil {

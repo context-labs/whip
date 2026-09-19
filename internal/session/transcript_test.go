@@ -339,14 +339,14 @@ func TestExplicitRawCompactionValidatesSequenceBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, cutoff := range []int{0, 2, 4} {
-		if err := store.RecordRawCompaction(t.Context(), rootID, rootAgentID, cutoff, "invalid"); err == nil {
+		if err := store.RecordRawCompaction(t.Context(), rootID, rootAgentID, cutoff, "invalid", false); err == nil {
 			t.Fatalf("explicit compaction accepted missing sequence %d", cutoff)
 		}
 		if got := store.Compactions(rootID); len(got) != 0 {
 			t.Fatalf("invalid explicit compaction persisted: %+v", got)
 		}
 	}
-	if err := store.RecordRawCompaction(t.Context(), rootID, rootAgentID, 3, "valid"); err != nil {
+	if err := store.RecordRawCompaction(t.Context(), rootID, rootAgentID, 3, "valid", false); err != nil {
 		t.Fatal(err)
 	}
 	compactions := store.Compactions(rootID)

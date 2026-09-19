@@ -78,7 +78,7 @@ type Events struct {
 	OnCompactStart func(took, estTokens int)
 	// OnCompaction includes the pre-compaction history so durable stores can
 	// preserve the raw tail behind the derived summary.
-	OnCompaction func(summary string, cutoff int, before []llm.Message)
+	OnCompaction func(summary string, cutoff int, before []llm.Message, info CompactInfo)
 	OnUsage      func(u llm.Usage)       // a request reported its token usage
 	OnRetry      func(ev llm.RetryEvent) // a transient request failure is being retried
 	// OnDecay fires when the per-turn decay pass rewrote n history messages
@@ -110,8 +110,9 @@ type ModelRoute struct {
 // compaction client (a different provider route) wrote it. Usage is the
 // summary call's tokens (zero when the provider didn't report any).
 type CompactInfo struct {
-	Model string
-	Usage llm.Usage
+	Model  string
+	Usage  llm.Usage
+	Pinned bool // the opening user message was retained before the raw tail
 }
 
 // Agent holds one conversation.
@@ -564,7 +565,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 					ev.OnCompacted(sum, cutoff, info)
 				}
 				if ev.OnCompaction != nil {
-					ev.OnCompaction(sum, cutoff, before)
+					ev.OnCompaction(sum, cutoff, before, info)
 				}
 				if cerr != nil {
 					return "", cerr
@@ -867,9 +868,8 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	sum, cutoff, info, err := a.compact(ctx)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		if errors.Is(err, errNoHistory) {
-			// Nothing left to fold and the view is unchanged: stall rather
-			// than ask again every round; the reactive retry covers the edge.
-			a.compactStalled = true
+			// No summary call was made. Later rounds may add foldable
+			// history, so keep checking until a real fold stalls.
 			return nil
 		}
 		return err
@@ -881,7 +881,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 		ev.OnCompacted(sum, cutoff, info)
 	}
 	if ev.OnCompaction != nil {
-		ev.OnCompaction(sum, cutoff, before)
+		ev.OnCompaction(sum, cutoff, before, info)
 	}
 	// Mark that this turn compacted so the final-round check does not fold a
 	// fresh fold again; the reactive error path sets a.compacted itself.
@@ -1073,7 +1073,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	a.usageMu.Lock()
 	a.lastPrompt = 0
 	a.usageMu.Unlock()
-	return summary, tailStart, CompactInfo{Model: label, Usage: usage}, cerr
+	return summary, tailStart, CompactInfo{Model: label, Usage: usage, Pinned: len(pinned) > 0}, cerr
 }
 
 // CompactionRawTailStart returns the pre-compaction index where the prior
@@ -1229,7 +1229,7 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 		ev.OnCompacted(sum, cutoff, info)
 	}
 	if ev.OnCompaction != nil {
-		ev.OnCompaction(sum, cutoff, before)
+		ev.OnCompaction(sum, cutoff, before, info)
 	}
 	return err
 }

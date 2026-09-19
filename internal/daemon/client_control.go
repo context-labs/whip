@@ -111,6 +111,7 @@ type clientCompaction struct {
 	cutoff       int
 	rawTailStart int
 	rawCutoff    *int
+	pinned       bool
 	model        string
 	usage        llm.Usage
 	before       []llm.Message
@@ -304,7 +305,7 @@ func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error)
 	end(summary, err)
 	return clientCompaction{
 		summary: summary, cutoff: cutoff, rawTailStart: agent.CompactionRawTailStart(before, cutoff), rawCutoff: &rawCutoff,
-		model: info.Model, usage: r.agent.Usage(), before: before,
+		model: info.Model, usage: r.agent.Usage(), before: before, pinned: info.Pinned,
 	}, err
 }
 
@@ -820,7 +821,7 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 		var err error
 		if compaction.rawCutoff != nil {
 			rawCutoff = *compaction.rawCutoff
-			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary)
+			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary, compaction.pinned)
 		} else {
 			rawCutoff = s.rawCompactionCutoff(compaction.cutoff, compaction.rawTailStart)
 			err = s.store.RecordCompaction(s.meta.ID, rawCutoff, compaction.summary)

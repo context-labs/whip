@@ -333,8 +333,9 @@ const SummaryPrefix = "Summary of the conversation so far:\n\n"
 func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string, msgs []llm.Message) ([]llm.Message, error) {
 	var cutoff int
 	var summary string
-	err := db.QueryRowContext(ctx, `SELECT cutoff, summary FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq DESC LIMIT 1`,
-		sessionID, agentID).Scan(&cutoff, &summary)
+	var pinned bool
+	err := db.QueryRowContext(ctx, `SELECT cutoff, summary, pinned FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq DESC LIMIT 1`,
+		sessionID, agentID).Scan(&cutoff, &summary, &pinned)
 	hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
 	minimum := 0
 	if hasSystem {
@@ -378,11 +379,9 @@ func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string,
 	if len(prior) > 0 {
 		out = append(out, prior[len(prior)-1])
 	}
-	// A fold point inside a turn means the live agent pinned that turn's
-	// opening user message verbatim after the summary (see agent.compact);
-	// the raw row sits before the cutoff, so re-derive the pin here or a
-	// resumed agent would continue its turn on a paraphrase of its orders.
-	if fold < len(msgs) && msgs[fold].Role != "user" {
+	// Only restore a pin recorded by the live fold. A non-user tail can also
+	// come from an unpinned clamp or a legacy compaction.
+	if pinned && fold < len(msgs) && msgs[fold].Role != "user" {
 		for i := fold - 1; i >= start; i-- {
 			if msgs[i].Role == "user" {
 				out = append(out, msgs[i])
@@ -971,8 +970,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 		}
 		// A prefix fork can reuse only summaries whose entire raw prefix was
 		// copied. Child summaries and summaries of later source rows stay out.
-		if _, err := tx.ExecContext(context.Background(), `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at)
-			SELECT ?,?,seq,cutoff,summary,created_at FROM compactions
+		if _, err := tx.ExecContext(context.Background(), `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at,pinned)
+			SELECT ?,?,seq,cutoff,summary,created_at,pinned FROM compactions
 			WHERE session_id=? AND agent_id=? AND cutoff<=(SELECT COUNT(*) FROM messages WHERE session_id=?)`,
 			newID, newID, srcID, srcID, newID); err != nil {
 			return "", err

@@ -109,6 +109,7 @@ type turnCompaction struct {
 	Cutoff       int
 	RawTailStart int
 	RawCutoff    *int
+	Pinned       bool
 }
 
 // turnJournal is everything one turn produced that the commit must persist:

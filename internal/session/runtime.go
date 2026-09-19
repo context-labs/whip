@@ -278,6 +278,7 @@ type RootCompaction struct {
 	// RawCutoff is the highest raw message sequence summarized. New
 	// runners supply it from their view-to-raw mapping, not a focused index.
 	RawCutoff *int
+	Pinned    bool // retain the opening user message before the raw tail
 }
 
 type RuntimeState struct {

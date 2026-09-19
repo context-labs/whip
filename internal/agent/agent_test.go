@@ -569,6 +569,29 @@ func TestTurnProactiveCompactionResetsAfterFailure(t *testing.T) {
 	}
 }
 
+func TestCompactClampedTailDoesNotPin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+	}))
+	defer srv.Close()
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "first question"},
+		llm.Message{Role: "assistant", Content: "first answer"},
+		llm.Message{Role: "user", Content: "second question"},
+	)
+	var info CompactInfo
+	err := ag.ManualCompact(t.Context(), Events{
+		OnCompaction: func(_ string, _ int, _ []llm.Message, got CompactInfo) { info = got },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Pinned || ag.Messages[2].Role != "assistant" {
+		t.Fatalf("clamped fold must not report a pin: info=%+v view=%+v", info, ag.Messages)
+	}
+}
+
 func TestCompactDoesNotLoopOnRepeatedContextLimit(t *testing.T) {
 	// every request errors with context_length_exceeded → compaction must
 	// happen once and then the error surfaces (no infinite retry loop)

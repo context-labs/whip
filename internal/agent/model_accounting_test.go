@@ -85,7 +85,7 @@ func TestModelAccountingCompactionJournalsSummaryBeforeStopping(t *testing.T) {
 		return llm.ModelPermit{MaxTokens: a.MaxTokens, Timeout: a.Timeout, Settle: func(llm.ModelAttemptResult) error { return errors.New("accounting stopped") }}, nil
 	}))
 	journaled := ""
-	err := ag.ManualCompact(t.Context(), Events{OnCompaction: func(summary string, _ int, _ []llm.Message) { journaled = summary }})
+	err := ag.ManualCompact(t.Context(), Events{OnCompaction: func(summary string, _ int, _ []llm.Message, _ CompactInfo) { journaled = summary }})
 	if !llm.IsCompletedAccountingError(err) || journaled != "Retained summary" || !strings.Contains(ag.Messages[1].Content, journaled) {
 		t.Fatalf("summary=%q err=%v messages=%+v", journaled, err, ag.Messages)
 	}

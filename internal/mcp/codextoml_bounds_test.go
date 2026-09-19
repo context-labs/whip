@@ -19,6 +19,7 @@ func TestToIntBounds(t *testing.T) {
 		{"integer 64-bit maximum", int64(math.MaxInt64), math.MaxInt, math.MaxInt == math.MaxInt64},
 		{"float minimum", float64(math.MinInt), math.MinInt, true},
 		{"float upper bound", -float64(math.MinInt), 0, false},
+		{"float largest below int64 bound", math.Nextafter(float64(math.MaxInt64), 0), math.MaxInt - 1023, math.MaxInt == math.MaxInt64},
 		{"float below minimum", math.Nextafter(float64(math.MinInt), math.Inf(-1)), 0, false},
 		{"float whole", 30.0, 30, true},
 		{"float fractional", 30.5, 0, false},

@@ -220,7 +220,8 @@ func TestQueuePreviewPreservesPayloadAndSurvivesPaging(t *testing.T) {
 	}
 }
 
-const dropQueueSchema = `DROP TRIGGER inbox_steer_turn_finished;
+const dropQueueSchema = `ALTER TABLE compactions DROP COLUMN pinned;
+DROP TRIGGER inbox_steer_turn_finished;
 ALTER TABLE inbox DROP COLUMN origin;
 ALTER TABLE inbox DROP COLUMN command_client_id;
 ALTER TABLE inbox DROP COLUMN command_id;
