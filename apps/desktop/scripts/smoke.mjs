@@ -82,6 +82,25 @@ try {
   await page.getByLabel('Message WHIP', { exact: true }).fill('Preserve this desktop draft while moving the tab.');
   const tabs = page.locator('[data-workspace-tab]');
   const order = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+  // Retain only geometry for this drag; never session text or application state.
+  const dragDiagnostics = await tabs.last().evaluateHandle(source => {
+    const strip = source.parentElement;
+    const snapshot = () => ({ source: source.getBoundingClientRect().toJSON(), sourceTransform: getComputedStyle(source).transform, sourceOffsetWidth: source.offsetWidth,
+      strip: { rect: strip.getBoundingClientRect().toJSON(), scrollLeft: strip.scrollLeft, scrollWidth: strip.scrollWidth, clientWidth: strip.clientWidth, offsetWidth: strip.offsetWidth },
+      viewport: { width: innerWidth, height: innerHeight, devicePixelRatio }, fonts: document.fonts.status });
+    const data = { capture: snapshot() };
+    const events = new AbortController();
+    const pointer = event => {
+      data.pointer = { x: event.clientX, y: event.clientY, buttons: event.buttons };
+      if (event.type === 'pointerdown') data.pointerDown = { ...snapshot(), pointer: data.pointer };
+    };
+    for (const type of ['pointerdown', 'pointermove']) document.addEventListener(type, pointer, { capture: true, passive: true, signal: events.signal });
+    const observer = new MutationObserver(() => {
+      if (source.hasAttribute('data-dragging') && !data.activation) data.activation = { ...snapshot(), pointer: data.pointer };
+    });
+    observer.observe(source, { attributes: true, attributeFilter: ['data-dragging'] });
+    return { data, snapshot, stop: () => { events.abort(); observer.disconnect(); } };
+  });
   const source = await tabs.last().boundingBox(), target = await tabs.first().boundingBox();
   if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs.png') });
   await page.mouse.move(source.x + 40, source.y + source.height / 2); await page.mouse.down();
@@ -91,8 +110,21 @@ try {
   const preview = page.locator('[data-workspace-drag-preview]');
   await expect(preview).toHaveCount(1);
   await expect.poll(async () => Math.abs((await preview.boundingBox()).x + 40 - x)).toBeLessThan(2).catch(async error => {
-    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-drag-failure.png') });
+    try {
+      const geometry = await dragDiagnostics.evaluate(({ data, snapshot }) => {
+        const preview = document.querySelector('[data-workspace-drag-preview]');
+        return { ...data, failure: snapshot(), preview: preview && { rect: preview.getBoundingClientRect().toJSON(), transform: getComputedStyle(preview).transform, offsetWidth: preview.offsetWidth } };
+      });
+      const evidence = JSON.stringify({ recordedAt: new Date().toISOString(), source, target, commandedPointer: { x, y: target.y + target.height / 2 }, expectedPickupOffset: 40, ...geometry }, null, 2);
+      console.error('Desktop drag geometry:', evidence);
+      if (artifacts) await writeFile(path.join(artifacts, 'desktop-drag-failure.json'), evidence + '\n');
+    } catch (diagnosticError) { console.error('Could not capture desktop drag geometry:', diagnosticError); }
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-drag-failure.png') })
+      .catch(diagnosticError => console.error('Could not capture desktop drag screenshot:', diagnosticError));
     throw error;
+  }).finally(async () => {
+    await dragDiagnostics.evaluate(({ stop }) => stop()).catch(() => {});
+    await dragDiagnostics.dispose().catch(() => {});
   });
   assert.deepEqual(await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab)), order);
   if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs-dragging.png') });
