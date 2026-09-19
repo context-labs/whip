@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { RootSnapshot } from '@whip/protocol';
 import { serverNowMs, traceRoots, traceSpans, type DeepReadonly, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, IconButton, Select } from '@whip/ui';
+import { Badge, Button, CodeBlock, IconButton, Select, ToggleGroup } from '@whip/ui';
 import { ChevronDown, ChevronRight, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from './error-feedback';
@@ -136,10 +136,10 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
     <div {...stylex.props(styles.toolbar)}>
       {options.length > 0 && <Select label="Trace" options={options} value={traceId} onValueChange={value => { setPicked(value); setSelectedId(undefined); }} />}
       {running && <Badge tone="info">running</Badge>}
-      <span {...stylex.props(styles.toggles)} role="group" aria-label="Panes">
-        {(['tree', 'timeline', 'details'] as const).map(pane => <Button key={pane} variant={panes[pane] ? 'secondary' : 'ghost'} size="sm" aria-pressed={panes[pane]}
-          onClick={() => setPanes(current => ({ ...current, [pane]: !current[pane] }))}>{pane === 'tree' ? 'Tree' : pane === 'timeline' ? 'Timeline' : 'Details'}</Button>)}
-      </span>
+      <ToggleGroup label="Panes" size="sm" multiple
+        items={[{ value: 'tree', label: 'Tree' }, { value: 'timeline', label: 'Timeline' }, { value: 'details', label: 'Details' }]}
+        value={(['tree', 'timeline', 'details'] as const).filter(pane => panes[pane])}
+        onValueChange={value => setPanes({ tree: value.includes('tree'), timeline: value.includes('timeline'), details: value.includes('details') })} />
       {panes.timeline && <span {...stylex.props(styles.toggles)} role="group" aria-label="Zoom">
         <IconButton variant="ghost" size="sm" label="Zoom in" onClick={() => setZoom(zoomAt(timeline, 1 / 1.45, (timeline.t0 + timeline.t1) / 2, domain.dur))}><ZoomIn size={14} /></IconButton>
         <IconButton variant="ghost" size="sm" label="Zoom out" onClick={() => setZoom(zoomAt(timeline, 1.45, (timeline.t0 + timeline.t1) / 2, domain.dur))}><ZoomOut size={14} /></IconButton>
@@ -248,10 +248,9 @@ function SpanDetails({ width, view, node, domainStartMs, now, agents }: { width:
       <span aria-hidden="true" {...stylex.props(styles.dot, styles[spanCategory(span)])} />
       <span {...stylex.props(styles.detailsTitle)}>{spanDisplayName(span)}</span>
       <Badge tone={statusTone(span)}>{span.kind}</Badge>
-      <span {...stylex.props(styles.toggles)} role="group" aria-label="Detail mode">
-        <Button variant={raw ? 'ghost' : 'secondary'} size="sm" aria-pressed={!raw} onClick={() => setRaw(false)}>Overview</Button>
-        <Button variant={raw ? 'secondary' : 'ghost'} size="sm" aria-pressed={raw} onClick={() => setRaw(true)}>Raw</Button>
-      </span>
+      <ToggleGroup label="Detail mode" size="sm" value={[raw ? 'raw' : 'overview']}
+        items={[{ value: 'overview', label: 'Overview' }, { value: 'raw', label: 'Raw' }]}
+        onValueChange={([value]) => { if (value) setRaw(value === 'raw'); }} />
     </div>
     {raw ? <CodeBlock code={JSON.stringify({ id: span.id, trace_id: span.traceId, parent_id: span.parentId, turn_id: span.turnId, kind: span.kind, name: span.name, status: span.status, start_ms: span.startMs, end_ms: span.endMs, links: span.links, attrs }, null, 2)} language="json" label="Raw span" xstyle={styles.code} />
       : <>

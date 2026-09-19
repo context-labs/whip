@@ -500,7 +500,7 @@ Omitted or zero values use these defaults:
 | `rlm.memoryMiB` | 256 | worker memory ceiling |
 | `rlm.outputBytes` | 65,536 | captured cell output |
 | `rlm.frameBytes` | 1,048,576 | worker protocol frame |
-| `rlm.maxWorkers` | 4 | daemon-wide live kernels |
+| `rlm.maxWorkers` | 16 | daemon-wide live kernels |
 
 The worker memory budget limits resident RAM. On Linux, the separate virtual
 address-space ceiling includes the Go runtime's measured startup reservations,

@@ -60,6 +60,27 @@ function fixture(remoteHost = false, providerReady = true) {
   return { runtime, tab, raw, inventory, run, connect, pickDirectory, render: () => render(<RouterProvider router={router} />) };
 }
 
+it('replaces the send icon with one spinner while creating a session', async () => {
+  const f = fixture();
+  let reject!: (error: Error) => void;
+  f.run.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+  f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Hello' } });
+  const send = screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement;
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  fireEvent.click(send);
+  await waitFor(() => expect(send.getAttribute('aria-busy')).toBe('true'));
+  expect(send.disabled).toBe(true);
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('[aria-label="Loading"]')).not.toBeNull();
+  expect(send.querySelector('.lucide-arrow-up')).toBeNull();
+  await act(async () => { reject(new Error('Creation failed')); });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  expect(send.querySelector('[aria-label="Loading"]')).toBeNull();
+});
+
 it('keeps the ready composer focused and saves model/effort choices to this draft only', async () => {
   const f = fixture(); f.render();
   const input = await screen.findByRole('textbox', { name: 'Your first message' });

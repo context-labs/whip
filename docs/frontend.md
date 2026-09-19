@@ -912,9 +912,9 @@ replaces cumulative output, and keeps live keys through history commits. Revisio
 changes discard incompatible evidence. If a child was observed before its history
 was opened, an ambiguous call cannot safely be joined to an older record; the SDK
 retains it as separate observed evidence. Host traces and restart notices from
-before observation can be absent; the toolbar's **About REPL history** tooltip
-explains that limitation. Persistent notices are reserved for paused updates and
-known truncation. Any displayed elapsed duration is explicitly client-observed,
+before observation can be absent. Execution content starts directly below the shared
+session bar, without a separate language/count toolbar. Persistent notices are
+reserved for paused updates and known truncation. Any displayed elapsed duration is explicitly client-observed,
 never reconstructed historical timing.
 
 `ReadingList` shares TanStack Virtual, selection pinning, follow/Latest behavior,
@@ -1473,12 +1473,50 @@ reasoning begins at the start. Available larger reasoning, execution code/output
 and raw mailbox messages remain behind explicit disclosures and content reads.
 **Open in REPL** shares the existing execution evidence and opens an adjacent tab.
 
-Typed `agents.spawn` child IDs produce separate chronological cards. Name/model
-and lifecycle state come from the existing agent collection; there are no child
-transcript subscriptions just to populate cards. The inspector remains the full
-agent directory, including older children without a proven launch location. The
-composer's duplicate agent dock is removed. `CurrentActivity` remains the single
-polite live status in the information bar; no per-token announcements are added.
+Typed `agents.spawn` child IDs produce compact chronological launch records,
+not duplicate live roster cards. Launch outcome stays distinct from subsequent
+child turns; failed/cancelled launches and expandable execution evidence remain
+available even without a child ID. Names may use existing snapshot metadata.
+
+`AgentDock` sits above pending human requests and the chat composer, outside the
+transcript scroller. It projects direct children of this pane's selected agent
+from the existing snapshot: waiting/failed work first, then active/queued work,
+with three compact rows, stable admission/focus and an All agents overflow action.
+Settled children live in a collapsed Finished disclosure. Opening a child only
+highlights its row; it never promotes it out of its lifecycle group or expands
+the disclosure. Rows reuse the sidebar spinner for live running/queued work and
+quiet selected surfaces and a subtle top divider. Like transcript activity rows,
+each unboxed row aligns the agent name on the left, state in the middle, and
+latest-turn model-call count on the right (when known, including zero). Tooltips
+and accessible names distinguish model calls from tools; compaction counts stay
+in details. A compact heading summarizes working, queued and attention-needed
+children only when connected with complete roster metadata. There are no trailing
+split icons or top-right All agents button. Directory actions appear only for
+overflow or partial metadata. The bottom More (N) and Finished (N) buttons share
+a horizontal, center-aligned row with matching heights; expanded finished rows
+render below that row. Finished requires a recorded settled outcome, not merely
+an idle agent. Child-scoped queued inbox work takes precedence over a previous
+turn's outcome; new idle/ready children with no recorded turn show Not started
+and remain outside Finished. Unknown states also remain outside Finished. Finished rows omit redundant Completed/Idle text
+but retain exceptional outcomes and known call counts. Status
+updates defer regrouping while a row is focused or hovered to preserve its target.
+The roster and disclosure are height-bounded. Stopped children retain truthful
+status; deleted children lose their actions. Offline updates are labeled
+paused and omitted metadata never produces a false complete count. The inspector
+remains the paged full agent directory. No roster-only child history subscriptions,
+polling, parallel SDK collections or duplicate approval controls are added.
+
+Both dock and inline child links use `openChildChat`: focus an already-visible
+matching child chat, reuse this source's still-valid right-hand companion view,
+or atomically create a child chat in a right split. A view-local ownership receipt
+prevents replacing unrelated, moved or repurposed views. Root transcript, composer
+recipient, drafts, attachments and reading position stay untouched. Child drafts
+remain recipient-scoped and reading/caret state view/agent-scoped. Geometry guards
+and the four-pane/32-tab limits apply before allocation, not before valid reuse.
+When a split cannot be created, an action-local notice offers explicit Open in tab;
+there is no silent root replacement or hidden split on narrow screens.
+`CurrentActivity` remains the single polite live status in the information bar;
+no per-row or per-token announcements are added.
 
 `TranscriptWorking` renders a quiet activity line below the transcript, inside
 the same reading scroller. It immediately bridges local submission previews as
@@ -1535,8 +1573,9 @@ and a softer 40px fade toward the composer. The theme shows through without a
 colored overlay or pointer interception. Bottom content padding keeps the newest
 message and activity footer clear of the fade when pinned; scroll padding keeps
 keyboard-revealed content inside the readable area. Composer and Latest controls
-sit outside the mask. REPL/trace views are unaffected. Forced-colors and print
-turn the mask off; the fade itself adds no animation or scroll listeners.
+sit outside the mask. REPL uses the same 20px top fade without a bottom fade;
+trace is unaffected. Forced-colors and print turn the masks off; the fades add
+no animation or scroll listeners.
 
 Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
 selection detach immediately, even within the old 70px proximity threshold.
@@ -1783,7 +1822,11 @@ Host headings show connection status and collapse independently. Each pane's tab
 agent, current activity and scoped actions. Chat, REPL and trace/span views use
 this same component, including loading and unavailable states. It owns the
 fixed-position Chat / REPL / Trace single-selection view controls and a separate
-Details toggle. The compact shared `ToggleGroup` uses arrow-key focus and
+Details toggle. Session view choices and the span viewer's Panes and Overview/Raw
+controls share the UI `ToggleGroup`: compact 2px spacing, a quiet secondary fill
+for selected choices, and transparent ghost buttons when inactive. Panes enables
+multiple selection; session views and detail mode retain exactly one selection.
+The compact shared `ToggleGroup` uses arrow-key focus and
 Enter/Space activation; selecting the current view cannot deselect it. Top-bar
 navigation switches the current tab's view in place, preserving its ID, pane,
 selected agent and inspector state; it never opens or selects another tab.

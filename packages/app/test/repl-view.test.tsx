@@ -71,6 +71,8 @@ it('renders a read-only cell, expands output, copies exact text and does not inv
   expect(screen.queryByText('⇒')).toBeNull();
   expect(screen.queryByText(/Observed \d/)).toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'About REPL history' })).toBeNull();
+  expect(screen.queryByText(/loaded cells?/)).toBeNull();
   expect(f.view.loadOlder).not.toHaveBeenCalled();
   expect(f.view.loadCollection).not.toHaveBeenCalled();
 });

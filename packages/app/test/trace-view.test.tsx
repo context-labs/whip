@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import type { SessionView, SessionViewSnapshot, TraceEvidence, TraceSpan } from '@whip/sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { TraceView } from '../src/trace-view';
@@ -84,6 +85,20 @@ it('pages the durable spans once when connected and renders the tree with server
   expect(screen.getAllByText('running').length).toBeGreaterThan(1);
 });
 
+it('keeps pane choices independent with the shared keyboard-accessible toggle group', async () => {
+  render(fixture().app());
+  const user = userEvent.setup();
+  const panes = within(screen.getByRole('group', { name: 'Panes' }));
+  expect(panes.getAllByRole('button', { pressed: true })).toHaveLength(2);
+  panes.getByRole('button', { name: 'Tree' }).focus();
+  await user.keyboard('{ArrowRight}{ArrowRight}{Enter}');
+  expect(panes.getAllByRole('button', { pressed: true })).toHaveLength(3);
+  for (const name of ['Tree', 'Timeline', 'Details']) await user.click(panes.getByRole('button', { name }));
+  expect(panes.queryAllByRole('button', { pressed: true })).toHaveLength(0);
+  await user.click(panes.getByRole('button', { name: 'Tree' }));
+  expect(panes.getAllByRole('button', { pressed: true })).toHaveLength(1);
+});
+
 it('starts with span details hidden and allows toggling them open and closed', () => {
   const f = fixture();
   render(f.app());
@@ -113,7 +128,11 @@ it('collapses a subtree, selects a span for the detail pane, and rolls cost up o
   fireEvent.click(screen.getByRole('button', { name: 'Expand', hidden: true }));
   fireEvent.click(screen.getByRole('treeitem', { name: 'files.read: path=README.md · 41ms' }));
   expect(screen.getByRole('complementary', { name: 'Span details' }).textContent).toContain('41ms');
-  fireEvent.click(screen.getByRole('button', { name: 'Raw' }));
+  const modes = within(screen.getByRole('group', { name: 'Detail mode' }));
+  fireEvent.click(modes.getByRole('button', { name: 'Raw' }));
+  fireEvent.click(modes.getByRole('button', { name: 'Raw' }));
+  expect(modes.getAllByRole('button', { pressed: true })).toHaveLength(1);
+  expect(modes.getByRole('button', { name: 'Raw', pressed: true })).toBeDefined();
   expect(screen.getByRole('region', { name: 'Raw span' }).textContent).toContain('"operation_id": "op-1"');
 });
 

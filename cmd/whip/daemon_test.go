@@ -554,6 +554,9 @@ func TestRLMHostConcurrencyConfiguration(t *testing.T) {
 }
 
 func TestRLMLimitsPreserveConfiguredUnitsAndDefaultOmissions(t *testing.T) {
+	if got := rlmLimits(config.RLMConfig{}).MaxWorkers; got != 16 {
+		t.Fatalf("default worker limit=%d, want 16", got)
+	}
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
 	writeConfig(t, home, `{"rlm":{"steps":1250,"hostRequests":3,"wallMillis":250,"memoryMiB":32,"outputBytes":1024,"frameBytes":2048,"maxWorkers":2}}`)

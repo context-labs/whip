@@ -33,16 +33,17 @@ import { ReplView } from './repl-view';
 import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
 import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
+import { AgentDock } from './agent-dock';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionTopBar } from './session-top-bar';
-import { openSessionView } from './session-tab-routing';
+import { openChildChat, openSessionView } from './session-tab-routing';
 import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput, queuedInputRows } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
-import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab, type SessionViewKind } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type ChildChatCompanion, type SessionTab, type SessionViewKind } from './session-tabs';
 
 const loadingStyles = stylex.create({
   overlay: {
@@ -154,6 +155,14 @@ export function SessionContent({
   useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
   const dropTarget = useRef<HTMLDivElement>(null);
+  const childCompanion = useRef<ChildChatCompanion | undefined>(undefined);
+  const [childViewId, setChildViewId] = useState<string>();
+  const [childOpenError, setChildOpenError] = useState<{ agentId: string; message: string }>();
+  useLayoutEffect(() => {
+    childCompanion.current = undefined;
+    setChildViewId(undefined);
+    setChildOpenError(undefined);
+  }, [viewId, agentId, session, kind]);
   useEffect(() => {
     setStored(undefined);
     return () => bodyRequest.current?.abort();
@@ -169,7 +178,22 @@ export function SessionContent({
   const navigationRevision = useRef(0);
   useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind, confirm, historyAction]);
   const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.connections.isAttached(session.client);
-  const focused = !viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId;
+  const workspace = runtime.tabs.workspace();
+  const focused = !viewId || selectedSessionTab(workspace)?.id === viewId;
+  const openedChild = workspace.tabs.find(tab => tab.id === childViewId && isSessionTab(tab)
+    && tab.kind === 'chat' && tab.runtimeId === expectedRuntimeId && tab.rootId === session.rootId
+    && sessionViewPane(workspace, tab.id)?.selected === tab.id);
+  const openAgent = (next: string, openInTab = false) => {
+    setChildOpenError(undefined);
+    const result = openChildChat(runtime, navigate, viewId ?? session.rootId, next, {
+      companion: childCompanion.current, openInTab,
+      onUnavailable: message => setChildOpenError({ agentId: next, message }),
+    });
+    if (result) {
+      childCompanion.current = result.companion;
+      setChildViewId(result.tab.id);
+    }
+  };
   const setPanel = (next?: InspectorSection) => {
     const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
     void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
@@ -303,11 +327,7 @@ export function SessionContent({
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={activityRows}
           agents={root?.agents ?? []}
-          activeTurns={root?.active_turns ?? {}}
-          onAgent={next => {
-            const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-          }}
+          onAgent={openAgent}
           footer={<><TranscriptWorking key={activeTurn ?? 'pending'} status={status} turnId={activeTurn}
             startedAt={agent?.last_turn?.turn_id === activeTurn ? agent?.last_turn?.started_at : undefined} />
             {state.executions?.truncated && <p {...stylex.props(layout.notice)}>Some activity could not be retained. Showing available operations; counts may be partial.</p>}<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></>}
@@ -370,6 +390,12 @@ export function SessionContent({
         </details>
       )}
 
+      {kind === 'chat' && <AgentDock key={`${expectedRuntimeId}:${session.rootId}:${agentId}`}
+        state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
+        openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
+      {kind === 'chat' && childOpenError && <ErrorNotice type="action" owner={`${viewId ?? session.rootId}:open-child`}
+        title="Could not open agent chat" error={childOpenError.message} tone="neutral" onDismiss={() => setChildOpenError(undefined)}
+        action={runtime.tabs.canOpen() && <Button variant="ghost" onClick={() => openAgent(childOpenError.agentId, true)}>Open in tab</Button>} />}
       {root && (
         <PendingRequests
           root={root}

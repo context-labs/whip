@@ -47,7 +47,7 @@ func DefaultLimits() Limits {
 	return Limits{
 		Steps: defaultSteps, MaxConcurrentHostCalls: maxOutstandingCalls, HostRequests: defaultHostRequests, Wall: 30 * time.Second,
 		MemoryBytes: defaultMemoryBytes, OutputBytes: defaultOutputBytes,
-		FrameBytes: defaultFrameBytes, MaxWorkers: 4,
+		FrameBytes: defaultFrameBytes, MaxWorkers: 16,
 	}
 }
 

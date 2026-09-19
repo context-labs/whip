@@ -2,12 +2,11 @@ import type { DeepReadonly, ExecutionCell } from '@whip/sdk/state';
 import type { RootSnapshot } from '@whip/protocol';
 import { useState } from 'react';
 import { Button, CodeBlock } from '@whip/ui';
-import { ArrowUpRight, Bot, Brain, ChevronRight, Circle, CircleAlert, FilePenLine, FileSearch, FileText, Globe, Terminal } from 'lucide-react';
+import { ArrowUpRight, Bot, Brain, ChevronRight, CircleAlert, FilePenLine, FileSearch, FileText, Globe, Terminal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { activityItems, activitySummary, type ActivityGroup, type ActivityItem, type AgentActivityRow } from './chat-activity-rows';
 import type { TimelineRow } from './conversation-rows';
-import { agentStatus } from './chat-activity';
 import { Shimmer } from './transcript-motion';
 import { formatHostDuration } from './execution-time';
 
@@ -96,23 +95,29 @@ export function ActivityDetail({ item, groupId, readBody, onOpenRepl }: { item: 
   </div>;
 }
 
-export function InlineAgent({ row, agent, active, connected, onAgent, readBody, onOpenRepl }: { row: AgentActivityRow; agent?: TranscriptAgent; active: boolean; connected: boolean; onAgent?(id: string): void; readBody(row: TimelineRow): void; onOpenRepl?(): void }) {
+export function InlineAgent({ row, agent, connected, onAgent, readBody, onOpenRepl }: { row: AgentActivityRow; agent?: TranscriptAgent; connected: boolean; onAgent?(id: string): void; readBody(row: TimelineRow): void; onOpenRepl?(): void }) {
   const [details, setDetails] = useState(false);
   const id = row.agentHost.display?.child_id;
   const title = agent?.name || row.agentHost.display?.label || 'Agent';
-  const launchStatus = row.agentHost.status === 'running' ? 'Starting' : row.agentHost.status === 'failed' ? 'Failed to start'
-    : row.agentHost.status === 'cancelled' ? 'Cancelled' : row.agentHost.status === 'interrupted' ? 'Interrupted' : 'Status unavailable';
+  // This is launch evidence, not a second live roster. A child's later turn does
+  // not change the outcome of the operation that launched it.
+  const launchStatus = row.agentHost.status === 'completed' ? 'Launched'
+    : row.agentHost.status === 'running' ? connected ? 'Launching' : 'Launch updates paused'
+    : row.agentHost.status === 'failed' ? 'Failed to launch'
+    : row.agentHost.status === 'cancelled' ? 'Launch cancelled' : row.agentHost.status === 'interrupted' ? 'Launch interrupted' : 'Launch status unavailable';
   return <article data-inline-agent={id || row.id} {...stylex.props(styles.agent)}>
-    <div data-activity-content {...stylex.props(styles.stack)}>
-      <button type="button" disabled={!id || !onAgent} onClick={() => id && onAgent?.(id)} {...stylex.props(styles.button, styles.agentButton)}>
-        <Bot size={16} /><strong>{title}</strong><Circle size={6} fill="currentColor" aria-hidden="true" />
-        <span {...stylex.props(styles.muted)}>{agent ? agentStatus(agent, active, connected) : !connected ? 'Updates paused' : launchStatus}</span>
-        {id && <ArrowUpRight size={14} />}
+    <div data-activity-content {...stylex.props(styles.launchRow)}>
+      <button type="button" disabled={!id || !onAgent || agent?.status === 'deleted'} onClick={() => id && onAgent?.(id)}
+        title={id ? `Open ${title} chat to the right` : undefined} {...stylex.props(styles.button, styles.agentButton)}>
+        <Bot size={14} aria-hidden="true" /><span>{launchStatus}</span>{' '}<strong {...stylex.props(styles.agentName)}>{title}</strong>
+        {id && <ArrowUpRight size={13} aria-hidden="true" />}
       </button>
-      {agent && <span {...stylex.props(styles.muted)}>{[agent.model, agent.effort].filter(Boolean).join(' · ')}</span>}
-      {row.agentHost.error && <p {...stylex.props(styles.error)}>{row.agentHost.error}</p>}
-      <details onToggle={event => setDetails(event.currentTarget.open)}><summary {...stylex.props(styles.muted)}>Launch details</summary>{details && <ExecutionDetails cell={row.cell} readBody={readBody} onOpenRepl={onOpenRepl} />}</details>
+      <details {...stylex.props(styles.launchDetails)} onToggle={event => setDetails(event.currentTarget.open)}>
+        <summary {...stylex.props(styles.launchSummary)}>Launch details</summary>
+        {details && <ExecutionDetails cell={row.cell} readBody={readBody} onOpenRepl={onOpenRepl} />}
+      </details>
     </div>
+    {row.agentHost.error && <p {...stylex.props(styles.error)}>{row.agentHost.error}</p>}
   </article>;
 }
 
@@ -135,5 +140,9 @@ const styles = stylex.create({
   reasoning: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: typography.sans, fontSize: typography.size13, lineHeight: 1.65, margin: 0, maxWidth: '96ch', maxHeight: '39.6em', overflowY: 'auto' },
   output: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: typography.mono, margin: 0, maxHeight: 520, overflow: 'auto' },
   error: { color: colors.error, overflowWrap: 'anywhere' },
-  agent: { marginBlock: 8, padding: 12, border: `1px solid ${surface.quietBorder}`, borderRadius: 8, color: colors.foreground, fontSize: typography.size13 },
+  agent: { marginBlock: 4, paddingBlock: 2, color: surface.secondaryText, fontSize: typography.size12 },
+  agentName: { color: colors.foreground, overflowWrap: 'anywhere' },
+  launchRow: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, minWidth: 0 },
+  launchDetails: { minWidth: 0, maxWidth: '100%', flexBasis: { default: 'auto', ':is([open])': '100%' } },
+  launchSummary: { cursor: 'pointer', paddingBlock: 6, minHeight: { default: 28, '@media (pointer: coarse)': 44 } },
 });

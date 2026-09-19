@@ -159,6 +159,9 @@ in
 - [x] Compact chat execution groups, shared current host-operation status,
   named-agent activity, bounded disclosures and shared reduced-motion controls.
   See the [chat activity implementation](../.ai-docs/plans/chat-activity/README.md).
+- [x] Restore a compact composer agent dock with active work first, finished turns
+  collapsed, compact inline launch evidence and reusable right-split child chats.
+  See the [implementation and validation plan](../.ai-docs/plans/subagent-composer-dock/README.md).
 - [x] Dedicated full-window Settings with category navigation/search, guarded
   host-specific forms, exact workspace return and working Appearance controls
   for density, wrapping, fonts, contrast and motion. See the

@@ -409,7 +409,7 @@ export function Composer({
               }
               loading={sending}
             >
-              <ArrowUp size={16} />
+              {!sending && <ArrowUp size={16} />}
             </Button>
           )}
         </div>

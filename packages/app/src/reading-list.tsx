@@ -12,17 +12,27 @@ import { MotionContext } from './transcript-motion';
 const styles = stylex.create({
   viewport: { flex: 1, overflowY: 'auto', minHeight: 0, overflowAnchor: 'none' },
   inner: { maxWidth: 840, marginInline: 'auto', paddingInline: { default: 32, [scale.phone]: 16 }, paddingBlock: 24 },
+  // `update: none` includes print without StyleX rewriting media types into invalid feature queries.
+  topEdge: {
+    maskImage: {
+      default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px)',
+      '@media (forced-colors: active), (update: none)': 'none',
+    },
+    WebkitMaskImage: {
+      default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px)',
+      '@media (forced-colors: active), (update: none)': 'none',
+    },
+    scrollPaddingTop: 20,
+  },
   chatEdges: {
     // Alpha-only masks blend into every theme without covering selection or intercepting input.
     maskImage: {
       default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px, black calc(100% - 40px), rgb(0 0 0 / 0.65) calc(100% - 16px), transparent)',
-      '@media (forced-colors: active)': 'none',
-      '@media print': 'none',
+      '@media (forced-colors: active), (update: none)': 'none',
     },
     WebkitMaskImage: {
       default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px, black calc(100% - 40px), rgb(0 0 0 / 0.65) calc(100% - 16px), transparent)',
-      '@media (forced-colors: active)': 'none',
-      '@media print': 'none',
+      '@media (forced-colors: active), (update: none)': 'none',
     },
     scrollPaddingTop: 20,
     scrollPaddingBottom: 40,
@@ -474,7 +484,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       )}
       <div
         ref={viewport}
-        {...stylex.props(styles.viewport, chatFollow && styles.chatEdges)}
+        {...stylex.props(styles.viewport, chatFollow ? styles.chatEdges : styles.topEdge)}
         role="region"
         tabIndex={0}
         aria-label={label}

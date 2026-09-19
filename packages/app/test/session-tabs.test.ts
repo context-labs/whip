@@ -7,6 +7,113 @@ function storage(): AppStorage {
   const values = new Map<string, string>();
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
+describe('child chat companions', () => {
+  const allowSplit = { canSplit: () => true };
+  function fixture() {
+    const disk = storage(), tabs = new SessionTabs(disk);
+    tabs.visit('mac', 'root', { agent: 'parent', panel: 'context' });
+    return { disk, tabs, source: tabs.workspace().tabs[0]! };
+  }
+  it('inserts the child and right pane in one write without changing the source', () => {
+    const { disk, tabs, source } = fixture();
+    const write = vi.spyOn(disk, 'setItem'), observe = vi.fn(() => {
+      expect(tabs.workspace().tabs).toHaveLength(2);
+      expect(tabs.workspace().tabs[1]).toMatchObject({ location: { agent: 'A' } });
+    });
+    tabs.subscribe(observe);
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab).toMatchObject({ kind: 'chat', runtimeId: 'mac', rootId: 'root', location: { agent: 'A' } });
+    expect(result.tab.id).not.toBe(source.id);
+    expect(tabs.workspace().layout).toMatchObject({ type: 'split', direction: 'horizontal',
+      first: { tabs: [source], selected: source.id }, second: { tabs: [result.tab], selected: result.tab.id } });
+    expect(write).toHaveBeenCalledOnce(); expect(observe).toHaveBeenCalledOnce();
+    expect(new SessionTabs(disk).workspace()).toEqual(tabs.workspace());
+  });
+  it('reuses one companion for A → B → A even at both capacity limits', () => {
+    const fresh = new SessionTabs(); fresh.visit('mac', 'root', {});
+    const left = fresh.split('root', 'left'); fresh.split(left, 'bottom');
+    const first = fresh.openChildChat('root', 'A', allowSplit);
+    for (let i = fresh.workspace().tabs.length; i < 32; i++) fresh.openChatView('mac', 'filler-' + i, '', { paneId: sessionViewPane(fresh.workspace(), left)!.id });
+    const b = fresh.openChildChat('root', 'B', { companion: first.companion, canSplit: () => false });
+    const again = fresh.openChildChat('root', 'A', { companion: b.companion, canSplit: () => false });
+    expect(b.tab.id).toBe(first.tab.id); expect(again.tab.id).toBe(first.tab.id);
+    expect(fresh.workspace().tabs).toHaveLength(32); expect(sessionPanes(fresh.workspace().layout)).toHaveLength(4);
+    expect(fresh.workspace().tabs.find(tab => tab.id === 'root')).toMatchObject({ location: {} });
+  });
+  it('focuses an exact visible child without adopting it or changing an owned companion', () => {
+    const { tabs, source } = fixture();
+    const external = tabs.split(source.id, 'left'); tabs.updateLocation(external, { agent: 'B' });
+    const filler = tabs.split(external, 'bottom'); tabs.updateLocation(filler, { agent: 'other' });
+    const a = tabs.openChildChat(source.id, 'A', allowSplit);
+    for (let i = tabs.workspace().tabs.length; i < 32; i++) tabs.openChatView('mac', 'filler-' + i, '', { paneId: sessionViewPane(tabs.workspace(), filler)!.id });
+    const result = tabs.openChildChat(source.id, 'B', { companion: a.companion, canSplit: () => false });
+    expect(result.tab.id).toBe(external);
+    expect(result.companion).toEqual(a.companion);
+    expect(selectedSessionTab(tabs.workspace())?.id).toBe(external);
+    const c = tabs.openChildChat(source.id, 'C', { companion: result.companion, canSplit: () => false });
+    expect(c.tab.id).toBe(a.tab.id);
+    expect(tabs.workspace().tabs.find(tab => tab.id === external)).toMatchObject({ location: { agent: 'B' } });
+    expect(tabs.workspace().tabs.find(tab => tab.id === source.id)).toEqual(source);
+  });
+  it.each(['moved', 'closed', 'repurposed', 'hidden', 'source changed'] as const)('does not overwrite a %s companion', change => {
+    const { tabs, source } = fixture();
+    const a = tabs.openChildChat(source.id, 'A', allowSplit);
+    if (change === 'moved') tabs.transfer(a.tab.id, a.companion!.sourcePaneId);
+    if (change === 'closed') tabs.closeViews([a.tab.id]);
+    if (change === 'repurposed') tabs.updateLocation(a.tab.id, { agent: 'unrelated' });
+    if (change === 'hidden') tabs.openChatView('mac', 'unrelated', '', { paneId: a.companion!.paneId });
+    if (change === 'source changed') tabs.updateLocation(source.id, { agent: 'another-parent' });
+    const before = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'B', { companion: a.companion, canSplit: () => false })).toThrow('Open in tab');
+    expect(tabs.getSnapshot()).toBe(before);
+    const b = tabs.openChildChat(source.id, 'B', { companion: a.companion, ...allowSplit });
+    expect(b.tab.id).not.toBe(a.tab.id);
+  });
+  it.each(['repl', 'trace'] as const)('does not repurpose a visible %s of the child', kind => {
+    const { tabs, source } = fixture();
+    const other = tabs.split(source.id, 'left');
+    tabs.visit('mac', 'root', { agent: 'A', view: kind }, other);
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(other); expect(result.tab.kind).toBe('chat');
+    expect(tabs.workspace().tabs.find(tab => tab.id === other)?.kind).toBe(kind);
+  });
+  it('does not adopt unrelated visible matches or select hidden matching tabs', () => {
+    const { tabs, source } = fixture();
+    const external = tabs.split(source.id, 'left'); tabs.updateLocation(external, { agent: 'A' });
+    expect(tabs.openChildChat(source.id, 'A').companion).toBeUndefined();
+    tabs.openChatView('mac', 'unrelated', '', { paneId: sessionViewPane(tabs.workspace(), external)!.id });
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(external); expect(result.companion).toBeDefined();
+  });
+  it('does not match equal child IDs on another host or root', () => {
+    const { tabs, source } = fixture();
+    const wrongHost = tabs.openChatView('other', 'root', '', { edge: 'left' }); tabs.updateLocation(wrongHost.id, { agent: 'A' });
+    const wrongRoot = tabs.openChatView('mac', 'other', '', { edge: 'left' }); tabs.updateLocation(wrongRoot.id, { agent: 'A' });
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(wrongHost.id); expect(result.tab.id).not.toBe(wrongRoot.id);
+    expect(result.tab).toMatchObject({ runtimeId: 'mac', rootId: 'root' });
+  });
+  it('leaves the exact snapshot unchanged on invalid source, child, geometry and capacity', () => {
+    const { tabs, source } = fixture();
+    const before = tabs.getSnapshot();
+    expect(() => tabs.openChildChat('missing', 'A', allowSplit)).toThrow('source');
+    expect(() => tabs.openChildChat(source.id, '', allowSplit)).toThrow('identity');
+    expect(() => tabs.openChildChat(source.id, 'A')).toThrow('Widen');
+    expect(tabs.getSnapshot()).toBe(before);
+    tabs.split(source.id, 'left'); tabs.split(source.id, 'left'); tabs.split(source.id, 'left');
+    const fullPanes = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'A', allowSplit)).toThrow('four panes');
+    expect(tabs.getSnapshot()).toBe(fullPanes);
+    const result = tabs.openChildChat(source.id, 'A', { openInTab: true });
+    expect(sessionViewPane(tabs.workspace(), result.tab.id)?.id).toBe(sessionViewPane(tabs.workspace(), source.id)?.id);
+    expect(tabs.workspace().tabs.find(tab => tab.id === source.id)).toEqual(source);
+    for (let i = tabs.workspace().tabs.length; i < 32; i++) tabs.openChatView('mac', 'filler-' + i);
+    const fullTabs = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'B', { openInTab: true })).toThrow('32');
+    expect(tabs.getSnapshot()).toBe(fullTabs);
+  });
+});
+
 describe('always-new root chat views', () => {
   it('atomically opens another root view without changing existing REPL or trace views', () => {
     const disk = storage(), state = new SessionTabs(disk);

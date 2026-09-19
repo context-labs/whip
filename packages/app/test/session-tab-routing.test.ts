@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../src/runtime';
-import { bindSessionTabs, openNewChat, openSessionView, openChatView } from '../src/session-tab-routing';
-import { SessionTabs, selectedSessionTab } from '../src/session-tabs';
+import { bindSessionTabs, openNewChat, openSessionView, openChatView, openChildChat, canSplitSessionPane } from '../src/session-tab-routing';
+import { SessionTabs, selectedSessionTab, sessionViewPane } from '../src/session-tabs';
 import { newSessionSearch } from '../src/sidebar-state';
 import type { AppStorage } from '../src/platform';
 
@@ -25,6 +25,99 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
     route(pathname: string, search: Record<string, unknown> = {}, whipViewId?: string) { router.state.location = { pathname, href: pathname, search, state: { __TSR_key: crypto.randomUUID(), whipViewId } }; routeEvents.forEach(fn => fn()); },
   };
 }
+describe('child chat routing and shared split geometry', () => {
+  function frame(paneId: string, width = 641, height = 481, compact = false) {
+    const layout = document.createElement('div');
+    layout.dataset.workspaceCompact = String(compact);
+    const element = document.createElement('div'); element.dataset.workspaceFrame = paneId;
+    Object.defineProperties(element, { clientWidth: { value: width }, clientHeight: { value: height } });
+    layout.append(element); document.body.append(layout);
+    return () => layout.remove();
+  }
+  it.each([
+    [640, 481, false, 'right', false], [641, 481, false, 'right', true],
+    [641, 481, true, 'right', false], [641, 480, false, 'bottom', false],
+    [641, 481, false, 'bottom', true],
+  ] as const)('guards width %s height %s compact %s edge %s', (width, height, compact, edge, expected) => {
+    const tabs = new SessionTabs(), paneId = tabs.workspace().focusedPaneId;
+    const remove = frame(paneId, width, height, compact);
+    expect(canSplitSessionPane(tabs.workspace(), paneId, edge)).toBe(expected);
+    expect(canSplitSessionPane(tabs.workspace(), paneId, edge, true)).toBe(false);
+    remove(); expect(canSplitSessionPane(tabs.workspace(), paneId, edge)).toBe(false);
+  });
+  it('routes the source host/root and target view identity, preserving source state through Back/Forward', () => {
+    const f = fixture('/h/mac/s/root'); f.connect();
+    f.tabs.visit('mac', 'root', { agent: 'parent', panel: 'context' });
+    f.router.state.location.search = { agent: 'parent', panel: 'context' };
+    const dispose = f.start();
+    const source = f.tabs.workspace().tabs.find(tab => tab.id === 'root');
+    const remove = frame(sessionViewPane(f.tabs.workspace(), 'root')!.id);
+    const result = openChildChat(f.runtime, f.router.navigate, 'root', 'A');
+    expect(result).toBeDefined();
+    expect(f.router.navigate).toHaveBeenLastCalledWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: { agent: 'A' }, state: { whipViewId: result!.tab.id } });
+    f.route('/h/mac/s/root', { agent: 'A' }, result!.tab.id);
+    f.route('/h/mac/s/root', { agent: 'parent', panel: 'context' }, 'root');
+    f.route('/h/mac/s/root', { agent: 'A' }, result!.tab.id);
+    expect(f.tabs.workspace().tabs.find(tab => tab.id === 'root')).toEqual(source);
+    expect(f.tabs.workspace().tabs).toHaveLength(2);
+    remove(); dispose();
+  });
+  it('offers explicit tab fallback on compact layouts without any hidden split', () => {
+    const f = fixture(); f.connect(); f.tabs.visit('mac', 'root', {});
+    const before = f.tabs.getSnapshot(), onUnavailable = vi.fn();
+    const remove = frame(sessionViewPane(f.tabs.workspace(), 'root')!.id, 900, 900, true);
+    expect(openChildChat(f.runtime, f.router.navigate, 'root', 'A', { onUnavailable })).toBeUndefined();
+    expect(onUnavailable).toHaveBeenCalledWith(expect.stringContaining('Open in tab'));
+    expect(f.tabs.getSnapshot()).toBe(before); expect(f.router.navigate).not.toHaveBeenCalled();
+    const result = openChildChat(f.runtime, f.router.navigate, 'root', 'A', { openInTab: true, onUnavailable });
+    expect(result!.tab.location).toEqual({ agent: 'A' }); expect(result!.companion).toBeUndefined();
+    expect(f.tabs.workspace().layout.type).toBe('pane');
+    expect(f.tabs.workspace().tabs.find(tab => tab.id === 'root')).toMatchObject({ location: {} });
+    remove();
+  });
+  it('focuses the target workspace view after navigation without scrolling or stealing later focus', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length; });
+    const f = fixture(); f.connect(); f.tabs.visit('mac', 'root', {});
+    const result = openChildChat(f.runtime, f.router.navigate, 'root', 'A', { openInTab: true })!;
+    const panel = document.createElement('div'); panel.tabIndex = -1; panel.dataset.workspaceView = result.tab.id;
+    document.body.append(panel); const focus = vi.spyOn(panel, 'focus');
+    await Promise.resolve(); frames.shift()!(0);
+    expect(document.activeElement).toBe(panel); expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    focus.mockClear();
+    const other = openChildChat(f.runtime, f.router.navigate, 'root', 'B', { openInTab: true })!;
+    panel.dataset.workspaceView = other.tab.id;
+    await Promise.resolve(); f.tabs.activate('root'); frames.shift()!(0);
+    expect(focus).not.toHaveBeenCalled();
+    panel.remove();
+  });
+  it('can focus a previously created companion after compact resize without allocating a hidden split', () => {
+    const f = fixture(); f.connect(); f.tabs.visit('mac', 'root', {});
+    const paneId = sessionViewPane(f.tabs.workspace(), 'root')!.id;
+    const remove = frame(paneId);
+    const first = openChildChat(f.runtime, f.router.navigate, 'root', 'A')!; remove();
+    const removeCompact = frame(paneId, 900, 900, true);
+    const second = openChildChat(f.runtime, f.router.navigate, 'root', 'B', { companion: first.companion })!;
+    expect(second.tab.id).toBe(first.tab.id); expect(f.tabs.workspace().tabs).toHaveLength(2);
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(first.tab.id);
+    removeCompact();
+  });
+  it('reports removed hosts without mutation and navigational failure without reallocating', async () => {
+    const f = fixture(); f.tabs.visit('mac', 'root', {});
+    const before = f.tabs.getSnapshot(), onUnavailable = vi.fn();
+    openChildChat(f.runtime, f.router.navigate, 'root', 'A', { openInTab: true, onUnavailable });
+    expect(onUnavailable).toHaveBeenCalledWith(expect.stringContaining('host'));
+    expect(f.tabs.getSnapshot()).toBe(before);
+    f.connect(); f.disconnect();
+    const error = new Error('Navigation failed'); f.router.navigate.mockRejectedValueOnce(error);
+    const result = openChildChat(f.runtime, f.router.navigate, 'root', 'A', { openInTab: true, onUnavailable });
+    await Promise.resolve(); await Promise.resolve();
+    expect(result).toBeDefined(); expect(f.tabs.workspace().tabs).toHaveLength(2);
+    expect(f.router.navigate).toHaveBeenCalledOnce();
+    expect(f.runtime.reportWorkspace).toHaveBeenCalledWith(error); expect(onUnavailable).toHaveBeenCalledOnce();
+  });
+});
+
 describe('always-new chat routing', () => {
   it('routes identical session URLs with fresh view identities and restores Back/Forward selection', async () => {
     const f = fixture('/h/mac/s/root'); f.connect();

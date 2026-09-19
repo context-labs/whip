@@ -76,6 +76,6 @@ const styles = stylex.create({
   activity: { display: 'flex', alignItems: 'center', flex: { default: '1 1 0', '@container (max-width: 600px)': '0 0 auto' }, marginInlineStart: 'auto', minWidth: 0, justifyContent: 'flex-end', paddingInline: scale.space2 },
   actions: { display: 'flex', alignItems: 'center', flexShrink: 0, gap: scale.space1 },
   secondaryAction: { display: { default: 'inline-flex', '@container (max-width: 600px)': 'none' } },
-  views: { gap: scale.space1, marginInlineEnd: scale.space1 },
+  views: { marginInlineEnd: scale.space1 },
   detailsActive: { backgroundColor: colors.hover, borderColor: surface.quietBorder },
 });

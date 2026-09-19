@@ -180,14 +180,46 @@ it('merged groups preserve bookmarks for both prior identities', () => {
   expect(readingTarget(merged, '1', bookmark)).toEqual({ index: 0, offset: 12, fallback: false });
 });
 
-it('inline agent cards use the typed child identity without hydrating a transcript', () => {
+it('compact launch records use the typed child identity without hydrating a transcript', () => {
   const onAgent = vi.fn();
   const row = { ...tool('spawn'), role: 'agent-activity' as const, cell: cell('spawn'), agentHost: { id: 'host', name: 'agents.spawn', status: 'completed' as const, summary: '', duration: '', display: { child_id: 'child', label: 'Reviewer' } } };
-  const view = render(<ThemeProvider><UIProvider><InlineAgent row={row} connected active={false} onAgent={onAgent} readBody={vi.fn()} /></UIProvider></ThemeProvider>);
+  const view = render(<ThemeProvider><UIProvider><InlineAgent row={row} connected onAgent={onAgent} readBody={vi.fn()} /></UIProvider></ThemeProvider>);
   fireEvent.click(screen.getByRole('button', { name: /Reviewer/ }));
   expect(onAgent).toHaveBeenCalledWith('child');
   expect(view.container.querySelector('[data-inline-agent]')).toBeTruthy();
-  expect(screen.getByText('Status unavailable')).toBeTruthy();
+  expect(screen.getByText('Launched')).toBeTruthy();
+});
+
+it.each([
+  ['failed', 'Failed to launch'], ['cancelled', 'Launch cancelled'], ['interrupted', 'Launch interrupted'],
+] as const)('retains %s launch evidence without a child ID or child transcript', (status, label) => {
+  const onAgent = vi.fn(), readBody = vi.fn(), onOpenRepl = vi.fn();
+  const row = { ...tool('spawn'), role: 'agent-activity' as const, cell: cell('spawn'),
+    agentHost: { id: 'host', name: 'agents.spawn', status, summary: '', duration: '', error: 'Launch did not complete', display: { label: 'Reviewer' } } };
+  const view = render(<ThemeProvider><UIProvider><InlineAgent row={row} connected={false} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} /></UIProvider></ThemeProvider>);
+  const button = screen.getByRole('button', { name: `${label} Reviewer` });
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(button);
+  expect(onAgent).not.toHaveBeenCalled();
+  expect(screen.getByText('Launch did not complete')).toBeTruthy();
+  expect(readBody).not.toHaveBeenCalled();
+  const details = view.container.querySelector('details')!;
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+  expect(screen.getByText("print('spawn')")).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Open in REPL' }));
+  expect(onOpenRepl).toHaveBeenCalledOnce();
+});
+
+it('keeps successful launch evidence separate from subsequent child lifecycle and connectivity', () => {
+  const row = { ...tool('spawn'), role: 'agent-activity' as const, cell: cell('spawn'),
+    agentHost: { id: 'host', name: 'agents.spawn', status: 'completed' as const, summary: '', duration: '', display: { child_id: 'child', label: 'Reviewer' } } };
+  const agent = { id: 'child', name: 'Reviewer', status: 'deleted', model: 'private-model', last_turn: { status: 'failed' } } as Parameters<typeof InlineAgent>[0]['agent'];
+  render(<ThemeProvider><UIProvider><InlineAgent row={row} agent={agent} connected={false} onAgent={vi.fn()} readBody={vi.fn()} /></UIProvider></ThemeProvider>);
+  expect(screen.getByText('Launched')).toBeTruthy();
+  expect(screen.queryByText('Failed')).toBeNull();
+  expect(screen.queryByText('private-model')).toBeNull();
+  expect((screen.getByRole('button', { name: 'Launched Reviewer' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it('explicit execution details keep language and output and do not fetch stored bodies', () => {

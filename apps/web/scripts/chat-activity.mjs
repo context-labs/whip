@@ -12,6 +12,7 @@ import { checkComposerReading } from './composer-reading.mjs';
 import { checkHistoryRecovery } from './history-gap.mjs';
 import { checkStoredMessages } from './stored-messages.mjs';
 import { checkComposerAttachments } from './composer-attachments.mjs';
+import { checkAgentDock } from './agent-dock.mjs';
 
 // Production renderer, real SDK subscription and durable fixed event fixtures.
 // No live provider, user daemon, credentials, editor or displayed command is used.
@@ -142,6 +143,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     if (process.env.WHIP_CHAT_HISTORY_ONLY === '1') {
       report.push({ browser: name, rendererDigest: manifest.digest, history: await checkHistoryRecovery({ page, client, fixture, root, directory, name }) });
+      assert.deepEqual(errors, []);
+      continue;
+    }
+    if (process.env.WHIP_CHAT_AGENTS_ONLY === '1') {
+      report.push({ browser: name, rendererDigest: manifest.digest, agents: await checkAgentDock({ page, client, root, frames, directory, name }) });
       assert.deepEqual(errors, []);
       continue;
     }

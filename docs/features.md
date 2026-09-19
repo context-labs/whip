@@ -757,9 +757,13 @@ intact. History restores exact view identities, including expired closed entries
 
 Desktop and web share Zeron-style streaming activity trees with Whip themes,
 typography and accessibility preferences. Adjacent reasoning, Read/Search/Run/Edit/
-Browser operations form one expandable group; spawned agents have separate inline
-cards linked through typed child IDs. The inspector remains the complete agent
-directory. Current work opens automatically; Compact and Comfortable fold settled
+Browser operations form one expandable group; spawned agents have compact inline
+launch records linked through typed child IDs. A bounded composer dock shows direct
+children, active/attention work first and finished turns collapsed. Dock and launch
+links open child chats in a reusable right split, leaving the main composer and
+draft intact; insufficient space offers an explicit Open in tab alternative.
+The inspector remains the complete agent directory. Current work opens
+automatically; Compact and Comfortable fold settled
 work, Detailed keeps it open, and manual choices take precedence. Keyboard focus
 and text selection defer automatic folding.
 
@@ -789,6 +793,10 @@ the wave and caption rotation.
   `packages/sdk/src/executions.ts`, `packages/app/src/{chat-activity-rows,streaming-markdown,transcript-motion,transcript-activity,timeline,reading-list}.ts*`.
 - Coverage: journal/storage/SDK reconciliation tests, app activity/Markdown/reading
   tests, and the isolated production browser fixture `apps/web/scripts/chat-activity.mjs`.
+- Composer agent dock and child splits: `packages/app/src/{agent-dock,conversation,session-tabs,session-tab-routing}.ts*`;
+  `agent-dock.test.tsx`, `conversation-agent-dock.test.tsx`, tab/routing/workspace tests;
+  `WHIP_CHAT_AGENTS_ONLY=1 node apps/web/scripts/chat-activity.mjs` exercises the real
+  production renderer with `apps/web/scripts/agent-dock.mjs`.
 - Ownership and limits: [frontend guide](frontend.md#conversation-and-navigation-patterns).
 
 ## Conversation row actions

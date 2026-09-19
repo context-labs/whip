@@ -19,7 +19,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { browserDestination, openBrowserTab, draftDestination, openChatView, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { canSplitSessionPane, browserDestination, openBrowserTab, draftDestination, openChatView, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(viewId?: string): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
@@ -174,12 +174,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       go(id);
     } catch (error) { runtime.reportWorkspace(error); }
   };
-  const canSplit = (paneId: string, edge: SplitEdge) => {
-    if (compact || small || sessionPanes(runtime.tabs.workspace().layout).length >= 4) return false;
-    const frame = [...document.querySelectorAll<HTMLElement>('[data-workspace-frame]')].find(el => el.dataset.workspaceFrame === paneId);
-    if (!frame) return false;
-    return edge === 'left' || edge === 'right' ? frame.clientWidth >= 641 : frame.clientHeight >= 481;
-  };
+  const canSplit = (paneId: string, edge: SplitEdge) => canSplitSessionPane(runtime.tabs.workspace(), paneId, edge, compact || small);
   const canDrop = (drop: WorkspaceDrop) => {
     if (!drop.edge) return true;
     const source = sessionViewPane(runtime.tabs.workspace(), drop.viewId);

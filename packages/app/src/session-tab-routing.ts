@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget, type ChildChatOptions, type ChildChatResult, type TabWorkspace, type SplitEdge, sessionPanes, MAX_SESSION_PANES } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -52,6 +52,39 @@ export function openChatView(runtime: AppRuntime, navigate: AnyRouter['navigate'
     void navigate(tabDestination(tab)).catch(error => runtime.reportWorkspace(error));
     return tab;
   } catch (error) { runtime.reportWorkspace(error); }
+}
+
+/** Shared with drag/menu splitting: never allocate an invisible or undersized split. */
+export function canSplitSessionPane(workspace: TabWorkspace, paneId: string, edge: SplitEdge, compact = false): boolean {
+  if (compact || sessionPanes(workspace.layout).length >= MAX_SESSION_PANES || typeof document === 'undefined') return false;
+  const frame = Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-frame]'))
+    .find(element => element.dataset.workspaceFrame === paneId);
+  if (!frame || frame.closest('[data-workspace-compact="true"]')) return false;
+  return edge === 'left' || edge === 'right' ? frame.clientWidth >= 641 : frame.clientHeight >= 481;
+}
+
+/** Keep the returned ownership receipt in the source view, not in persisted workspace state. */
+export function openChildChat(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, agentId: string,
+  options: Omit<ChildChatOptions, 'canSplit'> & { onUnavailable?: (message: string) => void } = {}): ChildChatResult | undefined {
+  try {
+    const source = runtime.tabs.workspace().tabs.find(tab => tab.id === sourceId);
+    if (!source || source.kind !== 'chat') throw new Error('This source chat is no longer open.');
+    if (!runtime.connections.host(source.runtimeId)) throw new Error('This execution host is no longer available.');
+    const result = runtime.tabs.openChildChat(sourceId, agentId, { ...options,
+      canSplit: (paneId, edge) => canSplitSessionPane(runtime.tabs.workspace(), paneId, edge) });
+    // Navigation failures do not retry allocation or offer a second, duplicate creation.
+    void navigate(tabDestination(result.tab)).then(() => {
+      requestAnimationFrame(() => {
+        if (selectedSessionTab(runtime.tabs.workspace())?.id === result.tab.id)
+          Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-view]'))
+            .find(panel => panel.dataset.workspaceView === result.tab.id)?.focus({ preventScroll: true });
+      });
+    }).catch(error => runtime.reportWorkspace(error));
+    return result;
+  } catch (error) {
+    if (options.onUnavailable) options.onUnavailable(error instanceof Error ? error.message : String(error));
+    else runtime.reportWorkspace(error);
+  }
 }
 
 /** Explicit creation intent: start a shell on the host, then open and select its tab. */

@@ -69,7 +69,7 @@ in its native style path. Composition uses Base UI's `mergeProps` and `render`.
 
 | Group | Exports | Interaction/ownership |
 | --- | --- | --- |
-| Actions | Button, IconButton, ButtonGroup, ToggleGroup, Link, Tooltip, Kbd, CopyButton | Buttons default to `type=button`; busy controls cannot repeat actions; icon actions require a label. Clipboard errors belong to the caller. |
+| Actions | Button, IconButton, ButtonGroup, ToggleGroup, Link, Tooltip, Kbd, CopyButton | Buttons default to `type=button`; busy controls cannot repeat actions; icon actions require a label. Clipboard errors belong to the caller. `ToggleGroup` shares secondary/ghost button styling, 2px spacing, arrow-key focus, compact `size="sm"`, and optional `multiple` selection; callers control whether an empty selection is allowed. |
 | Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Slider, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
 | Overlays | Dialog, AlertDialog, Sheet, Menu, ContextMenu, Popover, CommandPicker | Controlled open state; focus trap/return and escape/outside behavior from Base UI. Confirming asynchronous work never silently closes a dialog. |
 | Structure | Tabs, Collapsible, Accordion, Separator, Stack, Row, Panel, ScrollArea, SettingsRow, Breadcrumbs, VisuallyHidden | Native scrollbars/touch scrolling; explicit selected sections. App owns navigation and virtualization. |

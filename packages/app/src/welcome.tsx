@@ -231,7 +231,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
         {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
-          disabled={disabled || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}><ArrowUp size={16} /></Button>
+          disabled={disabled || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
       </div>
     </form>
     <div {...stylex.props(styles.toolbar)}>

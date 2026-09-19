@@ -2,7 +2,7 @@
 
 Branch: `compaction-loop-and-ui-cleanup`
 Date: 2026-09-19
-Status: Research and proposed plan only. No UI implementation in this change.
+Status: Implemented and validated (2026-09-19).
 
 ## Goal
 
@@ -226,12 +226,46 @@ owned by their current layers. No changes to REPL/trace layout in this feature.
 The checkout contains substantial in-progress changes, including chat history
 prefetch and session-tab routing. Re-read those files at implementation time and
 merge targeted edits; do not restore old versions, reset unrelated work or claim
-this research validated uncommitted code. No builds/tests have been run for this
-planning-only change.
+this research validated unrelated uncommitted code. Implementation validation is
+recorded below.
 
-## Approval checklist
+## Implementation record
 
-Confirmed: compact inline evidence, split-right child navigation, active first /
-finished collapsed. Proposed defaults for approval: direct-child scope, one
-reusable child pane per source chat, three-row compact roster, and no automatic
-main-chat replacement on split failure. Implementation starts only after review.
+User approved execution after reviewing this plan. Implemented:
+
+- [x] Snapshot-only `AgentDock`, direct-child scope, active/attention priority,
+  three-row compact bound, collapsed Finished, focus/pointer retention, partial
+  and offline labeling; aligns with composer and capped at 30dvh.
+- [x] Atomic `SessionTabs.openChildChat`, shared split geometry guard and routing
+  helper. Reuses visible exact matches or validated view-local companion receipts;
+  protects unrelated/moved/repurposed views and source composer identity.
+- [x] Conversation wiring and explicit Open in tab fallback (not offered when
+  32-tab capacity is exhausted); source recipient/draft remains untouched.
+- [x] Compact typed inline launch records retain launch failure/cancellation,
+  deleted/missing-ID safety and expandable execution evidence.
+- [x] Canonical frontend guide, feature source/test map and roadmap updated.
+- [x] TypeScript and production renderer build: `npm run check:web` passed.
+- [x] Combined focused run: **288 tests passed in 13 files**, covering dock,
+  conversation integration, launch evidence, streaming/reading positions,
+  composer/queue, requests, tab routing/state, workspace leases and desktop close.
+- [x] Production **Chromium + Firefox** acceptance passed via `node scripts/pack-web.mjs`
+  then `WHIP_CHAT_AGENTS_ONLY=1 WHIP_WEB_BROWSERS=chromium,firefox WHIP_CHAT_ACTIVITY_RESULTS=/tmp/whip-agent-dock-results node apps/web/scripts/chat-activity.mjs`.
+  Verified no eager child-history reads; right split and repeat/inline reuse;
+  root/child draft isolation and root PNG/preview preservation; 1440/1100/1280px
+  resizing; 390/320px explicit tab fallback with no hidden split; keyboard,
+  reduced motion and no CSP/page errors. Finished disclosure and first child split
+  preserved end-following/reading anchors: **0px drift in both browsers**.
+  Evidence: `/tmp/whip-agent-dock-results/results.json`, 18 screenshots and videos.
+  Renderer digest: `457aee0d7ae41dbead5af945df22c56da0a3759c693fe0b55318590981a3f1c7`.
+- [x] Syntax checks for both browser scripts and final `git diff --check` passed.
+
+Validation setup corrections: re-packed stale embedded assets before browser runs;
+compact chrome has no desktop tab DOM, so narrow assertions use visible panels
+and a subsequent wide layout to prove no hidden split. No application workaround
+was needed for either fixture correction.
+
+Deliberate scope: no persisted companion ownership, no protocol changes, no
+new dependencies or child-history observers for the roster. Full recursive
+navigation remains in the existing inspector. Browser fixture children are
+stopped; recipient isolation is verified through labeled composers, independent
+drafts and selected child history requests, without invoking a live provider.

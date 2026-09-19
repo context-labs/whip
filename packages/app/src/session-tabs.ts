@@ -5,6 +5,20 @@ import { browserURL, browserTitle, MAX_BROWSER_TABS } from './browser-address';
 export interface SessionLocation { agent?: string; panel?: InspectorSection }
 export type SessionViewKind = 'chat' | 'repl' | 'trace';
 export interface ChatViewTarget { paneId?: string; index?: number; edge?: SplitEdge }
+/** View-local ownership receipt; never persisted or inferred from whichever pane is focused. */
+export interface ChildChatCompanion {
+  readonly source: SessionBackedTab;
+  readonly tab: SessionBackedTab;
+  readonly sourcePaneId: string;
+  readonly paneId: string;
+}
+export interface ChildChatOptions {
+  companion?: ChildChatCompanion;
+  openInTab?: boolean;
+  /** Checked only when allocating a split, after existing-view reuse. */
+  canSplit?: (paneId: string, edge: SplitEdge) => boolean;
+}
+export interface ChildChatResult { tab: SessionBackedTab; companion?: ChildChatCompanion }
 export interface SessionSearch extends SessionLocation { view?: 'repl' | 'trace' }
 export interface SessionBackedTab {
   readonly id: string;
@@ -476,6 +490,61 @@ export class SessionTabs {
     this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
       layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
     return tab;
+  }
+  /** Open a child without ever transiently inserting a second root view. */
+  openChildChat(sourceId: string, agentId: string, options: ChildChatOptions = {}): ChildChatResult {
+    const workspace = this.workspace();
+    const sourcePane = sessionViewPane(workspace, sourceId);
+    const source = sourcePane?.tabs.find(tab => tab.id === sourceId);
+    if (!sourcePane || !source || source.kind !== 'chat') throw new Error('This source chat is no longer open.');
+    if (!identity(agentId)) throw new Error('Invalid child agent identity');
+    const panes = sessionPanes(workspace.layout);
+    const receipt = options.companion;
+    const companionPane = receipt && panes.find(pane => pane.id === receipt.paneId);
+    const companionTab = companionPane?.tabs.find(tab => tab.id === receipt?.tab.id);
+    const rightSibling = (node: SessionLayout): boolean => node.type === 'split' && (
+      (node.direction === 'horizontal' && node.first.id === sourcePane.id && node.second.id === companionPane?.id)
+      || rightSibling(node.first) || rightSibling(node.second));
+    const sameChat = (a: SessionBackedTab, b: SessionBackedTab) => a.id === b.id && a.kind === b.kind
+      && a.runtimeId === b.runtimeId && a.rootId === b.rootId
+      && a.location.agent === b.location.agent && a.location.panel === b.location.panel;
+    const companion = receipt && companionTab?.kind === 'chat'
+      && receipt.sourcePaneId === sourcePane.id && sameChat(source, receipt.source)
+      && sameChat(companionTab, receipt.tab) && companionPane?.selected === companionTab.id
+      && rightSibling(workspace.layout) ? receipt : undefined;
+    // Reuse only selected child chats in other panes; REPL/trace and hidden tabs are not chat targets.
+    const visible = panes.filter(pane => pane.id !== sourcePane.id)
+      .flatMap(pane => pane.tabs.filter(tab => tab.id === pane.selected))
+      .find((tab): tab is SessionBackedTab => tab.kind === 'chat' && tab.runtimeId === source.runtimeId
+        && tab.rootId === source.rootId && tab.location.agent === agentId);
+    if (visible) {
+      this.activate(visible.id);
+      return { tab: visible, companion };
+    }
+    if (companion && companionTab?.kind === 'chat' && !options.openInTab) {
+      const tab: SessionBackedTab = { ...companionTab, location: location({ agent: agentId }) };
+      this.write({ ...workspace, focusedPaneId: companion.paneId, restoreSelection: true,
+        layout: mapPanes(workspace.layout, pane => pane.id === companion.paneId
+          ? { ...pane, tabs: pane.tabs.map(item => item.id === tab.id ? tab : item), selected: tab.id } : pane) });
+      return { tab, companion: { ...companion, tab } };
+    }
+    if (!this.canOpen()) throw new Error('There are 32 open tabs. Close a tab before opening this child chat.');
+    if (!options.openInTab) {
+      if (panes.length >= MAX_SESSION_PANES) throw new Error('There are four panes. Close a pane or choose Open in tab.');
+      if (!options.canSplit?.(sourcePane.id, 'right')) throw new Error('Not enough room for a right split. Widen the window or choose Open in tab.');
+    }
+    const tab: SessionBackedTab = { ...source, id: newId(), kind: 'chat', location: location({ agent: agentId }) };
+    if (options.openInTab) {
+      const tabs = [...sourcePane.tabs];
+      tabs.splice(tabs.findIndex(item => item.id === source.id) + 1, 0, tab);
+      this.write({ ...workspace, focusedPaneId: sourcePane.id, restoreSelection: true,
+        layout: mapPanes(workspace.layout, pane => pane.id === sourcePane.id ? { ...pane, tabs, selected: tab.id } : pane) });
+      return { tab, companion };
+    }
+    const pane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: replaceNode(workspace.layout, sourcePane.id, node => splitNode(node, pane, 'right')) });
+    return { tab, companion: { source, tab, sourcePaneId: sourcePane.id, paneId: pane.id } };
   }
   /** Insert a tab for a shell the host already started, after the pane's selected tab. */
   openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {

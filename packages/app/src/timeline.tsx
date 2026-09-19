@@ -595,7 +595,6 @@ function MessageCopy({ owner, label, text }: { owner: string; label: string; tex
 export function Timeline({
   rows: incomingRows,
   agents = [],
-  activeTurns = {},
   activeTurnId,
   onAgent,
   hasMore,
@@ -620,7 +619,6 @@ export function Timeline({
 }: {
   rows: ConversationActivityRow[];
   agents?: readonly TranscriptAgent[];
-  activeTurns?: Readonly<Record<string, string>>;
   activeTurnId?: string;
   onAgent?(id: string): void;
   hasMore: boolean;
@@ -802,7 +800,7 @@ export function Timeline({
               ? <ActivityDetail item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
               : <ActivityStep item={row.item} groupId={row.group.id} open={!!row.open} toggle={() => toggle(row.item!.id, !!row.open)} connected={connected} last={!!row.last} />
               : <ActivityHeader group={row.group} open={!!row.open} toggle={() => toggle(row.group!.id, !!row.open)} connected={connected} density={density} />
-            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} active={!!activeTurns[source.agentHost.display?.child_id ?? '']} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
+            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
             : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
             : source.body && messageScope && (source.role === 'user' || source.role === 'assistant')
               ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} historyAction={historyAction} />

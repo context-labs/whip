@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RootSnapshot } from '@whip/protocol';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, CopyButton, Tooltip } from '@whip/ui';
-import { Code2, Info, RotateCcw } from 'lucide-react';
+import { Badge, Button, CodeBlock, CopyButton } from '@whip/ui';
+import { Code2, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
@@ -13,7 +13,6 @@ import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
 import { ExecutionTime, formatHostDuration } from './execution-time';
 
-const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 const executionLabel = (engine?: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : !engine || engine === 'starlark' ? 'Starlark' : 'Unsupported execution language';
 
 export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn }: {
@@ -57,14 +56,6 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   const missing = !!history?.error || (!root && state.status === 'error');
   const failed = !root?.active_turns?.[agentId] && (lastTurn ?? root?.agents?.find(agent => agent.id === agentId)?.last_turn)?.status === 'failed';
   return <div {...stylex.props(styles.root)} data-session-view="repl">
-    <div {...stylex.props(styles.toolbar)}>
-      <span {...stylex.props(styles.title)}>
-        <Tooltip label={historyHelp}>
-          <Button variant="ghost" size="sm" aria-label="About REPL history" aria-description={historyHelp}><Info size={14} /></Button>
-        </Tooltip>
-      </span>
-      <span {...stylex.props(styles.count)}>{languageLabel} · {cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
-    </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
     {state.executions?.truncated && <p role="status" {...stylex.props(styles.notice)}>Some observed execution details were omitted to keep this view within its memory limit.</p>}
     <ReadingList rows={displayRows} label="REPL executions" earlierLabel="Load older executions"

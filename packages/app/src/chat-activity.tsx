@@ -84,10 +84,10 @@ function turnActivity(agent: Agent): string {
   return ` · ${parts.join(' · ')}`;
 }
 
-export function agentStatus(agent: Agent, active: boolean, connected: boolean): string {
+export function agentStatus(agent: Agent, active: boolean, connected: boolean, { includeActivity = true }: { includeActivity?: boolean } = {}): string {
   if (!connected) return 'Updates paused';
   if (agent.blocking_reason) return `Waiting · ${agent.blocking_reason.replaceAll('_', ' ')}`;
-  if (active || agent.status === 'running') return `Working${turnActivity(agent)}`;
+  if (active || agent.status === 'running') return `Working${includeActivity ? turnActivity(agent) : ''}`;
   if (agent.lifecycle_phase === 'queued' || agent.status === 'queued') return 'Queued';
   if (['failed', 'stopped', 'cancelled', 'interrupted', 'deleted', 'succeeded'].includes(agent.status)) return agent.status === 'succeeded' ? 'Completed' : agent.status.charAt(0).toUpperCase() + agent.status.slice(1);
   const outcome = agent.last_turn?.status;

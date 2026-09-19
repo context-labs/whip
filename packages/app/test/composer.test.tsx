@@ -70,6 +70,24 @@ function fixture() {
   return { drafts, waits, app, session, runtime, snapshot };
 }
 
+it('replaces the send icon with one spinner until submission finishes', async () => {
+  const f = fixture();
+  render(f.app('a'));
+  const send = screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement;
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  fireEvent.click(send);
+  expect(send.getAttribute('aria-busy')).toBe('true');
+  expect(send.disabled).toBe(true);
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('[aria-label="Loading"]')).not.toBeNull();
+  expect(send.querySelector('.lucide-arrow-up')).toBeNull();
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
+  expect(send.getAttribute('aria-busy')).toBeNull();
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  expect(send.querySelector('[aria-label="Loading"]')).toBeNull();
+});
+
 it('focuses the composer when its desktop chat view becomes active', async () => {
   const f = fixture();
   const rendered = render(f.app('a', 'one'));
