@@ -18,6 +18,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { useSessionActions } from './session-actions';
 import { layout } from './styles';
+import type { ReadingListActions } from './reading-list';
 import {
   Timeline,
   conversationRows,
@@ -155,6 +156,7 @@ export function SessionContent({
   useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
   const dropTarget = useRef<HTMLDivElement>(null);
+  const readingActions = useRef<ReadingListActions>(null);
   const childCompanion = useRef<ChildChatCompanion | undefined>(undefined);
   const [childViewId, setChildViewId] = useState<string>();
   const [childOpenError, setChildOpenError] = useState<{ agentId: string; message: string }>();
@@ -322,6 +324,7 @@ export function SessionContent({
       {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
       : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn || history?.hasMore || history?.latestMissing ? (
         <Timeline
+          readingActionsRef={readingActions}
           active={!!activeTurn}
           activeTurnId={activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
@@ -405,6 +408,7 @@ export function SessionContent({
         />
       )}
       {kind === 'chat' && <Composer
+        onAccepted={() => readingActions.current?.jumpToLatest()}
         dropTarget={dropTarget}
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}

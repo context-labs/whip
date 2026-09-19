@@ -1,32 +1,39 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ComponentProps } from 'react';
+import { useImperativeHandle, type ComponentProps } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { SessionView } from '@whip/sdk/state';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { SessionContent } from '../src/conversation';
+import * as agentDock from '../src/agent-dock';
 import { sessionPanes, sessionViewPane } from '../src/session-tabs';
 
 const navigate = vi.hoisted(() => vi.fn(async () => {}));
+const jumpToLatest = vi.hoisted(() => vi.fn());
 vi.mock('@tanstack/react-router', async importOriginal => ({
   ...await importOriginal<typeof import('@tanstack/react-router')>(), useNavigate: () => navigate,
 }));
 vi.mock('../src/timeline', async importOriginal => ({
   ...await importOriginal<typeof import('../src/timeline')>(),
-  Timeline: ({ onAgent }: ComponentProps<typeof import('../src/timeline').Timeline>) =>
-    <button onClick={() => onAgent?.('a')}>Open inline child</button>,
+  Timeline: ({ onAgent, readingActionsRef, bookmarkKey }: ComponentProps<typeof import('../src/timeline').Timeline>) => {
+    useImperativeHandle(readingActionsRef, () => ({ jumpToLatest: () => jumpToLatest(bookmarkKey) }));
+    return <button onClick={() => onAgent?.('a')}>Open inline child</button>;
+  },
 }));
 // Test composition/recipient ownership with a stateful uncontrolled draft; real
 // composer/draft/upload preservation is additionally exercised in the browser.
-vi.mock('../src/composer', () => ({ Composer: ({ agentId }: { agentId: string }) => <textarea aria-label={`Draft for ${agentId}`} defaultValue="" /> }));
+vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId }: ComponentProps<typeof import('../src/composer').Composer>) => <>
+  <textarea aria-label={`Draft for ${agentId}`} defaultValue="" />
+  <button onClick={onAccepted}>Accept send in {viewId}</button>
+</> }));
 vi.mock('../src/requests', () => ({ PendingRequests: () => null }));
 vi.mock('../src/inspector', () => ({ SessionInspector: () => null }));
 vi.mock('../src/agent-turn-notice', () => ({ AgentTurnNotice: () => null, useSelectedAgent: () => undefined }));
 vi.mock('../src/session-actions', () => ({ useSessionActions: () => ({ items: () => [], prepare: () => {} }) }));
 
 const runtimes: AppRuntime[] = [];
-afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); vi.restoreAllMocks(); navigate.mockClear(); });
+afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); vi.restoreAllMocks(); navigate.mockClear(); jumpToLatest.mockClear(); });
 
 function fixture(width = 1000) {
   const values = new Map<string, string>();
@@ -57,13 +64,27 @@ function fixture(width = 1000) {
       <SessionContent kind="chat" view={view} expectedRuntimeId="host" agentId="root" viewId={source.id} />
     </div></div>
   </UIProvider></ThemeProvider></RuntimeContext.Provider>);
-  return { runtime, source, ...rendered };
+  return { runtime, source, view, ...rendered };
 }
+
+it('an accepted send scrolls only its own chat view, not another view of the same session', () => {
+  vi.spyOn(agentDock, 'AgentDock').mockReturnValue(null);
+  const first = fixture();
+  const second = render(<RuntimeContext.Provider value={first.runtime}><ThemeProvider><UIProvider>
+    <SessionContent kind="chat" view={first.view} expectedRuntimeId="host" agentId="root" viewId="other-view" />
+  </UIProvider></ThemeProvider></RuntimeContext.Provider>);
+  fireEvent.click([...first.container.querySelectorAll('button')].find(button => button.textContent === `Accept send in ${first.source.id}`)!);
+  expect(jumpToLatest.mock.calls).toEqual([[`host:${first.source.id}:root`]]);
+  jumpToLatest.mockClear();
+  fireEvent.click([...second.container.querySelectorAll('button')].find(button => button.textContent === 'Accept send in other-view')!);
+  expect(jumpToLatest.mock.calls).toEqual([['host:other-view:root']]);
+});
 
 it('dock and inline links share a reusable child split without retargeting or remounting the source composer', async () => {
   const { runtime, source, container } = fixture();
   const draft = screen.getByRole('textbox', { name: 'Draft for root' });
   fireEvent.change(draft, { target: { value: 'Keep the main draft' } });
+  fireEvent.click(container.querySelector('[data-agent-dock] button[aria-expanded]')!);
   fireEvent.click(container.querySelector('[data-agent-dock-row="a"]')!);
   const child = runtime.tabs.workspace().tabs.find(tab => tab.id !== source.id)!;
   expect(child).toMatchObject({ kind: 'chat', location: { agent: 'a' } });
@@ -87,6 +108,7 @@ it('dock and inline links share a reusable child split without retargeting or re
 it('insufficient split space leaves the main view intact until Open in tab is explicitly chosen', () => {
   const { runtime, source, container } = fixture(600);
   const before = runtime.tabs.workspace();
+  fireEvent.click(container.querySelector('[data-agent-dock] button[aria-expanded]')!);
   fireEvent.click(container.querySelector('[data-agent-dock-row="a"]')!);
   expect(runtime.tabs.workspace()).toBe(before);
   expect(navigate).not.toHaveBeenCalled();

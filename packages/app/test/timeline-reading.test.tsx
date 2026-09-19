@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { createRef, StrictMode } from 'react';
 import {
   act,
   cleanup,
@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import { Timeline, type TimelineRow } from '../src/timeline';
 import { ReadingPositions } from '../src/reading-positions';
-import { ReadingList } from '../src/reading-list';
+import { ReadingList, type ReadingListActions } from '../src/reading-list';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
@@ -106,6 +106,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 function fixture() {
+  const readingActions = createRef<ReadingListActions>();
   const readingPositions = new ReadingPositions();
   const loadOlder = vi.fn(async () => {});
   const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false, historyCursor: 1000 };
@@ -126,6 +127,7 @@ function fixture() {
       <RuntimeContext.Provider value={runtime}>
         <UIProvider>
           <Timeline
+            readingActionsRef={readingActions}
             key={key}
             rows={visibleRows}
             footer={footer}
@@ -140,7 +142,7 @@ function fixture() {
       </RuntimeContext.Provider>
     </StrictMode>
   );
-  return { readingPositions, loadOlder, paging, report, app, runtime };
+  return { readingActions, readingPositions, loadOlder, paging, report, app, runtime };
 }
 it('focusing a closed activity header does not open it; explicit disclosure still works', () => {
   const f = fixture();
@@ -192,6 +194,32 @@ it('ordinary clicks, Tab and Enter preserve following; an upward gesture stays d
   fireEvent.scroll(root);
   expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
 });
+it('a composer jump immediately resumes following, until the reader scrolls up again', () => {
+  const f = fixture();
+  f.paging.hasMore = false;
+  const mounted = render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  fireEvent.wheel(root, { deltaY: -100 });
+  root.scrollTop = 100;
+  fireEvent.scroll(root);
+  mounted.rerender(f.app(undefined, undefined, true, [...rows]));
+  expect(root.scrollTop).toBe(100);
+  act(() => f.readingActions.current!.jumpToLatest());
+  expect(root.scrollTop).toBe(400);
+  expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(800);
+  mounted.rerender(f.app(undefined, undefined, true, [...rows]));
+  expect(root.scrollTop).toBe(600);
+  fireEvent.wheel(root, { deltaY: -100 });
+  root.scrollTop = 500;
+  fireEvent.scroll(root);
+  mounted.rerender(f.app(undefined, undefined, true, [...rows]));
+  expect(root.scrollTop).toBe(500);
+  expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
+  mounted.unmount();
+  expect(f.readingActions.current).toBeNull();
+});
+
 it('content movement cannot re-enable following or load history without a user scroll', () => {
   const f = fixture();
   render(f.app());
@@ -420,15 +448,16 @@ it('replacing a focused gap control keeps keyboard focus at recovered content wi
   expect(f.loadOlder).not.toHaveBeenCalled();
 });
 
-it('Latest loads an evicted suffix and an upward gesture cancels the pending jump', async () => {
+it.each(['Latest', 'composer'])('%s loads an evicted suffix and an upward gesture cancels the pending jump', async action => {
   const f = fixture();
   let resolve!: () => void;
   const loadLatest = vi.fn(() => new Promise<void>(done => { resolve = done; }));
   const app = () => <RuntimeContext.Provider value={f.runtime}><UIProvider><Timeline rows={rows} hasMore={false} loadOlder={f.loadOlder}
-    latestMissing loadLatest={loadLatest} readBody={() => {}} /></UIProvider></RuntimeContext.Provider>;
+    readingActionsRef={f.readingActions} latestMissing loadLatest={loadLatest} readBody={() => {}} /></UIProvider></RuntimeContext.Provider>;
   render(app());
   const root = screen.getByRole('region', { name: 'Conversation' });
-  fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+  if (action === 'Latest') fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+  else act(() => f.readingActions.current!.jumpToLatest());
   expect(loadLatest).toHaveBeenCalledTimes(1);
   fireEvent.wheel(root, { deltaY: -20 }); root.scrollTop = 240;
   await act(async () => { resolve(); });
@@ -436,6 +465,36 @@ it('Latest loads an evicted suffix and an upward gesture cancels the pending jum
   expect(root.scrollTop).toBe(240);
   expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy();
   expect(f.loadOlder).not.toHaveBeenCalled();
+});
+
+it.each(['completed', 'failed'])('a composer jump handles %s latest-history recovery', async outcome => {
+  const f = fixture();
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const loadLatest = vi.fn(() => new Promise<void>((done, fail) => { resolve = done; reject = fail; }));
+  const app = (latestMissing = true) => <RuntimeContext.Provider value={f.runtime}><UIProvider>
+    <Timeline rows={rows} hasMore={false} loadOlder={f.loadOlder} readingActionsRef={f.readingActions}
+      latestMissing={latestMissing} loadLatest={loadLatest} readBody={() => {}} />
+  </UIProvider></RuntimeContext.Provider>;
+  const mounted = render(app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  fireEvent.wheel(root, { deltaY: -100 });
+  root.scrollTop = 240;
+  fireEvent.scroll(root);
+  act(() => f.readingActions.current!.jumpToLatest());
+  expect(loadLatest).toHaveBeenCalledTimes(1);
+  expect(root.scrollTop).toBe(240);
+  if (outcome === 'completed') {
+    mounted.rerender(app(false));
+    await act(async () => { resolve(); });
+    await act(async () => { vi.advanceTimersByTime(32); });
+    expect(root.scrollTop).toBe(400);
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+  } else {
+    await act(async () => { reject(new Error('Offline')); });
+    expect(root.scrollTop).toBe(240);
+    expect(screen.getByRole('button', { name: 'Latest' }).getAttribute('aria-busy')).toBeNull();
+  }
 });
 
 it('anchors visible focused content when a preceding stored message or image grows', () => {

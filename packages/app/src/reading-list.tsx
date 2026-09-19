@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { defaultRangeExtractor, elementScroll, useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@whip/ui';
 import { ArrowDown } from 'lucide-react';
@@ -43,11 +43,16 @@ const styles = stylex.create({
   exhausted: { visibility: 'hidden' },
 });
 
+export interface ReadingListActions {
+  jumpToLatest(): void;
+}
+
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
 export function ReadingList<Row extends { id: string; seq?: number }>({
-  rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyCursor, historyReady = true,
+  actionsRef, rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyCursor, historyReady = true,
   label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false, chatFollow = false,
 }: {
+  actionsRef?: Ref<ReadingListActions>;
   rows: readonly Row[];
   hasMore: boolean;
   loadOlder(): Promise<void>;
@@ -475,6 +480,28 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       document.removeEventListener('focusin', update);
     };
   }, []);
+  async function jumpToLatest(animate: boolean) {
+    cancelPrefetch();
+    stopRestore();
+    cancelJump();
+    const request = ++latestIntent.current;
+    if (latestMissing && loadLatest) {
+      setFollowing(false); setLoadingLatest(true);
+      try { await loadLatest(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
+      catch { return; }
+      finally { setLoadingLatest(false); }
+      if (request !== latestIntent.current || !viewport.current) return;
+    }
+    intent.current = undefined;
+    const root = viewport.current;
+    jumping.current = animate && chatFollow && motion && !!root && root.scrollHeight - root.scrollTop - root.clientHeight > 2;
+    setFollowing(true);
+    if (jumping.current && root) root.scrollTo({ top: root.scrollHeight, behavior: 'smooth' });
+    else pinBottom();
+  }
+  useImperativeHandle(actionsRef, () => ({
+    jumpToLatest: () => { void jumpToLatest(false); },
+  }));
   return (
     <div {...stylex.props(styles.region)}>
       {positionNotice && (
@@ -581,24 +608,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           xstyle={styles.jump}
           loading={loadingLatest}
           disabled={loadingLatest || (latestMissing && !canLoadOlder)}
-          onClick={() => { void (async () => {
-            cancelPrefetch();
-            stopRestore();
-            const request = ++latestIntent.current;
-            if (latestMissing && loadLatest) {
-              cancelJump(); setFollowing(false); setLoadingLatest(true);
-              try { await loadLatest(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
-              catch { return; }
-              finally { setLoadingLatest(false); }
-              if (request !== latestIntent.current || !viewport.current) return;
-            }
-            intent.current = undefined;
-            const root = viewport.current;
-            jumping.current = chatFollow && motion && !!root && root.scrollHeight - root.scrollTop - root.clientHeight > 2;
-            setFollowing(true);
-            if (jumping.current && root) root.scrollTo({ top: root.scrollHeight, behavior: 'smooth' });
-            else pinBottom();
-          })(); }}
+          onClick={() => { void jumpToLatest(true); }}
         >
           <ArrowDown size={14} /> Latest
         </Button>

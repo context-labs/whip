@@ -81,7 +81,9 @@ export function Composer({
   queue,
   queueEnabled = false,
   dropTarget,
+  onAccepted,
 }: {
+  onAccepted?(): void;
   dropTarget?: RefObject<HTMLElement | null>;
   queue?: ReactNode;
   queueEnabled?: boolean;
@@ -220,7 +222,10 @@ export function Composer({
         } catch (error) {
           runtime.report(error);
         }
-        if (mountedKey.current === key && (!viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId)) input.current?.focus();
+        if (mountedKey.current === key) {
+          if (!viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId) input.current?.focus();
+          onAccepted?.();
+        }
       },
     });
     if (result.status === 'failed' && mountedKey.current === key

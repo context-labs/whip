@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
+  const onAccepted = vi.fn();
   const drafts = new Map<string, string>([
     ['runtime:root:a', 'same draft'],
     ['runtime:root:b', 'same draft'],
@@ -50,8 +51,9 @@ function fixture() {
     rootId: 'root',
     client: { clientId: 'composer-test' },
     command: vi.fn(() => ({})),
+    submit: vi.fn(() => ({})),
   } as unknown as Session;
-  const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn']) => (
+  const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn'], extra: Partial<ComponentProps<typeof Composer>> = {}) => (
     <RuntimeContext.Provider value={runtime}>
       <UIProvider>
         <Composer
@@ -63,12 +65,38 @@ function fixture() {
           runtimeId="runtime"
           active={active}
           lastTurn={lastTurn}
+          onAccepted={onAccepted}
+          {...extra}
         />
       </UIProvider>
     </RuntimeContext.Provider>
   );
-  return { drafts, waits, app, session, runtime, snapshot };
+  return { drafts, waits, app, session, runtime, snapshot, onAccepted };
 }
+
+it.each(['root', 'a'])('notifies only the sending composer on admission for %s, including queued messages', async agentId => {
+  const f = fixture();
+  f.runtime.setDraft(`runtime:root:${agentId}`, 'Send this');
+  render(f.app(agentId, undefined, false, undefined, { queueEnabled: true, activeTurn: 'turn' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(f.onAccepted).not.toHaveBeenCalled();
+  await act(async () => { f.waits[0]!.accepted(); });
+  expect(f.onAccepted).toHaveBeenCalledTimes(1);
+  await act(async () => { f.waits[0]!.finish(); });
+  expect(f.onAccepted).toHaveBeenCalledTimes(1);
+});
+
+it('does not request a scroll on rejection or after the sending composer unmounts', async () => {
+  const f = fixture();
+  const mounted = render(f.app('a'));
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.reject(new Error('Rejected')); });
+  expect(f.onAccepted).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  mounted.rerender(f.app('b'));
+  await act(async () => { f.waits[1]!.accepted(); f.waits[1]!.finish(); });
+  expect(f.onAccepted).not.toHaveBeenCalled();
+});
 
 it('replaces the send icon with one spinner until submission finishes', async () => {
   const f = fixture();

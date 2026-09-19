@@ -773,8 +773,14 @@ uses generic execution rows. Complete available execution code/output remains
 accessible through details and **Open in REPL**. Long trees and top-level Markdown
 blocks are virtualized. Live Markdown coalesces updates, appended text fades in,
 activity branches reveal, and chat stays pinned to the growing tail until the
-reader scrolls up. Returning to the bottom or choosing **Latest** resumes following;
-only **Latest** animates scrolling. Reduced motion and hidden windows stop animation work. Native mobile's
+reader scrolls up. Returning to the bottom, choosing **Latest**, or an accepted
+composer send resumes following; only **Latest** animates scrolling. Accepted
+sends (including queued/child messages) jump immediately in the sending chat view
+only. Rejected or delivery-uncertain sends preserve reading position, and upward
+input cancels following even while latest history loads. The admission callback
+in `composer.tsx` connects through `conversation.tsx`/`timeline.tsx` to the existing
+`reading-list.tsx` Latest action; regression coverage lives in
+`composer.test.tsx`, `timeline-reading.test.tsx`, and `conversation-agent-dock.test.tsx`. Reduced motion and hidden windows stop animation work. Native mobile's
 portable presentation remains unchanged.
 
 Chat scrollback softly fades at the top and above the composer using a

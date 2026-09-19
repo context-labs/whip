@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DeepReadonly, SessionViewSnapshot } from '@whip/sdk/state';
 import type { RootSnapshot } from '@whip/protocol';
 import { Button, Spinner } from '@whip/ui';
@@ -44,106 +44,133 @@ export function AgentDock(props: AgentDockProps) {
   return <AgentDockRoster key={`${props.state.root?.root_id}:${props.agentId}`} {...props} />;
 }
 
+/** Latest-turn wall time, never agent lifetime or a queued turn's predecessor. */
+function turnTiming(row: Row, activeTurn?: string) {
+  const turn = row.agent.last_turn;
+  if (!turn || (activeTurn && turn.turn_id !== activeTurn) || row.text === 'Queued' || row.text === 'Not started') return;
+  const start = Date.parse(turn.started_at ?? '');
+  const end = Date.parse(turn.finished_at ?? '');
+  if (!Number.isFinite(start)) return;
+  if (Number.isFinite(end)) {
+    if (row.running || ['running', 'waiting'].includes(turn.status)) return;
+    return end >= start ? { start, end } : undefined;
+  }
+  if (!turn.finished_at && ['running', 'waiting'].includes(turn.status) && !row.finished && row.text !== 'Failed') return { start, end: undefined };
+}
+
+function formatElapsed(ms: number) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
 function AgentDockRoster({ state, agentId, connected, onAgent, onAllAgents, openAgentId }: AgentDockProps) {
-  const children = (state.root?.agents ?? []).filter(agent => agent.parent_id === agentId && agent.id !== agentId && agent.status !== 'deleted');
-  const ids = children.map(agent => agent.id);
-  const [admission, setAdmission] = useState(ids);
-  const admitted = admission.filter(id => ids.includes(id));
-  admitted.push(...ids.filter(id => !admission.includes(id)));
-  if (admitted.length !== admission.length || admitted.some((id, index) => id !== admission[index])) setAdmission(admitted);
   const [expanded, setExpanded] = useState(false);
   const [focused, setFocused] = useState<string>();
   const [hovered, setHovered] = useState<string>();
   const [focusFallback, setFocusFallback] = useState(false);
-  const slots = useRef<string[]>([]);
-  const heading = useRef<HTMLSpanElement>(null);
+  const heading = useRef<HTMLButtonElement>(null);
+  const order = useRef<string[]>([]);
+  const contentId = useId();
+  const [now, setNow] = useState(Date.now);
+  const children = (state.root?.agents ?? []).filter(agent => agent.parent_id === agentId && agent.id !== agentId && agent.status !== 'deleted');
   const rows = children.map(agent => projectAgent(state.root!, agent));
-  const byId = new Map(rows.map(row => [row.agent.id, row]));
-  const interacting = !!focused || !!hovered;
-  // Keep the entire compact set still while it contains a pointer/focus target.
-  const retained = interacting ? slots.current.filter(id => byId.has(id)) : [];
-  const candidates = rows.filter(row => !row.finished)
-    .filter(row => !(interacting && [focused, hovered].includes(row.agent.id) && !retained.includes(row.agent.id)))
-    .sort((a, b) => Number(b.attention) - Number(a.attention) || admitted.indexOf(a.agent.id) - admitted.indexOf(b.agent.id));
-  const compactIds = [...retained, ...candidates.map(row => row.agent.id).filter(id => !retained.includes(id))].slice(0, 3);
-  const compact = compactIds.map(id => byId.get(id)!);
-  const finished = rows.filter(row => !compactIds.includes(row.agent.id) && (row.finished || [focused, hovered].includes(row.agent.id)))
-    .sort((a, b) => admitted.indexOf(a.agent.id) - admitted.indexOf(b.agent.id));
-  const overflow = rows.length - compact.length - finished.length;
-  const partial = !!state.root?.omitted?.agents;
-  const workingCount = rows.filter(row => row.text === 'Working' && !row.attention).length;
-  const queuedCount = rows.filter(row => row.text === 'Queued' && !row.attention).length;
-  const attentionCount = rows.filter(row => row.attention).length;
-  const summary = [workingCount && `${workingCount} working`, queuedCount && `${queuedCount} queued`, attentionCount && `${attentionCount} needs attention`].filter(Boolean).join(' · ');
-  useLayoutEffect(() => { slots.current = compactIds; });
+  const priority = (row: Row) => row.attention ? 0 : row.finished ? 3 : row.running ? 1 : 2;
+  const ids = new Set(children.map(agent => agent.id));
+  const admission = [...order.current.filter(id => ids.has(id)), ...children.map(agent => agent.id).filter(id => !order.current.includes(id))];
+  rows.sort((a, b) => ((!focused && !hovered) ? priority(a) - priority(b) : 0) || admission.indexOf(a.agent.id) - admission.indexOf(b.agent.id));
+  useLayoutEffect(() => { order.current = rows.map(row => row.agent.id); });
   useLayoutEffect(() => {
-    if (focused && !byId.has(focused)) {
+    if (focused && !ids.has(focused)) {
       setFocusFallback(true);
       setFocused(undefined);
       heading.current?.focus();
     }
-    if (hovered && !byId.has(hovered)) setHovered(undefined);
+    if (hovered && !ids.has(hovered)) setHovered(undefined);
   });
+  const timings = rows.map(row => turnTiming(row, state.root?.active_turns[row.agent.id]));
+  const ticking = expanded && connected && timings.some(timing => timing && timing.end === undefined);
+  useEffect(() => {
+    if (!ticking) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const update = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (!document.hidden) {
+        setNow(Date.now());
+        timer = setInterval(() => setNow(Date.now()), 1000);
+      }
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [ticking]);
+  const partial = !!state.root?.omitted?.agents;
   if (!rows.length && !partial && !focused && !focusFallback) return null;
-
-  const rowButton = (row: Row, settled = false) => {
-    const { agent, text, attention, running } = row;
-    const open = agent.id === openAgentId;
-    const calls = agent.last_turn?.model_calls;
-    const activity = calls === undefined ? '' : `${calls} model ${calls === 1 ? 'call' : 'calls'} in latest turn`;
-    const label = `${agent.name || agent.id} · ${text}${activity ? ` · ${activity}` : ''}${!connected ? ' · Updates paused' : ''}${open ? ' · Open' : ''} · Open chat in right split`;
-    return <Button key={agent.id} variant="ghost" size="sm" xstyle={[styles.row, open && styles.selected]}
-      data-agent-dock-row={agent.id} aria-label={label} aria-current={open ? 'true' : undefined}
-      title={label} onClick={() => onAgent(agent.id)}
-      onFocus={() => setFocused(agent.id)} onBlur={() => setFocused(undefined)}
-      onPointerEnter={() => setHovered(agent.id)} onPointerLeave={() => setHovered(undefined)}>
-      <span {...stylex.props(styles.marker, connected && attention && styles.attention)}>
-        {attention ? <ShieldAlert size={12} aria-hidden="true" />
-          : connected && running ? <Spinner size={10} label="Agent is busy" />
-          : <Circle size={5} aria-hidden="true" />}
-      </span>
-      <span {...stylex.props(styles.name)}>{agent.name || agent.id}</span>
-      <span data-agent-dock-status {...stylex.props(styles.status)}>{(!settled || !['Completed', 'Idle'].includes(text)) ? text : ''}</span>
-      <span data-agent-dock-calls {...stylex.props(styles.calls)} title={activity || undefined}>
-        {calls !== undefined && `${calls} ${calls === 1 ? 'call' : 'calls'}`}
-      </span>
-    </Button>;
-  };
+  const counts = [
+    [rows.filter(row => row.attention).length, 'needs attention'],
+    [rows.filter(row => row.text === 'Working' && !row.attention).length, 'working'],
+    [rows.filter(row => row.text === 'Queued' && !row.attention).length, 'queued'],
+    [rows.filter(row => row.text === 'Not started' && !row.attention).length, 'not started'],
+    [rows.filter(row => row.finished).length, 'finished'],
+    [rows.filter(row => !row.finished && !row.attention && !['Working', 'Queued', 'Not started'].includes(row.text)).length, 'other'],
+  ] as const;
+  const summary = ['Agents', ...(!connected ? ['Updates paused'] : partial ? ['Partial agent list'] : counts.filter(([count]) => count).map(([count, label]) => `${count} ${label}`))].join(' · ');
   return <section aria-label="Session agents" data-agent-dock {...stylex.props(styles.dock)}>
-    <div {...stylex.props(styles.header)}>
-      <span ref={heading} tabIndex={-1} onBlur={() => setFocusFallback(false)}>Agents</span>
-      {connected && !partial && summary && <span {...stylex.props(styles.note)}>· {summary}</span>}
-      {!connected && <span {...stylex.props(styles.note)}>Updates paused</span>}
+    <div data-agent-dock-content {...stylex.props(styles.content)}>
+      <button ref={heading} type="button" {...stylex.props(styles.header)} aria-expanded={expanded} aria-controls={contentId}
+        title={summary} onBlur={() => setFocusFallback(false)} onClick={() => { setExpanded(!expanded); setHovered(undefined); }}>
+        {expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+        <span {...stylex.props(styles.summary)}>{summary}</span>
+      </button>
+      <div id={contentId} hidden={!expanded}>
+        {expanded && <div data-agent-dock-rows {...stylex.props(styles.rows)}>{rows.map((row, index) => {
+          const { agent, text, attention, running } = row;
+          const open = agent.id === openAgentId;
+          const calls = agent.last_turn?.model_calls;
+          const activity = calls === undefined ? '' : `${calls} model ${calls === 1 ? 'call' : 'calls'} in latest turn`;
+          const timing = timings[index];
+          const duration = timing && (timing.end !== undefined || connected) ? formatElapsed((timing.end ?? now) - timing.start) : undefined;
+          const durationLabel = duration ? `${duration} ${timing?.end === undefined ? 'elapsed in current turn' : 'in latest completed turn'}` : '';
+          const label = `${agent.name || agent.id} · ${text}${activity ? ` · ${activity}` : ''}${durationLabel ? ` · ${durationLabel}` : ''}${!connected ? ' · Updates paused' : ''}${open ? ' · Open' : ''} · Open chat in right split`;
+          return <Button key={agent.id} variant="ghost" size="sm" xstyle={[styles.row, open && styles.selected]}
+            data-agent-dock-row={agent.id} aria-label={label} aria-current={open ? 'true' : undefined}
+            title={label} onClick={() => onAgent(agent.id)}
+            onFocus={() => setFocused(agent.id)} onBlur={() => setFocused(undefined)}
+            onPointerEnter={() => setHovered(agent.id)} onPointerLeave={() => setHovered(undefined)}>
+            <span {...stylex.props(styles.marker, connected && attention && styles.attention)}>
+              {attention ? <ShieldAlert size={12} aria-hidden="true" />
+                : connected && running ? <Spinner size={10} label="Agent is busy" />
+                : <Circle size={5} aria-hidden="true" />}
+            </span>
+            <span {...stylex.props(styles.name)}>{agent.name || agent.id}</span>
+            <span data-agent-dock-status {...stylex.props(styles.status)}>{text}</span>
+            <span data-agent-dock-calls {...stylex.props(styles.calls)} title={activity || undefined}>
+              {calls !== undefined && `${calls} ${calls === 1 ? 'call' : 'calls'}`}
+            </span>
+            <span data-agent-dock-duration {...stylex.props(styles.time)} title={durationLabel || 'Turn duration unavailable'}>{duration ?? '—'}</span>
+          </Button>;
+        })}</div>}
+        {expanded && partial && <Button variant="ghost" size="sm" xstyle={styles.disclosure} onClick={onAllAgents}>Partial agent list · See all agents</Button>}
+      </div>
     </div>
-    {partial && <Button variant="ghost" size="sm" xstyle={styles.disclosure} onClick={onAllAgents}>Partial agent list · See all agents</Button>}
-    <div {...stylex.props(styles.compact)}>{compact.map(row => rowButton(row))}</div>
-    {(overflow > 0 || finished.length > 0) && <div data-agent-dock-actions {...stylex.props(styles.actions)}>
-      {overflow > 0 && <Button variant="ghost" size="sm" xstyle={[styles.disclosure, styles.footerButton]} title="See all agents" onClick={onAllAgents}>
-        More ({overflow}{partial ? '+' : ''})
-      </Button>}
-      {finished.length > 0 && <Button variant="ghost" size="sm" xstyle={[styles.disclosure, styles.footerButton]} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-        Finished ({finished.length}{partial ? '+' : ''})
-      </Button>}
-    </div>}
-    {finished.length > 0 && expanded && <div aria-label="Finished agents" {...stylex.props(styles.finished)}>{finished.map(row => rowButton(row, true))}</div>}
   </section>;
 }
 
 const styles = stylex.create({
-  dock: { width: '100%', maxWidth: 864, alignSelf: 'center', minWidth: 0, maxHeight: '30dvh', overflowY: 'auto', overscrollBehavior: 'contain', flexShrink: 0, paddingInline: { default: 24, [scale.phone]: 12 }, paddingBlock: 4, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, fontSize: typography.size12, color: surface.secondaryText },
-  header: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0, minHeight: 28, paddingInlineStart: 8 },
-  note: { margin: 0, fontSize: typography.size12, color: surface.secondaryText, overflowWrap: 'anywhere' },
-  compact: { display: 'flex', flexDirection: 'column', minWidth: 0 },
-  row: { display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) minmax(0, 1.4fr) 8ch', alignItems: 'center', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, justifyContent: 'flex-start', paddingBlock: 4, paddingInline: 8, borderRadius: 6, textAlign: 'start', fontSize: typography.size13, fontWeight: 400, backgroundColor: { default: 'transparent', ':hover': colors.element } },
+  dock: { containerType: 'inline-size', width: '100%', maxWidth: 864, alignSelf: 'center', minWidth: 0, flexShrink: 0, paddingInline: { default: 24, [scale.phone]: 12 }, fontSize: typography.size12, color: surface.secondaryText },
+  content: { paddingTop: 4, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder },
+  header: { backgroundColor: 'transparent', borderWidth: 0, borderRadius: scale.radiusControl, fontFamily: 'inherit', textAlign: 'start', cursor: 'pointer', outlineOffset: 2, paddingBlock: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, paddingInline: 8, fontSize: typography.size13, fontWeight: 400, color: surface.secondaryText },
+  summary: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  rows: { display: 'flex', flexDirection: 'column', minWidth: 0, maxHeight: 'min(240px, 28dvh)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable' },
+  row: { display: 'grid', gridTemplateColumns: { default: '12px minmax(0, 1.4fr) minmax(0, 1fr) 7ch 8ch', '@container (max-width: 440px)': '12px minmax(0, 1fr) 8ch' }, alignItems: 'center', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, justifyContent: 'flex-start', paddingBlock: 4, paddingInline: 8, borderRadius: 6, textAlign: 'start', fontSize: typography.size13, fontWeight: 400, backgroundColor: { default: 'transparent', ':hover': colors.element } },
   selected: { backgroundColor: { default: colors.hover, ':hover': colors.hover } },
   name: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.foreground },
-  status: { minWidth: 0, fontSize: typography.size12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: surface.secondaryText },
-  calls: { minWidth: 0, fontSize: typography.size12, color: surface.secondaryText, textAlign: 'end', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  status: { gridColumn: { '@container (max-width: 440px)': 2 }, gridRow: { '@container (max-width: 440px)': 2 }, minWidth: 0, fontSize: typography.size12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: surface.secondaryText },
+  calls: { gridColumn: { '@container (max-width: 440px)': 3 }, gridRow: { '@container (max-width: 440px)': 2 }, minWidth: 0, fontSize: typography.size12, color: surface.secondaryText, textAlign: 'end', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  time: { gridColumn: { '@container (max-width: 440px)': 3 }, gridRow: { '@container (max-width: 440px)': 1 }, minWidth: 0, fontSize: typography.size12, color: surface.secondaryText, textAlign: 'end', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
   marker: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 12, flexShrink: 0, color: surface.secondaryText },
   attention: { color: colors.warning },
   disclosure: { paddingInline: 8, gap: 8, fontWeight: 400, justifyContent: 'flex-start', fontSize: typography.size12, color: surface.secondaryText, whiteSpace: 'normal', textAlign: 'start', height: 'auto', minHeight: { default: 28, '@media (pointer: coarse)': 44 } },
-  actions: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
-  footerButton: { height: { default: 28, '@media (pointer: coarse)': 44 }, alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 },
-  finished: { display: 'flex', flexDirection: 'column', minWidth: 0, maxHeight: 112, overflowY: 'auto', overscrollBehavior: 'contain' },
 });

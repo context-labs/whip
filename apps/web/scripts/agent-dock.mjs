@@ -18,7 +18,7 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   const childPanel = childInput.locator('xpath=ancestor::section[@data-workspace-view]');
   const dock = rootPanel.getByRole('region', { name: 'Session agents', exact: true });
   const row = dock.locator(`[data-agent-dock-row="${child}"]`);
-  const finished = dock.getByRole('button', { name: /^Finished \(/ });
+  const disclosure = dock.getByRole('button', { name: /^Agents/ });
   const form = rootInput.locator('xpath=ancestor::form');
   const preview = form.getByRole('button', { name: 'Preview agent-dock.png', exact: true });
   const tabs = page.locator('[data-workspace-tab]');
@@ -26,18 +26,40 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   const latest = rootPanel.getByRole('button', { name: 'Latest', exact: true });
   const readingChecks = [];
   const settle = () => page.waitForTimeout(250);
-  const alignedActions = async () => {
-    const footer = dock.locator('[data-agent-dock-actions]');
-    await expect(footer).toHaveCSS('display', 'flex');
-    await expect(footer).toHaveCSS('align-items', 'center');
-    const bounds = await footer.locator('button').evaluateAll(buttons => buttons.map(button => {
-      const rect = button.getBoundingClientRect();
-      return { y: rect.y, height: rect.height };
+  const alignedRows = async () => {
+    const divider = dock.locator('[data-agent-dock-content]');
+    await expect(divider).toHaveCSS('border-top-width', '1px');
+    const border = await divider.boundingBox();
+    const composer = await form.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { left: bounds.left + parseFloat(style.paddingLeft), right: bounds.right - parseFloat(style.paddingRight) };
+    });
+    assert.ok(Math.abs(border.x - composer.left) < 1, 'Divider starts at the composer edge');
+    assert.ok(Math.abs(border.x + border.width - composer.right) < 1, 'Divider ends at the composer edge');
+    const rows = dock.locator('[data-agent-dock-rows]');
+    if (await rows.count()) {
+      const viewport = await rows.boundingBox();
+      const dockBounds = await dock.boundingBox();
+      assert.ok(Math.abs(viewport.y + viewport.height - dockBounds.y - dockBounds.height) < 1,
+        'No empty strip clips rows at the bottom of the dock');
+      // Pending requests or the explicit narrow-pane fallback may sit between them.
+      if (await dock.evaluate(element => element.nextElementSibling?.tagName === 'FORM')) {
+        const composerBounds = await form.boundingBox();
+        assert.ok(Math.abs(viewport.y + viewport.height - composerBounds.y) < 1,
+          'Agent rows scroll all the way to the composer without a clipping gap');
+      }
+    }
+    await expect(disclosure).toHaveCSS('display', 'flex');
+    await expect(disclosure.locator('span').last()).toHaveCSS('white-space', 'nowrap');
+    const bounds = await dock.locator('[data-agent-dock-row]').evaluateAll(rows => rows.map(row => {
+      const rect = row.getBoundingClientRect();
+      const time = row.querySelector('[data-agent-dock-duration]').getBoundingClientRect();
+      return { right: time.right, rowRight: rect.right };
     }));
-    assert.ok(bounds.length > 0);
     for (const rect of bounds) {
-      assert.ok(Math.abs(rect.y - bounds[0].y) < 1, 'Footer buttons share a horizontal row');
-      assert.ok(Math.abs(rect.height - bounds[0].height) < 1, 'Footer buttons have matching heights');
+      assert.ok(Math.abs(rect.right - bounds[0].right) < 1, 'Durations share a right-aligned column');
+      assert.ok(rect.right <= rect.rowRight, 'Duration stays inside the row');
     }
   };
   const atEnd = () => expect.poll(() => reading.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(2);
@@ -66,8 +88,8 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   const rootView = await rootPanel.getAttribute('data-workspace-view');
   const rootPane = await rootPanel.getAttribute('data-workspace-pane');
   await expect(dock).toBeVisible();
-  await alignedActions();
-  await expect(finished).toHaveAttribute('aria-expanded', 'false');
+  await alignedRows();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(row).toHaveCount(0);
   assert.equal(rosterReads().length, 0, 'Mounting the dock must not read child history');
   await rootInput.fill(draft);
@@ -116,27 +138,42 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
 
   if (await latest.count()) await latest.click();
   await atEnd();
+  await disclosure.hover();
+  await expect(disclosure).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(disclosure).toHaveCSS('border-top-width', '0px');
+  await disclosure.click();
+  await expect(disclosure).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  assert.equal(await disclosure.evaluate(element => element.matches(':focus-visible')), false,
+    'Pointer clicks do not leave a keyboard focus ring on the plain disclosure');
+  await disclosure.click();
   await screenshot('finished-collapsed');
-  await finished.focus(); await page.keyboard.press('Enter');
-  await expect(finished).toHaveAttribute('aria-expanded', 'true');
+  await disclosure.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(disclosure).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  assert.ok(await disclosure.evaluate(element => parseFloat(getComputedStyle(element).outlineWidth) > 0
+    && getComputedStyle(element).outlineStyle !== 'none'), 'Keyboard focus remains visible');
+  assert.equal(await disclosure.evaluate(element => element.matches(':focus-visible')), true);
   await expect(row).toBeVisible();
-  assert.equal(rosterReads().length, 0, 'Expanding Finished must remain metadata-only');
+  assert.equal(rosterReads().length, 0, 'Expanding the roster must remain metadata-only');
   await atEnd();
-  readingChecks.push({ label: 'Finished expansion preserves end-following' });
+  readingChecks.push({ label: 'Roster expansion preserves end-following' });
   await screenshot('finished-expanded');
-  await finished.click();
+  await disclosure.click();
   await atEnd();
   await reading.hover(); await page.mouse.wheel(0, -400);
   await expect(latest).toBeVisible();
   await settle();
   const beforeDisclosure = await anchor();
   assert.ok(beforeDisclosure, 'Existing fixture must provide a visible reading anchor');
-  await finished.click();
-  await assertAnchor(beforeDisclosure, 'Finished expansion while reading');
-  await finished.click();
-  await assertAnchor(beforeDisclosure, 'Finished collapse while reading');
-  await finished.click();
-  await assertAnchor(beforeDisclosure, 'Finished re-expansion while reading');
+  await disclosure.click();
+  await assertAnchor(beforeDisclosure, 'Roster expansion while reading');
+  await disclosure.click();
+  await assertAnchor(beforeDisclosure, 'Roster collapse while reading');
+  await disclosure.click();
+  await assertAnchor(beforeDisclosure, 'Roster re-expansion while reading');
   const beforeSplit = await anchor();
   assert.equal(rosterReads().length, 0, 'Dock interactions must not eagerly read any direct child');
   await row.click();
@@ -151,24 +188,27 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   await rightSplit();
   await expect(childPanel).toHaveAttribute('data-workspace-view', childView);
   await expect(childInput).toHaveValue(childDraft);
-  // Selection must not pull settled work out of Finished or expand it implicitly.
-  await expect(dock.getByLabel('Finished agents').locator(`[data-agent-dock-row="${child}"]`)).toHaveCount(1);
+  // Selection must not expand the disclosure implicitly.
+  await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute('aria-current', 'true');
-  assert.equal(await dock.evaluate(element => getComputedStyle(element).borderTopWidth), '1px');
+  await expect(dock.locator('[data-agent-dock-content]')).toHaveCSS('border-top-width', '1px');
   await expect(dock.locator('.lucide-columns2')).toHaveCount(0);
   await expect(dock.getByRole('button', { name: 'All agents', exact: true })).toHaveCount(0);
-  const statusPosition = await row.evaluate(element => {
-    const bounds = element.getBoundingClientRect();
+  const rowColumns = await row.evaluate(element => {
+    const name = element.children[1].getBoundingClientRect();
     const status = element.querySelector('[data-agent-dock-status]').getBoundingClientRect();
-    return (status.x - bounds.x) / bounds.width;
-  });
-  assert.ok(statusPosition > 0.3 && statusPosition < 0.5, 'Status occupies the middle column');
-  const callPosition = await row.evaluate(element => {
-    const bounds = element.getBoundingClientRect();
     const calls = element.querySelector('[data-agent-dock-calls]').getBoundingClientRect();
-    return (calls.right - bounds.x) / bounds.width;
+    const time = element.querySelector('[data-agent-dock-duration]').getBoundingClientRect();
+    return { name: name.toJSON(), status: status.toJSON(), calls: calls.toJSON(), time: time.toJSON() };
   });
-  assert.ok(callPosition > 0.9 && callPosition <= 1, 'Call count occupies the right column');
+  if (rowColumns.status.y > rowColumns.name.y + 5) {
+    assert.ok(Math.abs(rowColumns.status.x - rowColumns.name.x) < 1, 'Narrow status aligns below the name');
+    assert.ok(Math.abs(rowColumns.calls.right - rowColumns.time.right) < 1, 'Narrow calls align below duration');
+  } else {
+    assert.ok(rowColumns.status.x >= rowColumns.name.right, 'Wide status occupies the middle column');
+    assert.ok(rowColumns.time.x >= rowColumns.calls.right, 'Wide duration follows model calls');
+  }
+  await alignedRows();
   const rowSurface = await row.evaluate(element => ({
     background: getComputedStyle(element).backgroundColor,
     radius: getComputedStyle(element).borderRadius,
@@ -176,14 +216,14 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   assert.notEqual(rowSurface.background, 'rgba(0, 0, 0, 0)');
   assert.equal(rowSurface.radius, '6px');
   await screenshot('right-split');
-  await finished.click();
+  await disclosure.click();
   await expect(row).toHaveCount(0);
   await rootPanel.locator(`[data-inline-agent="${child}"]`).getByRole('button', { name: /^Launched / }).click();
   await rightSplit();
-  await expect(finished).toHaveAttribute('aria-expanded', 'false');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(row).toHaveCount(0);
   await expect(childPanel).toHaveAttribute('data-workspace-view', childView);
-  await finished.click();
+  await disclosure.click();
 
   // The compact chronological launch record takes the identical route.
   const inline = rootPanel.locator(`[data-inline-agent="${child}"]`);
@@ -208,7 +248,7 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await preserveRoot();
-    if (!(await row.isVisible())) await finished.click();
+    if (!(await row.isVisible())) await disclosure.click();
     await row.click();
     await expect(rootInput).toBeVisible();
     await expect(childInput).toHaveCount(0);
@@ -216,7 +256,7 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
     const fallback = rootPanel.getByRole('button', { name: 'Open in tab', exact: true });
     await expect(fallback).toBeVisible();
     await bounded();
-    await alignedActions();
+    await alignedRows();
     await screenshot(`narrow-${width}-explicit-fallback`);
     await fallback.click();
     await expect(childInput).toBeVisible();
@@ -236,14 +276,37 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   await bounded();
   await expect(page.locator('[data-workspace-view]')).toHaveCount(1);
   await screenshot('restored-wide');
+  for (const appearance of [
+    { theme: 'light', uiSize: 20, codeSize: 24, width: 320 },
+    { theme: 'claude-code', uiSize: 12, codeSize: 10, width: 1280 },
+  ]) {
+    await page.evaluate(value => {
+      localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: value.theme }));
+      localStorage.setItem('whip.appearance.display.v1', JSON.stringify({ version: 1, display: {
+        uiFont: 'system', codeFont: 'system', uiSize: value.uiSize, codeSize: value.codeSize,
+        wrapCode: true, contrast: 'more', motion: 'reduce',
+      } }));
+    }, appearance);
+    await page.setViewportSize({ width: appearance.width, height: 900 });
+    await page.reload();
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await bounded();
+    await screenshot(`${appearance.theme}-collapsed`);
+    await disclosure.click();
+    await expect(row).toBeVisible();
+    await bounded();
+    await alignedRows();
+    await screenshot(`${appearance.theme}-expanded`);
+    assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
+  }
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
   return {
     childHistoryReads: childReads().length, readingChecks,
-    checks: ['finished collapsed and keyboard disclosure', 'no eager child transcript reads',
+    checks: ['single-line summary and keyboard disclosure', 'no eager child transcript reads',
       'right split preserves root draft and attachment', 'isolated root and child composers',
       'repeated click reuses child view', 'inline launch shares split routing',
       'wide split resize', '390/320px explicit tab fallback without hidden split',
-      'drafts survive child tab closure', 'reduced motion and CSP'],
+      'drafts survive child tab closure', 'light/dark and 320px large type', 'reduced motion and CSP'],
   };
 }

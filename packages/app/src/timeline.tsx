@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
   type ReactNode,
+  type Ref,
 } from 'react';
 import { Markdown } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
@@ -36,7 +37,7 @@ import {
 } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
-import { ReadingList } from './reading-list';
+import { ReadingList, type ReadingListActions } from './reading-list';
 import { HistoryGapControl } from './history-gap';
 import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
@@ -593,6 +594,7 @@ function MessageCopy({ owner, label, text }: { owner: string; label: string; tex
 }
 
 export function Timeline({
+  readingActionsRef,
   rows: incomingRows,
   agents = [],
   activeTurnId,
@@ -617,6 +619,7 @@ export function Timeline({
   footer,
   messageScope,
 }: {
+  readingActionsRef?: Ref<ReadingListActions>;
   rows: ConversationActivityRow[];
   agents?: readonly TranscriptAgent[];
   activeTurnId?: string;
@@ -787,7 +790,7 @@ export function Timeline({
     if (!isMarkdownRow(row) || !following || !isMarkdownRow(following) || following.ownerId !== owner) displayRows.at(-1)!.copy = copies.get(owner);
   }
   return <MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
-    <ReadingList rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} loadLatest={loadLatest} latestMissing={latestMissing} chatFollow
+    <ReadingList actionsRef={readingActionsRef} rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} loadLatest={loadLatest} latestMissing={latestMissing} chatFollow
       bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyCursor={historyCursor} historyReady={historyReady}
       canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
       label="Conversation" earlierLabel="Load earlier messages" footer={footer}

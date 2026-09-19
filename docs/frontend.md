@@ -1480,25 +1480,33 @@ available even without a child ID. Names may use existing snapshot metadata.
 
 `AgentDock` sits above pending human requests and the chat composer, outside the
 transcript scroller. It projects direct children of this pane's selected agent
-from the existing snapshot: waiting/failed work first, then active/queued work,
-with three compact rows, stable admission/focus and an All agents overflow action.
-Settled children live in a collapsed Finished disclosure. Opening a child only
+from the existing snapshot. It starts collapsed as a single-line disclosure with
+working, queued, not-started, attention-needed and finished counts. The heading
+uses the plain transcript disclosure treatment: no filled hover/pressed surface,
+with the shared keyboard-only focus indicator. Expanding it
+reveals one row per available child in a height-bounded scroller: waiting/failed
+work first, then active/queued and not-started work, then settled children. Opening a child only
 highlights its row; it never promotes it out of its lifecycle group or expands
 the disclosure. Rows reuse the sidebar spinner for live running/queued work and
-quiet selected surfaces and a subtle top divider. Like transcript activity rows,
+quiet selected surfaces and a subtle top divider inset to the composer's visible
+edges, including narrow layouts. Like transcript activity rows,
 each unboxed row aligns the agent name on the left, state in the middle, and
-latest-turn model-call count on the right (when known, including zero). Tooltips
-and accessible names distinguish model calls from tools; compaction counts stay
-in details. A compact heading summarizes working, queued and attention-needed
-children only when connected with complete roster metadata. There are no trailing
-split icons or top-right All agents button. Directory actions appear only for
-overflow or partial metadata. The bottom More (N) and Finished (N) buttons share
-a horizontal, center-aligned row with matching heights; expanded finished rows
-render below that row. Finished requires a recorded settled outcome, not merely
-an idle agent. Child-scoped queued inbox work takes precedence over a previous
+latest-turn model-call count and duration on the right (when known, including
+zero). Narrow panes place status/calls on a second line within the same agent row.
+Durations use recorded latest-turn start/end timestamps, never mount time or
+agent lifetime. Active turns tick while expanded, connected and document-visible;
+completed durations stay fixed. Missing/invalid timing, mismatched active turn
+IDs and queued work never borrow an earlier turn's duration. Unknown duration is
+a quiet dash; disconnected live timing is unavailable rather than still ticking.
+Tooltips and accessible names distinguish model calls from tools; compaction counts stay
+in details. The heading summarizes counts only when connected with complete
+roster metadata. There are no trailing split icons or top-right All agents button.
+The single roster disclosure replaces the earlier More/Finished footer; the
+full-directory action appears only for partial metadata. Finished requires a
+recorded settled outcome, not merely an idle agent. Child-scoped queued inbox work takes precedence over a previous
 turn's outcome; new idle/ready children with no recorded turn show Not started
-and remain outside Finished. Unknown states also remain outside Finished. Finished rows omit redundant Completed/Idle text
-but retain exceptional outcomes and known call counts. Status
+and remain outside the finished count. Unknown states also remain outside that
+count. Finished rows retain their explicit outcome and known call counts. Status
 updates defer regrouping while a row is focused or hovered to preserve its target.
 The roster and disclosure are height-bounded. Stopped children retain truthful
 status; deleted children lose their actions. Offline updates are labeled
@@ -1580,8 +1588,14 @@ no animation or scroll listeners.
 Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
 selection detach immediately, even within the old 70px proximity threshold.
 Ordinary row clicks, Tab and Enter do not detach. A downward user scroll reaching
-the actual bottom (2px rounding tolerance), or **Latest**, resumes following;
-content growth and programmatic scrolls never resume it or load history.
+the actual bottom (2px rounding tolerance), **Latest**, or an accepted composer
+send resumes following. Composer admission (including queued and child messages)
+jumps immediately to latest in the sending view only, via a view-local
+`ReadingList` action. It reuses Latest's missing-suffix recovery and cancellation;
+upward input during recovery cancels the pending jump. Rejected or delivery-uncertain
+sends do not move the reading position; admission need not wait for turn completion.
+Unmounted composers cannot scroll another recipient. Background activity, content
+growth and incidental programmatic scrolls never resume following or load history.
 Only **Latest** uses native smooth scrolling, which new scroll input cancels;
 reduced motion uses an immediate jump. TanStack's default resize predicate keeps
 a growing block spanning the viewport stationary while reading it. Existing
