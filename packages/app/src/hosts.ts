@@ -80,7 +80,7 @@ export class HostConnections {
   constructor(
     private readonly platform: AppPlatform,
     private readonly recovery: RecoveryStorage,
-    private readonly effects: { connected(runtimeId: string): void; detached(client: WhipClient, runtimeId: string): void },
+    private readonly effects: { connected(runtimeId: string, client: WhipClient): void; detached(client: WhipClient, runtimeId: string): void },
   ) {
     const fallback = platform.defaultConnection ?? urlProfile(platform.defaultEndpoint!);
     const native = fallback.target.kind === 'local';
@@ -275,7 +275,7 @@ export class HostConnections {
       }
       if (record.connectionId !== info.connection_id) {
         record.connectionId = info.connection_id;
-        this.effects.connected(info.runtime_id);
+        this.effects.connected(info.runtime_id, client);
         if (record.profile.id === 'local') void this.refreshProfiles().catch(() => {});
       }
     }

@@ -178,6 +178,7 @@ export class AppRuntime {
       const views = new Set([...after.tabs, ...after.closed.map(item => item.tab)].map(tab => tab.id));
       for (const tab of [...before.tabs, ...before.closed.map(item => item.tab)]) {
         if ((isSessionTab(tab) || tab.kind === 'terminal') && !views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
+        if (tab.kind === 'new' && !views.has(tab.id)) this.compositions.clear(welcomeDraftKey(tab.id));
       }
       previousTabs = next;
     });
@@ -199,7 +200,16 @@ export class AppRuntime {
         if (key.startsWith(draftRevisionPrefix) && !saved.has(key.slice(draftRevisionPrefix.length))) platform.storage.removeItem(key);
     } catch (error) { this.report(error); }
     this.connections = new HostConnections(platform, this.recoveryStorage(), {
-      connected: runtimeId => { void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId }); void this.primeProviders(runtimeId); },
+      connected: (runtimeId, client) => {
+        void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
+        void this.primeProviders(runtimeId);
+        // Match the dialog's landing-page key, including its absent cursor.
+        void this.queries.prefetchQuery({
+          queryKey: ['session-search', runtimeId, '', 'all', undefined],
+          queryFn: ({ signal }) => client.sessions.list({ search: '', status: 'all', limit: 64, max_bytes: 256 << 10 }, { signal }),
+          gcTime: 5 * 60_000,
+        });
+      },
       detached: (client, runtimeId) => {
         if (runtimeId) { this.compositions.invalidateRuntime(runtimeId); this.priming.delete(runtimeId); }
         for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
@@ -745,10 +755,9 @@ export class AppRuntime {
         if (!attached()) throw new Error('Host changed while awaiting the command');
         this.submittedInputs.acknowledge(outcome, runtimeId);
         terminal = true;
-        notice(
-          outcome.status,
-          outcome.failure ? { error: outcome.failure.message } : {},
-        );
+        const removed = outcome.status === 'cancelled' && outcome.failure?.data?.kind === 'queue_removed';
+        notice(outcome.status, outcome.failure && !removed ? { error: outcome.failure.message } : {});
+        if (removed) { this.submittedInputs.remove(handle.commandId, runtimeId); return outcome; }
         if (outcome.status !== 'succeeded')
           throw new Error(
             outcome.failure?.message ?? `${label}: ${outcome.status}`,

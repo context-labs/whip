@@ -8,7 +8,8 @@
     ".": "./src/index.tsx",
     "./platform": "./src/platform.ts",
     "./desktop-bridge": "./src/desktop-bridge.ts",
-    "./presentation": "./src/presentation.ts"
+    "./presentation": "./src/presentation.ts",
+    "./browser-design": "./src/browser-design-overlay.tsx"
   },
   "dependencies": {
     "@stylexjs/stylex": "0.19.0",

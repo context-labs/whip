@@ -180,6 +180,12 @@ equality is irrelevant. New work is rejected while disconnected; the application
 keeps drafts. Queries fail on disconnect; callers decide whether to query again.
 Accepted work remains daemon-owned.
 
+Hosts predating MCP import and logo lookup can omit the associated configuration
+fields. The SDK supplies `mcp_import_offered: true` and `brand_icons: false` only
+when the host does not advertise those operations, preventing unsupported import
+offers or external lookups. Present values and all other response fields still
+undergo normal validation.
+
 Lost acknowledgements produce `DeliveryUncertainError`, never a guessed failure.
 `command.result()` reconciles by status after reconnect. If status definitively
 reports `command_not_found`, call `command.retry()` explicitly to resend the
@@ -355,6 +361,32 @@ scoped content handle for explicitly reading the full message. Missing summaries
 from compatible older hosts mean unknown, not success. Keep all agent/session
 IDs opaque: new IDs use 20 lowercase base32 characters, while legacy IDs and
 existing links remain valid. Hierarchy comes from `root_id` and `parent_id`.
+
+Queue controls act on an already accepted input; they do not submit a new prompt:
+
+```ts
+if (client.supports('runtime', 'inbox.steer') && client.supports('runtime', 'inbox.remove')) {
+  await session.inbox.steer(agentId, inboxSeq, expectedTurnId).result();
+  // Or remove it while still waiting; this never cancels a running turn.
+  await session.inbox.remove(agentId, inboxSeq).result();
+}
+```
+
+The result distinguishes `steering`, `removed`, `already_started`,
+`already_removed`, and `turn_ended`. Admission alone is not mutation success.
+Steering preserves the original prompt, attachments, command identity and inbox
+sequence; it delivers at the expected turn's next safe boundary. If that turn
+ends first, the entry keeps its ordinary queue position. Direct `session.steer`
+remains supported. Root input commands removed while queued settle as cancelled
+with failure kind `queue_removed`; completed child admission commands stay complete.
+
+`inboxItems(view.getSnapshot(), agentId)` from `@whip/sdk/state` returns scoped
+rows with freshness and additional-page availability. Optional inbox metadata
+includes client origin/correlation, bounded text/attachment preview, pending
+steer target and delivery sequence. Snapshot omissions retain bounded unverified
+evidence; do not enable controls on stale rows or infer removal from absence.
+Use `view.loadCollection('inbox')` and `{ more: true }` for explicit paging.
+All retained evidence shares the existing session byte budget and subscription.
 
 Supplemental execution evidence is capped at 256 entries per root, 128 host calls
 per cell and 1 MiB **inside** the view's payload budget. Truncation is explicit.

@@ -25,6 +25,15 @@ export function isDesktopURL(value: string): boolean {
   } catch { return false; }
 }
 
+/** Design Mode is a separate trusted surface, never an application IPC principal. */
+export function isApplicationURL(value: string, developmentOrigin?: string): boolean {
+  try {
+    const url = new URL(value);
+    if (decodeURIComponent(url.pathname) === '/design.html') return false;
+    return isDesktopURL(value) || (!!developmentOrigin && url.origin === developmentOrigin && !url.username && !url.password);
+  } catch { return false; }
+}
+
 /** Only serve files listed by the verified build artifact; never expose the app root. */
 export function createAssetHandler(directory: string, manifest: RendererManifest) {
   if (manifest.schema !== 1 || !manifest.files?.['index.html'] || !manifest.csp || /[\r\n]/.test(manifest.csp))

@@ -56,7 +56,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 		return AgentTurnStart{}, ErrAgentTerminal
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
 		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' ORDER BY i.seq LIMIT 1`,
 		InlineValueLimit+1, rootID, agentID)
@@ -98,7 +98,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 	stamp := now()
 	var inboxSeq int64
 	for index := range items {
-		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running'
+		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running',steer_turn_id='',delivery_seq=0
 			WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, items[index].Seq)
 		if err != nil {
 			return AgentTurnStart{}, err
@@ -110,6 +110,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 			return AgentTurnStart{}, ErrInboxTerminal
 		}
 		items[index].Status = "running"
+		items[index].SteerTurnID, items[index].DeliverySeq = "", 0
 		inboxSeq = items[index].Seq
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO turns(id,root_id,agent_id,status,trigger,created_at,updated_at)

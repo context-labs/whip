@@ -46,10 +46,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const inset = runtime.platform.chrome === 'inset';
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchStatus, setSearchStatus] = useState<'active' | 'archived' | 'all'>('active');
   const searchOpener = useRef<HTMLElement | null>(null);
-  const openSearch = (status: 'active' | 'archived' | 'all' = 'active') => {
-    setSearchStatus(status);
+  const openSearch = () => {
     searchOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setNavigation(false);
     setSearchOpen(true);
@@ -152,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </Sheet>
       <SessionSearchDialog
-        open={searchOpen} initialStatus={searchStatus} onOpenChange={setSearchOpen}
+        open={searchOpen} onOpenChange={setSearchOpen}
         finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />
       <CommandPicker
         open={commands}

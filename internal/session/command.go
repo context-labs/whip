@@ -90,6 +90,7 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 	if admission.Scope == CommandScopeRoot {
 		sequence, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
 			RootID: admission.RootID, AgentID: admission.AgentID, Kind: admission.Kind,
+			Origin:          clientInputOrigin(admission.Kind),
 			CommandClientID: admission.ClientID, CommandID: admission.CommandID,
 			Payload: admission.Payload,
 		}, inboxValue, "command.queued", actorEvent{})

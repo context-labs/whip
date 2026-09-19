@@ -60,7 +60,7 @@ const styles = stylex.create({
   header: { display: 'flex', flexDirection: 'column', gap: scale.space2 },
   heading: { fontSize: typography.size24, fontWeight: 550, lineHeight: '32px', letterSpacing: '-0.025em', margin: 0 },
   note: { fontSize: typography.size13, lineHeight: 1.6, color: surface.secondaryText, margin: 0 },
-  rows: { display: 'flex', flexDirection: 'column', gap: 2, marginInline: -8 },
+  rows: { display: 'grid', gridAutoRows: '1fr', gap: 2, marginInline: -8 },
   row: { width: '100%', fontSize: typography.size13, textAlign: 'start', color: { default: surface.secondaryText, ':hover': colors.foreground, ':focus-visible': colors.foreground } },
   primary: { color: colors.foreground, fontWeight: 550 },
   label: { flex: 1, minWidth: 0 },

@@ -167,6 +167,10 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [ ] Browser Design Mode acceptance: multi-element selection, trusted floating
+  composer and scoped context-to-chat pass automated app/renderer/native checks;
+  manual IME/accessibility and packaged local/SSH checks remain before broad release.
+  See the [plan and validation](../.ai-docs/plans/browser-design-mode/README.md).
 - [ ] Experimental desktop Browser rollout: human workspace tabs, explicit
   conversation/agent access and saved-SSH previews are implemented. Browser tabs
   are **enabled by default**; `WHIP_DESKTOP_BROWSER_TABS=0` disables them at launch.

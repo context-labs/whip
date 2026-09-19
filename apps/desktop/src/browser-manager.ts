@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, Menu, clipboard, dialog, session, type Session, type WebContents } from 'electron';
+import { BrowserWindow, WebContentsView, Menu, clipboard, dialog, session, type Session, type Input, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { BrowserEvent, BrowserInventory, BrowserPresentation, BrowserRestoreTab, BrowserShortcut, BrowserTabState, BrowserTarget } from '@whip/app/desktop-bridge';
 import { browserAction, browserID, browserLimits, browserTitle, browserURL, guestResourceAllowed, nativeBounds, object, presentation, restoreTabs, target } from './browser-policy';
@@ -28,6 +28,8 @@ export interface BrowserManagerOptions {
   confirm?(message: string, detail: string): boolean;
   invalidateControl?(tabId: string, reason: string): void;
   admissionTimeoutMs?: number;
+  /** Trusted Design surface follows native guest visibility, including hide ACK and security prompts. */
+  presentDesign?(tabId?: string, bounds?: Electron.Rectangle): void;
 }
 
 /** One owner per application window; renderer mounts only present, never own guests. */
@@ -138,6 +140,7 @@ export class BrowserManager {
       entry.view.setVisible(bounds.width > 0 && bounds.height > 0);
     }));
     if (this.layout !== input || this.epoch !== input.epoch) throw new Error('Browser presentation was superseded');
+    this.refreshPresentation();
   }
   async act(value: unknown): Promise<void> {
     const input = object(value, ['epoch', 'tabId', 'generation', 'action']);
@@ -208,6 +211,16 @@ export class BrowserManager {
     }
     this.changed();
   }
+  /** Native key routing only: guests and the trusted overlay share the app-owned toggle. */
+  designShortcut(value: BrowserTarget, input: Input): boolean {
+    const entry = this.entries.get(value.tabId);
+    if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing || input.key.toLowerCase() !== 'd' ||
+      !input.meta || !input.shift || input.control || input.alt || this.disposed || this.nativeBlocks ||
+      this.layout?.blocked || this.epoch !== value.epoch || entry?.state.generation !== value.generation ||
+      !entry.view?.getVisible() || this.window.isDestroyed() || !this.window.isFocused()) return false;
+    this.emit({ kind: 'shortcut', ...value, shortcut: 'design-toggle' });
+    return true;
+  }
   /** Main-owned prompts cannot be covered by a late renderer presentation. */
   blockNative(): () => void {
     this.nativeBlocks++; this.hide(); if (!this.window.isDestroyed()) this.window.webContents.focus();
@@ -220,15 +233,25 @@ export class BrowserManager {
     if (!entry || entry.state.generation !== value.generation || value.epoch !== this.epoch) return;
     this.remove(entry); await entry.realizing?.catch(() => {}); await entry.releasing;
   }
-  hide(): void { for (const entry of this.entries.values()) entry.view?.setVisible(false); }
+  hide(): void { this.options.presentDesign?.(); for (const entry of this.entries.values()) entry.view?.setVisible(false); }
+  /** Reapply an already acknowledged layout after attaching a trusted native surface. */
+  refreshPresentation(): void {
+    this.options.presentDesign?.();
+    if (!this.layout || this.layout.blocked || this.nativeBlocks || this.window.isDestroyed() || !this.window.isVisible()) return;
+    for (const entry of this.entries.values()) if (entry.view?.getVisible()) this.options.presentDesign?.(entry.state.id, entry.view.getBounds());
+  }
   resetRenderer(): void {
     if (this.disposed) return;
-    this.hide(); this.epoch = randomUUID(); this.layout = undefined; this.layoutRevision = 0;
+    this.hide(); this.layout = undefined; this.layoutRevision = 0;
     for (const entry of this.entries.values()) {
       this.options.invalidateControl?.(entry.state.id, 'renderer-lost');
       if (!entry.admitted) this.remove(entry);
     }
-    this.changed();
+    // Navigation starts while the outgoing document can still receive events.
+    // Do not give it the incoming document's epoch: its final visibility update
+    // could consume revision 1 before the new workspace sends its first layout.
+    // The incoming renderer obtains this epoch through its initial snapshot.
+    this.epoch = randomUUID(); this.revision++;
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true; this.hide();
@@ -385,6 +408,7 @@ export class BrowserManager {
     contents.on('found-in-page', (_event, result) => { if (current()) this.emit({ kind: 'find', ...identity(), requestId: result.requestId, matches: result.matches, activeMatchOrdinal: result.activeMatchOrdinal, final: result.finalUpdate }); });
     contents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || input.isAutoRepeat || !current()) return;
+      if (contents.isFocused() && this.designShortcut(identity(), input)) { event.preventDefault(); return; }
       const modifier = process.platform === 'darwin' ? input.meta : input.control;
       let shortcut: BrowserShortcut | undefined;
       if (modifier && !input.alt) shortcut = ({ l: 'address', f: 'find', r: 'reload', w: 'close', k: 'commands', t: 'new-browser', '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset' } as Record<string, BrowserShortcut>)[input.key.toLowerCase()];

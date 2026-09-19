@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
 import type { SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
-import { createSessionListView, createSessionView, executionRows } from '../src/state.js';
+import { createSessionListView, createSessionView, executionRows, inboxItems } from '../src/state.js';
 
 const pause = (ms = 5) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate: () => boolean): Promise<void> {
@@ -897,7 +897,7 @@ test('REPL supplements count against the SessionView byte limit even while publi
   const current = view.getSnapshot();
   assert.ok(current.retainedBytes <= 4096);
   assert.equal(current.truncated, true);
-  const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, executions: current.executions })).byteLength;
+  const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, unverifiedInbox: current.unverifiedInbox, executions: current.executions })).byteLength;
   assert.equal(bytes, current.retainedBytes);
 });
 
@@ -1224,4 +1224,63 @@ test('manual gap navigation keeps a dropped zero-based root prefix reachable', a
   assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [1, 2, 3]);
   assert.equal(view.getSnapshot().history.root!.hasMore, true, 'The evicted record zero stays pageable');
   assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+});
+
+
+test('inbox projection respects recipient, newer pages, partial evidence and stable collection revisions', () => {
+  const root = snapshot('20');
+  root.collection_revision = '5'; root.omitted = { inbox: true };
+  const input = (seq: string, agent = 'root', status = 'queued') => ({ root_id: 'root', agent_id: agent, seq, kind: 'submit', status, origin: 'client', payload: { text: seq, reference_id: '', digest: '', size: '1', media_type: '', source: '' } });
+  root.inbox = [input('1')];
+  const page = { root_id: 'root', collection: 'inbox', revision: '5', event_cursor: '15', items: [{ inbox: input('2') }, { inbox: input('1', 'child') }], has_more: false };
+  const state = { root, status: 'live' as const, history: {}, collections: { inbox: page }, retainedBytes: 0, truncated: true, unavailable: false };
+  assert.deepEqual(inboxItems(state, 'root').rows.map(row => [row.item.seq, row.stale]), [['1', false], ['2', false]]);
+  assert.equal(inboxItems(state, 'root').hasMore, false);
+  root.collection_revision = '6';
+  assert.equal(inboxItems(state, 'root').rows[1]?.stale, true);
+  page.event_cursor = '25'; page.items = [{ inbox: input('1', 'root', 'running') }];
+  assert.equal(inboxItems(state, 'root').rows[0]?.item.status, 'running');
+  root.omitted.inbox = false;
+  assert.equal(inboxItems(state, 'root').rows.length, 1);
+});
+
+test('partial snapshots keep missing waiting inputs unverified until a page or lifecycle event resolves them', async t => {
+  const host = new Host();
+  host.root.inbox = ['1', '2'].map(seq => ({ root_id: 'root', agent_id: 'root', seq, origin: 'client', kind: 'submit', status: 'queued',
+    payload: { text: seq, reference_id: '', digest: '', size: '1', media_type: '', source: '' } }));
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.root.inbox = []; host.root.omitted = { inbox: true };
+  await view.refresh();
+  assert.deepEqual(inboxItems(view.getSnapshot(), 'root').rows.map(row => [row.item.seq, row.stale]), [['1', true], ['2', true]]);
+  host.streams.at(-1)!.push('11', 'inbox.running', { agent_id: 'root', inbox_seq: '2', turn_id: 'turn' });
+  await until(() => inboxItems(view.getSnapshot(), 'root').rows.some(row => row.item.status === 'running'));
+  assert.deepEqual(inboxItems(view.getSnapshot(), 'root').rows.map(row => [row.item.seq, row.stale, row.item.delivery_seq]), [['1', true, undefined], ['2', false, '11']]);
+  host.root.cursor = '11';
+  await view.loadCollection('inbox');
+  assert.equal(view.getSnapshot().unverifiedInbox?.length, 0);
+  assert.ok(view.getSnapshot().retainedBytes <= 8 << 20);
+});
+
+test('a steer delivery boundary prevents adjacent response fragments from coalescing across authored input', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const stream = host.streams.at(-1)!;
+  stream.push('11', 'stream.text', { text: 'Before.' });
+  stream.push('12', 'inbox.running', { agent_id: 'root', inbox_seq: '1', turn_id: 'turn' });
+  stream.push('13', 'stream.text', { text: 'After.' });
+  await until(() => view.getSnapshot().root?.cursor === '13');
+  assert.deepEqual(view.getSnapshot().root?.presentation?.map(row => row.payload), [{ text: 'Before.' }, { text: 'After.' }]);
+  host.root = { ...snapshot('13'), presentation: [
+    { seq: '11', kind: 'stream.text', payload: { text: 'Before.' } },
+    { seq: '13', kind: 'stream.text', payload: { text: 'After.' } },
+  ], inbox: [{ root_id: 'root', agent_id: 'root', seq: '1', kind: 'submit', status: 'running', delivery_seq: '12',
+    payload: { text: 'B', reference_id: '', digest: '', size: '1', media_type: '', source: '' } }] };
+  const reopened = createSessionView(host.session());
+  t.after(() => reopened.dispose());
+  await reopened.start();
+  assert.deepEqual(reopened.getSnapshot().root?.presentation?.map(row => row.payload), [{ text: 'Before.' }, { text: 'After.' }]);
 });

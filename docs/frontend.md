@@ -124,6 +124,10 @@ Electron consumes the exact `apps/web` production build through `AppPlatform`.
 There is one Vite build, StyleX extraction and route tree. The sorted renderer
 manifest verifies the copied files in Go's embed input and Electron's staging
 directory. Desktop packaging must preserve those bytes in ASAR.
+For UI development, `npm run dev:desktop -- --attach` uses the same Vite renderer
+and the main installed daemon by default, without rebuilding or managing its
+native runtime. Explicit home/executable flags can select an isolated daemon. This unpackaged mode has separate GUI settings and uses the native
+Unix-socket bridge. See [desktop development](desktop.md#build-and-develop).
 Node APIs, Electron IPC, filesystem access, and `@whip/sdk/node` stay in
 `apps/desktop`; the Vite import-graph guard rejects them in the renderer.
 `@whip/app/desktop-bridge` exports only the serialized host contract. The desktop
@@ -179,6 +183,12 @@ workspace admission before realization. Native snapshots are observations, never
 instructions to admit an unknown page. Model-created tabs enter the captured
 originating pane in the background.
 
+On a full renderer navigation, native invalidates the old browser epoch without
+broadcasting its replacement to the outgoing document. The incoming renderer
+learns the new epoch through its initial snapshot. This prevents a final
+visibility update from the old document consuming the new workspace's first
+presentation revision and blocking dialogs with a stale-presentation error.
+
 Agent control is deliberately separate:
 [`BrowserAssociations`](../packages/app/src/browser-provider.ts) advertises inert
 Browser v2 availability for an exact open conversation, verified execution host,
@@ -208,6 +218,57 @@ are not SSH preview providers. Standalone human preview admission uses a
 parented native confirmation sheet in Electron main, not the SSH authentication
 prompt flow; it cannot create agent authority. See [desktop Browser behavior](desktop.md#browser-tabs-experimental)
 and [agent operations](browser-computer-use.md#desktop-browser-tabs).
+
+### Browser Design Mode
+
+Design Mode uses a separate trusted native sibling `WebContentsView` above the
+selected guest. The isolated `apps/web/design.html` entry imports only
+`@whip/app/browser-design`, UI/theme code, and its dedicated design-only preload;
+it never initializes an app runtime or receives the normal desktop bridge.
+Native [`BrowserDesignController`](../apps/desktop/src/browser-design.ts) owns
+one exclusive human debugger lease, isolated-world DOM observations, selection
+identities, overlay geometry, and capture. The overlay intercepts selection
+clicks/keys; only bounded wheel input is forwarded to the guest. It yields to
+existing native hide holds **before** acknowledgement; this does not weaken the
+ordinary portal/modal boundary. Guest pages retain no app preload or authority.
+Exact Cmd+Shift+D routes from guest/overlay native key handling and the browser
+section's DOM handler through existing Browser shortcut events to the same app
+DesignControl toggle. BrowserWorkspace rechecks the selected pane, current
+epoch/generation, and native-surface holds; no global OS shortcut or guest bridge
+is introduced. Repeats, composing input, extra modifiers, and stale/hidden
+native surfaces do not toggle.
+
+The app-side [controller](../packages/app/src/browser-design-controller.ts) owns
+prompt/destination/capture state; [integration](../packages/app/src/browser-design.tsx)
+projects connected, open conversation targets and defaults only an unambiguous
+explicit page association. The isolated overlay receives bounded serializable
+models and emits validated intents quoting a lease and document/selection revision.
+It has no SDK, host connection, upload, or arbitrary CDP access. Theme backgrounds
+must remain transparent on this native surface.
+
+The hover outline alone transitions `left`, `top`, `width`, and `height` together
+using StyleX `appearance.motionFast` (100ms), ease-out. One stable DOM outline
+retargets from its current presentation without a JavaScript animation queue or
+scale transform, preserving constant border thickness. First appearance snaps;
+selected outlines, tooltip, composer, and click hit-testing never interpolate.
+Native hover IDs identify consecutive observations of the same live backend node,
+independently of selection IDs. Native `hoverGeometryRevision` invalidates motion
+on scroll/resize/zoom/security hiding even if React batches away a cleared model;
+missing revisions fail closed to snapping. Same-node geometry changes also snap.
+The renderer compares lease, document/selection revision and viewport before
+animating and removes invalid/nonactive hover immediately. Both app Reduce Motion
+and OS `prefers-reduced-motion` disable interpolation, including an in-flight move.
+
+Captured page text is an **untrusted text evidence attachment**, never concatenated
+into authored instructions or passed through mention/skill expansion. A viewport
+PNG is included by default and can be excluded. Existing
+[`CompositionStore`](../packages/app/src/compositions.ts) surface-scoped keys retain
+normal upload quotas and cancellation; [`submitChatInput`](../packages/app/src/chat-submission.ts)
+is shared with normal chat. Design drafts do not overwrite the destination composer.
+Admission uncertainty uses existing command recovery, not a new command ID/retry.
+Live nodes are transient; accepted text/image attachments use normal transcript
+persistence. Navigation or stale nodes require reselection, never selector-based
+silent retargeting. Inspecting/sending context grants no agent browser control.
 
 ## Native mobile companion
 
@@ -260,8 +321,8 @@ cache lifetime. Thus each index has at most four retained host pages, not four
 pages per host. Partial failures keep healthy hosts visible. Counts describe
 loaded human requests and show `+` or `?` when incomplete or unavailable.
 Completed commands invalidate these indexes. Lists never subscribe to root
-transcripts. Session search is debounced and supports active/archived and host
-filters. Device pins are explicitly local, bounded by the settings quota and
+transcripts. Session search is debounced, always includes active and archived
+sessions, and supports a host filter. Device pins are explicitly local, bounded by the settings quota and
 128 identities; host-provided pins remain visible.
 
 Use the private SQLCipher database for four saved hosts, bounded preferences,
@@ -341,8 +402,11 @@ router is inert while covered; the initial Local connection settling releases th
 splash, with a three-second ceiling to expose recovery for slow/offline hosts.
 Saved remote connections continue in the background and never gate the splash.
 There is no minimum hold or replay on navigation/reconnection. System and saved
-reduced-motion preferences skip animation. Native prompts remain outside the
-inert subtree, and desktop `ready()` still signals the mounted shell.
+reduced-motion preferences skip animation. Startup acquires the shared native-surface
+hold before showing the splash and retains it through content entrance: CSS visibility
+and stacking cannot hide Electron browser views. The hold releases when fully visible
+or unmounted. Native prompts remain outside the inert subtree, and desktop `ready()`
+still signals the mounted shell.
 
 The desktop window hides its native title bar on macOS (`titleBarStyle:
 'hiddenInset'` in [`main.ts`](../apps/desktop/src/main.ts)) and the renderer
@@ -624,7 +688,7 @@ update their source, boundary tests, and this table together.
 | Submission previews | 32 entries, 1 MiB total; confirmed entries evicted first | [input-presentation.ts](../packages/app/src/input-presentation.ts) |
 | Attachments | 16 files per recipient; 20 MiB across the window; serial uploads | [compositions.ts](../packages/app/src/compositions.ts) |
 | Reading bookmarks | 128 entries, 64 KiB | [reading-positions.ts](../packages/app/src/reading-positions.ts) |
-| Search | One 64-item / 256 KiB page per included host while open; recent results reuse each host’s catalog | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
+| Search | One 64-item / 256 KiB all-status page per included host while open, plus each host’s initial page cached for five minutes; catalog revisions invalidate results | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
 | Attention | One 64-item / 256 KiB advisory page per connected host | [attention.tsx](../packages/app/src/attention.tsx) |
 | Agent mailbox pages | At most 4 bounded Query pages | [observation.tsx](../packages/app/src/details/observation.tsx) |
 | Visible stored chat messages | Automatic scoped reads up to 64 MiB per body; Query deduplication, cancellation and zero inactive cache lifetime; retained response-copy prose at most 256 Ki characters / 512 entries per timeline | [timeline.tsx](../packages/app/src/timeline.tsx) |
@@ -1427,6 +1491,48 @@ Drafts remain untouched by model selection, and host defaults are not changed.
 Standard text inputs use a single neutral focus border. The composer keeps its
 quiet outer border unchanged on focus and has no separate textarea outline.
 
+Composer image attachments use local object URLs owned by `CompositionStore`.
+The original file's bytes remain counted in the 20 MiB window attachment budget
+until the draft releases it; previews do not add base64 copies or content reads.
+URLs survive view unmounts and upload settlement, and are revoked on removal,
+accepted submission (only its captured attachment IDs), root deletion, host
+invalidation, and store disposal. Failed or uncertain submissions keep their
+previews. These window-local URLs never enter submitted payloads or persistence.
+`composer-attachments.tsx` renders 120 px square, cropped image tiles above the
+textarea, wrapping in selection order within a bounded scroll area. Each tile
+reserves its size while decoding, shows a small decode/upload spinner, exposes
+removal independently of previewing, and opens the original in the shared Dialog.
+Upload and decode failures remain distinct; ordinary files keep filename rows.
+Picker, paste, and drop share the same attachment path. Image loading must not
+resize the composer or disturb transcript reading anchors.
+
+`chat-file-drop.tsx` widens file dropping to each visible chat body, including
+transcript, blank space, queue and composer. The composer supplies its existing
+attachment callback and availability; New Chat supplies local staging. Native
+listeners bind to that pane's DOM container, so portaled dialogs and other panes
+cannot accidentally route files to it. File objects are captured synchronously
+on drop and admitted once. Hover never changes focus, recipient or scroll state.
+The theme-derived overlay is positioned outside layout, ignores pointer events,
+and updates only on entry/exit. Nested drag boundaries do not flicker; a short
+one-shot expiry handles OS cancellation that emits no final page event. Listeners
+and the expiry are removed when the recipient/view disappears. A renderer-level
+file-only guard prevents unhandled shell drops from navigating away, without
+attaching them or intercepting text/link/tab drags or native Browser uploads.
+Unavailable targets explain why a drop cannot be accepted; existing attachment
+bounds, upload ownership and errors stay in the composition path.
+
+New Chat uses the same previews and attachment budgets. `CompositionStore.stage`
+retains local files under the stable welcome draft key without creating a session,
+reading file bodies, or uploading. Switching hosts is safe before Send because no
+content references exist yet. Once Send creates the root, `adopt` transfers the
+files and preview identities into that root's composer, and uploads through the
+normal scoped SDK path. The tab promotes at creation for an attached first message;
+upload or effort failures leave its draft in that session, so correcting them does
+not create another root. The shared admission path clears only accepted attachment
+IDs and matching text. Image-only first messages are supported. Closed/reopened
+draft tabs retain their files in window memory; dropping them from closed-tab
+history releases the files. Reload still requires reselecting local attachments.
+
 User messages use right-aligned, theme-derived bubbles. Timestamps and existing
 copy/history actions appear below the bubble on hover or keyboard focus; touch
 keeps the controls available. Show recorded `sent_at` values when supplied, and
@@ -1470,6 +1576,41 @@ session view hands over to authoritative inbox/history; this opens no additional
 root views. Confirmed previews are evicted first under the bound, and admission
 fails visibly rather than evicting an unresolved preview. Host detach clears them.
 Prompt bodies are not added to persistent command recovery records.
+
+Supported desktop/web composers show waiting client inputs once, in the queue
+strip above the draft, instead of pending transcript bubbles. Send/Enter during
+an active turn enqueues normally. The composer has one primary action: Send when
+there is text or an attachment, otherwise Stop while a turn is active. Steer promotes that
+exact inbox entry into the current turn's next safe model-loop boundary. Remove
+only cancels waiting input. It cannot stop a claimed turn. Both controls use
+`runtime.run` and the original control command's recovery identity. The draft
+and its newer attachments are independent of these controls. Older daemons
+without both `inbox.steer` and `inbox.remove` keep the delivery dropdown and
+legacy pending bubbles. Native mobile keeps its existing presentation.
+
+The daemon records client origin, originating command identity, a pending
+steer's target turn and the delivery event position on the existing inbox.
+Completion, failure, cancellation and recovery clear obsolete steering intent;
+unclaimed input remains in ordinary FIFO order. A claimed steer's `inbox.running`
+event separates live prose fragments, and `delivery_seq` places its authored
+input between them until committed history takes over. Internal agent inputs
+and legacy entries with unproven provenance never acquire queue controls.
+
+`inboxItems` in the SDK merges snapshot and paged evidence by agent/sequence.
+Collection revision and event cursor determine freshness. Partial snapshots
+retain at most 128 previously observed waiting inputs as unverified evidence;
+their controls stay disabled until a fresh snapshot/page or lifecycle event
+resolves them. Pages and this evidence count against the existing 8 MiB session
+budget. The UI exposes incomplete coverage through Load more and never treats
+absence from a partial snapshot as delivery. Queue controls add no subscriptions.
+
+Stored previews contain at most 2 KiB of UTF-8 text and 16 attachment descriptors
+within 16 KiB total; counts and truncation remain explicit. Full bodies stay in
+existing scoped content storage. The strip shows roughly three rows and
+virtualizes queues over 16 entries. Mounted image previews use scoped content
+reads, reserve their geometry and release object URLs/cache on unmount. Full
+message/file inspection uses the shared dialog, retaining all available attachment
+references. Claimed input keeps its attachment thumbnails in the transcript.
 
 Keep Sending, Queued and Checking delivery distinct. Definitive rejection removes
 the local preview and preserves an unaccepted draft; uncertain input remains
@@ -1549,8 +1690,9 @@ and permissions stay beside the composer, along with child activity and requests
 Session details also opens from the tab menu or command palette.
 
 Search opens a centered dialog with an automatically focused search field, host
-labels/filter, and up to 64 recent catalog entries per host. Typing debounces
-200 ms and uses an independent 64-item / 256 KiB Query page and cursor per host.
+labels/filter, and active and archived sessions together, with no status selector.
+Empty and typed searches use an independent 64-item / 256 KiB Query page and
+cursor per host. Typing debounces 200 ms.
 A failed or offline host shows its own status while healthy results remain usable.
 Enter opens the highlighted result, arrow keys move the highlight, and Escape/close
 restores focus. Highlight identity includes the runtime/root pair, so a later
@@ -1558,7 +1700,14 @@ response from another host cannot change which session Enter opens. On mobile,
 opening search closes the navigation Sheet and returns focus to its toggle.
 Search retains native modified links, remembered inspector locations and
 background-tab actions. Its catalog/query observers only mount while open;
-closing releases pending reads and cached search pages.
+closing releases pending reads and typed-search/cursor pages. Each host's initial
+all-status page remains cached for five minutes after its last observer unmounts,
+so reopening shows cached results immediately and refreshes them in the background
+on every mount. Host connection/reconnection prefetches this same initial page
+into the dialog's Query cache, including active and archived sessions, without
+waiting for the dialog to open. The prefetch uses the verified connection client
+directly, before the host snapshot is published. A cold open before prefetch
+finishes (or after cache expiry) still loads normally; there is no background poller.
 
 Attention aggregates one lightweight advisory page per connected host, polling
 every three seconds without leasing roots. Its sheet labels hosts, supports a
@@ -1624,7 +1773,7 @@ only when the current route displays the deleted root.
 Archive is durable metadata, independent of execution and recency. Active SDK
 catalogs exclude archived roots; explicit root reads and Attention include them.
 Archiving never closes tabs, clears drafts, or stops work. Archived sessions are
-available through the search dialog's Active/Archived/All filter and sidebar
+always included in Search sessions; there is no separate archived-only sidebar
 entry. Undo issues a restore command. Search observes the existing catalogs'
 revision changes to refresh affected hosts and invalidate old page cursors,
 including changes from another client; it adds no background catalog poller.
@@ -1888,6 +2037,11 @@ server. The launch endpoint defines Local; saved profiles attach directly to
 additional existing daemons over separate browser connections. The shell does not start,
 restart, or reconfigure their listeners. Exact browser Origin configuration and
 a stable local Origin remain separate work; this feature does not relax allowlists.
+The local Vite development proxy validates loopback clients and exact dev
+Host/Origin before forwarding Local's HTTP/WebSocket API requests with the daemon
+origin. This is confined to development tooling; production and direct remote
+connections retain the daemon's normal checks. `apps/web/dev-proxy.ts` owns that
+boundary, with HTTP and upgrade regression coverage in `dev-proxy.test.mjs`.
 See [web setup](web-app.md#develop-against-an-existing-daemon) for exact origin and
 listener setup; building frontend assets alone cannot upgrade a running daemon.
 
@@ -1928,13 +2082,17 @@ Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
 ```sh
 npm ci
 npm run build                  # SDK artifacts used by the app
-# Proxies to the local daemon on 127.0.0.1:8080; its allowlist must include port 3000.
+# Attaches through the local dev proxy; no daemon allowlist change or restart.
 npm run dev:web
 ```
 
 The development app is on port 3000; Vite forwards `/api` HTTP and WebSocket
 requests to `http://127.0.0.1:8080` by default. Set `WHIP_WEB_DAEMON` when the
 daemon reports a different endpoint. Production keeps same-origin attachment.
+The proxy accepts only local requests from the exact dev origin, then rewrites
+the upstream origin for HTTP content and WebSockets. It does not start or
+reconfigure the daemon. Shared app/UI source edits use React Fast Refresh;
+SDK source edits still require `npm run build`.
 Use [web-app.md](web-app.md) for daemon
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a
@@ -1980,6 +2138,13 @@ image uploads, referenced history, automatic inline rendering, failed transfers,
 reopening, long-history paging, narrow panes and delayed-image selection anchors
 in Chromium and Firefox. After `npm run build:desktop`, include Electron with
 `WHIP_WEB_BROWSERS=chromium,firefox,electron`. These fixtures use isolated runtimes.
+
+`WHIP_CHAT_COMPOSER_ONLY=1 node apps/web/scripts/chat-activity.mjs` isolates the
+composer image-preview checks (also included in the messages-only run): local
+loading, real uploads/admission, multiple and mixed files, removal and URL cleanup,
+preview keyboard focus, failure states, paste/drop, bounded 16-file layout,
+light/dark/narrow/large-text output, reduced motion, and composer reading-position
+regressions. It accepts the same browser selection and results-directory options.
 
 Automated viewport, Axe, and WebKit tests do not establish physical-mobile,
 VoiceOver, or actual Safari coverage. State the exact coverage and remaining

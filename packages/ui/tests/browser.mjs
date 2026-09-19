@@ -130,6 +130,23 @@ try {
   await page.getByRole('option', {name: 'Thorough', exact: true}).click();
   if (await page.getByRole('combobox', {name: 'Find a model'}).inputValue() !== 'Thorough') throw new Error('Combobox did not select result');
   report.checks.push('keyboard accessible combobox');
+  // A constrained consumer must truncate only the value, never its disclosure.
+  const compactSelect = page.getByRole('combobox', {name: 'Model effort', exact: true});
+  await compactSelect.evaluate(element => { element.style.width = '90px'; element.style.minWidth = '0px'; });
+  const compactValue = compactSelect.locator(':scope > span').first();
+  await expect(compactValue).toHaveText('Thorough');
+  await expect(compactValue).toHaveCSS('text-overflow', 'ellipsis');
+  const selectGeometry = await compactSelect.evaluate(element => {
+    const trigger = element.getBoundingClientRect(), icon = element.querySelector('svg').getBoundingClientRect();
+    const value = element.firstElementChild;
+    return {left: trigger.left, right: trigger.right, iconLeft: icon.left, iconRight: icon.right, iconWidth: icon.width, clippedValue: value.scrollWidth > value.clientWidth};
+  });
+  if (!selectGeometry.clippedValue || selectGeometry.iconLeft < selectGeometry.left || selectGeometry.iconRight > selectGeometry.right || selectGeometry.iconWidth !== 14) throw new Error(`Select clipped its disclosure instead of its value: ${JSON.stringify(selectGeometry)}`);
+  await compactSelect.click();
+  await expect(page.getByRole('option', {name: 'Thorough', exact: true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(compactSelect).toBeFocused();
+  report.checks.push('constrained Select truncates only value, preserving full option text and chevron');
   await page.getByLabel('Session title', {exact: true}).fill('Changed title');
   report.checks.push('Field label association');
   await page.goto(story('native-semantics'));

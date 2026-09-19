@@ -26,6 +26,7 @@ export const styles = stylex.create({
   wordmarkLink: { display: 'flex', alignItems: 'center', paddingInline: 8, borderRadius: 6, color: colors.foreground },
   destinations: { display: 'flex', flexDirection: 'column', flexShrink: 0, marginBottom: 12 },
   destination: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: { default: 28, [scale.touch]: 44 }, paddingBlock: 0, paddingInline: 8, borderWidth: 0, borderRadius: 6, font: 'inherit', fontSize: typography.size13, lineHeight: `calc(${typography.size13} * 18 / 13)`, textAlign: 'left', textDecoration: 'none', cursor: 'pointer', color: surface.secondaryText, backgroundColor: { default: 'transparent', ':hover': colors.hover } },
+  moreButton: { minHeight: 0, paddingInline: 10, gap: 8, fontSize: typography.size12 },
   primaryDestination: { color: colors.foreground },
   footer: { minHeight: 48, display: 'flex', alignItems: 'center', flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, marginInline: -8, marginBottom: -8, paddingInline: 8 },
   list: { overflowAnchor: 'none', scrollbarWidth: 'thin' },

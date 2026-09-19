@@ -206,6 +206,110 @@
                   "object"
                 ],
                 "properties": {
+                  "delivery_seq": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "origin": {
+                    "type": "string"
+                  },
+                  "command_client_id": {
+                    "type": "string"
+                  },
+                  "command_id": {
+                    "type": "string"
+                  },
+                  "steer_turn_id": {
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      },
+                      "attachments": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "content": {
+                              "type": "object",
+                              "properties": {
+                                "inline": true,
+                                "text": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                },
+                                "binary": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "contentEncoding": "base64"
+                                },
+                                "reference_id": {
+                                  "type": "string"
+                                },
+                                "digest": {
+                                  "type": "string"
+                                },
+                                "size": {
+                                  "type": "string",
+                                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                                  "format": "int64"
+                                },
+                                "media_type": {
+                                  "type": "string"
+                                },
+                                "source": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "reference_id",
+                                "digest",
+                                "size",
+                                "media_type",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "content"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "attachment_count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
                   "root_id": {
                     "type": "string"
                   },
@@ -955,6 +1059,110 @@
                       "object"
                     ],
                     "properties": {
+                      "delivery_seq": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "origin": {
+                        "type": "string"
+                      },
+                      "command_client_id": {
+                        "type": "string"
+                      },
+                      "command_id": {
+                        "type": "string"
+                      },
+                      "steer_turn_id": {
+                        "type": "string"
+                      },
+                      "preview": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          },
+                          "attachments": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "content": {
+                                  "type": "object",
+                                  "properties": {
+                                    "inline": true,
+                                    "text": {
+                                      "type": [
+                                        "null",
+                                        "string"
+                                      ]
+                                    },
+                                    "binary": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
+                                      "contentEncoding": "base64"
+                                    },
+                                    "reference_id": {
+                                      "type": "string"
+                                    },
+                                    "digest": {
+                                      "type": "string"
+                                    },
+                                    "size": {
+                                      "type": "string",
+                                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                                      "format": "int64"
+                                    },
+                                    "media_type": {
+                                      "type": "string"
+                                    },
+                                    "source": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "reference_id",
+                                    "digest",
+                                    "size",
+                                    "media_type",
+                                    "source"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "content"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "attachment_count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
                       "root_id": {
                         "type": "string"
                       },

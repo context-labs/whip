@@ -118,6 +118,7 @@ type RuntimeInbox struct {
 }
 
 type InboxEnqueue struct {
+	Origin          string
 	RootID          string
 	AgentID         string
 	Kind            string
@@ -138,12 +139,18 @@ type InboxSequence struct {
 }
 
 type InboxItem struct {
-	RootID  string       `json:"root_id"`
-	AgentID string       `json:"agent_id"`
-	Seq     int64        `json:"seq,string"`
-	Kind    string       `json:"kind"`
-	Status  string       `json:"status"`
-	Payload RuntimeValue `json:"payload"`
+	DeliverySeq     int64         `json:"delivery_seq,omitempty,string"`
+	Origin          string        `json:"origin,omitempty"`
+	CommandClientID string        `json:"command_client_id,omitempty"`
+	CommandID       string        `json:"command_id,omitempty"`
+	SteerTurnID     string        `json:"steer_turn_id,omitempty"`
+	Preview         *InboxPreview `json:"preview,omitempty"`
+	RootID          string        `json:"root_id"`
+	AgentID         string        `json:"agent_id"`
+	Seq             int64         `json:"seq,string"`
+	Kind            string        `json:"kind"`
+	Status          string        `json:"status"`
+	Payload         RuntimeValue  `json:"payload"`
 }
 
 type ScheduleFireClaim struct {
@@ -350,7 +357,7 @@ func (s *Store) LoadQueuedInbox(ctx context.Context, rootID, agentID string, aft
 		return nil, fmt.Errorf("queued inbox load requires a root, agent, nonnegative cursor, and limit from 1 to %d", MaxInboxBatch)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
 		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND i.seq>? ORDER BY i.seq LIMIT ?`, InlineValueLimit+1, rootID, agentID, afterSeq, limit)
 	if err != nil {
@@ -364,9 +371,10 @@ func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) 
 	var items []InboxItem
 	for rows.Next() {
 		item := InboxItem{RootID: rootID, AgentID: agentID}
+		var preview []byte
 		var referenceID string
 		if err := rows.Scan(&item.Seq, &item.Kind, &item.Status, &item.Payload.Inline, &referenceID,
-			&item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source); err != nil {
+			&item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source, &item.Origin, &item.CommandClientID, &item.CommandID, &item.SteerTurnID, &item.DeliverySeq, &preview); err != nil {
 			return nil, err
 		}
 		if referenceID == "" {
@@ -375,6 +383,7 @@ func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) 
 			item.Payload.ReferenceID = referenceID
 			item.Payload.Inline = nil
 		}
+		item.Preview = readInboxPreview(preview)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -427,7 +436,7 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running' WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
+	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running',steer_turn_id='',delivery_seq=0 WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
 	if err != nil {
 		return err
 	}
@@ -977,6 +986,9 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET steer_turn_id='' WHERE root_id=? AND steer_turn_id<>''`, rootID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
 		return err
 	}
@@ -1122,8 +1134,8 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 		return InboxSequence{}, err
 	}
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at,parent_span_id,span_trace_id) VALUES(?,?,?,?, 'queued',?,?,?,?,?)`,
-		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp, item.ParentSpanID, item.SpanTraceID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at,parent_span_id,span_trace_id,origin,command_client_id,command_id,preview) VALUES(?,?,?,?, 'queued',?,?,?,?,?,?,?,?,?)`,
+		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp, item.ParentSpanID, item.SpanTraceID, item.Origin, item.CommandClientID, item.CommandID, inboxPreviewJSON(item)); err != nil {
 		return InboxSequence{}, err
 	}
 	event.AgentID = item.AgentID
@@ -1733,7 +1745,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	// Only uncertain running input is interrupted; queued input (including
 	// human follow-ups) survives a restart and runs when the node reopens.
-	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running'`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted',steer_turn_id='' WHERE status='running'`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {

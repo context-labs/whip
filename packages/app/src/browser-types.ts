@@ -32,13 +32,14 @@ export type BrowserAction =
   | { kind: 'zoom'; factor: number }
   | { kind: 'devtools'; open: boolean }
   | { kind: 'clear-profile' };
-export type BrowserShortcut = 'address' | 'find' | 'reload' | 'back' | 'forward' | 'close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'commands' | 'tab-next' | 'tab-previous' | 'new-browser';
+export type BrowserShortcut = 'design-toggle' | 'address' | 'find' | 'reload' | 'back' | 'forward' | 'close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'commands' | 'tab-next' | 'tab-previous' | 'new-browser';
 export type BrowserEvent =
   | { kind: 'snapshot'; snapshot: BrowserInventory }
   | ({ kind: 'focused' } & BrowserTarget)
   | ({ kind: 'shortcut'; shortcut: BrowserShortcut } & BrowserTarget)
   | ({ kind: 'find'; requestId: number; matches: number; activeMatchOrdinal: number; final: boolean } & BrowserTarget);
 export interface BrowserPlatform {
+  readonly design?: import('./browser-design-types').BrowserDesignPlatform;
   readonly version: 1;
   snapshot(): Promise<BrowserInventory>;
   /** Metadata-only, insert-if-absent restoration. Never navigates an existing page. */

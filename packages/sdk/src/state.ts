@@ -43,6 +43,8 @@ export interface SessionViewSnapshot {
   root?: RootSnapshot;
   history: Record<string, HistoryView>;
   collections: Record<string, RootCollectionPage>;
+  /** Previously observed waiting inputs omitted by a partial snapshot. Never actionable until verified. */
+  unverifiedInbox?: NonNullable<RootSnapshot['inbox']>;
   retainedBytes: number;
   /** Bounded supplemental REPL evidence; transcript bodies remain in history. */
   executions?: ExecutionEvidence;
@@ -51,6 +53,23 @@ export interface SessionViewSnapshot {
   truncated: boolean;
   unavailable: boolean;
   error?: Error;
+}
+
+/** Merge bounded inbox pages with snapshot truth; absent partial rows remain visibly unverified. */
+export function inboxItems(state: DeepReadonly<SessionViewSnapshot>, agentId: string) {
+  const root = state.root;
+  const page = state.collections.inbox;
+  const pageStale = !!root && !!page && page.revision !== root.collection_revision && BigInt(page.event_cursor) < BigInt(root.cursor);
+  const rows = new Map<string, { item: NonNullable<DeepReadonly<RootSnapshot>['inbox']>[number]; stale: boolean }>();
+  for (const item of state.unverifiedInbox ?? []) if (item.agent_id === agentId) rows.set(item.seq, { item, stale: true });
+  if (root?.omitted?.inbox) for (const entry of page?.items ?? []) {
+    if (entry.inbox?.agent_id === agentId) rows.set(entry.inbox.seq, { item: entry.inbox, stale: pageStale });
+  }
+  for (const item of root?.inbox ?? []) if (item.agent_id === agentId && (!rows.has(item.seq) || !page || BigInt(page.event_cursor) <= BigInt(root!.cursor))) rows.set(item.seq, { item, stale: false });
+  return {
+    rows: [...rows.values()].sort((a, b) => BigInt(a.item.seq) < BigInt(b.item.seq) ? -1 : 1),
+    hasMore: !!state.unverifiedInbox?.length || !!root?.omitted?.inbox && (!page || page.has_more || pageStale),
+  };
 }
 
 export interface SessionViewOptions {
@@ -239,11 +258,15 @@ export class SessionView {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       if (previous && previous.revision !== page.revision) throw new WhipError('resynchronization_required', 'Collection revision changed');
       const merged = { ...page, items: [...(previous?.items ?? []), ...(page.items ?? [])] };
-      this.set({ ...this.current, collections: { ...this.current.collections, [name]: merged } }, true);
+      const verified = new Set(merged.items.flatMap(entry => entry.inbox ? [`${entry.inbox.agent_id}:${entry.inbox.seq}`] : []));
+      const unverifiedInbox = name === 'inbox' ? page.has_more
+        ? this.current.unverifiedInbox?.filter(item => !verified.has(`${item.agent_id}:${item.seq}`)) : [] : this.current.unverifiedInbox;
+      this.set({ ...this.current, unverifiedInbox, collections: { ...this.current.collections, [name]: merged } }, true);
     } catch (error) {
       if (errorKind(error) === 'resynchronization_required') {
         const collections = { ...this.current.collections };
-        delete collections[name];
+        // An invalid page cursor is not evidence that previously accepted input vanished.
+        if (name !== 'inbox') delete collections[name];
         this.set({ ...this.current, collections }, true);
       }
       throw error;
@@ -320,6 +343,8 @@ export class SessionView {
           // Filter raw events before grouping: a grouped row keeps its FIRST seq.
           if (seq <= cursor) continue;
           gap ||= partial && seq !== cursor + 1n;
+          gap ||= (snapshot.inbox ?? []).some(item => item.agent_id === agentId && !!item.delivery_seq
+            && BigInt(item.delivery_seq) > cursor && BigInt(item.delivery_seq) < seq);
           const next = appendPresentation(rows, event, !gap);
           if (!presentationTelemetry(event.kind) && next.at(-1) !== rows.at(-1)) gap = false;
           rows = next;
@@ -369,7 +394,12 @@ export class SessionView {
         latestMissing: !recent.length && !!root.omitted?.messages && this.recentRecoveryCursor.get(root.root_id) !== root.cursor,
       });
       this.set({
-        status: 'live', root, history, collections: {}, retainedBytes: 0,
+        status: 'live', root, history, collections: root.omitted?.inbox && this.current.collections.inbox ? { inbox: this.current.collections.inbox } : {}, retainedBytes: 0,
+        unverifiedInbox: root.omitted?.inbox ? [...new Map([
+          ...(this.current.unverifiedInbox ?? []), ...(previous?.inbox ?? []),
+        ].filter(item => item.status === 'queued' && item.origin === 'client'
+          && !root.inbox?.some(current => current.agent_id === item.agent_id && current.seq === item.seq))
+          .map(item => [`${item.agent_id}:${item.seq}`, item])).values()].slice(-128) : [],
         executions: seedExecutions(this.current.executions, snapshot, history),
         // Spans do not depend on the history revision; a refresh keeps them and
         // the next loadTrace pages in whatever the journal window missed.
@@ -458,6 +488,20 @@ export class SessionView {
           else root.agent_presentations = { ...root.agent_presentations, [agentId]: [] };
         } else if (root.active_turns[agentId] === lifecycle.turn_id) delete root.active_turns[agentId];
       }
+      if (lifecycle.agent_id && lifecycle.inbox_seq && ['inbox.removed', 'command.cancelled', 'inbox.running', 'turn.started', 'agent.turn.started'].includes(event.kind)) {
+        const removed = event.kind === 'inbox.removed' || event.kind === 'command.cancelled';
+        const update = (item: NonNullable<RootSnapshot['inbox']>[number]) => item.agent_id === lifecycle.agent_id && item.seq === lifecycle.inbox_seq
+          ? { ...item, status: removed ? 'cancelled' : 'running', delivery_seq: event.kind === 'inbox.running' ? event.seq : undefined, steer_turn_id: '' } : item;
+        const known = [...(this.current.unverifiedInbox ?? []), ...(this.current.collections.inbox?.items?.flatMap(entry => entry.inbox ? [entry.inbox] : []) ?? [])]
+          .find(item => item.agent_id === lifecycle.agent_id && item.seq === lifecycle.inbox_seq);
+        const inbox = root.inbox ?? [];
+        root = { ...root, inbox: [...inbox, ...(!removed && known && !inbox.some(item => item.agent_id === known.agent_id && item.seq === known.seq) ? [known] : [])]
+          .map(update).filter(item => item.status !== 'cancelled') };
+        this.current = { ...this.current, unverifiedInbox: this.current.unverifiedInbox?.filter(item => item.agent_id !== lifecycle.agent_id || item.seq !== lifecycle.inbox_seq) };
+        const page = this.current.collections.inbox;
+        if (page) this.current = { ...this.current, collections: { ...this.current.collections, inbox: { ...page, items: page.items?.map(entry => entry.inbox ? { inbox: update(entry.inbox) } : entry).filter(entry => entry.inbox?.status !== 'cancelled') ?? null } } };
+      }
+      if (event.kind === 'inbox.running') this.presentationGaps.add(lifecycle.agent_id || root.root_id);
       if (event.kind === 'question.pending') {
         root.questions = [...(root.questions ?? []).filter(item => item.question_id !== lifecycle.question_id), lifecycle];
       } else if (event.kind === 'question.answered' || event.kind === 'question.closed') {
@@ -705,12 +749,13 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
       next.truncated = true;
     }
   }
-  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections, executions: next.executions });
+  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections, unverifiedInbox: next.unverifiedInbox, executions: next.executions });
   if (next.executions?.truncated) next.truncated = true;
   let total = size();
   if (total > maxBytes) {
     next.truncated = true;
     next.collections = {};
+    next.unverifiedInbox = [];
     if (next.executions) {
       const otherBytes = bytes({ root: next.root, history: next.history, collections: next.collections });
       next.executions = boundExecutionEvidence(next.executions, Math.max(0, maxBytes - otherBytes - 32));

@@ -9,6 +9,7 @@ import type { BrowserAction } from './browser-types';
 import { browserAddress } from './browser-address';
 import { useRuntime } from './context';
 import { BrowserPreviewControls } from './browser-preview-controls';
+import { BrowserDesignControl } from './browser-design';
 import { tabDestination } from './session-tab-routing';
 
 export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; attachmentControls?: ReactNode }) {
@@ -53,6 +54,10 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
     catch (error) { setError(error instanceof Error ? error.message : String(error)); }
   };
   return <section aria-label={`Browser: ${tab.titleHint || tab.url}`} {...stylex.props(styles.root)} onKeyDown={event => {
+    if (event.key.toLowerCase() === 'd' && event.metaKey && event.shiftKey && !event.ctrlKey && !event.altKey &&
+      !event.repeat && !event.nativeEvent.isComposing && event.currentTarget.contains(event.target as Node) && browser.toggleDesign(tab.id)) {
+      event.preventDefault(); event.stopPropagation(); return;
+    }
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.nativeEvent.isComposing) return;
     if (event.key.toLowerCase() === 'l') { event.preventDefault(); focusAddress(); }
     else if (event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
@@ -60,19 +65,20 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
   }}>
     <div role="group" aria-label="Browser toolbar" {...stylex.props(styles.toolbar)}>
       <form aria-label="Browser navigation" {...stylex.props(styles.navigation)} onSubmit={event => { event.preventDefault(); void submit(); }}>
-        <IconButton type="button" variant="ghost" label="Back" disabled={!state?.canGoBack} onClick={() => act({ kind: 'back' })}><ArrowLeft size={15}/></IconButton>
-        <IconButton type="button" variant="ghost" label="Forward" disabled={!state?.canGoForward} onClick={() => act({ kind: 'forward' })}><ArrowRight size={15}/></IconButton>
-        <IconButton type="button" variant="ghost" label={state?.loading ? 'Stop loading' : 'Reload page'} disabled={!runtime.platform.browser} onClick={() => act({ kind: state?.loading ? 'stop' : 'reload' })}>{state?.loading ? <X size={15}/> : <RotateCw size={15}/>}</IconButton>
+        <IconButton size="sm" type="button" variant="ghost" label="Back" disabled={!state?.canGoBack} onClick={() => act({ kind: 'back' })}><ArrowLeft size={16}/></IconButton>
+        <IconButton size="sm" type="button" variant="ghost" label="Forward" disabled={!state?.canGoForward} onClick={() => act({ kind: 'forward' })}><ArrowRight size={16}/></IconButton>
+        <IconButton size="sm" type="button" variant="ghost" label={state?.loading ? 'Stop loading' : 'Reload page'} disabled={!runtime.platform.browser} onClick={() => act({ kind: state?.loading ? 'stop' : 'reload' })}>{state?.loading ? <X size={16}/> : <RotateCw size={16}/>}</IconButton>
         <div {...stylex.props(styles.location)}>
-          <Tooltip label={tab.environmentId ? 'SSH preview' : 'This Mac'}><span role="img" aria-label={tab.environmentId ? 'SSH preview' : 'This Mac'} {...stylex.props(styles.provenance)}>{tab.environmentId ? <Server size={14} aria-hidden="true"/> : <Globe size={14} aria-hidden="true"/>}</span></Tooltip>
-          <Input ref={addressInput} aria-label="Browser address" placeholder="Enter a web address" value={address} autoComplete="off" spellCheck={false} xstyle={[styles.address, styles.locationInput]}
+          <Input ref={addressInput} aria-label="Browser address" placeholder="Enter a web address" value={address} autoComplete="off" spellCheck={false} xstyle={styles.address}
           readOnly={!runtime.platform.browser} onFocus={() => { editing.current = true; }} onBlur={() => { editing.current = false; }} onChange={event => setAddress(event.target.value)}
           onKeyDown={event => { if (event.key === 'Escape') { editing.current = false; setAddress(tab.url === 'about:blank' ? '' : tab.url); addressInput.current?.blur(); if (available) act({ kind: 'focus' }); } }}/>
         </div>
       </form>
+      <Tooltip label={tab.environmentId ? 'SSH preview' : 'This Mac'}><span role="img" aria-label={tab.environmentId ? 'SSH preview' : 'This Mac'} {...stylex.props(styles.provenance)}>{tab.environmentId ? <Server size={16} aria-hidden="true"/> : <Globe size={16} aria-hidden="true"/>}</span></Tooltip>
       <BrowserPreviewControls tabId={tab.id}/>
       {attachmentControls}
-      <Menu trigger={<IconButton type="button" variant="ghost" label="Browser actions"><MoreHorizontal size={16}/></IconButton>} items={[
+      <BrowserDesignControl tabId={tab.id} available={available}/>
+      <Menu trigger={<IconButton size="sm" type="button" variant="ghost" label="Browser actions"><MoreHorizontal size={16}/></IconButton>} items={[
         { id: 'find', label: 'Find in page', disabled: !available, onSelect: openFind },
         { id: 'copy', label: 'Copy address', onSelect: () => { void runtime.platform.copy(tab.url).catch(error => setError(String(error))); } },
         { id: 'external', label: 'Open in default browser', disabled: !!tab.environmentId || tab.url === 'about:blank', onSelect: () => { void runtime.platform.openExternal(tab.url).catch(error => setError(String(error))); } },
@@ -86,11 +92,11 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
     </div>
     {state?.loading && <span role="status" {...stylex.props(styles.srOnly)}>Loading…</span>}
     {findOpen && <form aria-label="Find in page" {...stylex.props(styles.toolbar)} onSubmit={event => { event.preventDefault(); act({ kind: 'find', text: query, findNext: true }); }}>
-      <Search size={14} aria-hidden="true"/><Input ref={findInput} aria-label="Find text" value={query} xstyle={styles.address} onChange={event => { setQuery(event.target.value); if (event.target.value) act({ kind: 'find', text: event.target.value }); else act({ kind: 'stop-find', action: 'clear' }); }}/>
+      <Search size={16} aria-hidden="true"/><Input ref={findInput} aria-label="Find text" value={query} xstyle={styles.address} onChange={event => { setQuery(event.target.value); if (event.target.value) act({ kind: 'find', text: event.target.value }); else act({ kind: 'stop-find', action: 'clear' }); }}/>
       <span role="status" {...stylex.props(styles.findStatus)}>{matches}</span>
-      <IconButton type="button" label="Previous match" disabled={!query} onClick={() => act({ kind: 'find', text: query, findNext: true, forward: false })}><ArrowLeft size={14}/></IconButton>
-      <IconButton type="submit" label="Next match" disabled={!query}><ArrowRight size={14}/></IconButton>
-      <IconButton type="button" label="Close find" onClick={() => { setFindOpen(false); act({ kind: 'stop-find', action: 'clear' }); act({ kind: 'focus' }); }}><X size={14}/></IconButton>
+      <IconButton size="sm" type="button" label="Previous match" disabled={!query} onClick={() => act({ kind: 'find', text: query, findNext: true, forward: false })}><ArrowLeft size={16}/></IconButton>
+      <IconButton size="sm" type="submit" label="Next match" disabled={!query}><ArrowRight size={16}/></IconButton>
+      <IconButton size="sm" type="button" label="Close find" onClick={() => { setFindOpen(false); act({ kind: 'stop-find', action: 'clear' }); act({ kind: 'focus' }); }}><X size={16}/></IconButton>
     </form>}
     {(error || state?.error) && <div role="alert" {...stylex.props(styles.notice)}>{error || state?.error?.message}</div>}
     {available ? <div ref={viewport} data-browser-viewport={tab.id} {...stylex.props(styles.viewport)}/> : <div {...stylex.props(styles.unavailable)}>
@@ -104,11 +110,10 @@ export function BrowserView({ tab, attachmentControls }: { tab: BrowserTab; atta
 }
 const styles = stylex.create({
   root: { display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, minHeight: 0, color: colors.foreground, backgroundColor: colors.background },
-  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, gap: scale.space1, padding: scale.space2, minWidth: 0, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
+  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, gap: scale.space1, paddingBlock: scale.space1, paddingInline: scale.space3, minWidth: 0, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   navigation: { display: 'flex', alignItems: 'center', flex: '1 1 0', gap: scale.space1, minWidth: 'min-content' },
-  location: { display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 80, borderRadius: scale.radiusControl, backgroundColor: { default: 'transparent', ':focus-within': colors.panel } },
-  address: { flex: '1 1 0', minWidth: 0, width: 0, fontSize: typography.size12 },
-  locationInput: { backgroundColor: { default: 'transparent', ':hover': colors.hover, ':focus': colors.panel }, borderColor: { default: 'transparent', ':focus': surface.secondaryText } },
+  location: { display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 50 },
+  address: { flex: '1 1 0', minWidth: 0, width: 0, minHeight: { default: 28, [scale.touch]: 44 }, paddingBlock: 3, fontSize: typography.size12 },
   provenance: { display: 'flex', alignItems: 'center', flexShrink: 0, paddingInline: scale.space1, color: surface.secondaryText },
   srOnly: { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' },
   viewport: { flex: '1 1 auto', minHeight: 80, minWidth: 0, overflow: 'hidden' },

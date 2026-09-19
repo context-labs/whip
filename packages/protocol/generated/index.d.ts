@@ -293,6 +293,32 @@ export interface AgentTranscriptResult {
   inbox?:
     | null
     | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
         root_id: string;
         agent_id: string;
         seq: string;
@@ -1521,6 +1547,23 @@ export interface IDParams {
   id: string;
 }
 
+export interface InboxControlResult {
+  agent_id: string;
+  inbox_seq: string;
+  status: string;
+}
+
+export interface InboxRemoveParams {
+  id: string;
+  inbox_seq: string;
+}
+
+export interface InboxSteerParams {
+  id: string;
+  inbox_seq: string;
+  turn_id: string;
+}
+
 export interface InitializeParams {
   protocol_major: number;
   build_id: string;
@@ -2451,6 +2494,32 @@ export interface RootCollectionPage {
           allowed_controls: null | string[];
         };
         inbox?: null | {
+          delivery_seq?: string;
+          origin?: string;
+          command_client_id?: string;
+          command_id?: string;
+          steer_turn_id?: string;
+          preview?: null | {
+            text: string;
+            truncated?: boolean;
+            attachments?:
+              | null
+              | {
+                  kind: string;
+                  name?: string;
+                  content: {
+                    inline?: unknown;
+                    text?: null | string;
+                    binary?: string | null;
+                    reference_id: string;
+                    digest: string;
+                    size: string;
+                    media_type: string;
+                    source: string;
+                  };
+                }[];
+            attachment_count?: number;
+          };
           root_id: string;
           agent_id: string;
           seq: string;
@@ -2614,6 +2683,32 @@ export interface RootCollectionPage {
           }
         | {
             inbox: null | {
+              delivery_seq?: string;
+              origin?: string;
+              command_client_id?: string;
+              command_id?: string;
+              steer_turn_id?: string;
+              preview?: null | {
+                text: string;
+                truncated?: boolean;
+                attachments?:
+                  | null
+                  | {
+                      kind: string;
+                      name?: string;
+                      content: {
+                        inline?: unknown;
+                        text?: null | string;
+                        binary?: string | null;
+                        reference_id: string;
+                        digest: string;
+                        size: string;
+                        media_type: string;
+                        source: string;
+                      };
+                    }[];
+                attachment_count?: number;
+              };
               root_id: string;
               agent_id: string;
               seq: string;
@@ -2777,6 +2872,7 @@ export interface RootParams {
 }
 
 export interface RootSnapshot {
+  collection_revision?: string;
   active_turns: {
     [k: string]: string;
   };
@@ -2953,6 +3049,32 @@ export interface RootSnapshot {
   inbox:
     | null
     | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
         root_id: string;
         agent_id: string;
         seq: string;
@@ -3770,6 +3892,9 @@ export interface ContractTypes {
   HostDirectoryResult: HostDirectoryResult;
   HostThemeResolveParams: HostThemeResolveParams;
   IDParams: IDParams;
+  InboxControlResult: InboxControlResult;
+  InboxRemoveParams: InboxRemoveParams;
+  InboxSteerParams: InboxSteerParams;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   LSPListResult: LSPListResult;
@@ -3921,6 +4046,9 @@ export interface EventPayloadTypes {
   "inbox.consumed": LifecycleEvent | ContentEventPayload;
   "inbox.failed": LifecycleEvent | ContentEventPayload;
   "inbox.queued": LifecycleEvent | ContentEventPayload;
+  "inbox.removed": LifecycleEvent | ContentEventPayload;
+  "inbox.running": LifecycleEvent | ContentEventPayload;
+  "inbox.steering": LifecycleEvent | ContentEventPayload;
   "message.deferred": LifecycleEvent | ContentEventPayload;
   "message.delivered": LifecycleEvent | ContentEventPayload;
   "message.done": LifecycleEvent | ContentEventPayload;
@@ -4082,6 +4210,8 @@ export interface RuntimeOperations {
   "history.compact.retry": { params: EmptyParams; result: CompactionRetryResult; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.rewind": { params: RewindParams; result: RewindResult; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.user.list": { params: EmptyParams; result: UserHistoryResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "inbox.remove": { params: InboxRemoveParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "inbox.steer": { params: InboxSteerParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
   "lsp.status": { params: EmptyParams; result: LSPListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "mcp.attach": { params: MCPAttachParams; result: Empty; execution: "ephemeral"; permission: "delegated-mcp-authority"; sensitive: true };
   "mcp.disable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };

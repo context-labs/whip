@@ -142,6 +142,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `runtime:session.rename` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:shell.run` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
 | `runtime:steer` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
+| `runtime:inbox.steer` | Web | Promote one queued client input above the composer at the targeted turn's next boundary. |
+| `runtime:inbox.remove` | Web | Remove only waiting client input; never cancel a running turn. |
 | `runtime:submit` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
 | `runtime:terminal.input` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
 | `runtime:tool.call` | Deferred | Manual execution console remains outside this conversation-first milestone. TUI has no direct tool.call invocation workflow; daemon adapters/scripts retain typed access. Agent execution, schema inspection, and permissions remain in scope. |

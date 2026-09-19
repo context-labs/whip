@@ -1,4 +1,5 @@
 import type { BrowserPlatform } from './browser-types';
+export type { BrowserDesignLease, BrowserDesignRevision, BrowserDesignBounds, BrowserDesignColor, BrowserDesignElement, BrowserDesignState, BrowserDesignRecipient, BrowserDesignDraft, BrowserDesignModel, BrowserDesignIntent, BrowserDesignEvent, BrowserDesignCapture, BrowserDesignPlatform, BrowserDesignBridge } from './browser-design-types';
 import type { BrowserAgentBridge } from './browser-agent-types';
 export type { BrowserAgentBridge, BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserAgentPreview } from './browser-agent-types';
 export type { BrowserPlatform, BrowserTarget, BrowserRestoreTab, BrowserTabState, BrowserInventory, BrowserPresentation, BrowserAction, BrowserShortcut, BrowserEvent } from './browser-types';

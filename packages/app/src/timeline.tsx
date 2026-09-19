@@ -43,6 +43,7 @@ import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type A
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
 import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
+import { InputAttachment } from './input-attachment';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
 import {
   type InboxInput,
@@ -164,7 +165,7 @@ const styles = stylex.create({
     height: 80,
     padding: 0,
     borderRadius: 10,
-    borderColor: surface.controlBorder,
+    borderColor: colors.border,
     overflow: 'hidden',
     backgroundColor: { default: 'transparent', ':hover': 'transparent' },
     color: surface.secondaryText,
@@ -472,12 +473,14 @@ export const MessageRow = memo(function MessageRow({
   historyAction,
   content,
   details,
+  attachments,
 }: {
   row: TimelineRow;
   readBody(row: TimelineRow): void;
   historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
   content?: ReactNode;
   details?: ReactNode;
+  attachments?: ReactNode;
 }) {
   const disclosure = ['tool', 'reasoning', 'mailbox', 'internal'].includes(row.role);
   const user = row.role === 'user';
@@ -496,8 +499,9 @@ export const MessageRow = memo(function MessageRow({
         <MessageDisclosure row={row} readBody={readBody}>{details}</MessageDisclosure>
       ) : user ? (
         <>
-          {content == null && !row.body && !!row.images?.length && <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
-            {row.images.map((image, index, images) => <ImageAttachment key={index} image={image} thumbnail
+          {content == null && !row.body && (!!row.images?.length || attachments) && <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
+            {attachments}
+            {row.images?.map((image, index, images) => <ImageAttachment key={index} image={image} thumbnail
               label={`Image ${index + 1} of ${images.length}`} />)}
           </div>}
           {(content != null || row.body || row.text) && <div data-user-bubble {...stylex.props(styles.bubble)}>
@@ -797,6 +801,10 @@ export function Timeline({
             : source.body && messageScope && (source.role === 'user' || source.role === 'assistant')
               ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} historyAction={historyAction} />
               : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
+                  attachments={messageScope && source.inputAttachments?.map((file, index) => <InputAttachment key={`${file.content.reference_id}:${index}`}
+                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId}
+                    runtimeId={messageScope.client.getSnapshot().info?.runtime_id ?? ''} connected={connected}
+                    file={file.content} image={file.kind === 'image'} name={file.name || `Attachment ${index + 1}`} />)}
                   details={source.role === 'internal' && source.body && messageScope
                     ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} detailsOnly />
                     : undefined} />}

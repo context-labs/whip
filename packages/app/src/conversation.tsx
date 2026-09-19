@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
 import { useSessionView, useWhipConnection } from '@whip/sdk/react';
-import { executionRows, type SessionView } from '@whip/sdk/state';
+import { executionRows, inboxItems, type SessionView } from '@whip/sdk/state';
 import {
   Badge,
   Button,
@@ -27,6 +27,8 @@ import {
 } from './timeline';
 import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
+import { ComposerQueue } from './composer-queue';
+import { ChatDropSurface } from './chat-file-drop';
 import { ReplView } from './repl-view';
 import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
@@ -36,7 +38,7 @@ import { SessionInfoBar } from './session-info-bar';
 import { openSessionView } from './session-tab-routing';
 import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
-import { admittedText, isChatInput } from './input-presentation';
+import { admittedText, isChatInput, queuedInputRows } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
@@ -151,6 +153,7 @@ export function SessionContent({
   }>();
   useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
+  const dropTarget = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setStored(undefined);
     return () => bodyRequest.current?.abort();
@@ -192,13 +195,14 @@ export function SessionContent({
     agentId === session.rootId
       ? root?.presentation
       : root?.agent_presentations[agentId];
+  const queueEnabled = session.client.supports('runtime', 'inbox.steer') && session.client.supports('runtime', 'inbox.remove');
+  const inbox = useMemo(() => inboxItems(state, agentId), [state.root, state.collections.inbox, state.unverifiedInbox, agentId]);
+  const localInputs = useMemo(() => submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId), [submitted, expectedRuntimeId, session.rootId, agentId]);
+  const deliveries = useMemo(() => new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])), [commands, expectedRuntimeId]);
+  const queueRows = useMemo(() => queueEnabled ? queuedInputRows(inbox.rows, localInputs, deliveries) : [], [queueEnabled, inbox, localInputs, deliveries]);
   const rows = useMemo(() => kind === 'chat' ? conversationRows(
-    history, presentation,
-    root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
-    submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
-    new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
-    true,
-  ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
+    history, presentation, inbox.rows.filter(row => !row.stale).map(row => row.item), localInputs, deliveries, true, queueEnabled,
+  ) : [], [kind, history, presentation, inbox, localInputs, deliveries, queueEnabled]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const activeTurn = root?.active_turns[agentId];
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
@@ -222,7 +226,7 @@ export function SessionContent({
         await view.refresh();
         if (!current) return;
         await view.refresh();
-        if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
+        if (current && view.getSnapshot().status === 'live' && !view.getSnapshot().root?.omitted?.inbox) runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
       })().catch(() => {});
     }, 250);
     return () => { current = false; clearTimeout(timer); };
@@ -271,7 +275,7 @@ export function SessionContent({
       </div>
     );
   return (
-    <>
+    <ChatDropSurface ref={dropTarget}>
 
       <SessionInfoBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
         cwd={agentId === session.rootId ? (root ? root.meta.cwd : summaryCwd) : agent?.cwd} pending={opening}
@@ -373,8 +377,11 @@ export function SessionContent({
         />
       )}
       {kind === 'chat' && <Composer
+        dropTarget={dropTarget}
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}
+        queueEnabled={queueEnabled}
+        queue={queueEnabled ? <ComposerQueue key={`${expectedRuntimeId}:${session.rootId}:${agentId}`} rows={queueRows} view={view} runtimeId={expectedRuntimeId} agentId={agentId} activeTurn={activeTurn} connected={connected} hasMore={inbox.hasMore} /> : undefined}
         agentId={agentId}
         connected={connection.state === 'connected' && !wrongRuntime && !!root}
         unavailableReason={connection.state === 'connected' && !root ? 'Session content is unavailable.' : undefined}
@@ -559,7 +566,7 @@ export function SessionContent({
           </Button>
         )}
       </Dialog>
-    </>
+    </ChatDropSurface>
   );
 }
 

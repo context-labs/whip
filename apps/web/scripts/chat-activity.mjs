@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -11,6 +11,7 @@ import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.
 import { checkComposerReading } from './composer-reading.mjs';
 import { checkHistoryRecovery } from './history-gap.mjs';
 import { checkStoredMessages } from './stored-messages.mjs';
+import { checkComposerAttachments } from './composer-attachments.mjs';
 
 // Production renderer, real SDK subscription and durable fixed event fixtures.
 // No live provider, user daemon, credentials, editor or displayed command is used.
@@ -36,7 +37,18 @@ async function surface(name) {
   const env = { ...process.env, HOME: join(temporary, 'user'), WHIP_DESKTOP_FIXTURE: '1',
     WHIPCODE_HOME: join(temporary, 'home'), WHIPCODE_NETWORK: '0',
     WHIP_DESKTOP_USER_DATA: join(temporary, 'data'), WHIP_DESKTOP_EXECUTABLE: binary };
-  const app = await _electron.launch({ args: [join(repository, 'apps/desktop/.stage/app')], env, timeout: 30_000,
+  let executablePath;
+  if (process.env.WHIP_CHAT_NATIVE_DROP === '1') {
+    // A distinct temporary bundle lets native accessibility automation select
+    // this fixture without touching another Electron development app.
+    const bundle = join(temporary, 'Whip Drop Fixture.app');
+    await cp(join(repository, 'node_modules/electron/dist/Electron.app'), bundle, { recursive: true, verbatimSymlinks: true });
+    await exec('/usr/libexec/PlistBuddy', ['-c', 'Set :CFBundleIdentifier com.contextlabs.whip.dropfixture', join(bundle, 'Contents/Info.plist')]);
+    await exec('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', bundle]);
+    executablePath = join(bundle, 'Contents/MacOS/Electron');
+    console.log(`Native fixture bundle: ${bundle}`);
+  }
+  const app = await _electron.launch({ executablePath, args: [join(repository, 'apps/desktop/.stage/app')], env, timeout: 30_000,
     recordVideo: { dir: directory, size: { width: 1280, height: 900 } } });
   return { page: await app.firstWindow(), app, close: async () => {
     await app.close();
@@ -49,7 +61,9 @@ async function surface(name) {
 for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
   console.log(`${name}: starting chat activity fixture`);
   const fixture = await startFixture(name === 'electron' ? { allowedOrigins: ['whip-app://bundle'] } : {});
-  const browser = await surface(name);
+  let browser;
+  try { browser = await surface(name); }
+  catch (error) { await fixture.close(); throw error; }
   const { page } = browser;
   const manifest = JSON.parse(await readFile(join(repository, name === 'electron' ? 'apps/desktop/.stage/app/renderer-manifest.json' : 'apps/web/renderer-manifest.json'), 'utf8'));
   const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `activity-${crypto.randomUUID()}`, clientKind: 'human' });
@@ -92,6 +106,35 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     await page.goto(url);
     await page.getByRole('textbox', { name: 'Message WHIP', exact: true }).waitFor();
+    if (process.env.WHIP_CHAT_NATIVE_DROP === '1') {
+      assert.equal(name, 'electron', 'Native drop verification uses the isolated Electron fixture');
+      const source = await page.evaluate(() => {
+        document.title = 'Whip — isolated file-drop check';
+        window.nativeFileDrops = [];
+        for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) document.addEventListener(type, event => {
+          if (window.nativeFileDrops.length < 256) window.nativeFileDrops.push({ type, trusted: event.isTrusted, files: event.dataTransfer?.files.length ?? 0 });
+        }, true);
+        const canvas = document.createElement('canvas'); canvas.width = 360; canvas.height = 240;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#456347'; ctx.fillRect(0, 0, 360, 240);
+        ctx.fillStyle = '#fff'; ctx.font = '22px sans-serif'; ctx.fillText('Native file-drop fixture', 24, 120);
+        return canvas.toDataURL('image/png').split(',')[1];
+      });
+      await writeFile(join(directory, 'native-drop.png'), Buffer.from(source, 'base64'));
+      console.log(`Native fixture ready. Within the fixture's four-minute lifetime, drag ${join(directory, 'native-drop.png')} from Finder into the transcript, then press Enter in this test terminal.`);
+      await new Promise(resolve => process.stdin.once('data', resolve));
+      await expect(page.getByRole('button', { name: 'Preview native-drop.png', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+      const nativeEvents = await page.evaluate(() => window.nativeFileDrops);
+      assert.ok(nativeEvents.some(event => event.type === 'drop' && event.trusted && event.files === 1));
+      await screenshot('native-finder-drop');
+      report.push({ browser: name, rendererDigest: manifest.digest, nativeEvents });
+      continue;
+    }
+    if (process.env.WHIP_CHAT_COMPOSER_ONLY === '1' || process.env.WHIP_CHAT_MESSAGES_ONLY === '1') {
+      report.push({ browser: name, rendererDigest: manifest.digest, composer: await checkComposerAttachments({ page, directory, name }) });
+      assert.deepEqual(errors, []);
+      if (process.env.WHIP_CHAT_COMPOSER_ONLY === '1') continue;
+    }
     if (process.env.WHIP_CHAT_MESSAGES_ONLY === '1') {
       report.push({ browser: name, rendererDigest: manifest.digest, messages: await checkStoredMessages({ page, client, root, directory, name }) });
       assert.deepEqual(errors, []);

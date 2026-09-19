@@ -10,6 +10,7 @@ import { bindSessionTabs } from './session-tab-routing';
 import { bindSettingsNavigation } from './settings/navigation';
 import { useSyncExternalStore, type ReactNode } from 'react';
 import { StartupScreen } from './startup-screen';
+import { FileDropNavigationGuard } from './chat-file-drop';
 
 export { createHostPrompts, HostPrompts } from './host-prompts';
 export { createSessionNavigator } from './session-tab-routing';
@@ -26,6 +27,7 @@ export function createWhipApplication(platform: AppPlatform, history?: RouterHis
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} systemContrast={systemContrast} onNotice={message => runtime.report(message)}>
         <NativeSurfaceProvider acquire={platform.browser ? runtime.browser.acquireOverlay : undefined}><UIProvider><QueryClientProvider client={runtime.queries}>
+          <FileDropNavigationGuard />
           {startup ? <StartupScreen startup={startup}><RouterProvider router={router} /></StartupScreen> : <RouterProvider router={router} />}
           {children}
         </QueryClientProvider></UIProvider></NativeSurfaceProvider>

@@ -1,6 +1,6 @@
 import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/sdk/state';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
-import { admittedText, isChatInput, type InboxInput, type SubmittedInput } from './input-presentation';
+import { admittedText, inboxInputId, isChatInput, matchesInput, submittedInputId, type InboxInput, type SubmittedInput } from './input-presentation';
 
 export interface TimelineRow {
   id: string;
@@ -13,6 +13,7 @@ export interface TimelineRow {
   body?: NonNullable<HistoryView['messages'][number]['body']>;
   seq?: number;
   images?: ImagePart[];
+  inputAttachments?: NonNullable<InboxInput['preview']>['attachments'];
   sentAt?: string;
   delivery?: string;
   queued?: boolean;
@@ -302,23 +303,27 @@ export function conversationRows(
   submitted: readonly SubmittedInput[],
   deliveries: ReadonlyMap<string, string> = new Map(),
   rich = false,
+  queueStrip = false,
 ): TimelineRow[] {
-  const inputs: TimelineRow[] = inbox.filter(isChatInput).map((item) => {
-    const local = submitted.find((input) => input.inboxSeq === item.seq);
+  const inputs: TimelineRow[] = inbox.filter(item => isChatInput(item) && !(queueStrip && item.origin === 'client' && item.status === 'queued')).map((item) => {
+    const local = submitted.find((input) => matchesInput(input, item));
     return {
-      id: local ? `input:${local.id}` : `inbox:${item.agent_id}:${item.seq}`,
+      id: queueStrip ? inboxInputId(item, local) : local ? `input:${local.id}` : `inbox:${item.agent_id}:${item.seq}`,
       role: 'user',
-      text: local?.text ?? admittedText(item.kind, item.payload),
+      text: (queueStrip ? local?.preview?.text : undefined) ?? local?.text ?? item.preview?.text ?? admittedText(item.kind, item.payload),
+      inputAttachments: queueStrip ? item.preview?.attachments ?? local?.preview?.attachments : undefined,
+      eventSeq: queueStrip ? item.delivery_seq : undefined,
+      memberIds: [`inbox:${item.agent_id}:${item.seq}`],
       sentAt: local?.sentAt,
       delivery: item.status === 'running' ? undefined : 'Queued',
-      queued: item.status !== 'running' || item.kind.startsWith('steer'),
+      queued: item.status !== 'running' || queueStrip && !!item.delivery_seq || item.kind.startsWith('steer'),
     };
   });
   for (const input of submitted) {
-    if (input.confirmed || inbox.some((item) => item.seq === input.inboxSeq))
+    if (input.confirmed || queueStrip && input.queued || inbox.some((item) => matchesInput(input, item)))
       continue;
     inputs.push({
-      id: `input:${input.id}`,
+      id: queueStrip ? submittedInputId(input) : `input:${input.id}`,
       role: 'user',
       text: input.text,
       sentAt: input.sentAt,
@@ -334,5 +339,9 @@ export function conversationRows(
     0,
     ...inputs.filter((row) => !row.queued),
   );
-  return [...rows, ...inputs.filter((row) => row.queued)];
+  for (const input of inputs.filter(row => row.queued)) {
+    const index = input.eventSeq ? rows.findIndex(row => row.eventSeq && BigInt(row.eventSeq) > BigInt(input.eventSeq!)) : -1;
+    rows.splice(index < 0 ? rows.length : index, 0, input);
+  }
+  return rows;
 }

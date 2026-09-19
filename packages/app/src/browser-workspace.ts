@@ -1,7 +1,7 @@
 import type { NativeSurfaceHold } from '@whip/ui';
 import type { BrowserAction, BrowserEvent, BrowserInventory, BrowserPlatform, BrowserTarget, BrowserTabState } from './browser-types';
 import { browserAddress, browserPreviewAddress } from './browser-address';
-import { isBrowserTab, sessionPanes, SessionTabs, type BrowserTab } from './session-tabs';
+import { isBrowserTab, selectedSessionTab, sessionPanes, SessionTabs, type BrowserTab } from './session-tabs';
 
 /** Observes main-owned state and presents existing workspace slots; does not own another tab inventory. */
 export class BrowserWorkspace {
@@ -27,6 +27,24 @@ export class BrowserWorkspace {
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   onEvent = (listener: (event: BrowserEvent) => void) => { this.events.add(listener); return () => { this.events.delete(listener); }; };
+  canToggleDesign(tabId: string): boolean {
+    const page = this.state.tabs.find(tab => tab.id === tabId);
+    return !!this.platform?.design && !this.disposed && !this.holds.size &&
+      selectedSessionTab(this.tabs.workspace())?.id === tabId && this.slots.has(tabId) &&
+      page?.status === 'ready' && (typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  }
+  toggleDesign(tabId: string): boolean {
+    const target = this.target(tabId);
+    if (!target || !this.canToggleDesign(tabId)) return false;
+    for (const listener of this.events) listener({ kind: 'shortcut', shortcut: 'design-toggle', ...target });
+    return true;
+  }
+  async restoreDesignFocus(target: BrowserTarget): Promise<void> {
+    await this.start(); await this.sync();
+    const current = this.target(target.tabId);
+    if (current?.epoch === target.epoch && current.generation === target.generation && this.canToggleDesign(target.tabId))
+      await this.platform?.act({ ...target, action: { kind: 'focus' } });
+  }
   private accept(snapshot: BrowserInventory) {
     if (this.disposed || this.retiredEpochs.has(snapshot.epoch) || (snapshot.epoch === this.state.epoch && snapshot.revision <= this.state.revision)) return;
     if (snapshot.epoch !== this.state.epoch) {
@@ -46,6 +64,7 @@ export class BrowserWorkspace {
       else {
         const target = this.target(event.tabId);
         if (target?.epoch !== event.epoch || target.generation !== event.generation) return;
+        if (event.kind === 'shortcut' && event.shortcut === 'design-toggle' && !this.canToggleDesign(event.tabId)) return;
         if (event.kind === 'focused' || (event.kind === 'shortcut' && event.shortcut === 'commands')) this.focused = target;
       }
       for (const listener of this.events) listener(event);

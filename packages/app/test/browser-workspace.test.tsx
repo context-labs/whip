@@ -234,10 +234,11 @@ describe('production native overlay gating', () => {
 
 
 describe('production Browser shell integration without a daemon', () => {
-  function application(native = true) {
+  function application(native = true, design?: BrowserPlatform['design']) {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     const disk = storage(), bridge = host(new SessionTabs());
+    if (design) Object.assign(bridge.platform, { design });
     if (!native) new SessionTabs(disk).openBrowser(descriptor);
     const app = createWhipApplication({ defaultEndpoint: 'http://127.0.0.1:8080', storage: disk, windowStorage: disk, browser: native ? bridge.platform : undefined,
       copy: vi.fn(async () => {}), openExternal: vi.fn(async () => {}), download: vi.fn(async () => {}) },
@@ -245,6 +246,105 @@ describe('production Browser shell integration without a daemon', () => {
     const view = render(<app.Application/>);
     return { ...app, ...bridge, cleanup() { view.unmount(); app.dispose(); bridge.browser.dispose(); vi.unstubAllGlobals(); } };
   }
+  function designPlatform() {
+    const gate = deferred();
+    let held = false;
+    const start = vi.fn(async (target: { epoch: string; tabId: string; generation: string }) => {
+      if (held) await gate.promise;
+      return { ...target, designId: 'design', documentRevision: 1, selectionRevision: 0, status: 'active' as const, viewport: { width: 1000, height: 650 }, elements: [] };
+    });
+    return { start, stop: vi.fn(async () => {}), update: vi.fn(async () => {}), capture: vi.fn(), onEvent: () => () => {}, hold() { held = true; }, release: gate.resolve };
+  }
+  it('toggles Design through the existing owner from browser/address focus, with exact nonrepeat modifiers and pending-start exclusion', async () => {
+    const design = designPlatform(), app = application(true, design);
+    const chord = { key: 'D', metaKey: true, shiftKey: true };
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      const address = await screen.findByRole('textbox', { name: 'Browser address' });
+      await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
+      for (const change of [{ metaKey: false }, { shiftKey: false }, { ctrlKey: true }, { altKey: true }, { repeat: true }, { isComposing: true }]) fireEvent.keyDown(address, { ...chord, ...change });
+      expect(design.start).not.toHaveBeenCalled();
+      fireEvent.keyDown(document.body, chord);
+      expect(design.start).not.toHaveBeenCalled();
+      design.hold();
+      expect(fireEvent.keyDown(address, chord)).toBe(false);
+      fireEvent.keyDown(address, chord);
+      expect(design.start).toHaveBeenCalledTimes(1);
+      await act(async () => design.release());
+      await screen.findByRole('button', { name: 'Exit Design Mode' });
+      fireEvent.keyDown(screen.getByRole('region', { name: /^Browser:/ }), chord);
+      await screen.findByRole('button', { name: 'Enter Design Mode' });
+      expect(design.stop).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(app.platform.act).toHaveBeenLastCalledWith(expect.objectContaining({ tabId: 'browser_created', action: { kind: 'focus' } })));
+    } finally { app.cleanup(); }
+  });
+  it('rejects inactive pane, native-surface modal holds and stale native shortcut identities', async () => {
+    const design = designPlatform(), app = application(true, design);
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      const address = await screen.findByRole('textbox', { name: 'Browser address' });
+      await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
+      const event = { kind: 'shortcut' as const, shortcut: 'design-toggle' as const, ...app.runtime.browser.target('browser_created')! };
+      await act(async () => { app.emit({ ...event, generation: 'stale' }); app.emit({ ...event, epoch: 'stale' }); });
+      expect(design.start).not.toHaveBeenCalled();
+      const hold = app.runtime.browser.acquireOverlay();
+      await hold.ready;
+      await act(async () => app.emit(event));
+      expect(fireEvent.keyDown(address, { key: 'D', metaKey: true, shiftKey: true })).toBe(true);
+      expect(design.start).not.toHaveBeenCalled();
+      hold.release();
+      await act(async () => { const other = app.runtime.tabs.openNew({}); app.runtime.tabs.split(other.id, 'right'); });
+      await act(async () => app.emit(event));
+      expect(app.runtime.browser.toggleDesign('browser_created')).toBe(false);
+      expect(design.start).not.toHaveBeenCalled();
+      await act(async () => app.runtime.tabs.activate('browser_created'));
+      await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
+      await act(async () => app.emit(event));
+      await screen.findByRole('button', { name: 'Exit Design Mode' });
+      expect(design.start).toHaveBeenCalledTimes(1);
+      await act(async () => app.emit(event));
+      await screen.findByRole('button', { name: 'Enter Design Mode' });
+      expect(design.stop).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(app.platform.act).toHaveBeenLastCalledWith(expect.objectContaining({ tabId: 'browser_created', action: { kind: 'focus' } })));
+    } finally { app.cleanup(); }
+  });
+  it.each(['stop-pane', 'stop-generation', 'sync-pane', 'sync-generation'])('does not restore shortcut focus after delayed %s invalidation', async scenario => {
+    const design = designPlatform(), app = application(true, design), gate = deferred(), began = deferred();
+    const restoreFocus = vi.spyOn(app.runtime.browser, 'restoreDesignFocus');
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      await screen.findByRole('textbox', { name: 'Browser address' });
+      await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
+      const target = app.runtime.browser.target('browser_created')!;
+      const event = { kind: 'shortcut' as const, shortcut: 'design-toggle' as const, ...target };
+      await act(async () => app.emit(event));
+      await screen.findByRole('button', { name: 'Exit Design Mode' });
+      if (scenario.startsWith('stop')) design.stop.mockImplementationOnce(async () => { began.resolve(); await gate.promise; });
+      else {
+        const restore = app.platform.restore;
+        vi.spyOn(app.platform, 'restore').mockImplementationOnce(async input => { began.resolve(); await gate.promise; return restore(input); });
+        await act(async () => {
+          app.runtime.tabs.openBrowser({ id: 'browser_sync', url: 'https://example.org/' });
+          app.runtime.tabs.activate('browser_created');
+        });
+      }
+      vi.mocked(app.platform.act).mockClear();
+      await act(async () => app.emit(event));
+      await began.promise;
+      await act(async () => {
+        if (scenario.endsWith('pane')) { const other = app.runtime.tabs.openNew({}); app.runtime.tabs.split(other.id, 'right'); }
+        else {
+          const inventory = app.runtime.browser.getSnapshot();
+          app.emit({ kind: 'snapshot', snapshot: { ...inventory, revision: inventory.revision + 1, tabs: inventory.tabs.map(tab => tab.id === target.tabId ? { ...tab, generation: 'replacement' } : tab) } });
+        }
+        gate.resolve();
+      });
+      await waitFor(() => expect(restoreFocus).toHaveBeenCalledTimes(1));
+      await act(async () => { await restoreFocus.mock.results[0]!.value; });
+      await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created') && app.runtime.browser.target('browser_created')?.generation === target.generation).toBe(false));
+      expect(vi.mocked(app.platform.act).mock.calls.filter(([input]) => input.action.kind === 'focus')).toEqual([]);
+    } finally { gate.resolve(); app.cleanup(); }
+  });
   it('creates, routes and navigates a page without an execution host, preserving cancelled close', async () => {
     const app = application();
     try {

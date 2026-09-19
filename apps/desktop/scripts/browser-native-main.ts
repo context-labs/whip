@@ -60,6 +60,15 @@ async function run() {
   assert.equal(boundary.ok, true, JSON.stringify(boundary));
   assert.equal((await call<BrowserInventory>('snapshot')).tabs.length, 0);
   pass('actual BrowserWorkspace renderer + production preload/IPC: strict metadata projection restores addresses and first New Browser, raw workspace extras still rejected');
+  events.length = 0;
+  const outgoingEpoch = epoch;
+  manager.resetRenderer(); inventory = await call<BrowserInventory>('snapshot'); epoch = inventory.epoch;
+  assert.notEqual(epoch, outgoingEpoch);
+  assert.ok(!events.some(event => (event as { snapshot?: BrowserInventory }).snapshot?.epoch === epoch),
+    'The outgoing renderer must not receive the incoming epoch and spend its first presentation revision');
+  await assert.rejects(call('present', { epoch: outgoingEpoch, revision: 100, blocked: true, slots: [] }), /Stale/);
+  await call('present', { epoch, revision: 1, blocked: true, slots: [] });
+  pass('renderer handoff keeps the fresh epoch private until snapshot; incoming overlays can present revision one');
   manager.resetRenderer(); inventory = await call<BrowserInventory>('snapshot'); epoch = inventory.epoch; events.length = 0;
 
   const confirmation = nativeHumanPreviewConfirmation(window, (parent, options) => dialog.showMessageBox(parent, options));

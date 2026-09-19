@@ -235,6 +235,43 @@ for tested seams and remaining gates. Browser guest screenshots alone do not
 prove compositor or overlay behavior; scripted transports do not prove the full
 SDK/preload/native path.
 
+### Design Mode
+
+Use the **Design Mode** action to the right of a Browser tab's address field, or
+press **Cmd+Shift+D** while that Browser pane is active, to toggle element selection
+and describe a change. The shortcut works from the page, address/toolbar, and Design
+composer. It leaves other panes and security dialogs alone; held-key repeats and
+extra modifiers do not toggle it. Hover shows an element outline; select
+several elements with Shift/Cmd/Ctrl-click to collect numbered, color-matched chips. The floating composer
+anchors near a single element and docks lower-right for multiple selections. Remove
+individual chips, choose an open conversation/child recipient, write the instruction,
+and send without replacing an existing chat draft. A unique explicit conversation
+association supplies the default; focus alone does not choose the destination.
+
+**Evidence** shows bounded DOM evidence and the default viewport screenshot.
+Turn off Screenshot for metadata-only messages. Evidence includes role/name, visible
+text, selected attributes, a selector hint, computed layout/typography styles and
+geometry; it is not a complete DOM dump or a guaranteed source-file mapping. Input
+values, hidden/editable text and arbitrary framework props are not collected. Page
+URL credentials, query and fragment are removed. Screenshots still contain visible
+page content, which can include sensitive information: inspect them before sending.
+Image messages require a vision-capable model; a rejection retains the draft.
+
+This is inspection-to-chat, **not** drawing, drag/reorder, or direct CSS editing.
+It works in the desktop Browser for ordinary/local pages and existing SSH previews
+without adding network or agent-control grants. Cross-origin frame interiors and
+closed shadow content are not promised: frame/host selection or explicit unavailable
+feedback is preferable to selecting the wrong element. DevTools or active agent
+inspection can make Design Mode busy; it never steals their debugger. Navigation
+invalidates live selections. Selection context uses normal text/image attachments
+and survives accepted-message replay; live DOM handles do not survive restart.
+
+The overlay is a trusted native surface with a dedicated narrow preload, not code
+receiving app permissions inside the website. Native compositor and production
+capture checks are separate from web renderer tests. See the
+[Design Mode implementation plan and validation](../.ai-docs/plans/browser-design-mode/README.md)
+for measured coverage and remaining hardware IME/accessibility/release gates.
+
 ## Terminal tabs
 
 A terminal tab is a login shell running where the session's daemon runs: on This
@@ -287,14 +324,50 @@ node node_modules/electron/install.js
 npm run dev:desktop
 ```
 
-Development starts the one Vite server at `http://127.0.0.1:3001`, watches
-main/preload and restarts their window on changes. The development URL is ignored
-by a packaged app. The fixture home and user data are in `apps/desktop/.dev`, not
-the normal whipcode home. Its canonical executable is `.dev/bin/whipcode`, outside
-the disposable staging tree. Closing development leaves that fixture daemon
-running. Go/Swift are built once per invocation. Before restarting development
-with changed native code, stop the previous fixture; the dev script refuses to
-replace a live backend. After its work has finished:
+For UI development against an already-running daemon, use attach mode:
+
+```sh
+# Use the main daemon and the executable selected by the installed Whip app.
+npm run dev:desktop -- --attach
+
+# Explicitly attach to an isolated development daemon instead.
+npm run dev:desktop -- --attach --home "$PWD/apps/desktop/.dev/home" --executable "$PWD/apps/desktop/.dev/bin/whipcode"
+```
+
+Attach mode builds the SDK and watches the Electron main/preload code, while Vite
+serves the shared renderer with hot reload. It does not build Go, Swift, or the
+embedded production renderer. Its shell output is in `.dev/attach-app`; GUI
+settings are in `.dev/attach/<target>/user-data`, separate from the installed app
+and managed development. The executable and home can also be supplied together
+through `WHIP_DESKTOP_EXECUTABLE` and `WHIPCODE_HOME`; flags take precedence.
+With no target override, `--attach` uses `~/.whipcode` and reads the executable
+selection from `~/Library/Application Support/Whip/native-local-runtime.json`.
+It never modifies that file or adopts the installed app’s update ownership.
+Missing or invalid selection settings require explicit target flags; there is
+no fallback to the isolated development daemon.
+
+Attachment checks the executable's distribution and uses the SDK handshake to
+validate the running daemon's protocol major and required response shape. Minor
+versions add optional fields/capabilities and need not match; features negotiate
+normally. Different build IDs or binary hashes are allowed; an incompatible, stopped, missing, or unhealthy daemon is reported
+without changing it. Attach mode never installs, synchronizes, starts, repairs,
+or restarts the backend, including on reconnect or from desktop management
+controls. Previously saved installation choices/update approvals cannot change
+its explicit target. Update the daemon separately when backend changes are needed.
+Packaged apps reject attach mode and retain their existing payload integrity and
+managed-update checks.
+
+Both development modes start one Vite server at `http://127.0.0.1:3001`; pass
+`--port 3002` to use another loopback port. Main/preload edits restart only Electron.
+Closing development leaves the daemon running. The development URL is ignored by
+a packaged app.
+
+Without `--attach`, development builds and manages the isolated fixture in
+`apps/desktop/.dev`. Its canonical executable is `.dev/bin/whipcode`, outside the
+disposable staging tree. Go/Swift are built once per invocation. The script refuses
+to replace a live backend when rebuilt bytes differ (including embedded renderer
+changes). Use attach mode to keep working on the UI; to replace the backend,
+stop the fixture separately after its work has finished:
 
 ```sh
 WHIPCODE_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.dev/bin/whipcode daemon stop

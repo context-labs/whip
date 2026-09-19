@@ -42,7 +42,22 @@ try {
           assert.equal(bounds.x, 0);
           assert.equal(bounds.width, width, 'Divider must span the entire browser pane');
           assert.ok(input.width >= 50, 'Address must remain usable in narrow panes');
-          assert.ok(bounds.height <= 64, 'Normal toolbar must be a single compact row');
+          const session = await page.getByRole('banner', { name: 'Session information' }).boundingBox();
+          const sessionAction = await page.getByRole('button', { name: 'Session actions', exact: true }).boundingBox();
+          assert.equal(bounds.height, session.height, 'Browser and session headers must have the same height');
+          assert.equal(bounds.height, 37, 'Desktop toolbar must remain a compact single row, including its divider');
+          assert.equal(input.height, sessionAction.height, 'Address and header actions must share the same control height');
+          for (const button of await navigation.getByRole('button').all()) {
+            const box = await button.boundingBox();
+            assert.equal(box.height, sessionAction.height);
+            assert.equal(box.width, sessionAction.width);
+            assert.equal(box.y + box.height / 2, input.y + input.height / 2, 'Controls must be vertically centered together');
+          }
+          for (const icon of await navigation.locator('svg').all()) {
+            const box = await icon.boundingBox();
+            assert.equal(box.width, 16, 'Toolbar icons must match the session header');
+            assert.equal(box.height, 16);
+          }
           const border = await navigation.evaluate(node => {
             const css = getComputedStyle(node);
             return { width: css.borderBottomWidth, style: css.borderBottomStyle, color: css.borderBottomColor };
@@ -50,7 +65,21 @@ try {
           assert.equal(border.width, '1px');
           assert.equal(border.style, 'solid');
           assert.notEqual(border.color, 'rgba(0, 0, 0, 0)');
-          let right = input.x + input.width;
+          const inputBorders = await address.evaluate(node => {
+            const css = getComputedStyle(node);
+            return ['Top', 'Right', 'Bottom', 'Left'].map(side => ({
+              width: css[`border${side}Width`], style: css[`border${side}Style`], color: css[`border${side}Color`],
+            }));
+          });
+          for (const border of inputBorders) {
+            assert.equal(border.width, '1px', 'Address input must retain its border');
+            assert.equal(border.style, 'solid');
+            assert.notEqual(border.color, 'rgba(0, 0, 0, 0)');
+          }
+          const provenance = await navigation.getByRole('img', { name: 'This Mac', exact: true }).boundingBox();
+          assert.ok(provenance.x >= input.x + input.width, 'Environment indicator must follow the address input');
+          assert.ok(provenance.y >= bounds.y && provenance.y + provenance.height <= bounds.y + bounds.height);
+          let right = provenance.x + provenance.width;
           for (const name of ['Open SSH preview…', 'Conversation access…', 'Browser actions']) {
             const button = navigation.getByRole('button', { name, exact: true });
             await expect(button.locator('svg')).toHaveCount(1);
@@ -88,8 +117,21 @@ try {
       await page.goto(`${origin}/?unavailable`);
       await expect(page.getByRole('button', { name: 'Open SSH preview…', exact: true })).toBeDisabled();
       await expect(page.getByRole('button', { name: 'Conversation access…', exact: true })).toBeDisabled();
+      const touch = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 720 } });
+      try {
+        const page = await touch.newPage();
+        await page.goto(origin);
+        const toolbar = page.getByRole('group', { name: 'Browser toolbar' });
+        const bounds = await toolbar.boundingBox();
+        const session = await page.getByRole('banner', { name: 'Session information' }).boundingBox();
+        assert.equal(bounds.height, session.height, 'Touch headers must stay aligned too');
+        for (const button of await toolbar.getByRole('button').all()) {
+          const box = await button.boundingBox();
+          assert.ok(box.width >= 44 && box.height >= 44, 'Touch actions must retain 44px targets');
+        }
+      } finally { await touch.close(); }
       assert.deepEqual(errors, []);
-      console.log(`${engine}: light/dark, 1280/480/320px, edge-to-edge divider, icon actions, navigation, dialogs, find and disabled/loading states passed`);
+      console.log(`${engine}: light/dark, 1280/480/320px, matching session-header height/icons, touch targets, edge-to-edge divider, navigation, dialogs, find and disabled/loading states passed`);
     } finally { await browser.close(); }
   }
 } finally { await new Promise(resolve => server.httpServer.close(resolve)); }

@@ -8,6 +8,8 @@ import type { ProviderList } from '@whip/protocol';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { Welcome } from '../src/welcome';
+import { CompositionStore } from '../src/compositions';
+import { SubmittedInputs } from '../src/input-presentation';
 
 const route = vi.hoisted(() => ({ search: {} as { cwd?: string; runtimeId?: string }, location: { state: { __TSR_key: 'initial' } }, navigate: vi.fn() }));
 vi.mock('@tanstack/react-router', () => ({
@@ -27,7 +29,7 @@ function fixture(ready = true, entries = [provider('inference-net', ready), prov
   const inventory: ProviderList = { revision: '1', default_provider: 'inference-net', selection: selectionMissing ? undefined : { ready, model: 'coding-model', provider: 'inference-net', reason: ready ? 'ready' : 'provider_required' }, providers: entries };
   const client = { subscribe: () => () => {}, getSnapshot: () => snapshot, supports: () => true,
     agents: { list: vi.fn(async () => ({ items: [{ id: 'coding', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'junior-developer', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'support-triage', revision: 'b'.repeat(64), built_in: false, registered_by: 'app', created_at: '' }] })) },
-    sessions: { create: vi.fn((params: unknown) => ({ params })) }, session: vi.fn((rootId: string) => ({ submit: vi.fn(() => ({ rootId })), command: vi.fn(() => ({ rootId })) })),
+    sessions: { create: vi.fn((params: unknown) => ({ params })) }, session: vi.fn((rootId: string) => ({ rootId, client: { clientId: 'sidebar-test' }, submit: vi.fn(() => ({ rootId })), command: vi.fn(() => ({ rootId })) })),
     configuration: { get: vi.fn(async () => ({ default_execution_engine: 'starlark' })), update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
     providers: {
       list: vi.fn(async () => ({ ...inventory })), catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
@@ -54,6 +56,7 @@ function fixture(ready = true, entries = [provider('inference-net', ready), prov
   }
   const runtime = {
     tabs, run,
+    compositions: new CompositionStore(), submittedInputs: new SubmittedInputs(),
     queries: query, platform: { copy: vi.fn(async () => {}), openExternal: vi.fn(async () => {}) },
     connections: { isAttached: () => true, select: vi.fn() }, subscribe: () => () => {}, getSnapshot: () => state,
     lastSession: () => undefined,

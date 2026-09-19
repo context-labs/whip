@@ -24,7 +24,7 @@ func EventPayloads() map[string]reflect.Type {
 		result[kind] = reflect.TypeFor[SessionUpdateEvent]()
 	}
 	for _, kind := range []string{
-		"inbox.queued", "inbox.consumed", "inbox.failed", "schedule.fired", "command.queued", "command.control.queued",
+		"inbox.queued", "inbox.steering", "inbox.removed", "inbox.running", "inbox.consumed", "inbox.failed", "schedule.fired", "command.queued", "command.control.queued",
 		"permission.pending", "permission.auto_approved", "capability.delegated", "capability.revoked",
 		"budget.capped", "budget.active_child.reserved", "agent.admitted", "agent.prompt.queued",
 		"question.pending", "question.answered", "question.closed", "session.reload.failed",

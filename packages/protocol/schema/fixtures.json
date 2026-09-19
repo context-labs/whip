@@ -1274,6 +1274,29 @@
     "value": []
   },
   {
+    "type": "InboxRemoveParams",
+    "value": {
+      "id": "",
+      "inbox_seq": "0"
+    }
+  },
+  {
+    "type": "InboxControlResult",
+    "value": {
+      "agent_id": "",
+      "inbox_seq": "0",
+      "status": ""
+    }
+  },
+  {
+    "type": "InboxSteerParams",
+    "value": {
+      "id": "",
+      "inbox_seq": "0",
+      "turn_id": ""
+    }
+  },
+  {
     "type": "LSPListResult",
     "value": []
   },

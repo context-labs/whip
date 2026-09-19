@@ -196,13 +196,15 @@ func (s *Store) readCollectionEntry(ctx context.Context, tx *sql.Tx, rootID, col
 		return CollectionEntry{Budget: &value}, nil
 	case "inbox":
 		value := InboxItem{RootID: rootID}
-		err := tx.QueryRowContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
-   FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.rowid=?`, InlineValueLimit+1, rootID, key).Scan(&value.Seq, &value.AgentID, &value.Kind, &value.Status, &value.Payload.Inline, &value.Payload.ReferenceID, &value.Payload.Digest, &value.Payload.Size, &value.Payload.MediaType, &value.Payload.Source)
+		var preview []byte
+		err := tx.QueryRowContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
+   FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.rowid=?`, InlineValueLimit+1, rootID, key).Scan(&value.Seq, &value.AgentID, &value.Kind, &value.Status, &value.Payload.Inline, &value.Payload.ReferenceID, &value.Payload.Digest, &value.Payload.Size, &value.Payload.MediaType, &value.Payload.Source, &value.Origin, &value.CommandClientID, &value.CommandID, &value.SteerTurnID, &value.DeliverySeq, &preview)
 		if value.Payload.ReferenceID != "" {
 			value.Payload.Inline = nil
 		} else if len(value.Payload.Inline) > InlineValueLimit {
 			return CollectionEntry{}, errors.New("oversized inline inbox value")
 		}
+		value.Preview = readInboxPreview(preview)
 		return CollectionEntry{Inbox: &value}, err
 	case "schedules":
 		var value Schedule

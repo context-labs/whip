@@ -21,7 +21,7 @@ export function BrowserProviderControls({ tabId }: { tabId?: string }) {
   const [open, setOpen] = useState(false);
   const active = associations.filter(item => item.status === 'selected').length;
   return <>
-    {tabId ? <IconButton variant="ghost" label={`Conversation access${active ? ` (${active})` : ''}…`} disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
+    {tabId ? <IconButton variant="ghost" size="sm" label={`Conversation access${active ? ` (${active})` : ''}…`} disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
       <MessagesSquare size={16} aria-hidden="true"/>
     </IconButton> : <Button variant="ghost" size="sm" disabled={!runtime.platform.browserAgent} onClick={() => setOpen(true)}>
       Manage conversation access{active ? ` (${active})` : ''}…

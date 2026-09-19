@@ -32,7 +32,8 @@ function fixture(remoteHost = false, providerReady = true) {
     providers: { setKey: vi.fn(async () => ({})), catalogs: vi.fn(async () => catalog), list: vi.fn(async () => inventory), login: { list: vi.fn(async () => ({ flows: [] })) } },
     host: { directories: vi.fn(async ({ path }: { path?: string }) => ({ path: path || '/project/whip', entries: [] })), pickDirectory: vi.fn() },
     sessions: { create: vi.fn((params: unknown) => ({ params })) },
-    session: vi.fn((rootId: string) => ({ submit: vi.fn((payload: unknown) => ({ rootId, payload })), command: vi.fn((operation: string, payload: unknown) => ({ rootId, operation, payload })) })),
+    upload: vi.fn(async () => ({ asAttachment: (kind: string, name: string) => ({ kind, name, ref: 'uploaded' }) })),
+    session: vi.fn((rootId: string) => ({ rootId, client: raw, submit: vi.fn((payload: unknown) => ({ rootId, payload })), command: vi.fn((operation: string, payload: unknown) => ({ rootId, operation, payload })) })),
   };
   const client = raw as unknown as WhipClient;
   const recent = { page: { items: [{ cwd: '/remote/recent', updated_at: '2026-09-13' }] } };
@@ -241,10 +242,105 @@ it('keeps the draft and reports the error when the first send fails before accep
   f.run.mockImplementationOnce((async () => { throw new Error('Host refused the session'); }) as never);
   f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Try this' } });
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [imageFile()] } });
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await screen.findByText('Host refused the session');
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Try this');
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ kind: 'new' });
+  expect(f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments[0]).toMatchObject({ staged: true, previewUrl: 'blob:first.png' });
+  expect(f.raw.upload).not.toHaveBeenCalled();
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+});
+
+function imageFile(name = 'first.png') {
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn(() => `blob:${name}`);
+    static revokeObjectURL = vi.fn();
+  });
+  return Object.assign(new File(['image'], name, { type: 'image/png' }), {
+    arrayBuffer: vi.fn(async () => new TextEncoder().encode('image').buffer),
+  });
+}
+
+it.each(['picker', 'paste', 'drop'])('stages a first image through %s without creating a session or uploading', async method => {
+  const f = fixture(); f.render();
+  const input = await screen.findByRole('textbox', { name: 'Your first message' });
+  const image = imageFile();
+  expect((screen.getByRole('button', { name: 'Attach text or images' }) as HTMLButtonElement).disabled).toBe(false);
+  if (method === 'picker') fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [image] } });
+  else if (method === 'paste') fireEvent.paste(input, { clipboardData: { files: [image] } });
+  else fireEvent.drop(input, { dataTransfer: { files: [image] } });
+  fireEvent.load(screen.getByRole('img', { name: 'first.png' }));
+  expect(screen.queryByRole('img', { name: 'Uploading first.png' })).toBeNull();
+  expect(image.arrayBuffer).not.toHaveBeenCalled();
+  expect(f.raw.upload).not.toHaveBeenCalled();
+  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Remove first.png' }));
+  expect(f.runtime.compositions.getSnapshot().attachmentCount).toBe(0);
+  expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:first.png');
+});
+
+it('sends multiple images without text only after scoped uploads finish and clears previews on acceptance', async () => {
+  const f = fixture(); f.render();
+  await screen.findByRole('textbox', { name: 'Your first message' });
+  const first = imageFile(); const second = imageFile('second.png');
+  let release!: () => void;
+  const uploaded = f.raw.upload.getMockImplementation()!;
+  f.raw.upload.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(uploaded()); }));
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [first, second] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  // Repeated Enter/click cannot create a second session while awaiting upload.
+  await screen.findByText('Promoted to created');
+  expect(f.raw.sessions.create).toHaveBeenCalledOnce();
+  expect(f.raw.session.mock.results[0]!.value.submit).not.toHaveBeenCalled();
+  expect(f.runtime.compositions.get('host:created:created').sending).toBe(true);
+  await act(async () => release());
+  await waitFor(() => expect(f.raw.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: '', attachments: [
+    { kind: 'image', name: 'first.png', ref: 'uploaded' }, { kind: 'image', name: 'second.png', ref: 'uploaded' },
+  ] }, expect.objectContaining({ commandId: expect.any(String) })));
+  expect(f.raw.upload).toHaveBeenCalledTimes(2);
+  expect(f.raw.upload).toHaveBeenCalledWith(expect.any(Uint8Array), expect.objectContaining({ rootId: 'created', agentId: 'created' }));
+  await waitFor(() => expect(f.runtime.compositions.getSnapshot().attachmentCount).toBe(0));
+  expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+});
+
+it('keeps local attachments with the new draft across closing/reopening and changing hosts', async () => {
+  const f = fixture(); f.render();
+  await screen.findByRole('textbox', { name: 'Your first message' });
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [imageFile()] } });
+  const attachments = f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments;
+  act(() => { f.runtime.tabs.closeViews([f.tab.id]); });
+  act(() => { f.runtime.tabs.reopenView(f.tab.id); });
+  await screen.findByRole('button', { name: 'Preview first.png' });
+  fireEvent.click(screen.getByRole('button', { name: 'Execution host' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Mac mini/ }));
+  await waitFor(() => expect(f.connect).toHaveBeenCalledWith('remote'));
+  expect(f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments).toBe(attachments);
+  expect(f.raw.upload).not.toHaveBeenCalled();
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+});
+
+it.each(['upload', 'send'])('preserves the draft in its created session after %s failure', async phase => {
+  const f = fixture(); f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Keep my image' } });
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [imageFile()] } });
+  if (phase === 'upload') f.raw.upload.mockRejectedValueOnce(new Error('Upload unavailable'));
+  else {
+    const run = f.run.getMockImplementation()!;
+    f.run.mockImplementation(((...args: Parameters<AppRuntime['run']>) => {
+      if (args[1] === 'Send message') throw new Error('Submission refused');
+      return run(...args);
+    }) as never);
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await screen.findByText('Promoted to created');
+  await waitFor(() => expect(f.runtime.compositions.get('host:created:created').sending).toBe(false));
+  expect(f.raw.sessions.create).toHaveBeenCalledOnce();
+  expect(f.runtime.draft('host:created:created')).toBe('Keep my image');
+  expect(f.runtime.compositions.get('host:created:created').attachments[0]?.previewUrl).toBe('blob:first.png');
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  if (phase === 'upload') expect(f.raw.session.mock.results[0]!.value.submit).not.toHaveBeenCalled();
 });
 
 // A host that has MCP servers configured for other agents gets one offer

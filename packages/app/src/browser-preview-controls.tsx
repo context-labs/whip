@@ -36,7 +36,7 @@ export function BrowserPreviewControls({ tabId }: { tabId?: string }) {
     }).catch(error => setError(errorMessage(error))).finally(() => setRequest(undefined));
   }, [request, runtime, navigate]);
   return <>
-    {tabId ? <IconButton variant="ghost" label="Open SSH preview…" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>
+    {tabId ? <IconButton variant="ghost" size="sm" label="Open SSH preview…" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>
       <PanelsTopLeft size={16} aria-hidden="true"/>
     </IconButton> : <Button variant="ghost" size="sm" disabled={!runtime.platform.browser?.createPreview || !!request} onClick={() => { setError(''); setNotice(''); setOpen(true); }}>Open SSH preview…</Button>}
     {request && <span role="status" {...stylex.props(!!tabId && styles.notice)}>Waiting for SSH preview confirmation…</span>}

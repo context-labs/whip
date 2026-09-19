@@ -8,7 +8,7 @@ import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
 import type { SessionCatalogPage } from '@whip/protocol';
 import { useQuery } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
-import { Archive, Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
+import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
@@ -28,7 +28,7 @@ interface SidebarProps {
   inset?: boolean;
   state: SidebarState;
   setState: Dispatch<SetStateAction<SidebarState>>;
-  onSearch(status?: 'active' | 'archived' | 'all'): void;
+  onSearch(): void;
   onConnect(): void;
   onNavigate(): void;
 }
@@ -61,7 +61,7 @@ function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: 
     </>}
   </section>;
 }
-function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { onNavigate(): void; onSearch(status?: 'active' | 'archived' | 'all'): void; headerAction?: ReactNode; inset?: boolean; }) {
+function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { onNavigate(): void; onSearch(): void; headerAction?: ReactNode; inset?: boolean; }) {
   const runtime = useRuntime();
   const navigate = useNavigate();
   // Inset window chrome (desktop): the brand row is an empty drag strip for
@@ -81,7 +81,6 @@ function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { on
         if (openNewChat(runtime, navigate)) onNavigate();
       }} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
       <button onClick={() => onSearch()} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
-      <button onClick={() => onSearch('archived')} {...stylex.props(styles.destination, styles.primaryDestination)}><Archive size={16} />Archived sessions</button>
       <Link id="whip-settings-link" to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
     </nav>
   </>;
@@ -145,7 +144,9 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
   const location = useLocation();
   const selected = sessionDestination(location.pathname);
   const items = page?.items;
-  const rows = useMemo(() => sidebarRows(items ?? [], collapsed), [items, collapsed]);
+  const [expandedDirectories, setExpandedDirectories] = useState<readonly string[]>([]);
+  const expandDirectory = (cwd: string) => setExpandedDirectories(previous => [...previous.filter(path => path !== cwd), cwd].slice(-64));
+  const rows = useMemo(() => sidebarRows(items ?? [], collapsed, expandedDirectories), [items, collapsed, expandedDirectories]);
   const [touch, setTouch] = useState(() => window.matchMedia('(pointer: coarse), (max-width: 767px)').matches);
   useEffect(() => {
     const media = window.matchMedia('(pointer: coarse), (max-width: 767px)');
@@ -230,7 +231,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
     if (!session) return;
     if (collapsed.includes(session.cwd)) { onCollapse?.(session.cwd, false); return; }
     const index = rows.findIndex(row => row.kind === 'session' && row.session.id === id);
-    if (index < 0) return;
+    if (index < 0) { expandDirectory(session.cwd); return; }
     virtual.scrollToIndex(index, { align: 'auto' });
     pendingReveal.current = undefined;
     rememberAnchor();
@@ -241,6 +242,17 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
     <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
       {visibleRows.map(row => {
         const item = rows[row.index]!;
+        if (item.kind === 'more') return <button key={item.key} type="button" data-sidebar-cwd={item.cwd}
+          aria-label={`${item.expanded ? 'Show fewer' : 'Show more'} sessions in ${item.cwd || 'Other sessions'}`} aria-expanded={item.expanded}
+          onClick={() => {
+            if (item.expanded) setExpandedDirectories(previous => previous.filter(path => path !== item.cwd));
+            else expandDirectory(item.cwd);
+          }}
+          style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }}
+          {...stylex.props(styles.destination, styles.moreButton)}>
+          {item.expanded ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+          {item.expanded ? 'Show less' : 'Show more'}
+        </button>;
         if (item.kind === 'directory') return <div key={item.key} data-sidebar-directory={item.cwd} data-sidebar-cwd={item.cwd}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }} {...stylex.props(styles.group, directoryMarker)}>
           <button title={item.cwd || 'Other sessions'} aria-label={item.cwd || 'Other sessions'} aria-expanded={!collapsed.includes(item.cwd)}

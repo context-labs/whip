@@ -31,6 +31,15 @@ type CancelParams struct {
 	TurnID          string `json:"turn_id,omitempty"`
 	TargetCommandID string `json:"target_command_id,omitempty"`
 }
+type InboxRemoveParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+}
+type InboxSteerParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+	TurnID   string `json:"turn_id"`
+}
 type AgentCancelParams struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turn_id"`

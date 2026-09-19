@@ -27,6 +27,7 @@ import (
 )
 
 type clientActionPayload struct {
+	InboxSeq            int64                          `json:"inbox_seq,omitempty,string"`
 	ExpectedRevision    *int64                         `json:"expected_revision,omitempty,string"`
 	TurnID              string                         `json:"turn_id,omitempty"`
 	TargetCommandID     string                         `json:"target_command_id,omitempty"`
@@ -126,7 +127,7 @@ type clientGoal struct {
 
 func isClientOperation(operation string) bool {
 	switch operation {
-	case "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
+	case "inbox.steer", "inbox.remove", "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
 		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.archive", "session.reload", "session.autotitle", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"history.compact.log", "history.compact.retry", "compaction.configure",
@@ -734,6 +735,14 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		return finish(nil)
 	}
 
+	if operation == "agent.submit" {
+		var action clientActionPayload
+		if err := decodeClientAction(payload, &action); err != nil {
+			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
+		}
+		output, actionErr := s.clientAgentSubmitInput(actorCtx, action.ID, SubmitPayload{Text: action.Text, Parts: action.Parts, Attachments: action.Attachments}, action.Delivery, admission)
+		return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
+	}
 	output, actionErr := s.applyClientCommand(actorCtx, operation, payload)
 	return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
 }
@@ -945,6 +954,15 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.runConfig = &runConfiguration{system: payload.System, maxTurns: payload.MaxTurns, headless: payload.Headless, cacheKey: payload.CacheKey}
 		s.applyRunConfiguration(runner, s.runtime, permissionMode)
 		return "configured", nil
+	case "inbox.steer", "inbox.remove":
+		result, err := s.store.ControlInbox(ctx, s.meta.ID, payload.ID, payload.InboxSeq, payload.TurnID, operation == "inbox.remove", []byte(`{"code":-32800,"message":"Queued message removed","data":{"kind":"queue_removed"}}`))
+		if err == nil && result.Status == "removed" && payload.ID == s.meta.ID {
+			s.settle(payload.InboxSeq, Completion{Sequence: payload.InboxSeq, Err: context.Canceled})
+		}
+		if err == nil {
+			s.notify()
+		}
+		return marshalClientOutput(result, err)
 	case "cancel":
 		if err := s.checkTurnTarget(ctx, s.authority.AgentID, payload.TurnID); err != nil {
 			return "", err
@@ -1702,7 +1720,7 @@ func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery stri
 	return s.clientAgentSubmitInput(ctx, id, SubmitPayload{Text: text}, delivery)
 }
 
-func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string) (string, error) {
+func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string, admissions ...sessionstore.CommandAdmission) (string, error) {
 	input.Text = strings.TrimSpace(input.Text)
 	if id == "" || input.Text == "" && len(input.Parts) == 0 && len(input.Attachments) == 0 {
 		return "", errors.New("agent submission requires an agent and content")
@@ -1730,10 +1748,11 @@ func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input S
 		kind += ".parts"
 		payload = sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "human child submission"}
 	}
-	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
-		RootID: s.meta.ID, AgentID: id, Kind: kind,
-		Payload: payload,
-	})
+	item := sessionstore.InboxEnqueue{RootID: s.meta.ID, AgentID: id, Kind: kind, Payload: payload, Origin: "client"}
+	if len(admissions) > 0 {
+		item.CommandClientID, item.CommandID = admissions[0].ClientID, admissions[0].CommandID
+	}
+	sequence, err := s.store.EnqueueInbox(ctx, item)
 	if err != nil {
 		return "", err
 	}

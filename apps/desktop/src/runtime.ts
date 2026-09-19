@@ -151,7 +151,7 @@ export class LocalRuntime {
 
   private async environment(signal: AbortSignal) {
     signal.throwIfAborted();
-    const env = this.options.env ? { ...this.options.env } : await runtimeEnvironment(signal, true);
+    const env = this.options.env ? { ...this.options.env } : await runtimeEnvironment(signal, this.options.mode !== 'attach');
     env.WHIPCODE_HOME = absolutePath(env.WHIPCODE_HOME || path.join(env.HOME || homedir(), '.whipcode'));
     // A stable loopback endpoint also makes CLI/web usable when desktop starts first.
     env.WHIPCODE_LISTEN ??= '127.0.0.1:8080';
@@ -250,13 +250,13 @@ export class LocalRuntime {
         try {
           await client.connect({ signal });
           const info = client.getSnapshot().info!;
-          if (info.protocol_minor < protocol.minor) return { ...base, state: 'incompatible', clientBuild, daemonBuild: info.build_id,
-            message: `This desktop requires daemon protocol ${protocol.major}.${protocol.minor}; the running daemon provides ${info.protocol_major}.${info.protocol_minor}. Update it separately when its work can be interrupted.` };
+          // Minor versions add optional fields/capabilities. The SDK handshake
+          // validates the major and required wire shape; features negotiate normally.
           return { ...base, state: 'running', clientBuild, daemonBuild: info.build_id, socket: status.socket,
-            message: `Attached to the existing daemon (${info.build_id}). Backend updates are managed separately.` };
+            message: `Attached to the existing daemon (${info.build_id}, protocol ${info.protocol_major}.${info.protocol_minor}). Backend updates are managed separately.` };
         } catch (error) {
           signal.throwIfAborted();
-          return { ...base, state: 'incompatible', clientBuild,
+          return { ...base, state: (error as { kind?: string }).kind === 'unsupported_protocol' ? 'incompatible' : 'unhealthy', clientBuild,
             message: `Cannot attach to the running daemon: ${(error as Error).message.slice(0, 2048)}. The daemon was left unchanged.` };
         } finally { client.close(); }
       }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
 import { useQuery } from '@tanstack/react-query';
@@ -23,6 +23,10 @@ import { ErrorNotice } from './error-feedback';
 import { SessionInfoBar } from './session-info-bar';
 import { definitionOptions, useDefinitions } from './definitions';
 import { MCPImportScreen, shouldOffer, useMCPImportCandidates } from './mcp-import';
+import { ComposerAttachments } from './composer-attachments';
+import { compositionKey } from './compositions';
+import { submitChatInput } from './chat-submission';
+import { ChatDropSurface, ChatFileDrop } from './chat-file-drop';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
   const runtime = useRuntime();
@@ -30,10 +34,12 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   const { hosts } = useAppState();
   const [adding, setAdding] = useState(false);
   const [hostSelectionError, setHostSelectionError] = useState<unknown>();
+  const dropTarget = useRef<HTMLDivElement>(null);
+  const { sending } = useSyncExternalStore(runtime.compositions.subscribe, () => runtime.compositions.get(welcomeDraftKey(tab.id)));
   const selected = tab.hostProfileId ?? tab.runtimeId;
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
   const selectHost = (id: string) => {
-    if (id === host?.id) return;
+    if (sending || id === host?.id) return;
     const next = hosts.find(host => host.id === id);
     try {
       runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId, cwd: '', model: undefined, provider: undefined, effort: undefined });
@@ -41,13 +47,13 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
       if (next && next.state !== 'connected') void runtime.connections.connect(id).catch(() => {});
     } catch (error) { setHostSelectionError(error); }
   };
-  const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={false} onSelect={selectHost}
+  const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={sending} onSelect={selectHost}
     onManage={() => void navigate({ to: '/settings', search: { section: 'connections' } })} />;
-  return <><SessionInfoBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
+  return <ChatDropSurface ref={dropTarget}><SessionInfoBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
     <div {...stylex.props(styles.page)}><div {...stylex.props(styles.column)}>
       {host && runtime.platform.localRuntime && host.profile?.target.kind === 'local' && host.state !== 'connected'
         ? <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><LocalRuntimeSetup host={host} />{hostControl}</>
-        : host?.client ? <WelcomeComposer key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onConnectRemote={() => setAdding(true)} />
+        : host?.client ? <WelcomeComposer key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onConnectRemote={() => setAdding(true)} dropTarget={dropTarget} />
         : <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><p role="status">{host ? `${host.name} is ${host.state === 'closed' ? 'disconnected' : host.state}.` : 'Select or add an execution host to begin.'}</p>
           <div {...stylex.props(styles.toolbar)}>{hostControl}{host
             ? <Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>
@@ -55,12 +61,13 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
       <ErrorNotice type="action" owner={tab.id} title="Could not change host" error={hostSelectionError} />
     </div></div>
     <HostDialog open={adding} onOpenChange={setAdding} onSaved={selectHost} />
-  </>;
+  </ChatDropSurface>;
 }
 
 /** Editable state belongs to the stable workspace draft, not the selected host. */
-export function WelcomeComposer({ client, host, tab, focused = true, hostControl, onConnectRemote }: {
+export function WelcomeComposer({ client, host, tab, focused = true, hostControl, onConnectRemote, dropTarget }: {
   client: WhipClient; host: HostConnection; tab: NewChatTab; focused?: boolean; hostControl?: ReactNode; onConnectRemote?(): void;
+  dropTarget?: RefObject<HTMLElement | null>;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
@@ -74,11 +81,13 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   function updateSetup(patch: Parameters<typeof runtime.tabs.updateNew>[1]) {
     try { runtime.tabs.updateNew(tab.id, patch); } catch (error) { setError(errorMessage(error)); }
   }
-  const [busy, setBusy] = useState(false);
+  const { sending: busy, attachments } = useSyncExternalStore(runtime.compositions.subscribe, () => runtime.compositions.get(key));
   const [error, setError] = useState('');
   const [showProviders, setShowProviders] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const files = useRef<HTMLInputElement>(null);
+  const form = useRef<HTMLFormElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const isFocused = useRef(focused);
   isFocused.current = focused;
@@ -112,14 +121,23 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
   function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
+  function attach(files: File[]) {
+    if (busy || unresolved) return;
+    try { runtime.compositions.stage(key, files); setError(''); }
+    catch (error) { setError(errorMessage(error)); }
+  }
   async function submit() {
-    if (!connected || busy || !draft.trim() || requiresUpdate || unresolved) return;
+    if (!connected || busy || (!draft.trim() && !attachments.length) || requiresUpdate || unresolved) return;
     if (!engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
     if (definitions.query.data && !definitionAvailable) { setError(`This host has no agent definition named ${definition}. Choose an available agent.`); return; }
     if (!ready) { openProviders(); return; }
     if (!effortAvailable) { setError('Choose an available reasoning effort for this model before sending.'); return; }
     if (!cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
-    setBusy(true); setError('');
+    let token: symbol | undefined;
+    try { token = runtime.compositions.beginSubmission(key); }
+    catch (error) { setError(errorMessage(error)); return; }
+    if (!token) return;
+    setError('');
     const text = draft;
     try {
       // Create, apply the chosen effort, then send. Each step runs through the
@@ -128,6 +146,37 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
       const rootId = created.result?.root_id;
       if (!rootId) throw new Error('Session creation returned no session.');
+      if (attachments.length) {
+        // Once created, this session owns the draft. Upload/effort/send failures
+        // stay in its normal composer instead of creating another root on retry.
+        const session = client.session(rootId);
+        const destination = compositionKey(runtimeId, rootId, rootId);
+        // Move before writing so the same text does not consume two draft slots.
+        if (runtime.draft(key) === text) runtime.setDraft(key, '');
+        try { runtime.setDraft(destination, text); }
+        catch (error) { if (!runtime.draft(key)) runtime.setDraft(key, text); throw error; }
+        const uploading = runtime.compositions.adopt(key, session, runtimeId);
+        const uploadToken = runtime.compositions.beginSubmission(destination)!;
+        runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
+        try {
+          if (tab.effort !== undefined) await runtime.run(session.command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, destination);
+          await uploading;
+        } catch (error) {
+          runtime.report(error);
+          return;
+        } finally {
+          runtime.compositions.finishSubmission(destination, uploadToken);
+        }
+        const readyAttachments = runtime.compositions.get(destination).attachments;
+        if (readyAttachments.length !== attachments.length || readyAttachments.some((item, index) => item.id !== attachments[index]?.id || !item.value)) return;
+        const result = await submitChatInput({ runtime, session, runtimeId, agentId: rootId,
+          compositionKey: destination, connected: client.getSnapshot().state === 'connected',
+          text, attachments: readyAttachments, delivery: 'queued',
+          onAccepted: () => { if (runtime.draft(destination) === text) runtime.setDraft(destination, ''); },
+        });
+        if (result.status === 'failed' && !result.delivery) runtime.report(result.error);
+        return;
+      }
       if (tab.effort !== undefined) await runtime.run(client.session(rootId).command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, key);
       // Acceptance is the handover: this tab becomes the session's and the turn runs there.
       await new Promise<void>((resolve, reject) => {
@@ -137,7 +186,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
       if (runtime.draft(key) === text) runtime.setDraft(key, '');
     } catch (error) { if (mounted.current) setError(errorMessage(error)); }
-    finally { if (mounted.current) setBusy(false); }
+    finally { runtime.compositions.finishSubmission(key, token); }
   }
   const disabled = !connected || busy;
   // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
@@ -153,12 +202,24 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   <div ref={panel} {...stylex.props(styles.content)}>
     {offerVisible && <><MCPImportScreen client={client} hostName={host.name} cwd={cwd} onDone={focusComposer} />
       <div {...stylex.props(styles.toolbar)}>{hostControl}</div></>}
-    {!setupVisible && !offerVisible && <><form onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
+    {!setupVisible && !offerVisible && <><form ref={form} onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
+      <ChatFileDrop target={dropTarget ?? form} scope={key}
+        unavailable={busy ? 'Wait for this message to be accepted before attaching files.' : unresolved ? 'Check your previous submission before attaching files.' : undefined}
+        onFiles={attach} onError={setError} />
+      <ComposerAttachments attachments={attachments} owner={key} disabled={busy || !!unresolved} onRemove={id => runtime.compositions.remove(key, id)} />
       <Textarea ref={input} autoFocus={focused} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
+        onPaste={event => {
+          const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
+          if (images.length) { event.preventDefault(); attach(images); }
+        }}
         value={draft} disabled={busy} maxLength={256 * 1024} onChange={event => { try { runtime.setDraft(key, event.target.value); } catch (error) { setError(errorMessage(error)); } }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} />
       <div {...stylex.props(styles.toolbar, styles.composerToolbar)}>
-        <IconButton variant="ghost" label="Attach text or images" title="Attachments are available after the session starts" disabled><Paperclip size={15} /></IconButton>
+        <input ref={files} type="file" multiple accept="image/*,.txt,.md,.go,.py,.js,.ts,.tsx,.json,.yaml,.yml,.toml,.csv,.log"
+          {...stylex.props(styles.hidden)} onChange={event => {
+            const selected = Array.from(event.target.files ?? []); event.target.value = ''; attach(selected);
+          }} />
+        <IconButton variant="ghost" label="Attach text or images" disabled={busy || !!unresolved} onClick={() => files.current?.click()}><Paperclip size={15} /></IconButton>
         <IconButton variant="ghost" label="Add context" title="Context suggestions are available after the session starts" disabled><AtSign size={16} /></IconButton>
         <span {...stylex.props(layout.grow)} />
         <PermissionModeControl value={permission} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
@@ -170,7 +231,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
         {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
-          disabled={disabled || requiresUpdate || !engineAvailable || !effortAvailable || !ready || !draft.trim() || !cwd.trim()}><ArrowUp size={16} /></Button>
+          disabled={disabled || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}><ArrowUp size={16} /></Button>
       </div>
     </form>
     <div {...stylex.props(styles.toolbar)}>
@@ -207,11 +268,12 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
 }
 
 const styles = stylex.create({
+  hidden: { display: 'none' },
   page: { display: 'flex', flex: 1, minHeight: 0, flexDirection: 'column', alignItems: 'center', overflowY: 'auto', paddingInline: { default: 32, [scale.phone]: 16 }, paddingTop: 32, paddingBottom: { default: 116, [scale.phone]: 32 } },
   column: { width: 'min(100%, 620px)', minWidth: 0, marginBlock: 'auto', display: 'flex', flexDirection: 'column', gap: scale.space4 },
   heading: { fontSize: typography.size24, fontWeight: 550, lineHeight: '32px', letterSpacing: '-0.025em', margin: 0 },
   content: { display: 'flex', flexDirection: 'column', gap: scale.space2, minWidth: 0 },
-  composer: { display: 'flex', flexDirection: 'column', gap: scale.space2, padding: scale.space3, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 20, backgroundColor: colors.element },
+  composer: { position: 'relative', display: 'flex', flexDirection: 'column', gap: scale.space2, padding: scale.space3, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 20, backgroundColor: colors.element },
   input: { minHeight: 96, maxHeight: 220, resize: 'none', borderWidth: 0, boxShadow: 'none', outline: 'none', backgroundColor: { default: 'transparent', ':hover': 'transparent' }, fontSize: { default: typography.size14, [scale.phone]: typography.size16 }, padding: scale.space1 },
   toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space1, minWidth: 0 },
   composerToolbar: { justifyContent: 'flex-end' },

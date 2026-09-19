@@ -821,6 +821,22 @@ export const manifest = {
       "result_type": "UserHistoryResult"
     },
     {
+      "name": "inbox.remove",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "InboxRemoveParams",
+      "result_type": "InboxControlResult"
+    },
+    {
+      "name": "inbox.steer",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "InboxSteerParams",
+      "result_type": "InboxControlResult"
+    },
+    {
       "name": "lsp.status",
       "surface": "runtime",
       "execution": "query",
@@ -1187,6 +1203,9 @@ export const manifest = {
     "inbox.consumed": "LifecycleEvent",
     "inbox.failed": "LifecycleEvent",
     "inbox.queued": "LifecycleEvent",
+    "inbox.removed": "LifecycleEvent",
+    "inbox.running": "LifecycleEvent",
+    "inbox.steering": "LifecycleEvent",
     "message.deferred": "LifecycleEvent",
     "message.delivered": "LifecycleEvent",
     "message.done": "LifecycleEvent",

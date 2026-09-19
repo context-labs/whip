@@ -5,6 +5,7 @@ import * as stylex from '@stylexjs/stylex';
 import { initializeTheme, ThemeProvider, UIProvider } from '@whip/ui';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
+import { SessionInfoBar } from '../../../../../packages/app/src/session-info-bar';
 import { BrowserView } from '../../../../../packages/app/src/browser-view';
 import { BrowserProviderControls } from '../../../../../packages/app/src/browser-provider-controls';
 import { RuntimeContext } from '../../../../../packages/app/src/context';
@@ -31,9 +32,12 @@ const runtime = {
 const queries = new QueryClient();
 function Fixture() {
   return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={queries}><ThemeProvider storage={localStorage}><UIProvider>
-    <main {...stylex.props(styles.page)}><BrowserView tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/></main>
+    <div {...stylex.props(styles.shell)}>
+      <SessionInfoBar host="This Mac" cwd="/workspace/whip" kind="chat" activity="Idle" onRepl={() => {}} onTrace={() => {}} onDetails={() => {}}/>
+      <main {...stylex.props(styles.page)}><BrowserView tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/></main>
+    </div>
   </UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider>;
 }
-const styles = stylex.create({ page: { height: '100dvh' } });
+const styles = stylex.create({ shell: { display: 'flex', flexDirection: 'column', height: '100dvh' }, page: { flex: 1, minHeight: 0 } });
 const router = createRouter({ routeTree: createRootRoute({ component: Fixture }) });
 createRoot(document.getElementById('root')!).render(<RouterProvider router={router}/>);

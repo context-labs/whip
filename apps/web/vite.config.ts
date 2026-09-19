@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import stylex from '@stylexjs/unplugin';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
+import { daemonProxy } from './dev-proxy';
 
 export default defineConfig({
   plugins: [
@@ -45,7 +46,15 @@ export default defineConfig({
   optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector'] },
   server: {
     strictPort: true,
-    proxy: { '/api': { target: process.env.WHIP_WEB_DAEMON || 'http://127.0.0.1:8080', ws: true, changeOrigin: true } },
+    proxy: { '/api/': daemonProxy() },
   },
-  build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
+  build: {
+    target: 'es2022', sourcemap: false, assetsInlineLimit: 0,
+    rolldownOptions: {
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        design: fileURLToPath(new URL('./design.html', import.meta.url)),
+      },
+    },
+  },
 });

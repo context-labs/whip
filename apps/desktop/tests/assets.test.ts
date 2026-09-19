@@ -4,7 +4,21 @@ import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { createAssetHandler, desktopURL, isDesktopURL, type RendererManifest } from '../src/assets';
+import { createAssetHandler, desktopURL, isDesktopURL, isApplicationURL, type RendererManifest } from '../src/assets';
+
+test('keeps the isolated design entry outside the application IPC principal', () => {
+  const origin = 'http://127.0.0.1:3000';
+  for (const base of [desktopURL, origin]) {
+    for (const suffix of ['/design.html', '/design.html?test=1#page', '/%64esign.html'])
+      assert.equal(isApplicationURL(base + suffix, origin), false);
+    for (const suffix of ['/', '/index.html', '/sessions/example'])
+      assert.equal(isApplicationURL(base + suffix, origin), true);
+  }
+  assert.equal(isApplicationURL('http://localhost:3000/', origin), false);
+  assert.equal(isApplicationURL('http://user@127.0.0.1:3000/', origin), false);
+  assert.equal(isApplicationURL('https://example.com/design.html', origin), false);
+  assert.equal(isApplicationURL('whip-app://bundle/%broken', origin), false);
+});
 
 const html = '<html><script type="module" src="/assets/app-Abc12345.js"></script></html>';
 const csp = "default-src 'none'; script-src 'self'; style-src 'self'; frame-ancestors 'none'";

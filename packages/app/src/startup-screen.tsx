@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import * as stylex from '@stylexjs/stylex';
-import { useTheme, VisuallyHidden, WhipcodeWordmark } from '@whip/ui';
+import { useNativeSurfacePresence, useTheme, VisuallyHidden, WhipcodeWordmark } from '@whip/ui';
 import { colors } from '@whip/ui/tokens.stylex';
 
 // Match HALO's StartupTransition: 220ms fades, 420ms logo rise, and a 6px content entrance.
@@ -43,6 +43,8 @@ export function StartupScreen({ startup, children }: { startup: Promise<unknown>
   const reduced = display.motion === 'reduce' || systemReduced;
   const [ready, setReady] = useState(false);
   const [phase, setPhase] = useState<Phase>('pending');
+  // Native browser views ignore CSS visibility and must stay hidden through content entry.
+  const nativeHidden = useNativeSurfacePresence(phase !== 'visible');
   useEffect(() => {
     let active = true;
     const reveal = () => { if (active) setReady(true); };
@@ -64,7 +66,7 @@ export function StartupScreen({ startup, children }: { startup: Promise<unknown>
     <div inert={covered} aria-hidden={covered || undefined} {...stylex.props(styles.content, covered && styles.pending, phase === 'entering' && styles.entering, reduced && styles.still)}>
       {children}
     </div>
-    {covered && <div role="status" {...stylex.props(styles.splash, phase === 'exiting' && styles.exiting, reduced && styles.still)}>
+    {covered && nativeHidden && <div role="status" {...stylex.props(styles.splash, phase === 'exiting' && styles.exiting, reduced && styles.still)}>
       <WhipcodeWordmark aria-hidden="true" xstyle={[styles.logo, reduced && styles.still]} />
       <VisuallyHidden>Loading whipcode…</VisuallyHidden>
     </div>}

@@ -14,7 +14,7 @@ import (
 
 // dropTraceSchema removes the schema 19 additions so legacy fixtures built
 // from the clean schema can be stamped as older versions and upgraded.
-const dropTraceSchema = `DROP TABLE spans;
+const dropTraceSchema = dropQueueSchema + `DROP TABLE spans;
  ALTER TABLE inbox DROP COLUMN parent_span_id; ALTER TABLE inbox DROP COLUMN span_trace_id;
  ALTER TABLE agent_messages DROP COLUMN sender_span_id; ALTER TABLE agent_messages DROP COLUMN span_trace_id;
  ALTER TABLE model_calls DROP COLUMN cost_input_micros; ALTER TABLE model_calls DROP COLUMN cost_cache_read_micros; ALTER TABLE model_calls DROP COLUMN cost_output_micros;

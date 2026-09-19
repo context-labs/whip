@@ -354,6 +354,15 @@ export class WhipClient {
           assertValid('RPCError', envelope.error, 'response');
           pending.reject(new RpcError(envelope.error));
         } else {
+          // Older compatible hosts predate MCP import/logo settings. Supply only
+          // absent fields for features they do not advertise; malformed values
+          // and hosts claiming those features still use strict validation.
+          if (rpcOperations[pending.method].result_type === 'RuntimeConfiguration' && object(envelope.result)) {
+            if (!Object.hasOwn(envelope.result, 'mcp_import_offered') && !this.supports('rpc', 'mcp.import.candidates'))
+              envelope.result.mcp_import_offered = true;
+            if (!Object.hasOwn(envelope.result, 'brand_icons') && !this.supports('rpc', 'mcp.brand.icons'))
+              envelope.result.brand_icons = false;
+          }
           assertValid(rpcOperations[pending.method].result_type, envelope.result, 'response');
           pending.resolve(frozen(envelope.result));
         }

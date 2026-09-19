@@ -57,7 +57,7 @@ function fixture(initial: Partial<SessionViewSnapshot>, summaryCwd?: string) {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getSnapshot: () => current,
     refresh: vi.fn(async () => {}), loadOlder: vi.fn(async () => {}),
-    session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection }, history: {}, fork: vi.fn() },
+    session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection, supports: () => false }, history: {}, fork: vi.fn() },
   } as unknown as SessionView;
   render(<RuntimeContext.Provider value={runtime}><ThemeProvider><UIProvider>
     <SessionContent kind="chat" view={view} expectedRuntimeId="host" agentId="root" summaryCwd={summaryCwd} />

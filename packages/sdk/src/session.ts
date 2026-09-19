@@ -35,6 +35,10 @@ export class Session {
     return [...questions, ...permissions];
   }
   steer(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('steer', payload, options); }
+  readonly inbox = {
+    steer: (agentId: string, inboxSeq: string, turnId: string) => this.command('inbox.steer', { id: agentId, inbox_seq: inboxSeq, turn_id: turnId }),
+    remove: (agentId: string, inboxSeq: string) => this.command('inbox.remove', { id: agentId, inbox_seq: inboxSeq }),
+  };
   rename(title: string) { return this.command('session.rename', { title }); }
   archive(archived: boolean) { return this.command('session.archive', { archived }); }
   fork(params: RuntimeOperations['session.fork']['params']) { return this.command('session.fork', params); }

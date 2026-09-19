@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 19
-	schemaIdentity       = "whip-recursive-runtime-v19"
+	currentSchemaVersion = 20
+	schemaIdentity       = "whip-recursive-runtime-v20"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -153,6 +153,8 @@ CREATE TABLE inbox (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL, seq INTEGER NOT NULL,
 	kind TEXT NOT NULL, status TEXT NOT NULL, payload_inline BLOB, payload_ref TEXT REFERENCES content_references(id),
 	retries INTEGER NOT NULL DEFAULT 0,
+	origin TEXT NOT NULL DEFAULT '', command_client_id TEXT NOT NULL DEFAULT '', command_id TEXT NOT NULL DEFAULT '',
+	steer_turn_id TEXT NOT NULL DEFAULT '', delivery_seq INTEGER NOT NULL DEFAULT 0, preview BLOB NOT NULL DEFAULT '{}',
 	created_at TEXT NOT NULL, parent_span_id TEXT NOT NULL DEFAULT '', span_trace_id TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY(root_id,agent_id,seq),
 	CHECK(NOT(payload_inline IS NOT NULL AND payload_ref IS NOT NULL)),
@@ -327,7 +329,7 @@ CREATE TRIGGER session_catalog_insert AFTER INSERT ON sessions BEGIN UPDATE runt
 CREATE TRIGGER session_catalog_delete AFTER DELETE ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,archived,updated_at ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 
-`
+` + inboxSteerTrigger
 
 func migrate(ctx context.Context, db *sql.DB, path string) error {
 	conn, err := db.Conn(ctx)
@@ -425,7 +427,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 18, "whip-recursive-runtime-v18"
 	}
 	if version == 18 && identityErr == nil && identity == "whip-recursive-runtime-v18" {
-		return upgradeV18(ctx, conn)
+		if err := upgradeV18(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 19, "whip-recursive-runtime-v19"
+	}
+	if version == 19 && identityErr == nil && identity == "whip-recursive-runtime-v19" {
+		return upgradeV19(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }

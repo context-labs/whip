@@ -393,9 +393,11 @@ type sdkRunnerControl struct {
 
 type sdkFixtureRunner struct {
 	*fakeRunner
-	root     *Session
-	services *tools.Services
-	control  *sdkRunnerControl
+	root            *Session
+	services        *tools.Services
+	control         *sdkRunnerControl
+	journalStart    int
+	boundaryJournal turnJournal
 }
 
 func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
@@ -441,6 +443,12 @@ func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []
 }
 
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	r.mu.Lock()
+	r.journalStart, r.boundaryJournal = len(r.history), turnJournal{}
+	r.mu.Unlock()
+	if input == "queue:boundary" {
+		return r.queueBoundaryTurn(ctx, input, started)
+	}
 	if input == "history-gap:count" || input == "history-gap:bytes" || input == "history-gap:large" {
 		return r.historyGapTurn(ctx, input, started)
 	}
@@ -501,6 +509,14 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 			}
 		}
 	}, accepted)
+}
+
+func (r *sdkFixtureRunner) turnJournal() turnJournal {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	journal := r.boundaryJournal
+	journal.Messages = append([]llm.Message(nil), r.history[r.journalStart:]...)
+	return journal
 }
 
 func (r *sdkFixtureRunner) ReplaceHistory(history []llm.Message) {
