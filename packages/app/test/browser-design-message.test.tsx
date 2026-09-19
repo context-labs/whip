@@ -20,10 +20,12 @@ it('renders persisted evidence as a reference, not authored prose, with one scre
     <MessageRow row={{ id: 'persisted', role: 'user', ...parts }} readBody={vi.fn()}/>
   </RuntimeContext.Provider>);
   expect(container.querySelector('[data-user-bubble]')?.textContent).toBe('Make this heading smaller');
-  expect(screen.getByText('h1 · Heading')).toBeTruthy();
+  expect(screen.getByText('Design Mode')).toBeTruthy();
+  expect(screen.queryByText('h1 · Heading')).toBeNull();
   expect(screen.queryByText(content[1]!.text!)).toBeNull();
   expect(screen.getAllByRole('button', { name: 'Open design screenshot' })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'View captured page context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Design Mode details' }));
   expect(screen.getByRole('dialog', { name: 'Captured page context' })).toBeTruthy();
+  expect(screen.getByText('h1 · Heading')).toBeTruthy();
   expect(screen.getByText(content[1]!.text!)).toBeTruthy();
 });

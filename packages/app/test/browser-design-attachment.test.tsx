@@ -20,12 +20,18 @@ it('keeps evidence compact, inspects plain text, and copies raw context without 
   const rawText = '<script>alert("untrusted")</script>';
   render(<UIProvider><BrowserDesignAttachment context={context} rawText={rawText} readContext={readContext}
     screenshot={<img src="data:image/png;base64," alt="Captured screenshot" />} /></UIProvider>);
-  expect(screen.getByText('+4 elements')).toBeTruthy();
-  expect(screen.getByText('/cart')).toBeTruthy();
-  expect(screen.getByRole('img', { name: 'Captured screenshot' })).toBeTruthy();
+  expect(screen.getByText('Design Mode')).toBeTruthy();
+  expect(screen.queryByText('Submit order')).toBeNull();
+  expect(screen.queryByText('+4 elements')).toBeNull();
+  expect(screen.queryByText('Details')).toBeNull();
+  const reference = screen.getByRole('group', { name: 'Captured page context' });
+  expect(within(reference).queryByText('/cart')).toBeNull();
+  expect(within(reference).queryByText(context.url)).toBeNull();
+  const screenshot = within(reference).getByRole('img', { name: 'Captured screenshot' });
+  expect(reference.lastElementChild?.contains(screenshot)).toBe(true);
   expect(screen.queryByText('Shipping')).toBeNull();
   expect(screen.queryByText(rawText)).toBeNull();
-  const trigger = screen.getByRole('button', { name: 'View captured page context' });
+  const trigger = screen.getByRole('button', { name: 'Design Mode details' });
   trigger.focus(); fireEvent.click(trigger);
   const dialog = await screen.findByRole('dialog', { name: 'Captured page context' });
   expect(within(dialog).getByText(context.url)).toBeTruthy();
@@ -58,7 +64,7 @@ it('loads only on inspection, exposes retry, and aborts closed reads without adm
     .mockResolvedValue('fresh raw context');
   render(<UIProvider><BrowserDesignAttachment context={context} readContext={readContext} /></UIProvider>);
   expect(readContext).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'View captured page context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Design Mode details' }));
   const dialog = await screen.findByRole('dialog');
   fireEvent.click(within(dialog).getByText('Raw context'));
   expect(await within(dialog).findByText('Could not load raw context.')).toBeTruthy();
@@ -67,7 +73,7 @@ it('loads only on inspection, exposes retry, and aborts closed reads without adm
   fireEvent.keyDown(dialog, { key: 'Escape' });
   await waitFor(() => expect(signal?.aborted).toBe(true));
   await act(async () => resolve('late raw context'));
-  fireEvent.click(screen.getByRole('button', { name: 'View captured page context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Design Mode details' }));
   const reopened = await screen.findByRole('dialog');
   fireEvent.click(within(reopened).getByText('Raw context'));
   expect(await within(reopened).findByText('fresh raw context')).toBeTruthy();

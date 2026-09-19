@@ -20,27 +20,15 @@ export interface BrowserDesignAttachmentProps {
 export function BrowserDesignAttachment({ context, screenshot, rawText, readContext, connected = true }: BrowserDesignAttachmentProps) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const labels = context.elements.slice(0, 2);
-  const remaining = Math.max(0, context.element_count - labels.length);
-  let path = context.url;
-  try { if (path) path = new URL(path).pathname; } catch { /* Keep non-URL evidence as plain text. */ }
 
   return <>
     <div role="group" aria-label="Captured page context" {...stylex.props(styles.reference)}>
-      {screenshot && <div {...stylex.props(styles.thumbnail)}>{screenshot}</div>}
-      <Button ref={trigger} size="sm" variant="ghost" aria-label="View captured page context" aria-haspopup="dialog"
+      <Button ref={trigger} size="sm" variant="ghost" aria-label="Design Mode details" aria-haspopup="dialog"
         xstyle={styles.summaryTrigger} onClick={() => setOpen(true)}>
-        <span {...stylex.props(styles.summary)}>
-          <span {...stylex.props(styles.labels)}>
-            <MousePointer2 size={13} aria-hidden="true" {...stylex.props(styles.accent)} />
-            {labels.length ? labels.map((element, index) => <span key={index} title={element.label} {...stylex.props(styles.label)}>{element.label}</span>) :
-              <span>Page context</span>}
-            {remaining > 0 && <span {...stylex.props(styles.quiet)}>+{remaining} elements</span>}
-          </span>
-          {path && <span title={context.url} {...stylex.props(styles.path)}>{path}</span>}
-        </span>
-        <span {...stylex.props(styles.quiet)}>Details</span>
+        <MousePointer2 size={13} aria-hidden="true" {...stylex.props(styles.contextIcon)} />
+        Design Mode
       </Button>
+      {screenshot && <div {...stylex.props(styles.thumbnail)}>{screenshot}</div>}
     </div>
     <Dialog open={open} onOpenChange={setOpen} title="Captured page context" finalFocus={trigger}>
       {open && <div {...stylex.props(styles.details)}>
@@ -94,15 +82,11 @@ function RawContext({ rawText, readContext, connected }: Pick<BrowserDesignAttac
 }
 
 const styles = stylex.create({
-  reference: { display: 'flex', alignItems: 'center', gap: scale.space2, minWidth: 0, paddingBlock: scale.space2, fontFamily: typography.sans, fontSize: typography.size13 },
+  reference: { display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: scale.space2, minWidth: 0, paddingBlock: scale.space2, fontFamily: typography.sans, fontSize: typography.size13 },
   thumbnail: { flexShrink: 0 },
-  summaryTrigger: { flex: 1, minWidth: 0, textAlign: 'left', whiteSpace: 'normal', gap: scale.space3 },
-  summary: { display: 'flex', flexDirection: 'column', gap: scale.space1, flex: 1, minWidth: 0 },
-  labels: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space2, minWidth: 0 },
-  label: { maxWidth: 'min(220px, 100%)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 },
-  accent: { color: colors.primary, flexShrink: 0 },
+  summaryTrigger: { gap: scale.space1, color: surface.secondaryText, fontSize: typography.size12, fontWeight: 400 },
+  contextIcon: { flexShrink: 0 },
   quiet: { color: surface.secondaryText },
-  path: { color: surface.secondaryText, fontSize: typography.size12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   details: { display: 'flex', flexDirection: 'column', gap: scale.space4, minWidth: 0 },
   pageTitle: { fontWeight: 500, overflowWrap: 'anywhere' },
   url: { color: surface.secondaryText, overflowWrap: 'anywhere', marginTop: scale.space1 },

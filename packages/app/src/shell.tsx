@@ -131,7 +131,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <SessionActionsProvider><ShellCommandsContext.Provider value={runCommand}><div {...stylex.props(layout.shell)}>
       {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
       {!settings && !compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
-        <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
+        <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={<><Attention />{navigationToggle}</>}
           inset={inset} onConnect={manageServers} onNavigate={() => {}} />
         <SidebarResize width={sidebar.width} maxWidth={sidebar.maxWidth}
           onResize={width => sidebar.setState(value => ({ ...value, width }))}
@@ -139,7 +139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>}
       <div {...stylex.props(layout.main)}>
         {settings ? (settingsReady && <>{notices}{children}</>) : <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={manageServers} sidebarHidden={sidebar.state.hidden}
-          utilities={<>{(compact || sidebar.state.hidden) && navigationToggle}<Attention /></>} notices={notices}>{children}</SessionTabStrip>}
+          utilities={(compact || sidebar.state.hidden) && <><Attention />{navigationToggle}</>} notices={notices}>{children}</SessionTabStrip>}
       </div>
       <Sheet xstyle={layout.sidebarSheet} open={!settings && compact && navigation} onOpenChange={setNavigation} title="WHIP">
         <div id="whip-session-navigation" {...stylex.props(layout.sidebar, layout.sidebarMobile)}>

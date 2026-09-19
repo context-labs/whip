@@ -49,7 +49,7 @@ export function SessionSidebar(props: SidebarProps) {
           <Link id="whip-settings-link" to="/settings" search={{ section: "general" }} onClick={props.onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
         </nav>
         <div {...stylex.props(styles.hosts)}>
-          {app.hosts.map(host => <HostSection key={host.id} host={host} {...props} scroll={scroll} content={content} />)}
+          {app.hosts.map(host => <HostSection key={host.id} host={host} showHeading={app.hosts.length > 1} {...props} scroll={scroll} content={content} />)}
         </div>
         <SidebarFooter onConnect={props.onConnect} />
       </div>
@@ -57,15 +57,16 @@ export function SessionSidebar(props: SidebarProps) {
   </>;
 }
 type SidebarScroll = { scroll: RefObject<HTMLDivElement | null>; content: RefObject<HTMLDivElement | null> };
-function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: HostConnection }) {
+function HostSection({ host, showHeading, ...props }: SidebarProps & SidebarScroll & { host: HostConnection; showHeading: boolean }) {
   const runtime = useRuntime();
   const [collapsed, setCollapsed] = useState(false);
-  return <section aria-label={`${host.name} sessions`} {...stylex.props(styles.host, collapsed && styles.collapsedHost)}>
-    <button {...stylex.props(styles.destination, styles.hostHeading)} aria-expanded={!collapsed} title={host.endpoint} onClick={() => setCollapsed(value => !value)}>
+  const expanded = !showHeading || !collapsed;
+  return <section aria-label={`${host.name} sessions`} {...stylex.props(styles.host, !expanded && styles.collapsedHost)}>
+    {showHeading && <button {...stylex.props(styles.destination, styles.hostHeading)} aria-expanded={!collapsed} title={host.endpoint} onClick={() => setCollapsed(value => !value)}>
       {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}<strong {...stylex.props(layout.grow, layout.ellipsis)}>{host.name}</strong>
       <span {...stylex.props(layout.muted)}>{host.state === 'closed' ? 'Offline' : host.state === 'connected' ? '' : host.state}</span>
-    </button>
-    {!collapsed && <>
+    </button>}
+    {expanded && <>
       {host.client && host.list ? <HostSidebar {...props} client={host.client} list={host.list} />
         : <Button variant="ghost" onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>}
     </>}
