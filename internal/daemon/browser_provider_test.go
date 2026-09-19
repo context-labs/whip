@@ -44,6 +44,7 @@ func (w *browserWire) read() rpcMessage {
 	}
 	return message
 }
+
 func (w *browserWire) rpc(method string, params any) rpcMessage {
 	w.t.Helper()
 	w.next++
@@ -60,6 +61,7 @@ func (w *browserWire) rpc(method string, params any) rpcMessage {
 		w.queued = append(w.queued, message)
 	}
 }
+
 func (w *browserWire) command() protocol.BrowserCommand {
 	w.t.Helper()
 	for {
@@ -80,11 +82,13 @@ func (w *browserWire) command() protocol.BrowserCommand {
 		return command
 	}
 }
+
 func (w *browserWire) settle(command protocol.BrowserCommand, result any) rpcMessage {
 	w.t.Helper()
 	raw, _ := json.Marshal(result)
 	return w.rpc("browser.command.result", protocol.BrowserCommandResultParams{CommandID: command.CommandID, RootID: command.RootID, ProviderEpoch: command.ProviderEpoch, AttachmentGeneration: command.Scope.AttachmentGeneration, DocumentRevision: "doc-1", Result: raw})
 }
+
 func browserHarness(t *testing.T) (*Daemon, *Server, string) {
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
@@ -105,6 +109,7 @@ func browserHarness(t *testing.T) (*Daemon, *Server, string) {
 	t.Cleanup(func() { _ = server.Close(); _ = d.Close(); _ = store.Close() })
 	return d, server, root
 }
+
 func connectBrowserWire(t *testing.T, s *Server, willing bool) *browserWire {
 	t.Helper()
 	client, server := net.Pipe()
@@ -129,9 +134,11 @@ func connectBrowserWire(t *testing.T, s *Server, willing bool) *browserWire {
 	}
 	return w
 }
+
 func browserOffer(root string) protocol.BrowserProviderBindParams {
 	return protocol.BrowserProviderBindParams{RootID: root, Version: 1, DesktopID: "desktop", WindowID: "window", OfferRevision: "offer-1", CreateProfileID: "profile", OfferedTabs: []protocol.BrowserOfferedTab{{TabID: "tab-1", TabGeneration: "tab-gen", ProfileID: "profile", DocumentRevision: "doc-1"}, {TabID: "tab-2", TabGeneration: "tab-gen-2", ProfileID: "profile", DocumentRevision: "doc-1"}}, OfferedPreviewHosts: []capability.BrowserPreviewScope{}}
 }
+
 func bindBrowserWire(t *testing.T, w *browserWire, offer protocol.BrowserProviderBindParams) protocol.BrowserProviderBindResult {
 	t.Helper()
 	reply := w.rpc("browser.provider.bind", offer)
@@ -159,6 +166,7 @@ func executeBrowserAsync(ctx context.Context, p *browserProviders, identity brow
 	}()
 	return result
 }
+
 func awaitBrowser(t *testing.T, result <-chan desktopOutcome) desktopOutcome {
 	t.Helper()
 	select {
@@ -169,6 +177,7 @@ func awaitBrowser(t *testing.T, result <-chan desktopOutcome) desktopOutcome {
 		return desktopOutcome{}
 	}
 }
+
 func attachBrowser(t *testing.T, p *browserProviders, w *browserWire, identity browser.DesktopIdentity, tab string) browser.DesktopResult {
 	t.Helper()
 	call, err := p.Resolve(t.Context(), identity, "browser.attach", browser.DesktopArguments{TabID: tab})
@@ -189,6 +198,7 @@ func attachBrowser(t *testing.T, p *browserProviders, w *browserWire, identity b
 	}
 	return result.result
 }
+
 func TestBrowserProviderExplicitAssociationAndEpochReplacement(t *testing.T) {
 	d, s, root := browserHarness(t)
 	identity := browser.DesktopIdentity{RootID: root, AgentID: root}
@@ -227,6 +237,7 @@ func TestBrowserProviderExplicitAssociationAndEpochReplacement(t *testing.T) {
 		t.Fatal("old persisted grant survived replacement")
 	}
 }
+
 func TestBrowserProviderRejectsForeignLateAndWrongGenerationResults(t *testing.T) {
 	d, s, root := browserHarness(t)
 	first := connectBrowserWire(t, s, true)
@@ -265,6 +276,7 @@ func TestBrowserProviderRejectsForeignLateAndWrongGenerationResults(t *testing.T
 		t.Fatal("copied handle authorized foreign agent")
 	}
 }
+
 func TestBrowserProviderCancellationAndEventGapRevoke(t *testing.T) {
 	d, s, root := browserHarness(t)
 	w := connectBrowserWire(t, s, true)
@@ -299,20 +311,22 @@ func TestBrowserProviderCancellationAndEventGapRevoke(t *testing.T) {
 		t.Fatal("event gap retained executable attachment")
 	}
 }
+
 func TestBrowserTabQueueOneActiveFourQueued(t *testing.T) {
 	tab := &browserTab{}
 	release, err := tab.acquire(t.Context(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	contexts := make([]context.Context, 4)
 	cancels := make([]context.CancelFunc, 4)
 	outcomes := make([]chan error, 4)
 	for i := range 4 {
-		contexts[i], cancels[i] = context.WithCancel(t.Context())
+		ctx, cancel := context.WithCancel(t.Context())
+		t.Cleanup(cancel)
+		cancels[i] = cancel
 		outcomes[i] = make(chan error, 1)
 		go func(i int) {
-			done, err := tab.acquire(contexts[i], false)
+			done, err := tab.acquire(ctx, false)
 			if done != nil {
 				done()
 			}
@@ -365,6 +379,7 @@ func TestBrowserTabQueueOneActiveFourQueued(t *testing.T) {
 		t.Fatal("queue not released")
 	}
 }
+
 func TestBrowserTransferAtomicAcknowledgmentAndAncestry(t *testing.T) {
 	d, s, root := browserHarness(t)
 	w := connectBrowserWire(t, s, true)
@@ -545,6 +560,7 @@ func uploadBrowserJPEG(t *testing.T, w *browserWire, root string, data []byte) p
 	}
 	return handle
 }
+
 func TestBrowserScreenshotRequiresSameHolderBoundedContent(t *testing.T) {
 	d, s, root := browserHarness(t)
 	w := connectBrowserWire(t, s, true)

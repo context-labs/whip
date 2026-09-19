@@ -87,6 +87,7 @@ func browserID() string { return rand.Text() }
 func browserFailure(kind, message string) error {
 	return &browser.DesktopError{Kind: kind, Message: message}
 }
+
 func cloneBrowserScope(scope capability.BrowserScope) capability.BrowserScope {
 	scope.Rights = slices.Clone(scope.Rights)
 	if scope.Preview != nil {
@@ -183,6 +184,7 @@ func (p *browserProviders) bind(c *serverConn, params protocol.BrowserProviderBi
 	}
 	return protocol.BrowserProviderBindResult{Version: params.Version, ProviderID: lease.id, ProviderEpoch: lease.epoch}, nil
 }
+
 func validateBrowserPreview(s capability.BrowserPreviewScope) error {
 	if s.HostID == "" || s.HostIdentity == "" || s.ConnectionGeneration == "" || s.EnvironmentID == "" || (s.Loopback != "127.0.0.1" && s.Loopback != "::1") || len(s.Ports) > 64 {
 		return errors.New("invalid verified preview offer")
@@ -196,6 +198,7 @@ func validateBrowserPreview(s capability.BrowserPreviewScope) error {
 	}
 	return nil
 }
+
 func (p *browserProviders) disconnect(c *serverConn) {
 	p.mu.Lock()
 	for key := range p.released {
@@ -217,6 +220,7 @@ func (p *browserProviders) disconnect(c *serverConn) {
 		p.revokeLease(lease, "disconnected")
 	}
 }
+
 func (p *browserProviders) unbind(c *serverConn, params protocol.BrowserProviderUnbindParams) error {
 	p.mu.Lock()
 	key := browserReleaseKey{holder: c, rootID: params.RootID}
@@ -245,7 +249,7 @@ func (p *browserProviders) revokeLease(lease *browserLease, reason string) {
 	// On disconnect this is best-effort; clients also release on transport loss.
 	lease.holder.notify("browser.provider.revoked", protocol.BrowserProviderRevoked{RootID: lease.rootID, ProviderID: lease.id, ProviderEpoch: lease.epoch, Reason: reason})
 	p.mu.Lock()
-	var attachments []*browserAttachment
+	attachments := make([]*browserAttachment, 0, len(lease.attachments))
 	for _, a := range lease.attachments {
 		a.cancel()
 		a.live = false
@@ -256,6 +260,7 @@ func (p *browserProviders) revokeLease(lease *browserLease, reason string) {
 		p.revokeGrant(a)
 	}
 }
+
 func (p *browserProviders) revokeGrant(a *browserAttachment) {
 	p.mu.Lock()
 	ref := a.grant
@@ -405,6 +410,7 @@ func (p *browserProviders) Resolve(ctx context.Context, identity browser.Desktop
 	})
 	return capability.BrowserCall{Scope: cloneBrowserScope(scope), Arguments: raw}, nil
 }
+
 func (p *browserProviders) findLocked(call capability.BrowserCall) (*browserAttachment, error) {
 	for _, lease := range p.leasesLocked() {
 		if lease.id != call.Scope.ProviderID || lease.epoch != call.Scope.ProviderEpoch {
@@ -424,6 +430,7 @@ func (p *browserProviders) findLocked(call capability.BrowserCall) (*browserAtta
 	}
 	return nil, browserFailure("attachment_revoked", "browser scope is no longer current")
 }
+
 func (p *browserProviders) CallContext(call capability.BrowserCall) (context.Context, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -433,6 +440,7 @@ func (p *browserProviders) CallContext(call capability.BrowserCall) (context.Con
 	}
 	return a.ctx, nil
 }
+
 func (p *browserProviders) Attachments(ctx context.Context, identity browser.DesktopIdentity) []browser.DesktopResult {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -447,6 +455,7 @@ func (p *browserProviders) Attachments(ctx context.Context, identity browser.Des
 	slices.SortFunc(result, func(a, b browser.DesktopResult) int { return stringsCompare(a.AttachmentID, b.AttachmentID) })
 	return result
 }
+
 func stringsCompare(a, b string) int {
 	if a < b {
 		return -1
@@ -456,6 +465,7 @@ func stringsCompare(a, b string) int {
 	}
 	return 0
 }
+
 func cloneBrowserResult(v browser.DesktopResult) browser.DesktopResult {
 	v.Network.Ports = slices.Clone(v.Network.Ports)
 	v.SupportedOperations = slices.Clone(v.SupportedOperations)
@@ -499,6 +509,7 @@ func (t *browserTab) acquire(ctx context.Context, immediate bool) (func(), error
 		return nil, ctx.Err()
 	}
 }
+
 func (t *browserTab) release() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

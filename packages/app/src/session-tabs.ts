@@ -507,7 +507,7 @@ export class SessionTabs {
       || rightSibling(node.first) || rightSibling(node.second));
     const sameChat = (a: SessionBackedTab, b: SessionBackedTab) => a.id === b.id && a.kind === b.kind
       && a.runtimeId === b.runtimeId && a.rootId === b.rootId
-      && a.location.agent === b.location.agent && a.location.panel === b.location.panel;
+      && a.location.agent === b.location.agent;
     const companion = receipt && companionTab?.kind === 'chat'
       && receipt.sourcePaneId === sourcePane.id && sameChat(source, receipt.source)
       && sameChat(companionTab, receipt.tab) && companionPane?.selected === companionTab.id

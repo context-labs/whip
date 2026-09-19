@@ -30,6 +30,7 @@ func TestDesktopScreenshotBoundsPhysicalPixels(t *testing.T) {
 		t.Fatal("small screenshot reencoded")
 	}
 }
+
 func TestDesktopScreenshotRejectsInvalidAndCancelled(t *testing.T) {
 	for _, data := range [][]byte{nil, []byte("not-jpeg"), make([]byte, (8<<20)+1)} {
 		if _, err := boundDesktopJPEG(t.Context(), data, 640); err == nil {
@@ -42,6 +43,7 @@ func TestDesktopScreenshotRejectsInvalidAndCancelled(t *testing.T) {
 		t.Fatalf("cancelled: %v", err)
 	}
 }
+
 func TestDesktopScreenshotBatchCapRejectsBeforeCapture(t *testing.T) {
 	for _, backend := range []*desktopBackend{{screenshots: 8}, {screenshotBytes: 16 << 20}} {
 		if _, err := backend.Screenshot(t.Context(), 640); err == nil {

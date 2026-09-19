@@ -99,6 +99,56 @@ it('keeps pane choices independent with the shared keyboard-accessible toggle gr
   expect(panes.getAllByRole('button', { pressed: true })).toHaveLength(1);
 });
 
+it('falls back to the newest retained trace after the picked trace is evicted', async () => {
+  const user = userEvent.setup();
+  const older = span({ id: 'older', traceId: 'old', name: 'older' });
+  const newer = span({ id: 'newer', traceId: 'new', name: 'newer', startMs: base + 20_000, endMs: base + 21_000 });
+  const f = fixture({ spans: { older, newer } });
+  const mounted = render(f.app());
+  await user.click(screen.getByRole('combobox', { name: 'Trace' }));
+  await user.click(await screen.findByRole('option', { name: '1. older' }));
+  expect(screen.getByRole('treeitem', { name: 'older · 10.0s' })).toBeDefined();
+  f.set({ spans: { newer }, truncated: true });
+  mounted.rerender(f.app());
+  expect(screen.getByRole('treeitem', { name: 'newer · 1.0s' })).toBeDefined();
+  expect(screen.getByRole('combobox', { name: 'Trace' }).textContent).toContain('newer');
+  expect(screen.queryByText('No recorded spans')).toBeNull();
+});
+
+it('preserves Whole session selection when old trace evidence is evicted', async () => {
+  const user = userEvent.setup();
+  const older = span({ id: 'older', traceId: 'old', name: 'older' });
+  const newer = span({ id: 'newer', traceId: 'new', name: 'newer', startMs: base + 20_000, endMs: base + 21_000 });
+  const newest = span({ id: 'newest', traceId: 'newest', name: 'newest', startMs: base + 30_000, endMs: base + 31_000 });
+  const f = fixture({ spans: { older, newer } });
+  const mounted = render(f.app());
+  await user.click(screen.getByRole('combobox', { name: 'Trace' }));
+  await user.click(await screen.findByRole('option', { name: 'Whole session' }));
+  f.set({ spans: { newer, newest }, truncated: true });
+  mounted.rerender(f.app());
+  expect(screen.getAllByRole('treeitem')).toHaveLength(2);
+  expect(screen.getByRole('combobox', { name: 'Trace' }).textContent).toContain('Whole session');
+});
+
+it('cancels native wheel scrolling only for timeline zoom/pan and removes the listener', () => {
+  const f = fixture({ spans: {} });
+  const mounted = render(f.app());
+  f.set({ spans: { turn: span({ id: 'turn' }) } });
+  mounted.rerender(f.app());
+  const tree = screen.getByRole('tree', { name: 'Trace spans' });
+  const wheel = (init: WheelEventInit) => fireEvent(tree, new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init }));
+  expect(wheel({ deltaY: 40 })).toBe(true);
+  expect(wheel({ ctrlKey: true, deltaY: -40, clientX: 500 })).toBe(false);
+  expect(wheel({ metaKey: true, deltaY: -40, clientX: 500 })).toBe(false);
+  expect(wheel({ deltaX: 40, deltaY: 1 })).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+  expect(wheel({ ctrlKey: true, deltaY: -40 })).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+  expect(wheel({ ctrlKey: true, deltaY: -40 })).toBe(false);
+  mounted.unmount();
+  expect(wheel({ ctrlKey: true, deltaY: -40 })).toBe(true);
+});
+
 it('starts with span details hidden and allows toggling them open and closed', () => {
   const f = fixture();
   render(f.app());

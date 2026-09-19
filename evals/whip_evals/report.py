@@ -13,7 +13,7 @@ import statistics
 
 from .common import (SCHEMA_VERSION, atomic_write, file_hash, inside, number,
                      read_json, utc_now, value_hash, write_json)
-from .observe import aggregate
+from .observe import aggregate, rows
 
 
 def quantile(values, fraction):
@@ -49,7 +49,7 @@ REQUIRED_EVIDENCE = ("state.json", "metrics.json", "outcome.json", "sessions.db"
                      "content-export.json", "configuration.json", "provider-catalog.json", "cli.ndjson", "cli.stderr")
 
 
-def termination(outcome, raw, diagnostic):
+def termination(outcome, raw, diagnostic, structured_errors=()):
     if raw.get("cancelled"):
         return "user_cancelled"  # only a human cancels a run
     if raw.get("outer_watchdog"):
@@ -62,9 +62,15 @@ def termination(outcome, raw, diagnostic):
     if any(token in lower for token in ("host request limit", "step limit", "budget exhausted", "worker limit", "job limit")):
         return "whip_guard"
     if outcome.get("status") in ("agent_error", "startup_error"):
-        # Whip reports provider-side stream failures as "api error: ..." and
-        # transport stalls with the provider's own wording; neither is the agent's.
-        provider = any(token in lower for token in PROVIDER_ERROR_TOKENS)
+        # Generic status codes and transport words are evidence only in Whip's
+        # structured errors, not arbitrary task output written to stderr.
+        provider = any(token in error.lower() for error in structured_errors
+                       for token in PROVIDER_ERROR_TOKENS)
+        provider = provider or any(line.strip().startswith(("api error:", "whip: api error:", "whipcode: api error:"))
+                                   for line in lower.splitlines())
+        provider = provider or any(token in lower for token in (
+            "inference stream timed out: no next token", "provider stream stalled: no data for"))
+        provider = provider or ("model call exceeded the " in lower and " per-attempt ceiling" in lower)
         return "provider_error" if provider else "agent_error"
     if outcome.get("status") == "observer_error":
         return "export_error"
@@ -166,6 +172,7 @@ def normalize_trial(trial, raw, artifact_root):
     diagnostic = paths["cli.stderr"].read_text(errors="replace") if paths["cli.stderr"] else ""
     # In --format=json mode Whip emits structured errors on stdout. Ordinary
     # model text is not diagnostic evidence and must not determine attribution.
+    structured_errors = []
     if paths["cli.ndjson"]:
         for line in paths["cli.ndjson"].read_text(errors="replace").splitlines():
             try:
@@ -174,8 +181,9 @@ def normalize_trial(trial, raw, artifact_root):
                 continue
             if isinstance(message, dict) and message.get("type") == "error" and isinstance(message.get("error"), str):
                 diagnostic += "\n" + message["error"]
+                structured_errors.append(message["error"])
     row.update(execution_status=outcome.get("status", "cancelled" if raw.get("cancelled") else "runner_error"),
-               termination_source=termination(outcome, raw, diagnostic))
+               termination_source=termination(outcome, raw, diagnostic, structured_errors))
     if row["termination_source"] is None and row["grader_status"] == "error":
         # A native exception before agent execution is setup, not grading. Keep
         # the native timing boundary authoritative; do not infer from log prose.
@@ -192,6 +200,20 @@ def normalize_trial(trial, raw, artifact_root):
     duration = outcome.get("agent_duration_seconds")
     row["agent_seconds"] = duration if number(duration) and final else None
     calls = state.get("calls")
+    # The copied database is the canonical ledger. A partial or desynchronized
+    # upload must not make edited state.json totals eligible for promotion.
+    if paths["sessions.db"]:
+        try:
+            with sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+                db.row_factory = sqlite3.Row
+                roots = [row["id"] for row in db.execute("SELECT id FROM sessions")]
+                if roots != [(state.get("root") or {}).get("id")]:
+                    errors.append("accounting_root_mismatch")
+                copied_calls = rows(db, "SELECT * FROM model_calls ORDER BY rowid")
+            if calls != copied_calls:
+                errors.append("accounting_snapshot_mismatch")
+        except sqlite3.Error:
+            errors.append("unreadable_accounting_snapshot")
     computed = aggregate(calls) if calls is not None else {}
     # Complete accounting: every dispatched call reported usage and a cost, and
     # nothing about the evidence is in doubt. Unknown usage never becomes zero.

@@ -121,7 +121,7 @@ function AgentDockRoster({ state, agentId, connected, onAgent, onAllAgents, open
   return <section aria-label="Session agents" data-agent-dock {...stylex.props(composerPanels.surface, styles.dock)}>
     <div data-agent-dock-content {...stylex.props(styles.content)}>
       <button ref={heading} type="button" {...stylex.props(styles.header)} aria-expanded={expanded} aria-controls={contentId}
-        title={summary} onBlur={() => setFocusFallback(false)} onClick={() => { setExpanded(!expanded); setHovered(undefined); }}>
+        title={summary} onBlur={() => setFocusFallback(false)} onClick={() => { setNow(Date.now()); setExpanded(!expanded); setHovered(undefined); }}>
         {expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         <span {...stylex.props(styles.summary)}>{summary}</span>
       </button>

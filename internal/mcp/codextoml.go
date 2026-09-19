@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -223,8 +225,15 @@ func LoadCodex(path string) (map[string]ServerConfig, error) {
 func toInt(v any) (int, bool) {
 	switch v := v.(type) {
 	case int64:
+		if v < math.MinInt || v > math.MaxInt {
+			return 0, false
+		}
 		return int(v), true
 	case float64:
+		// The upper bound is exclusive: float64(math.MaxInt) rounds up on 64-bit hosts.
+		if math.IsNaN(v) || v < float64(math.MinInt) || v >= -float64(math.MinInt) || math.Trunc(v) != v {
+			return 0, false
+		}
 		return int(v), true
 	}
 	return 0, false
@@ -351,6 +360,9 @@ func parseTOMLValue(s string) (any, error) {
 	default:
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 			return n, nil
+		} else if errors.Is(err, strconv.ErrRange) {
+			// Do not round an overflowing integer into range via ParseFloat.
+			return nil, fmt.Errorf("integer %q is out of range: %w", s, err)
 		}
 		if f, err := strconv.ParseFloat(s, 64); err == nil {
 			return f, nil

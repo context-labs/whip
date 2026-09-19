@@ -37,7 +37,7 @@ function fixture() {
     const subscribers = new Set<() => void>();
     const catalog = { page: page(`${name} recent`), status: 'ready' };
     const list = { getSnapshot: () => catalog, subscribe: (fn: () => void) => { subscribers.add(fn); return () => subscribers.delete(fn); }, refresh: vi.fn(async () => {}) };
-    const search = vi.fn(async (params: { cursor?: { offset: string } | null }, _options: { signal: AbortSignal }) => page(`${name} ${params.cursor ? 'next' : 'match'}`, params.cursor ? undefined : `${runtimeId}-cursor`));
+    const search = vi.fn(async (params: { search?: string; cursor?: { offset: string } | null }, _options: { signal: AbortSignal }) => page(`${name} ${params.cursor ? 'next' : params.search ? 'match' : 'landing'}`, params.cursor ? undefined : `${runtimeId}-cursor`));
     const index = vi.fn(async (params: { after_id?: string }, _options: { signal: AbortSignal }) => attention(`${name} ${params.after_id ? 'next request' : 'request'}`, params.after_id ? undefined : `${runtimeId}-after`));
     const client = { sessions: { list: search }, host: { attention: index }, session: vi.fn() };
     const host = { profile: { target: { kind: 'url' } }, id: runtimeId, name, runtimeId, state: 'connected', client, list } as unknown as HostConnection;
@@ -61,28 +61,38 @@ function fixture() {
   };
 }
 
-it('observes recent catalogs only while search is open, and routes identical roots to their source hosts', async () => {
+it('observes catalogs and loads all-status pages only while search is open, routing identical roots to their source hosts', async () => {
   const f = fixture(); const close = vi.fn();
   const view = f.render(<SessionSearchDialog open={false} onOpenChange={close} finalFocus={false} />);
   expect(f.local.subscribers.size).toBe(0); expect(f.remote.subscribers.size).toBe(0);
+  expect(f.local.search).not.toHaveBeenCalled(); expect(f.remote.search).not.toHaveBeenCalled();
   view.rerender(<SessionSearchDialog open onOpenChange={close} finalFocus={false} />);
   expect(f.local.subscribers.size).toBe(1); expect(f.remote.subscribers.size).toBe(1);
-  expect(f.local.search).not.toHaveBeenCalled(); expect(f.remote.search).not.toHaveBeenCalled();
-  expect(screen.getByRole('link', { name: 'Local recent · Local · /repo' }).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
-  const remote = screen.getByRole('link', { name: 'Kuzco recent · Kuzco · /repo' });
+  for (const host of [f.local, f.remote]) {
+    expect(host.search).toHaveBeenCalledExactlyOnceWith({ search: '', status: 'all', cursor: undefined, limit: 64, max_bytes: 256 << 10 }, { signal: expect.any(AbortSignal) });
+  }
+  expect((await screen.findByRole('link', { name: 'Local landing · Local · /repo' })).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
+  const remote = await screen.findByRole('link', { name: 'Kuzco landing · Kuzco · /repo' });
   expect(remote.getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
   fireEvent.click(remote);
-  expect(f.openTab).toHaveBeenCalledExactlyOnceWith('remote-runtime', 'same-root', 'Kuzco recent');
+  expect(f.openTab).toHaveBeenCalledExactlyOnceWith('remote-runtime', 'same-root', 'Kuzco landing');
   expect(close).toHaveBeenCalledWith(false);
   view.rerender(<SessionSearchDialog open={false} onOpenChange={close} finalFocus={false} />);
   expect(f.local.subscribers.size).toBe(0); expect(f.remote.subscribers.size).toBe(0);
+  f.local.search.mockImplementation(() => new Promise(() => {}));
+  f.remote.search.mockImplementation(() => new Promise(() => {}));
+  view.rerender(<SessionSearchDialog open onOpenChange={close} finalFocus={false} />);
+  expect(screen.getByRole('link', { name: 'Local landing · Local · /repo' }).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
+  expect(screen.getByRole('link', { name: 'Kuzco landing · Kuzco · /repo' }).getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
+  expect(f.local.search).toHaveBeenCalledTimes(2); expect(f.remote.search).toHaveBeenCalledTimes(2);
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
 });
 
 it('keeps pagination and search failures independent, and filters hosts without hydrating roots', async () => {
   const f = fixture();
-  f.remote.search.mockRejectedValueOnce(new Error('Kuzco unavailable'));
   f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
+  await screen.findByRole('link', { name: 'Kuzco landing · Kuzco · /repo' });
+  f.remote.search.mockRejectedValueOnce(new Error('Kuzco unavailable'));
   fireEvent.change(screen.getByRole('textbox', { name: 'Search sessions across hosts' }), { target: { value: 'match' } });
   await screen.findByRole('link', { name: 'Local match · Local · /repo' });
   expect(screen.getByRole('alert').textContent).toContain('Kuzco unavailable');
@@ -91,8 +101,8 @@ it('keeps pagination and search failures independent, and filters hosts without 
   fireEvent.click(screen.getByRole('button', { name: 'Load more sessions on Local' }));
   await screen.findByRole('link', { name: 'Local next · Local · /repo' });
   expect(screen.getByRole('link', { name: 'Kuzco match · Kuzco · /repo' })).toBeTruthy();
-  expect(f.remote.search).toHaveBeenCalledTimes(2);
-  expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', status: 'active', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
+  expect(f.remote.search).toHaveBeenCalledTimes(3);
+  expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', status: 'all', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
   fireEvent.click(screen.getByRole('combobox', { name: 'Search host' }));
   const option = await screen.findByRole('option', { name: 'Kuzco' }); fireEvent.pointerDown(option); fireEvent.click(option);
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Local search results' })).toBeNull());
@@ -114,7 +124,14 @@ it('aborts pending search reads on close and preserves healthy results when anot
   expect(screen.getByRole('link', { name: 'Manage servers' }).getAttribute('href')).toBe('/settings');
   view.rerender(<SessionSearchDialog open={false} onOpenChange={() => {}} finalFocus={false} />);
   expect(signal!.aborted).toBe(true);
-  await waitFor(() => expect(f.query.getQueryCache().getAll()).toHaveLength(0));
+  await waitFor(() => expect(f.query.getQueryCache().getAll().map(query => query.queryKey)).toEqual([
+    ['session-search', 'local-runtime', '', 'all', undefined],
+    ['session-search', 'remote-runtime', '', 'all', undefined],
+  ]));
+  for (const query of f.query.getQueryCache().getAll()) {
+    expect(query.getObserversCount()).toBe(0);
+    expect(query.gcTime).toBe(5 * 60_000);
+  }
 });
 
 it('aggregates attention with host-scoped links, independent pages and visible partial failures', async () => {
@@ -155,8 +172,9 @@ it('shows healthy attention requests when another daemon lacks the optional read
 
 it('keeps the highlighted session on its host when an earlier host finishes searching', async () => {
   const f = fixture(); let finish: (value: SessionCatalogPage) => void = () => {};
-  f.local.search.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
+  await screen.findByRole('link', { name: 'Local landing · Local · /repo' });
+  f.local.search.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const input = screen.getByRole('textbox', { name: 'Search sessions across hosts' });
   fireEvent.change(input, { target: { value: 'match' } });
   const remote = await screen.findByRole('link', { name: 'Kuzco match · Kuzco · /repo' });

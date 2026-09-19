@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import { Profiler } from 'react';
 import type { RootSnapshot } from '@whip/protocol';
 import type { SessionViewSnapshot } from '@whip/sdk/state';
 import { AgentDock, type AgentDockProps } from '../src/agent-dock';
@@ -169,6 +170,25 @@ it('scopes attention to the child and clears previous failure while resuming', (
   expect(screen.getByRole('button', { name: /child · Waiting for your answer/ })).toBeTruthy();
   expect(screen.getByRole('button', { name: /resumed · Working/ })).toBeTruthy();
   expect(screen.queryByText('Waiting for your approval')).toBeNull();
+});
+
+it('commits a fresh duration immediately when expanding after time spent collapsed', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(started));
+  const committed: (string | null | undefined)[] = [];
+  render(<Profiler id="dock" onRender={() => committed.push(duration('worker'))}>
+    <AgentDock {...props([running()])} />
+  </Profiler>);
+  act(() => vi.advanceTimersByTime(65_000));
+  expect(vi.getTimerCount()).toBe(0);
+  committed.length = 0;
+  expand();
+  expect(committed.length).toBeGreaterThan(0);
+  expect(committed.every(value => value === '1m 5s')).toBe(true);
+  expand();
+  act(() => vi.advanceTimersByTime(30_000));
+  committed.length = 0;
+  expand();
+  expect(committed.every(value => value === '1m 35s')).toBe(true);
 });
 
 it('uses recorded starts across remounts, ticks only expanded, and fixes completed duration', () => {

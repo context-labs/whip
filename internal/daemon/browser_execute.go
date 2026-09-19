@@ -236,6 +236,7 @@ func (p *browserProviders) revokeAttachment(a *browserAttachment) {
 		p.revokeGrant(candidate)
 	}
 }
+
 func (p *browserProviders) RevokeAgent(ctx context.Context, identity browser.DesktopIdentity) error {
 	p.mu.Lock()
 	var revoke []*browserAttachment
@@ -302,8 +303,8 @@ func (p *browserProviders) Transfer(ctx context.Context, parent, child browser.D
 	p.mu.Unlock()
 	var releases []func()
 	defer func() {
-		for i := len(releases) - 1; i >= 0; i-- {
-			releases[i]()
+		for _, release := range slices.Backward(releases) {
+			release()
 		}
 	}()
 	for _, a := range parents {

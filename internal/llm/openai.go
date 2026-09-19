@@ -732,6 +732,11 @@ type Pricing struct {
 
 // Models fetches GET /models from the provider.
 func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
+	// Catalog calls bypass runAttempt, but still need an end-to-end bound
+	// covering response headers and body reads for both authentication modes.
+	timeout, _ := c.attemptTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	if c.openAI != nil {
 		return c.subscriptionModels(ctx)
 	}

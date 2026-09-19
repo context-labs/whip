@@ -489,6 +489,86 @@ func TestTurnAutoCompactsOnContextLimit(t *testing.T) {
 	}
 }
 
+func TestTurnOverflowRetryResetsAfterFailure(t *testing.T) {
+	for _, failure := range []string{"summary", "retry"} {
+		t.Run(failure, func(t *testing.T) {
+			var streams atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req llm.Request
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if req.Stream && streams.Add(1) == 1 {
+					http.Error(w, `{"error":{"code":"context_length_exceeded"}}`, http.StatusBadRequest)
+					return
+				}
+				if !req.Stream && failure == "retry" {
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+					return
+				}
+				http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+			}))
+			defer srv.Close()
+			ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+			ag.Messages = append(ag.Messages,
+				llm.Message{Role: "user", Content: "old question"},
+				llm.Message{Role: "assistant", Content: "old answer"},
+			)
+			// Each new turn exceeds the tail budget, making the preceding turn foldable.
+			input := strings.Repeat("x", 70000)
+			_, err := ag.Turn(t.Context(), input, Events{})
+			if err == nil || !strings.Contains(err.Error(), "fixture failure") {
+				t.Fatalf("first turn error = %v, want fixture failure", err)
+			}
+
+			recovery, calls := compactionServer(t)
+			defer recovery.Close()
+			ag.Client = llm.New(recovery.URL, "k")
+			final, err := ag.Turn(t.Context(), input, Events{})
+			if err != nil {
+				t.Fatalf("next turn must receive its own overflow retry: %v", err)
+			}
+			if final != "recovered" || *calls != 3 {
+				t.Fatalf("next turn = %q, calls = %d; want recovered after fail+summary+retry", final, *calls)
+			}
+		})
+	}
+}
+
+func TestTurnProactiveCompactionResetsAfterFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		if !req.Stream {
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+			return
+		}
+		http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	// The system prompt alone remains over threshold after each fold, stalling the turn.
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, strings.Repeat("s", 12000))
+	ag.ContextLimit = 5000
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "old question"},
+		llm.Message{Role: "assistant", Content: "old answer"},
+	)
+	folds := 0
+	ev := Events{OnCompact: func(int, int) { folds++ }}
+	for turn := range 2 {
+		if _, err := ag.Turn(t.Context(), strings.Repeat("x", 12000), ev); err == nil {
+			t.Fatal("expected provider failure")
+		}
+		if folds != turn+1 {
+			t.Fatalf("turn %d: completed folds = %d, want %d", turn+1, folds, turn+1)
+		}
+	}
+}
+
 func TestCompactDoesNotLoopOnRepeatedContextLimit(t *testing.T) {
 	// every request errors with context_length_exceeded → compaction must
 	// happen once and then the error surfaces (no infinite retry loop)

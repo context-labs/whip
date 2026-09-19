@@ -58,8 +58,7 @@ func (node *AgentSession) discardPresentation() {
 func (node *AgentSession) toolPresentationID(callID string) string {
 	node.mu.Lock()
 	defer node.mu.Unlock()
-	for i := len(node.turn.Messages) - 1; i >= 0; i-- {
-		message := node.turn.Messages[i]
+	for _, message := range slices.Backward(node.turn.Messages) {
 		if message.Role != "assistant" {
 			continue
 		}
@@ -104,9 +103,11 @@ func (node *AgentSession) recordHostPresentation(call rlm.HostCall) string {
 		if status == "" {
 			status = "running"
 		}
-		host := llm.PresentationHost{InvocationID: call.InvocationID, Name: call.Module + "." + call.Operation,
+		host := llm.PresentationHost{
+			InvocationID: call.InvocationID, Name: call.Module + "." + call.Operation,
 			Summary: llm.PresentationExcerpt(call.Summary, 2048), Status: status, Display: call.Display,
-			Error: llm.PresentationExcerpt(call.Err, 2048)}
+			Error: llm.PresentationExcerpt(call.Err, 2048),
+		}
 		if call.Status != "" {
 			host.Duration = call.Duration.String()
 		}

@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
-	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +61,7 @@ func TestPresentationDoesNotReinsertEvictedCompletions(t *testing.T) {
 	node.presentationPart("tool", "call", "")
 	node.recordTranscriptMessage(llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call"}}})
 	for i := range 130 {
-		node.recordHostPresentation(rlm.HostCall{CallID: "call", InvocationID: fmt.Sprint(i), Module: "files", Operation: "read"})
+		node.recordHostPresentation(rlm.HostCall{CallID: "call", InvocationID: strconv.Itoa(i), Module: "files", Operation: "read"})
 	}
 	node.recordHostPresentation(rlm.HostCall{CallID: "call", InvocationID: "0", Module: "files", Operation: "read", Status: "completed"})
 	p := node.turn.Messages[0].Presentation.Parts[0]

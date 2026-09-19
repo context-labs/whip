@@ -164,7 +164,7 @@ export function SessionContent({
     childCompanion.current = undefined;
     setChildViewId(undefined);
     setChildOpenError(undefined);
-  }, [viewId, agentId, session, kind]);
+  }, [viewId, agentId, session]);
   useEffect(() => {
     setStored(undefined);
     return () => bodyRequest.current?.abort();

@@ -83,6 +83,9 @@ func (c *Client) subscriptionOnce(
 	}
 	response, err := c.do(request, c.stallTimeout(responsesStall))
 	if err != nil {
+		if cause, ok := ownDeadline(ctx); ok {
+			return Message{}, Usage{}, cause
+		}
 		if ctx.Err() != nil {
 			return Message{}, Usage{}, ctx.Err()
 		}

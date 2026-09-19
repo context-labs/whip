@@ -1015,7 +1015,12 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 				streamText(w, "done")
 			}))
 			defer server.Close()
-			store, root, _ := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4, engine)
+			store, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4, engine)
+			// Measure presentation delivery with a ready worker, not QuickJS
+			// compilation under the race and coverage instrumentation.
+			if err := runtime.rootNode.kernel.Start(); err != nil {
+				t.Fatalf("start presentation worker: %v", err)
+			}
 			receipt, err := root.Submit(t.Context(), "trace")
 			if err != nil || waitReceipt(t, receipt).Err != nil {
 				t.Fatalf("turn err=%v", err)
@@ -1084,7 +1089,6 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 			if retained != 3 {
 				t.Fatalf("durable host operations=%d", retained)
 			}
-
 		})
 	}
 }

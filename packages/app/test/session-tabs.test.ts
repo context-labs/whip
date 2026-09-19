@@ -40,6 +40,17 @@ describe('child chat companions', () => {
     expect(fresh.workspace().tabs).toHaveLength(32); expect(sessionPanes(fresh.workspace().layout)).toHaveLength(4);
     expect(fresh.workspace().tabs.find(tab => tab.id === 'root')).toMatchObject({ location: {} });
   });
+  it.each(['source', 'child', 'both'] as const)('reuses the companion after toggling %s inspector panels', target => {
+    const { tabs, source } = fixture();
+    const first = tabs.openChildChat(source.id, 'A', allowSplit);
+    if (target !== 'child') tabs.updateLocation(source.id, { agent: 'parent' });
+    if (target !== 'source') tabs.updateLocation(first.tab.id, { agent: 'A', panel: 'context' });
+    const next = tabs.openChildChat(source.id, 'B', { companion: first.companion, canSplit: () => false });
+    expect(next.tab.id).toBe(first.tab.id);
+    expect(next.tab.location.agent).toBe('B');
+    expect(tabs.workspace().tabs).toHaveLength(2);
+    expect(sessionPanes(tabs.workspace().layout)).toHaveLength(2);
+  });
   it('focuses an exact visible child without adopting it or changing an owned companion', () => {
     const { tabs, source } = fixture();
     const external = tabs.split(source.id, 'left'); tabs.updateLocation(external, { agent: 'B' });

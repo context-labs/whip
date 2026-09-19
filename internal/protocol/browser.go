@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 )

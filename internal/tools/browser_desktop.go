@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
@@ -69,8 +68,7 @@ func desktopFailure(result browser.DesktopResult, err error) browser.DesktopResu
 	if err == nil {
 		return result
 	}
-	var known *browser.DesktopError
-	if errors.As(err, &known) {
+	if known, ok := errors.AsType[*browser.DesktopError](err); ok {
 		result.Error = known
 		return result
 	}
@@ -339,8 +337,12 @@ func (s *Services) DesktopAttachments(ctx context.Context) []browser.DesktopResu
 func (s *Services) RevokeDesktopAttachments(ctx context.Context) error {
 	identity, _, _ := s.desktopIdentity()
 	provider, err := s.desktopProvider()
-	if err != nil {
+	if known, ok := errors.AsType[*browser.DesktopError](err); ok && known.Kind == "desktop_unavailable" {
+		// No selected provider means there are no attachments to revoke.
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 	return provider.RevokeAgent(ctx, identity)
 }
@@ -348,7 +350,7 @@ func (s *Services) RevokeDesktopAttachments(ctx context.Context) error {
 var desktopToolOperations = map[string]string{"browser_list_tabs": "browser.list_tabs", "browser_open": "browser.open", "browser_attach": "browser.attach", "browser_run": "browser.run", "browser_detach": "browser.detach", "browser_allow_preview_port": "browser.allow_preview_port"}
 
 func desktopToolDefinitions() []llm.Tool {
-	var defs []llm.Tool
+	defs := make([]llm.Tool, 0, len(desktopToolOperations))
 	for _, name := range []string{"browser_list_tabs", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"} {
 		var schema string
 		switch name {
@@ -365,7 +367,7 @@ func desktopToolDefinitions() []llm.Tool {
 		case "browser_allow_preview_port":
 			schema = `{"type":"object","properties":{"attachment_id":{"type":"string"},"port":{"type":"integer","minimum":1,"maximum":65535}},"required":["attachment_id","port"],"additionalProperties":false}`
 		}
-		defs = append(defs, llm.NewTool(name, fmt.Sprintf("%s on the explicitly selected desktop browser. Requires a paired provider and scoped permission; never falls back to another browser. Returns structured result/error.", desktopToolOperations[name]), schema))
+		defs = append(defs, llm.NewTool(name, desktopToolOperations[name]+" on the explicitly selected desktop browser. Requires a paired provider and scoped permission; never falls back to another browser. Returns structured result/error.", schema))
 	}
 	return defs
 }

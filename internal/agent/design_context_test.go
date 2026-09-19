@@ -17,7 +17,7 @@ func TestDesignContextReachesAuthoredHistoryButNotProvider(t *testing.T) {
 	})
 	defer srv.Close()
 	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 1000, "sys")
-	p := &llm.TranscriptPresentation{Version: 1, DesignContext: &llm.DesignContextPresentation{DesignContextInput: llm.DesignContextInput{ContextAttachmentID: "context", ElementCount: 1, Elements: []llm.DesignContextElement{{Label: "Button"}}}, ContextPartIndex: 1}}
+	p := &llm.TranscriptPresentation{Version: 1, DesignContext: &llm.DesignContextPresentation{ContextAttachmentID: "context", ElementCount: 1, Elements: []llm.DesignContextElement{{Label: "Button"}}, ContextPartIndex: 1}}
 	var recorded llm.Message
 	_, err := ag.TurnParts(t.Context(), "fix this", []llm.ContentPart{{Type: "text", Text: "full raw evidence"}}, Events{InputPresentation: p, OnMessage: func(message llm.Message) int {
 		if message.Role == "user" {

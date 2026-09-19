@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -297,15 +298,27 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	if _, _, err := store.ExportOTLP(context.Background(), root, ExportOptions{TraceID: "nope"}); err != nil {
 		t.Fatal(err)
 	}
-	batches, err := SplitOTLP(single, 2048)
+	var envelope OTLPExport
+	if err := json.Unmarshal(single, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	limit := 0
+	for _, span := range slices.Clone(envelope.ResourceSpans[0].ScopeSpans[0].Spans) {
+		envelope.ResourceSpans[0].ScopeSpans[0].Spans = []otlpSpan{span}
+		body, err := json.Marshal(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		limit = max(limit, len(body))
+	}
+	batches, err := SplitOTLP(single, limit)
 	if err != nil || len(batches) < 2 {
 		t.Fatalf("split batches=%d err=%v", len(batches), err)
 	}
 	seen := 0
 	for _, batch := range batches {
 		batchSpans := decodeExport(t, batch)
-		// A batch only exceeds the cap when one span alone is bigger than it.
-		if len(batchSpans) > 1 && len(batch) > 2048 {
+		if len(batch) > limit {
 			t.Fatalf("batch of %d spans and %d bytes exceeds the cap", len(batchSpans), len(batch))
 		}
 		seen += len(batchSpans)

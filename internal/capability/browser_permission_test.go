@@ -14,8 +14,10 @@ func permissionBrowserCall() BrowserCall {
 			ProviderID: "desktop", ProviderEpoch: "epoch-1", TabID: "tab-1", TabGeneration: "tab-gen-1",
 			ProfileID: "profile-1", AttachmentID: "attachment-1", AttachmentGeneration: "attachment-gen-1",
 			Rights: []string{"create", "control", "route"},
-			Preview: &BrowserPreviewScope{HostID: "saved-host", HostIdentity: "verified-runtime", ConnectionGeneration: "connection-1",
-				EnvironmentID: "environment-1", Loopback: "127.0.0.1", Ports: []int{3000, 8080}},
+			Preview: &BrowserPreviewScope{
+				HostID: "saved-host", HostIdentity: "verified-runtime", ConnectionGeneration: "connection-1",
+				EnvironmentID: "environment-1", Loopback: "127.0.0.1", Ports: []int{3000, 8080},
+			},
 		},
 		Arguments: json.RawMessage(`{"url":"https://user:credential-secret@example.com/app?token=query-secret#fragment-secret","port":9000,"code":"private-code-secret","provider_id":"forged-provider","socket":"/private/transport.sock"}`),
 	}

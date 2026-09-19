@@ -165,6 +165,33 @@ class ReportTests(unittest.TestCase):
             self.assertFalse(row['evidence_complete'], mutation)
             self.assertFalse(row['accounting_complete'], mutation)
 
+    def test_state_totals_must_match_the_copied_database(self):
+        for mutation in ('cost', 'tokens', 'missing_call', 'root', 'unreadable_database'):
+            with self.subTest(mutation=mutation):
+                directory = self.root / mutation
+                trial, raw, agent = evidence_fixture(directory)
+                state = read_json(agent / 'state.json')
+                if mutation == 'cost':
+                    state['calls'][0]['cost_micros'] = 1
+                elif mutation == 'tokens':
+                    state['calls'][0]['result']['Usage']['prompt_tokens'] = 1
+                elif mutation in ('missing_call', 'root'):
+                    state['calls'] = []
+                    if mutation == 'root':
+                        state['root']['id'] = 'fabricated-root'
+                else:
+                    (agent / 'sessions.db').write_bytes(b'not a database')
+                write_json(agent / 'state.json', state)
+                row = normalize_trial(trial, raw, directory)
+                expected = ('unreadable_accounting_snapshot' if mutation == 'unreadable_database'
+                            else 'accounting_snapshot_mismatch')
+                self.assertIn(expected, row['error_codes'])
+                if mutation == 'root':
+                    self.assertIn('accounting_root_mismatch', row['error_codes'])
+                self.assertFalse(row['evidence_complete'])
+                self.assertFalse(row['accounting_complete'])
+                self.assertIsNone(row['cost_usd'])
+
     def test_failure_sources_do_not_conflate_timeouts(self):
         cases = [({'status': 'timeout'}, {}, '', 'benchmark_deadline'),
                  ({'status': 'agent_error'}, {}, 'Client.Timeout exceeded', 'whip_request_timeout'),
@@ -175,7 +202,10 @@ class ReportTests(unittest.TestCase):
                  ({'status': 'agent_error'}, {}, 'Inference stream timed out: No next token received for 30000ms', 'provider_error'),
                  ({'status': 'agent_error'}, {}, 'provider stream stalled: no data for 2m0s', 'provider_error'),
                  ({'status': 'agent_error'}, {}, 'model call exceeded the 10m0s per-attempt ceiling', 'provider_error'),
-                 ({'status': 'agent_error'}, {}, 'engine raised TypeError', 'agent_error')]
+                 ({'status': 'agent_error'}, {}, 'engine raised TypeError', 'agent_error'),
+                 ({'status': 'agent_error'}, {}, 'curl returned 429 Too Many Requests; rate limit applies', 'agent_error'),
+                 ({'status': 'agent_error'}, {}, 'task 1503: connection reset; unexpected EOF', 'agent_error'),
+                 ({'status': 'agent_error'}, {}, 'whipcode: api error: 503 unavailable', 'provider_error')]
         for outcome, raw, diagnostic, expected in cases:
             self.assertEqual(termination(outcome, raw, diagnostic), expected)
 
@@ -272,3 +302,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(normalize_trial(trial, raw, self.root)['termination_source'], 'agent_error')
         (agent / 'cli.ndjson').write_text(json.dumps({'type': 'error', 'error': 'Client.Timeout exceeded'}) + '\n')
         self.assertEqual(normalize_trial(trial, raw, self.root)['termination_source'], 'whip_request_timeout')
+        for error in ('429 Too Many Requests', 'rate limit reached', 'unexpected EOF'):
+            (agent / 'cli.ndjson').write_text(json.dumps({'type': 'text', 'text': error}) + '\n')
+            self.assertEqual(normalize_trial(trial, raw, self.root)['termination_source'], 'agent_error')
+            (agent / 'cli.ndjson').write_text(json.dumps({'type': 'error', 'error': error}) + '\n')
+            self.assertEqual(normalize_trial(trial, raw, self.root)['termination_source'], 'provider_error')

@@ -133,6 +133,7 @@ func (p *browserProviders) settle(c *serverConn, result protocol.BrowserCommandR
 	pending.result <- result
 	return nil
 }
+
 func knownBrowserError(kind string) bool {
 	switch kind {
 	case "permission_denied", "desktop_unavailable", "host_not_connected", "browser_busy", "stale_document", "attachment_revoked", "tab_closed", "preview_disconnected", "unsupported_operation", "outcome_unknown":

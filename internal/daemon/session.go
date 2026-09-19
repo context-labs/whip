@@ -977,9 +977,12 @@ func (s *Session) decodeInboxMessage(ctx context.Context, item sessionstore.Inbo
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return llm.Message{}, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
 	}
-	message.Presentation, err = designContextPresentation(payload)
+	presentation, err := designContextPresentation(payload)
 	if err != nil {
 		return llm.Message{}, err
+	}
+	if presentation.DesignContext != nil {
+		message.Presentation = &presentation
 	}
 	message.Content, message.Parts, err = s.resolveAttachments(ctx, item.AgentID, payload)
 	return message, err

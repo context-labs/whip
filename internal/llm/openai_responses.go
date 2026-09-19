@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -15,10 +16,13 @@ func (c *Client) apiResponses(model string) bool {
 }
 
 // Scope opaque reasoning history to this API credential, separate from ChatGPT
-// account IDs. The key itself never enters persisted continuation state.
+// account IDs. HMAC uses the high-entropy API key as key material, not as a
+// password to verify. The fixed label separates this scope from other uses of
+// the credential; the key itself never enters persisted continuation state.
 func (c *Client) apiResponseScope() string {
-	digest := sha256.Sum256([]byte(c.APIKey))
-	return "openai-api:" + hex.EncodeToString(digest[:])
+	mac := hmac.New(sha256.New, []byte(c.APIKey))
+	_, _ = mac.Write([]byte("whip/openai-api/continuation-scope/v1"))
+	return "openai-api:" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (c *Client) apiResponsesOnce(

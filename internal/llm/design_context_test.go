@@ -8,7 +8,7 @@ import (
 )
 
 func TestDesignContextPresentationBoundsAndProviderIsolation(t *testing.T) {
-	p := &TranscriptPresentation{Version: 1, DesignContext: &DesignContextPresentation{DesignContextInput: DesignContextInput{ContextAttachmentID: "context", ElementCount: 8, PageURL: strings.Repeat("x", 2048)}, ContextPartIndex: 1}}
+	p := &TranscriptPresentation{Version: 1, DesignContext: &DesignContextPresentation{ContextAttachmentID: "context", ElementCount: 8, PageURL: strings.Repeat("x", 2048), ContextPartIndex: 1}}
 	for range 8 {
 		p.DesignContext.Elements = append(p.DesignContext.Elements, DesignContextElement{Label: strings.Repeat("x", 160), Selector: strings.Repeat("x", 256)})
 	}

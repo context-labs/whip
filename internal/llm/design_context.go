@@ -57,10 +57,10 @@ func (d *DesignContextInput) Clone() *DesignContextInput {
 	if d == nil {
 		return nil
 	}
-	copy := *d
-	copy.Elements = slices.Clone(d.Elements)
-	if copy.Elements == nil {
-		copy.Elements = []DesignContextElement{}
+	cloned := *d
+	cloned.Elements = slices.Clone(d.Elements)
+	if cloned.Elements == nil {
+		cloned.Elements = []DesignContextElement{}
 	}
-	return &copy
+	return &cloned
 }

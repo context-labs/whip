@@ -15,6 +15,20 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+func TestDesignContextAbsentDoesNotAddPresentation(t *testing.T) {
+	node := storeBackedInputSession(t, t.TempDir())
+	message, err := node.root.decodeInboxMessage(t.Context(), session.InboxItem{
+		AgentID: node.id, Kind: "submit.parts",
+		Payload: session.RuntimeValue{Inline: json.RawMessage(`{"text":"authored"}`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Content != "authored" || message.Presentation != nil {
+		t.Fatalf("unexpected presentation for plain submission: %+v", message)
+	}
+}
+
 func TestDesignContextProvenancePersistsWithoutChangingEvidence(t *testing.T) {
 	node := storeBackedInputSession(t, t.TempDir())
 	var imageBytes bytes.Buffer
@@ -85,7 +99,7 @@ func TestDesignContextIndicesWithAndWithoutAuthoredText(t *testing.T) {
 			}
 			message := llm.Message{Role: "user", Content: text, Parts: []llm.ContentPart{
 				{Type: "text", Text: "raw context"}, llm.ImagePart("png", []byte("x")),
-			}, Presentation: presentation}
+			}, Presentation: &presentation}
 			wire, _ := json.Marshal(message)
 			var restored llm.Message
 			if err := json.Unmarshal(wire, &restored); err != nil {

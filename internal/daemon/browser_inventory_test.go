@@ -34,11 +34,13 @@ func readInventory(t *testing.T, w *browserWire) protocol.BrowserInventoryReques
 		return request
 	}
 }
+
 func listBrowserAsync(ctx context.Context, p *browserProviders, identity browser.DesktopIdentity) <-chan desktopOutcome {
 	done := make(chan desktopOutcome, 1)
 	go func() { result, err := p.ListTabs(ctx, identity); done <- desktopOutcome{result, err} }()
 	return done
 }
+
 func inventoryReply(request protocol.BrowserInventoryRequest, tabs ...browser.DesktopTab) protocol.BrowserInventoryResultParams {
 	return protocol.BrowserInventoryResultParams{RequestID: request.RequestID, RootID: request.RootID, ProviderEpoch: request.ProviderEpoch, Tabs: tabs}
 }

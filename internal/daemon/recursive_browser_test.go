@@ -37,6 +37,7 @@ func (p *recursiveBrowserProvider) Resolve(_ context.Context, identity browser.D
 	p.identities = append(p.identities, identity)
 	return capability.BrowserCall{}, errors.New("desktop resolver reached")
 }
+
 func (p *recursiveBrowserProvider) ListTabs(_ context.Context, identity browser.DesktopIdentity) (browser.DesktopResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -48,14 +49,17 @@ func (p *recursiveBrowserProvider) ListTabs(_ context.Context, identity browser.
 func (*recursiveBrowserProvider) CallContext(capability.BrowserCall) (context.Context, error) {
 	return nil, errors.New("unexpected browser call context")
 }
+
 func (*recursiveBrowserProvider) Execute(context.Context, browser.DesktopRequest, func(context.Context, browser.Backend) (string, error)) (browser.DesktopResult, error) {
 	return browser.DesktopResult{}, errors.New("unexpected browser execution")
 }
+
 func (p *recursiveBrowserProvider) Attachments(_ context.Context, identity browser.DesktopIdentity) []browser.DesktopResult {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return slices.Clone(p.attachments[identity.AgentID])
 }
+
 func (p *recursiveBrowserProvider) RevokeAgent(_ context.Context, identity browser.DesktopIdentity) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -63,6 +67,7 @@ func (p *recursiveBrowserProvider) RevokeAgent(_ context.Context, identity brows
 	delete(p.attachments, identity.AgentID)
 	return nil
 }
+
 func (p *recursiveBrowserProvider) Transfer(ctx context.Context, parent, child browser.DesktopIdentity, ids []string) ([]browser.DesktopResult, error) {
 	if p.transferStarted != nil {
 		p.transferStarted <- child.AgentID

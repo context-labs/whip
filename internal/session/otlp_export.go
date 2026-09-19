@@ -110,8 +110,12 @@ type ExportSummary struct {
 
 // SplitOTLP re-batches one export into requests of at most maxBytes each,
 // keeping the resource and scope on every batch, for endpoints that cap the
-// request body (HALO and inference.net accept 4 MiB).
+// request body (HALO and inference.net accept 4 MiB). A resource envelope or
+// individual span that cannot fit is rejected rather than silently truncated.
 func SplitOTLP(data []byte, maxBytes int) ([][]byte, error) {
+	if maxBytes <= 0 {
+		return nil, errors.New("OTLP batch byte limit must be positive")
+	}
 	var export OTLPExport
 	if err := json.Unmarshal(data, &export); err != nil {
 		return nil, err
@@ -129,24 +133,42 @@ func SplitOTLP(data []byte, maxBytes int) ([][]byte, error) {
 		copyTemplate.ScopeSpans = []otlpScopeSpans{{Scope: template.ScopeSpans[0].Scope, Spans: batch}}
 		return json.Marshal(OTLPExport{ResourceSpans: []otlpResourceSpans{copyTemplate}})
 	}
+	empty, err := encode([]otlpSpan{})
+	if err != nil {
+		return nil, err
+	}
+	overhead := len(empty)
+	if overhead > maxBytes {
+		return nil, fmt.Errorf("OTLP resource and scope need %d bytes, exceeding batch limit %d", overhead, maxBytes)
+	}
+	if len(spans) == 0 {
+		return [][]byte{empty}, nil
+	}
 	var batches [][]byte
 	var batch []otlpSpan
-	size := 0
+	size := overhead
 	for _, span := range spans {
 		encoded, err := json.Marshal(span)
 		if err != nil {
 			return nil, err
 		}
-		if len(batch) > 0 && size+len(encoded)+1024 > maxBytes {
+		if len(encoded) > maxBytes-overhead {
+			return nil, fmt.Errorf("OTLP span %q cannot fit in batch limit %d with its resource and scope", span.SpanID, maxBytes)
+		}
+		separator := 0
+		if len(batch) > 0 {
+			separator = 1 // comma between encoded spans
+		}
+		if len(encoded) > maxBytes-size-separator {
 			body, err := encode(batch)
 			if err != nil {
 				return nil, err
 			}
 			batches = append(batches, body)
-			batch, size = nil, 0
+			batch, size, separator = nil, overhead, 0
 		}
 		batch = append(batch, span)
-		size += len(encoded) + 1
+		size += len(encoded) + separator
 	}
 	if len(batch) > 0 {
 		body, err := encode(batch)

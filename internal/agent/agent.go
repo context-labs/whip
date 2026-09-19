@@ -550,9 +550,6 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				}
 				sum, cutoff, info, cerr := a.compact(ctx)
 				if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
-					// restore the guard on hard errors so a manual /compact
-					// can still attempt a compaction for the next turn
-					a.compacted = false
 					if errors.Is(cerr, errNoHistory) {
 						// The provider rejected the request and nothing is
 						// left to fold: the floor alone overflows the window.
@@ -638,8 +635,6 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 					return "", cerr
 				}
 			}
-			a.running.Store(false)
-			a.compacted, a.compactStalled, a.retriedOverflow = false, false, false // reset for the next Turn
 			return msg.Content, nil
 		}
 	}
@@ -719,6 +714,8 @@ func (a *Agent) preserveModelResponse(ev Events, msg llm.Message, usage llm.Usag
 }
 
 func (a *Agent) finishTurn() {
+	// Compaction guards belong to this turn, including when it fails.
+	a.compacted, a.compactStalled, a.retriedOverflow = false, false, false
 	a.running.Store(false)
 	// Steers that landed after the last loop boundary must not leak into the
 	// next turn: inbox-offered ones are re-queued durably by the daemon's
@@ -1267,6 +1264,5 @@ func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 	msg.Usage = &usage
 	msg.Model = a.Model + " @ " + a.Provider
 	a.appendTurnMessages(ev, msg)
-	a.compacted, a.compactStalled, a.retriedOverflow = false, false, false
 	return msg.Content, nil
 }

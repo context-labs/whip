@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useImperativeHandle, type ComponentProps } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
@@ -7,7 +7,7 @@ import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { SessionContent } from '../src/conversation';
 import * as agentDock from '../src/agent-dock';
-import { sessionPanes, sessionViewPane } from '../src/session-tabs';
+import { sessionPanes, sessionViewPane, type SessionViewKind } from '../src/session-tabs';
 
 const navigate = vi.hoisted(() => vi.fn(async () => {}));
 const jumpToLatest = vi.hoisted(() => vi.fn());
@@ -28,6 +28,8 @@ vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId, ag
   <textarea aria-label={`Draft for ${agentId}`} defaultValue="" />
   <button onClick={onAccepted}>Accept send in {viewId}</button>
 </> }));
+vi.mock('../src/repl-view', () => ({ ReplView: () => null }));
+vi.mock('../src/trace-view', () => ({ TraceView: () => null }));
 vi.mock('../src/requests', () => ({ PendingRequests: () => null }));
 vi.mock('../src/inspector', () => ({ SessionInspector: () => null }));
 vi.mock('../src/agent-turn-notice', () => ({ AgentTurnNotice: () => null, useSelectedAgent: () => undefined }));
@@ -60,12 +62,12 @@ function fixture(width = 1000) {
     subscribe: () => () => {}, getSnapshot: () => snapshot,
     session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection, supports: () => false } },
   } as unknown as SessionView;
-  const rendered = render(<RuntimeContext.Provider value={runtime}><ThemeProvider><UIProvider>
+  const app = (kind: SessionViewKind = 'chat') => <RuntimeContext.Provider value={runtime}><ThemeProvider><UIProvider>
     <div data-workspace-frame={pane.id}><div data-workspace-view={source.id} tabIndex={-1}>
-      <SessionContent kind="chat" view={view} expectedRuntimeId="host" agentId="root" viewId={source.id} />
+      <SessionContent kind={kind} view={view} expectedRuntimeId="host" agentId="root" viewId={source.id} />
     </div></div>
-  </UIProvider></ThemeProvider></RuntimeContext.Provider>);
-  return { runtime, source, view, ...rendered };
+  </UIProvider></ThemeProvider></RuntimeContext.Provider>;
+  return { runtime, source, view, app, ...render(app()) };
 }
 
 it('an accepted send scrolls only its own chat view, not another view of the same session', () => {
@@ -104,6 +106,23 @@ it('dock and inline links share a reusable child split without retargeting or re
     search: expect.objectContaining({ agent: 'a' }), state: { whipViewId: child.id },
   })));
   expect((draft as HTMLTextAreaElement).value).toBe('Keep the main draft');
+});
+
+it.each(['repl', 'trace'] as const)('retains the companion and open-child highlight across an in-place %s round trip', kind => {
+  const { runtime, source, container, app, rerender } = fixture();
+  fireEvent.click(container.querySelector('[data-agent-dock] button[aria-expanded]')!);
+  fireEvent.click(container.querySelector('[data-agent-dock-row="a"]')!);
+  const child = runtime.tabs.workspace().tabs.find(tab => tab.id !== source.id)!;
+  act(() => runtime.tabs.visit('host', 'root', { view: kind }, source.id));
+  rerender(app(kind));
+  act(() => runtime.tabs.visit('host', 'root', {}, source.id));
+  rerender(app());
+  fireEvent.click(container.querySelector('[data-agent-dock] button[aria-expanded]')!);
+  expect(container.querySelector('[data-agent-dock-row="a"]')?.getAttribute('aria-current')).toBe('true');
+  fireEvent.click(container.querySelector('[data-agent-dock-row="b"]')!);
+  expect(runtime.tabs.workspace().tabs).toHaveLength(2);
+  expect(sessionPanes(runtime.tabs.workspace().layout)).toHaveLength(2);
+  expect(runtime.tabs.workspace().tabs.find(tab => tab.id === child.id)).toMatchObject({ location: { agent: 'b' } });
 });
 
 it('insufficient split space leaves the main view intact until Open in tab is explicitly chosen', () => {

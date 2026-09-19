@@ -206,9 +206,11 @@ func TestTurnFailsWithCompactionExhaustedWhenNothingFolds(t *testing.T) {
 	}))
 	defer srv.Close()
 	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
-	_, err := ag.Turn(context.Background(), "a single enormous prompt", Events{})
-	if !errors.Is(err, ErrCompactionExhausted) {
-		t.Fatalf("expected ErrCompactionExhausted, got %v", err)
+	for range 2 {
+		_, err := ag.Turn(context.Background(), "a single enormous prompt", Events{})
+		if !errors.Is(err, ErrCompactionExhausted) {
+			t.Fatalf("expected ErrCompactionExhausted on each turn, got %v", err)
+		}
 	}
 }
 

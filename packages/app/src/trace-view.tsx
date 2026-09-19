@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { RootSnapshot } from '@whip/protocol';
 import { serverNowMs, traceRoots, traceSpans, type DeepReadonly, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
@@ -47,7 +47,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   }, [view, connected, connectionId]);
   const roots = useMemo(() => traceRoots(state), [state]);
   const [picked, setPicked] = useState<string>();
-  const traceId = picked ?? roots[0]?.traceId ?? '';
+  const traceId = picked && (picked === ALL_TRACES || roots.some(root => root.traceId === picked)) ? picked : roots[0]?.traceId ?? '';
   const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId) as readonly TraceSpan[], [state, traceId]);
   const running = connected && spans.some(isSpanInFlight);
   const motion = useTranscriptMotion();
@@ -115,18 +115,24 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   }, [hasSpans]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => listRef.current, estimateSize: () => ROW_HEIGHT, overscan: 12, getItemKey: index => rows[index]!.span.id });
   const rel = (ms: number) => ms - domain.startMs;
-  const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (!panes.timeline) return;
-    if (event.ctrlKey || event.metaKey) {
-      event.preventDefault();
-      const lane = (event.currentTarget.getBoundingClientRect().left + (panes.tree ? treeWidth : 0));
-      const anchor = timeline.t0 + ((event.clientX - lane) / laneWidth) * (timeline.t1 - timeline.t0);
-      setZoom(zoomAt(timeline, Math.exp(event.deltaY * 0.0022), anchor, domain.dur));
-    } else if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
-      event.preventDefault();
-      setZoom(panBy(timeline, (event.deltaX / laneWidth) * (timeline.t1 - timeline.t0), domain.dur));
-    }
-  };
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || !panes.timeline) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const lane = list.getBoundingClientRect().left + (panes.tree ? treeWidth : 0);
+        const anchor = timeline.t0 + ((event.clientX - lane) / laneWidth) * (timeline.t1 - timeline.t0);
+        setZoom(zoomAt(timeline, Math.exp(event.deltaY * 0.0022), anchor, domain.dur));
+      } else if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        event.preventDefault();
+        setZoom(panBy(timeline, (event.deltaX / laneWidth) * (timeline.t1 - timeline.t0), domain.dur));
+      }
+    };
+    // React delegates wheel events passively, but zoom/pan must cancel native scrolling.
+    list.addEventListener('wheel', onWheel, { passive: false });
+    return () => list.removeEventListener('wheel', onWheel);
+  }, [hasSpans, panes.timeline, panes.tree, treeWidth, laneWidth, timeline, domain.dur]);
   const loading = !!evidence?.loading && !spans.length;
   const options = [
     ...roots.map((root, index) => ({ value: root.traceId, label: `${roots.length - index}. ${text(root.attrs.input) || spanDisplayName(root)}`.slice(0, 80) })),
@@ -157,7 +163,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
     {evidence?.hasMore && !evidence.error && <Button variant="ghost" disabled={!connected || evidence.loading} onClick={() => void view.loadTrace().catch(() => {})}>{evidence.loading ? 'Loading trace…' : 'Load more spans'}</Button>}
     {evidence?.error && <ErrorNotice type="session" owner={`${viewId}:trace`} error={evidence.error} action={<Button variant="ghost" onClick={() => void view.loadTrace().catch(() => {})}>Retry</Button>} />}
     <div ref={bodyRef} {...stylex.props(styles.body)}>
-      {spans.length ? <div ref={listRef} role="tree" aria-label="Trace spans" tabIndex={0} {...stylex.props(styles.list)} onWheel={onWheel}>
+      {spans.length ? <div ref={listRef} role="tree" aria-label="Trace spans" tabIndex={0} {...stylex.props(styles.list)}>
         <div {...stylex.props(styles.columns)}>
           {panes.tree && <span {...stylex.props(styles.columnLabel)} style={{ width: panes.timeline ? treeWidth : '100%' }}>Execution</span>}
           {panes.timeline && <div {...stylex.props(styles.axis)} aria-hidden="true">

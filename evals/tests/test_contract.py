@@ -262,6 +262,17 @@ class ContractTests(unittest.TestCase):
                         with self.assertRaises(KeyError):
                             environment._prepare_egress_proxy_compose()
 
+    def test_cli_incomplete_runs_and_reports_exit_unsuccessfully(self):
+        from contextlib import redirect_stdout
+        from whip_evals.cli import main
+        for command, target in ((['run', 'smoke'], 'whip_evals.run.run'),
+                                (['report', 'offline'], 'whip_evals.run.regenerate')):
+            for status, expected in (('complete', 0), ('incomplete', 2), ('failed', 2), ('cancelled', 2)):
+                with self.subTest(command=command, status=status), patch(target, return_value={'status': status}), \
+                     redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(command), expected)
+                    self.assertEqual(json.loads(output.getvalue()), {'status': status})
+
     def test_doctor_ref_reaches_integration_build_and_preserves_default(self):
         from contextlib import redirect_stdout
         from whip_evals.cli import main

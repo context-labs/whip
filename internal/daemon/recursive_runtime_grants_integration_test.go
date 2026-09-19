@@ -37,8 +37,11 @@ child`)
 	}
 	receipt := result.Value.(map[string]any)
 	childID := receipt["id"].(string)
-	if len(receipt) != 5 || receipt["name"] != "large" || receipt["parent_id"] != parent.id || receipt["status"] != "queued" || receipt["report"] != "message" {
+	if len(receipt) != 6 || receipt["name"] != "large" || receipt["parent_id"] != parent.id || receipt["status"] != "queued" || receipt["report"] != "message" {
 		t.Fatalf("unexpected admission receipt: %+v", receipt)
+	}
+	if attachments, ok := receipt["browser_attachments"].([]any); !ok || len(attachments) != 0 {
+		t.Fatalf("unexpected inherited browser attachments: %+v", receipt["browser_attachments"])
 	}
 	waitRunTurn(t, runs, childID, 1)
 	runtime.mu.RLock()

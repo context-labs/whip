@@ -97,7 +97,7 @@ def main(argv=None):
             from .doctor import cleanup
             value = cleanup(args.run_id)
         print(json.dumps(value, indent=2, allow_nan=False))
-        return 2 if value.get("status") in ("cancelled", "failed") else 0
+        return 2 if value.get("status") in ("cancelled", "failed", "incomplete") else 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         # subprocess output / provider errors can contain secrets; don't echo it.
         detail = str(error) if isinstance(error, ValueError) else type(error).__name__

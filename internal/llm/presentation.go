@@ -65,21 +65,21 @@ func BoundPresentation(value *TranscriptPresentation, maxBytes int) *TranscriptP
 	if value == nil {
 		return nil
 	}
-	copy := *value
+	cloned := *value
 	if value.DesignContext != nil {
 		design := *value.DesignContext
-		design.DesignContextInput = *value.DesignContext.DesignContextInput.Clone()
+		design.DesignContextInput = *value.DesignContext.Clone()
 		if design.ScreenshotPartIndex != nil {
 			index := *design.ScreenshotPartIndex
 			design.ScreenshotPartIndex = &index
 		}
-		copy.DesignContext = &design
+		cloned.DesignContext = &design
 	}
-	copy.Parts = slices.Clone(value.Parts)
-	for i := range copy.Parts {
-		copy.Parts[i].Hosts = slices.Clone(copy.Parts[i].Hosts)
+	cloned.Parts = slices.Clone(value.Parts)
+	for i := range cloned.Parts {
+		cloned.Parts[i].Hosts = slices.Clone(cloned.Parts[i].Hosts)
 		if maxBytes < 64<<10 {
-			part := &copy.Parts[i]
+			part := &cloned.Parts[i]
 			if len(part.Text) > 128 {
 				part.Text = PresentationExcerpt(part.Text, 128)
 				part.Omitted++
@@ -96,41 +96,41 @@ func BoundPresentation(value *TranscriptPresentation, maxBytes int) *TranscriptP
 			}
 		}
 	}
-	if len(copy.Parts) > 128 {
-		copy.Omitted += len(copy.Parts) - 128
-		copy.Parts = copy.Parts[len(copy.Parts)-128:]
+	if len(cloned.Parts) > 128 {
+		cloned.Omitted += len(cloned.Parts) - 128
+		cloned.Parts = cloned.Parts[len(cloned.Parts)-128:]
 	}
-	for i := range copy.Parts {
-		part := &copy.Parts[i]
+	for i := range cloned.Parts {
+		part := &cloned.Parts[i]
 		if len(part.Hosts) > 128 {
 			part.Omitted += len(part.Hosts) - 128
 			part.Hosts = part.Hosts[len(part.Hosts)-128:]
 		}
 	}
 	for {
-		encoded, _ := json.Marshal(copy)
+		encoded, _ := json.Marshal(cloned)
 		if len(encoded) <= maxBytes {
 			break
 		}
-		if design := copy.DesignContext; design != nil {
+		if design := cloned.DesignContext; design != nil {
 			switch {
 			case len(design.Elements) > 0:
 				design.Elements = design.Elements[:len(design.Elements)-1]
 			case design.PageURL != "" || design.PageTitle != "":
 				design.PageURL, design.PageTitle = "", ""
 			default:
-				copy.DesignContext = nil
+				cloned.DesignContext = nil
 			}
-			copy.Omitted++
+			cloned.Omitted++
 			continue
 		}
-		if len(copy.Parts) == 0 {
+		if len(cloned.Parts) == 0 {
 			break
 		}
 		// Keep identities and operation outcomes before long reasoning previews.
 		trimmed := false
-		for i := range copy.Parts {
-			part := &copy.Parts[i]
+		for i := range cloned.Parts {
+			part := &cloned.Parts[i]
 			if len(part.Text) > 512 {
 				part.Text = PresentationExcerpt(part.Text, max(512, len(part.Text)/2))
 				part.Omitted++
@@ -145,9 +145,9 @@ func BoundPresentation(value *TranscriptPresentation, maxBytes int) *TranscriptP
 			}
 		}
 		if !trimmed {
-			copy.Parts = copy.Parts[1:]
-			copy.Omitted++
+			cloned.Parts = cloned.Parts[1:]
+			cloned.Omitted++
 		}
 	}
-	return &copy
+	return &cloned
 }

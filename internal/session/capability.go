@@ -56,8 +56,10 @@ type RootGrants struct {
 func FullRootGrants() RootGrants {
 	return RootGrants{
 		Files: []string{"read", "write", "edit", "workspace.write"},
-		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
-			"browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"},
+		Shell: []string{
+			"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
+			"browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port",
+		},
 		MCP: true,
 	}
 }

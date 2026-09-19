@@ -16,14 +16,15 @@ import (
 )
 
 type testDesktopProvider struct {
-	store    *session.Store
-	scope    capability.BrowserScope
-	grant    capability.Reference
-	lifetime context.Context
-	backend  *fakeBackend
-	resolves atomic.Int64
-	executes atomic.Int64
-	lists    atomic.Int64
+	store     *session.Store
+	scope     capability.BrowserScope
+	grant     capability.Reference
+	lifetime  context.Context
+	backend   *fakeBackend
+	resolves  atomic.Int64
+	executes  atomic.Int64
+	lists     atomic.Int64
+	revokeErr error
 }
 
 func (p *testDesktopProvider) ListTabs(context.Context, browser.DesktopIdentity) (browser.DesktopResult, error) {
@@ -60,9 +61,11 @@ func (p *testDesktopProvider) Resolve(_ context.Context, _ browser.DesktopIdenti
 	}
 	return capability.BrowserCall{Grant: ref, Scope: p.scope, Arguments: data}, nil
 }
+
 func (p *testDesktopProvider) CallContext(capability.BrowserCall) (context.Context, error) {
 	return p.lifetime, nil
 }
+
 func (p *testDesktopProvider) Execute(ctx context.Context, r browser.DesktopRequest, run func(context.Context, browser.Backend) (string, error)) (browser.DesktopResult, error) {
 	p.executes.Add(1)
 	result := browser.DesktopResult{AttachmentID: p.scope.AttachmentID, TabID: p.scope.TabID, DocumentRevision: "doc-1"}
@@ -81,13 +84,35 @@ func (p *testDesktopProvider) Execute(ctx context.Context, r browser.DesktopRequ
 	}
 	return result, nil
 }
+
 func (p *testDesktopProvider) Transfer(context.Context, browser.DesktopIdentity, browser.DesktopIdentity, []string) ([]browser.DesktopResult, error) {
 	return nil, nil
 }
+
 func (p *testDesktopProvider) Attachments(context.Context, browser.DesktopIdentity) []browser.DesktopResult {
 	return nil
 }
-func (p *testDesktopProvider) RevokeAgent(context.Context, browser.DesktopIdentity) error { return nil }
+
+func (p *testDesktopProvider) RevokeAgent(context.Context, browser.DesktopIdentity) error {
+	return p.revokeErr
+}
+
+func TestRevokeDesktopAttachmentsHandlesUnavailableProvider(t *testing.T) {
+	s := NewServices()
+	if err := s.RevokeDesktopAttachments(t.Context()); err != nil {
+		t.Fatalf("no provider: %v", err)
+	}
+	s.SetDesktopBrowserProvider(func() browser.DesktopProvider { return nil })
+	if err := s.RevokeDesktopAttachments(t.Context()); err != nil {
+		t.Fatalf("unavailable provider: %v", err)
+	}
+	want := errors.New("revoke failed")
+	p := &testDesktopProvider{revokeErr: want}
+	s.SetDesktopBrowserProvider(func() browser.DesktopProvider { return p })
+	if err := s.RevokeDesktopAttachments(t.Context()); !errors.Is(err, want) {
+		t.Fatalf("revocation error: got %v, want %v", err, want)
+	}
+}
 
 func desktopTestServices(t *testing.T) (*Services, *countingLedger, *testDesktopProvider, capability.Authority) {
 	t.Helper()
@@ -114,6 +139,7 @@ func desktopTestServices(t *testing.T) (*Services, *countingLedger, *testDesktop
 	}
 	return services, ledger, provider, authority
 }
+
 func callDesktop(t *testing.T, s *Services, operation, arguments string) browser.DesktopResult {
 	t.Helper()
 	result, err := s.RunDesktopBrowser(t.Context(), operation, json.RawMessage(arguments))
@@ -122,6 +148,7 @@ func callDesktop(t *testing.T, s *Services, operation, arguments string) browser
 	}
 	return result
 }
+
 func TestDesktopBrowserServicesAdmitResolvedScopeAndRunHelpers(t *testing.T) {
 	s, ledger, p, authority := desktopTestServices(t)
 	var prompts int
@@ -174,6 +201,7 @@ func TestDesktopBrowserServicesAdmitResolvedScopeAndRunHelpers(t *testing.T) {
 		t.Fatal("run used module grant instead of browser resource")
 	}
 }
+
 func TestDesktopBrowserServicesDenyWithoutNativeEffect(t *testing.T) {
 	for _, mode := range []string{"deny", "always", "headless", "no-ui", "module-revoked", "unavailable"} {
 		t.Run(mode, func(t *testing.T) {
@@ -204,6 +232,7 @@ func TestDesktopBrowserServicesDenyWithoutNativeEffect(t *testing.T) {
 		})
 	}
 }
+
 func TestDesktopBrowserServicesRecheckResourceAndModule(t *testing.T) {
 	for _, revoke := range []string{"resource", "module", "scope"} {
 		t.Run(revoke, func(t *testing.T) {
@@ -230,6 +259,7 @@ func TestDesktopBrowserServicesRecheckResourceAndModule(t *testing.T) {
 		})
 	}
 }
+
 func TestDesktopBrowserServicesDisconnectCancelsPermission(t *testing.T) {
 	s, _, p, _ := desktopTestServices(t)
 	lifetime, cancel := context.WithCancel(t.Context())
@@ -261,6 +291,7 @@ func TestDesktopBrowserServicesDisconnectCancelsPermission(t *testing.T) {
 		t.Fatal("disconnect did not cancel permission")
 	}
 }
+
 func TestDesktopBrowserMediaStoreFailureIsExplicit(t *testing.T) {
 	s, _, _, _ := desktopTestServices(t)
 	if result := callDesktop(t, s, "open", `{"url":"https://example.com"}`); result.Error != nil {
