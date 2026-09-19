@@ -27,7 +27,7 @@ vi.mock('../src/connection-notice', () => ({ HostNotice: () => null }));
 vi.mock('../src/conversation', () => ({ SessionContent: () => null, SessionLoading: () => null }));
 vi.mock('../src/workspace-views', () => ({ useWorkspaceViews: (_runtime: unknown, roots: unknown) => { routing.roots(roots); return { views: new Map(), errors: new Map() }; }, workspaceRootKey: ({ runtimeId, rootId }: { runtimeId: string; rootId: string }) => JSON.stringify([runtimeId, rootId]) }));
 // Exercise the shell, imperative tab action and real tab store; layout geometry has separate browser tests.
-vi.mock('@whip/ui/workspace-tabs', () => ({ WorkspaceTabs: ({ utilities }: { utilities: ReactNode }) => <div>{utilities}</div>, workspaceTabId: (id: string) => `tab-${id}` }));
+vi.mock('@whip/ui/workspace-tabs', () => ({ WorkspaceDragScope: ({ children }: { children: ReactNode }) => <>{children}</>, WorkspaceTabs: ({ utilities }: { utilities: ReactNode }) => <div>{utilities}</div>, workspaceTabId: (id: string) => `tab-${id}` }));
 vi.mock('@whip/ui/workspace-layout', () => ({ WorkspaceLayout: () => null, workspacePanelId: (id: string) => `panel-${id}` }));
 beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));

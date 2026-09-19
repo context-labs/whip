@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { RootSnapshot } from '@whip/protocol';
 import { serverNowMs, traceRoots, traceSpans, type DeepReadonly, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, IconButton, Select, Tooltip } from '@whip/ui';
-import { ChevronDown, ChevronRight, Info, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Badge, Button, CodeBlock, IconButton, Select } from '@whip/ui';
+import { ChevronDown, ChevronRight, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from './error-feedback';
 import { ContentRead } from './details/shared';
+import { useTranscriptMotion } from './transcript-motion';
 import { styles, TREE_WIDTH } from './trace-view.stylex';
 import {
   buildSpanTree, fitView, flattenRows, formatDuration, formatTick, isSpanInFlight, niceTicks, panBy, rollup, ROW_HEIGHT,
@@ -15,7 +16,6 @@ import {
 } from './trace-math';
 
 const ALL_TRACES = 'all';
-const traceHelp = 'Spans are recorded by the daemon with nanosecond clocks as the work happens. Open spans grow against the daemon’s clock; timing is never reconstructed from replay.';
 const usd = (micros: number) => `$${(micros / 1e6).toFixed(micros >= 1_000_000 ? 2 : 4)}`;
 const tokens = (value: number) => value >= 1_000_000 ? `${(value / 1e6).toFixed(1)}M` : value >= 10_000 ? `${Math.round(value / 1000)}K` : value >= 1_000 ? `${(value / 1000).toFixed(1)}K` : String(value);
 const kb = (bytes: number) => bytes >= 1024 ? `${(bytes / 1024).toFixed(bytes >= 10_240 ? 0 : 1)} KB` : `${bytes} B`;
@@ -38,26 +38,38 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   lastTurn?: DeepReadonly<NonNullable<RootSnapshot['agents']>[number]['last_turn']>;
 }) {
   const evidence = state.trace;
-  // Page the durable spans in once per connection; live events keep them current afterwards.
-  const pagedFor = useRef<string | undefined>(undefined);
-  const connectionId = connected ? (state.root?.root_id ?? '') + ':' + runtimeId : '';
+  // The transport identity also catches reconnects whose intermediate stale
+  // state was batched away by React. Live events maintain the loaded evidence.
+  const connectionId = view.session.client.getSnapshot().info?.connection_id;
   useEffect(() => {
-    if (!connected || pagedFor.current === connectionId) return;
-    pagedFor.current = connectionId;
-    void view.loadTrace().catch(() => {});
+    if (connected) void view.loadTrace().catch(() => {});
   }, [view, connected, connectionId]);
   const roots = useMemo(() => traceRoots(state), [state]);
   const [picked, setPicked] = useState<string>();
   const traceId = picked ?? roots[0]?.traceId ?? '';
   const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId) as readonly TraceSpan[], [state, traceId]);
   const running = connected && spans.some(isSpanInFlight);
+  const motion = useTranscriptMotion();
   const [now, setNow] = useState(() => serverNowMs(evidence));
+  // Live evidence still advances the clock when motion is reduced.
+  useEffect(() => setNow(serverNowMs(evidence)), [evidence]);
   useEffect(() => {
-    setNow(serverNowMs(evidence));
-    if (!running) return;
-    const timer = setInterval(() => setNow(serverNowMs(view.getSnapshot().trace)), 500);
-    return () => clearInterval(timer);
-  }, [running, view, evidence?.clockOffsetMs]);
+    if (!running || !motion) return;
+    setNow(serverNowMs(view.getSnapshot().trace));
+    const interval = 1000 / 30;
+    let last = performance.now();
+    let frame: number;
+    const tick = (time: number) => {
+      const elapsed = time - last;
+      if (elapsed >= interval) {
+        last = time - (elapsed % interval);
+        setNow(serverNowMs(view.getSnapshot().trace));
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [running, motion, view]);
   const tree = useMemo(() => buildSpanTree(spans), [spans]);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const rows = useMemo(() => {
@@ -70,8 +82,8 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   const timeline = zoom ?? fitView(domain.dur);
   const [selectedId, setSelectedId] = useState<string>();
   const selected = rows.find(row => row.span.id === selectedId) ?? undefined;
-  const totals = useMemo(() => traceTotals(spans, now), [spans, now]);
-  const [panes, setPanes] = useState({ tree: true, timeline: true, details: true });
+  const totals = useMemo(() => traceTotals(spans), [spans]);
+  const [panes, setPanes] = useState({ tree: true, timeline: true, details: false });
   const listRef = useRef<HTMLDivElement>(null);
   const [laneWidth, setLaneWidth] = useState(600);
   useLayoutEffect(() => {
@@ -105,7 +117,6 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   ];
   return <div {...stylex.props(styles.root)} data-session-view="trace">
     <div {...stylex.props(styles.toolbar)}>
-      <Tooltip label={traceHelp}><Button variant="ghost" size="sm" aria-label="About trace timing" aria-description={traceHelp}><Info size={14} /></Button></Tooltip>
       {options.length > 0 && <Select label="Trace" options={options} value={traceId} onValueChange={value => { setPicked(value); setSelectedId(undefined); }} />}
       {running && <Badge tone="info">running</Badge>}
       <span {...stylex.props(styles.toggles)} role="group" aria-label="Panes">
@@ -118,7 +129,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
         <IconButton variant="ghost" size="sm" label="Fit timeline" onClick={() => setZoom(undefined)}><Maximize2 size={14} /></IconButton>
       </span>}
       <span {...stylex.props(styles.totals)} aria-label="Trace totals">
-        <Total label="duration" value={formatDuration(totals.durationMs)} />
+        <Total label="duration" value={formatDuration(spans.length ? domain.dur : 0)} />
         <Total label="spans" value={String(totals.spans)} />
         <Total label="tokens" value={totals.promptTokens === null && totals.completionTokens === null ? '—' : tokens((totals.promptTokens ?? 0) + (totals.completionTokens ?? 0))} />
         <Total label="cost" value={totals.costMicros === null ? '—' : usd(totals.costMicros)} />
@@ -126,6 +137,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
     </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Trace updates are paused. Showing the last available spans.</p>}
     {evidence?.truncated && <p role="status" {...stylex.props(styles.notice)}>Older traces were dropped to keep this view within its memory limit. Export the session for the complete trace.</p>}
+    {evidence?.hasMore && !evidence.error && <Button variant="ghost" disabled={!connected || evidence.loading} onClick={() => void view.loadTrace().catch(() => {})}>{evidence.loading ? 'Loading trace…' : 'Load more spans'}</Button>}
     {evidence?.error && <ErrorNotice type="session" owner={`${viewId}:trace`} error={evidence.error} action={<Button variant="ghost" onClick={() => void view.loadTrace().catch(() => {})}>Retry</Button>} />}
     <div {...stylex.props(styles.body)}>
       {spans.length ? <div ref={listRef} role="tree" aria-label="Trace spans" tabIndex={0} {...stylex.props(styles.list)} onWheel={onWheel}>
@@ -168,8 +180,8 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
           })}
         </div>
       </div> : <div {...stylex.props(styles.empty)}>
-        <strong>{loading ? 'Loading trace…' : !evidence?.loaded && !connected ? 'Trace unavailable' : 'No spans yet'}</strong>
-        <span>{loading ? 'Reading the session’s recorded spans.' : !evidence?.loaded && !connected ? 'Reconnect to read the recorded spans.' : 'Spans appear the moment a turn starts on this host.'}</span>
+        <strong>{loading ? 'Loading trace…' : !evidence?.loaded || evidence.error ? 'Trace unavailable' : 'No recorded spans'}</strong>
+        <span>{loading ? 'Reading the session’s recorded spans.' : evidence?.error ? 'Recorded spans could not be loaded. Retry to read them.' : !evidence?.loaded ? connected ? 'Recorded spans have not been loaded.' : 'Reconnect to read the recorded spans.' : 'This conversation has no recorded span data. Older conversations may predate tracing; historical timings are not reconstructed.'}</span>
       </div>}
       {panes.details && spans.length > 0 && <SpanDetails view={view} node={selected} domainStartMs={domain.startMs} now={now} agents={state.root?.agents} />}
     </div>
@@ -183,10 +195,10 @@ function Total({ label, value }: { label: string; value: string }) {
 
 function SpanDetails({ view, node, domainStartMs, now, agents }: { view: SessionView; node?: TraceNode; domainStartMs: number; now: number; agents?: DeepReadonly<RootSnapshot['agents']> }) {
   const [raw, setRaw] = useState(false);
+  const sums = useMemo(() => node?.span.kind === 'agent' ? rollup(node) : undefined, [node]);
   if (!node) return <aside aria-label="Span details" {...stylex.props(styles.details)}><span {...stylex.props(styles.sectionLabel)}>Details</span><p {...stylex.props(styles.notice)}>Select a span to inspect it.</p></aside>;
   const span = node.span;
   const group = span.kind === 'agent';
-  const sums = group ? rollup(node) : undefined;
   const open = isSpanInFlight(span);
   const attrs = span.attrs;
   const cost = group ? sums!.costMicros : text(attrs.cost_source) === 'reported' || text(attrs.cost_source) === 'estimated' ? Number(attrs.cost_micros ?? 0) : null;

@@ -1,11 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -68,5 +71,105 @@ func TestTraceRPCsPageSpansAndExportInlineOrByReference(t *testing.T) {
 	}
 	if _, err := client.TraceExport(t.Context(), protocol.TraceExportParams{}); err == nil {
 		t.Fatal("an export without a root must fail")
+	}
+}
+
+// Historical trace reads must not construct a session actor, even after the
+// database is reopened by a new daemon with no roots in memory.
+func TestTracePageAfterReopenDoesNotOpenRuntime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	store := openStore(t, path)
+	defer store.Close()
+	root := createRoot(t, store)
+	emptyRoot := createRoot(t, store)
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano()
+	turn := session.SpanRecord{
+		ID:      session.TurnSpanID(root, root, "historical"),
+		TraceID: session.TraceIDForTurn("historical"),
+		RootID:  root, AgentID: root, TurnID: "historical", Kind: session.SpanKindAgent,
+		Name: "root", StartNS: start, EndNS: start + 1000, Status: session.SpanStatusOK,
+	}
+	if err := store.RecordSpanEnd(t.Context(), turn); err != nil {
+		t.Fatal(err)
+	}
+	child := session.SpanRecord{
+		ID: session.ToolSpanID(root, root, turn.TurnID, "call"), TraceID: turn.TraceID, ParentID: turn.ID,
+		RootID: root, AgentID: root, TurnID: turn.TurnID, Kind: session.SpanKindTool,
+		Name: "files.read", StartNS: start + 100, EndNS: start + 200, Status: session.SpanStatusOK,
+	}
+	if err := store.RecordSpanEnd(t.Context(), child); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = openStore(t, path)
+	opens := 0
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		opens++
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	server := &Server{daemon: owner}
+	page := func(params protocol.TracePageParams) session.SpanPage {
+		t.Helper()
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, failure := server.handle(
+			&serverConn{ctx: t.Context()}, rpcMessage{Method: "trace.page", Params: raw},
+		)
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		return result.(session.SpanPage)
+	}
+	first := page(protocol.TracePageParams{RootID: root, Limit: 1})
+	if len(first.Spans) != 1 || first.Spans[0].ID != turn.ID || first.Spans[0].EndNS != turn.EndNS ||
+		!first.HasMore || first.NextSeq <= 0 || first.ServerTimeNS <= start {
+		t.Fatalf("first historical page: %+v", first)
+	}
+	second := page(protocol.TracePageParams{RootID: root, AfterSeq: first.NextSeq, Limit: 1})
+	if len(second.Spans) != 1 || second.Spans[0].ID != child.ID ||
+		second.HasMore || second.NextSeq <= first.NextSeq {
+		t.Fatalf("second historical page: %+v", second)
+	}
+	last := page(protocol.TracePageParams{RootID: root, AfterSeq: second.NextSeq})
+	if last.Spans == nil || len(last.Spans) != 0 || last.HasMore || last.NextSeq != second.NextSeq {
+		t.Fatalf("exhausted historical page: %+v", last)
+	}
+	roots := page(protocol.TracePageParams{RootID: root, TraceID: turn.TraceID, RootsOnly: true})
+	if len(roots.Spans) != 1 || roots.Spans[0].ID != turn.ID || roots.HasMore {
+		t.Fatalf("historical trace roots: %+v", roots)
+	}
+	empty := page(protocol.TracePageParams{RootID: emptyRoot})
+	if empty.RootID != emptyRoot || empty.Spans == nil || len(empty.Spans) != 0 ||
+		empty.HasMore || empty.NextSeq != 0 || empty.ServerTimeNS <= 0 {
+		t.Fatalf("empty historical page: %+v", empty)
+	}
+	if opens != 0 {
+		t.Fatalf("historical reads constructed %d session actors", opens)
+	}
+
+	// Stopping an actor leaves a tombstone in the registry. Trace reads must
+	// still use the durable rows rather than consulting that actor.
+	active, err := owner.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active.Stop()
+	select {
+	case <-active.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("fixture session did not stop")
+	}
+	stopped := page(protocol.TracePageParams{RootID: root})
+	if len(stopped.Spans) != 2 || stopped.HasMore || opens != 1 {
+		t.Fatalf("trace after actor stop: page=%+v opens=%d", stopped, opens)
 	}
 }

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -448,5 +449,46 @@ func TestInternContentReusesReferencesAndPatchesSettledSpans(t *testing.T) {
 	}
 	if err := store.PatchSpanAttrs(ctx, "", span.ID, map[string]any{"x": 1}); err == nil {
 		t.Fatal("patching without a root must fail")
+	}
+}
+
+// Pre-instrumentation transcripts have no measured span boundaries. Upgrading
+// must retain the conversation without inventing spans or requiring activity.
+func TestSpanMigrationPreservesHistoryWithoutBackfilling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	root := createEngineSession(t, store, "starlark")
+	messages := []llm.Message{
+		{Role: "user", Content: "old question"},
+		{Role: "assistant", Content: "old answer"},
+	}
+	if err := store.Save(root, 0, messages, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(t.Context(), dropTraceSchema+`
+		UPDATE runtime_schema SET identity='whip-recursive-runtime-v18'; PRAGMA user_version=18;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, history, err := store.Load(root)
+	if err != nil || len(history) != len(messages) || history[1].Content != messages[1].Content {
+		t.Fatalf("legacy history=%+v err=%v", history, err)
+	}
+	page, err := store.PageSpans(t.Context(), root, "", 0, 1, false)
+	if err != nil || page.RootID != root || page.Spans == nil || len(page.Spans) != 0 ||
+		page.HasMore || page.NextSeq != 0 || page.ServerTimeNS <= 0 {
+		t.Fatalf("pre-instrumentation page=%+v err=%v", page, err)
 	}
 }

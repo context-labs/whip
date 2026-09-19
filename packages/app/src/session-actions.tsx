@@ -4,7 +4,7 @@ import type { WhipClient } from '@whip/sdk';
 import { Button, Dialog, Field, Input, useToast, type MenuItem } from '@whip/ui';
 import { useAppState, useRuntime } from './context';
 import { errorMessage, readPreference, type ProjectEditor } from './platform';
-import { sessionDestination, tabDestination, openAfterLastClose } from './session-tab-routing';
+import { sessionDestination, tabDestination, openAfterLastClose, openChatView } from './session-tab-routing';
 import { selectedSessionTab } from './session-tabs';
 import { ErrorNotice } from './error-feedback';
 
@@ -177,6 +177,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       ...(remote ? [{ id: 'ssh', label: 'Configure SSH for editors…', disabled, onSelect: () => void begin(target, 'ssh') }] : []),
     ] : [];
     return [
+      { id: 'new-tab', label: 'Open in new tab', disabled: busy || !host, onSelect: () => void openChatView(runtime, navigate, target.runtimeId, target.rootId, target.title) },
       { id: 'background', label: 'Open in background tab', disabled, onSelect: () => { try { runtime.tabs.open(target.runtimeId, target.rootId, target.title); } catch (error) { setFailure({ target, title: 'Could not open session tab', error }); } } },
       { id: 'open-in', label: 'Open in', disabled, items: [...native, { id: 'copy-directory', label: 'Copy directory', disabled, onSelect: () => void openDirectory(target) }] },
       { id: 'rename', label: 'Rename', disabled, onSelect: () => void begin(target, 'rename') },

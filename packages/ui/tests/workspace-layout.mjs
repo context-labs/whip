@@ -166,7 +166,229 @@ try {
       await expect(notes).toHaveValue('A second renderer keeps its editable state across docking.');
       assert(await notes.evaluate(element => element === window.__notes), 'The notes renderer remounted during docking');
       await page.screenshot({ path: resolve(output, `${name}-light.png`) });
-      console.log(`${name}: nested layout, stable view movement, shared drag/cancel, keyboard/pointer resize, compact restoration, Axe and strict CSP passed`);
+      // A sidebar source is not a sortable tab: it opens a new view without moving
+      // the source or disturbing the selected view in the other pane.
+      const externalVisit = async (options = '') => {
+        await page.goto(`${origin}/?external&${options}`);
+        await expect(page.getByRole('link', { name: 'Saved alpha', exact: true })).toBeVisible();
+        await expect(page.locator('[data-workspace-tab-strip]')).toHaveCount(options.includes('standalone') || options.includes('compact') ? 1 : 2);
+      };
+      const strip = id => page.locator(`[data-workspace-tab-strip="${id}"]`);
+      const order = id => strip(id).locator('[data-workspace-tab]').evaluateAll(nodes => nodes.map(node => node.dataset.workspaceTab));
+      const externalDrops = () => page.getByLabel('External drops');
+      const preview = page.locator('[data-workspace-drag-preview]');
+      const pointIn = async (locator, fraction = .5) => {
+        const box = await locator.boundingBox();
+        assert(box, 'Drop target has no geometry');
+        return { x: box.x + box.width * fraction, y: box.y + box.height / 2 };
+      };
+      const externalDrag = async point => {
+        const before = await externalDrops().textContent();
+        const source = page.getByRole('link', { name: 'Saved alpha', exact: true });
+        const from = await pointIn(source);
+        await page.mouse.move(from.x, from.y); await page.mouse.down();
+        await page.mouse.move(from.x + 9, from.y);
+        await expect(preview).toHaveCount(1);
+        await page.mouse.move(point.x, point.y, { steps: 20 });
+        await expect(preview).toBeVisible();
+        assert.equal(await preview.locator('button,a,[role=tab],[id]').count(), 0, 'External preview duplicated live controls');
+        await expect(source).toBeVisible();
+        await expect(externalDrops()).toHaveText(before);
+        await expect(page.getByLabel('Source clicks')).toHaveText('');
+      };
+      const cleanExternal = async () => {
+        await expect(preview).toHaveCount(0);
+        await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
+        assert.deepEqual(await page.evaluate(() => window.__cspErrors), [], `${name}: external drag CSP violations`);
+        assert.equal(await page.locator('style').count(), 0, `${name}: external runtime style injection`);
+      };
+      await externalVisit();
+      await page.getByRole('textbox', { name: 'Draft alpha' }).fill('Original view survives');
+      await page.evaluate(() => {
+        window.__externalSource = document.querySelector('a[href="#saved-alpha"]');
+        window.__externalDraft = document.querySelector('textarea[aria-label="Draft alpha"]');
+        window.__externalScroll = document.querySelector('[data-view-scroll="alpha"]');
+        window.__externalScroll.scrollTop = 160;
+      });
+      await externalDrag(await pointIn(tab('delta'), .15));
+      await page.mouse.up();
+      await expect.poll(() => order('two')).toEqual(['gamma', 'external-view-1', 'delta']);
+      await expect(tab('external-view-1')).toHaveAttribute('aria-selected', 'true');
+      await expect(tab('alpha')).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(() => order('one')).toEqual(['alpha', 'beta']);
+      await expect(page.getByRole('textbox', { name: 'Draft alpha' })).toHaveValue('Original view survives');
+      assert(await page.evaluate(() => window.__externalSource === document.querySelector('a[href="#saved-alpha"]') && window.__externalDraft === document.querySelector('textarea[aria-label="Draft alpha"]') && window.__externalScroll === document.querySelector('[data-view-scroll="alpha"]') && window.__externalScroll.scrollTop === 160), 'External drop replaced source or other pane view');
+      assert.equal(new URL(page.url()).hash, '', 'Drag navigated the sidebar link');
+      await cleanExternal();
+      // Every subsequent drop also creates a fresh ID, even for the same payload.
+      await externalDrag(await pointIn(tab('gamma'), .1));
+      await page.mouse.up();
+      await expect.poll(() => order('two')).toEqual(['external-view-2', 'gamma', 'external-view-1', 'delta']);
+      await cleanExternal();
+
+      // Empty usable strip space accepts append; utilities and content centers don't.
+      for (const target of ['empty', 'append', 'utility', 'content', 'outside']) {
+        await externalVisit(target === 'empty' ? 'empty' : '');
+        const locator = target === 'utility' ? page.getByRole('button', { name: 'Utility two' })
+          : target === 'content' ? page.locator('[data-workspace-slot="two"]')
+          : target === 'outside' ? page.getByRole('button', { name: 'Session action' }) : strip('two');
+        await externalDrag(await pointIn(locator, target === 'append' ? .98 : .5));
+        await page.mouse.up();
+        if (target === 'empty' || target === 'append') {
+          await expect.poll(() => order('two')).toEqual(target === 'empty' ? ['external-view-1'] : ['gamma', 'delta', 'external-view-1']);
+        } else await expect(externalDrops()).toHaveText('[]');
+        await cleanExternal();
+      }
+      const edgePoint = async (paneId, edge) => {
+        const box = await page.locator(`[data-workspace-slot="${paneId}"]`).boundingBox();
+        assert(box);
+        return { x: box.x + box.width * (edge === 'left' ? .01 : edge === 'right' ? .99 : .5),
+          y: box.y + box.height * (edge === 'top' ? .01 : edge === 'bottom' ? .99 : .5) };
+      };
+      await page.setViewportSize({ width: 1800, height: 1000 });
+      for (const edge of ['left', 'right', 'top', 'bottom']) {
+        await externalVisit();
+        await page.getByRole('textbox', { name: 'Draft gamma' }).fill('Keep the target draft and reading position');
+        await page.evaluate(() => {
+          window.__edgeDraft = document.querySelector('textarea[aria-label="Draft gamma"]');
+          window.__edgeScroll = document.querySelector('[data-view-scroll="gamma"]');
+          window.__edgeScroll.scrollTop = 160;
+        });
+        await externalDrag(await edgePoint('two', edge));
+        await expect(page.locator(`[data-workspace-drop="${edge}"]`)).toBeVisible();
+        await expect(page.locator('[data-workspace-tab-strip]')).toHaveCount(2);
+        await page.mouse.up();
+        await expect(page.locator('[data-workspace-tab-strip]')).toHaveCount(3);
+        await expect.poll(() => order('two')).toEqual(['gamma', 'delta']);
+        await expect.poll(() => order('one')).toEqual(['alpha', 'beta']);
+        await expect.poll(() => order('external-pane-1')).toEqual(['external-view-1']);
+        await expect(tab('external-view-1')).toHaveAttribute('aria-selected', 'true');
+        const oldBox = await page.locator('[data-workspace-frame="two"]').boundingBox();
+        const newBox = await page.locator('[data-workspace-frame="external-pane-1"]').boundingBox();
+        assert(edge === 'left' ? newBox.x + newBox.width <= oldBox.x + 1
+          : edge === 'right' ? oldBox.x + oldBox.width <= newBox.x + 1
+          : edge === 'top' ? newBox.y + newBox.height <= oldBox.y + 1
+          : oldBox.y + oldBox.height <= newBox.y + 1, `${edge}: wrong split placement`);
+        assert.equal(await page.evaluate(() => window.__edgeDraft === document.querySelector('textarea[aria-label="Draft gamma"]')
+          && window.__edgeScroll === document.querySelector('[data-view-scroll="gamma"]')
+          && window.__edgeScroll.scrollTop === 160), true, `${edge}: original view remounted or lost reading position`);
+        await expect(page.getByRole('textbox', { name: 'Draft gamma' })).toHaveValue('Keep the target draft and reading position');
+        await cleanExternal();
+      }
+      // Two accepted edges reach the pane cap; a fifth pane must not be offered.
+      await externalVisit();
+      for (const paneId of ['one', 'two']) {
+        await externalDrag(await edgePoint(paneId, 'top'));
+        await page.mouse.up();
+        await cleanExternal();
+      }
+      await expect(page.locator('[data-workspace-tab-strip]')).toHaveCount(4);
+      const cappedDrops = await externalDrops().textContent();
+      await externalDrag(await edgePoint('two', 'left'));
+      await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
+      await page.mouse.up();
+      await expect(externalDrops()).toHaveText(cappedDrops);
+      await cleanExternal();
+      // Compact presentation and insufficient dimensions reject edges without mutation.
+      for (const test of [{ options: 'compact', width: 1800, height: 1000, pane: 'one', edge: 'left' },
+        { options: '', width: 1400, height: 1000, pane: 'two', edge: 'left' },
+        { options: '', width: 1800, height: 500, pane: 'two', edge: 'top' }]) {
+        await page.setViewportSize({ width: test.width, height: test.height });
+        await externalVisit(test.options);
+        await externalDrag(await edgePoint(test.pane, test.edge));
+        await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
+        await page.mouse.up();
+        await expect(externalDrops()).toHaveText('[]');
+        await cleanExternal();
+      }
+      await page.setViewportSize({ width: 1800, height: 1000 });
+      for (const target of ['tab', 'edge']) for (const cancellation of ['escape', 'blur', 'pointercancel', 'remove', 'reject']) {
+        await externalVisit();
+        await externalDrag(target === 'edge' ? await edgePoint('two', 'top') : await pointIn(tab('gamma'), .1));
+        if (target === 'edge') await expect(page.locator('[data-workspace-drop="top"]')).toBeVisible();
+        if (cancellation === 'escape') await page.keyboard.press('Escape');
+        if (cancellation === 'blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        if (cancellation === 'pointercancel') await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true })));
+        if (cancellation === 'remove') await page.getByRole('button', { name: 'Remove source' }).evaluate(button => button.click());
+        if (cancellation === 'reject') {
+          await page.getByRole('button', { name: 'Reject external drops' }).evaluate(button => button.click());
+          await expect(page.getByRole('button', { name: 'Reject external drops' })).toBeDisabled();
+        } else await expect(preview, `${name}: ${cancellation} removes the drag before release`).toHaveCount(0);
+        await page.mouse.up();
+        await expect(externalDrops(), `${name}: ${cancellation} should cancel without creation`).toHaveText('[]');
+        await expect.poll(() => order('two')).toEqual(['gamma', 'delta']);
+        await expect(page.getByLabel('Source clicks')).toHaveText('');
+        await cleanExternal();
+      }
+      // Release in the same task as DOM removal, before the RAF cleanup sees it.
+      await externalVisit();
+      await page.evaluate(() => document.addEventListener('pointerdown', event => { window.__sourcePointer = event.pointerId; }, { once: true }));
+      const removedTarget = await pointIn(tab('gamma'), .1);
+      await externalDrag(removedTarget);
+      await page.evaluate(point => {
+        document.querySelector('a[href="#saved-alpha"]').remove();
+        document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: window.__sourcePointer, pointerType: 'mouse', button: 0, buttons: 0, clientX: point.x, clientY: point.y }));
+      }, removedTarget);
+      await page.mouse.up();
+      await expect(externalDrops()).toHaveText('[]');
+      await expect.poll(() => order('two')).toEqual(['gamma', 'delta']);
+      await cleanExternal();
+      // Normal/modified links and sibling actions keep their native semantics.
+      await externalVisit();
+      const source = page.getByRole('link', { name: 'Saved alpha', exact: true });
+      await source.click();
+      await expect(page.getByLabel('Source clicks')).toHaveText('plain');
+      assert.equal(new URL(page.url()).hash, '#saved-alpha');
+      for (const modifier of ['Control', 'Meta', 'Shift', 'Alt']) {
+        await externalVisit();
+        const from = await pointIn(source), to = await pointIn(tab('gamma'));
+        await page.keyboard.down(modifier);
+        await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 20 });
+        await expect(preview).toHaveCount(0);
+        await page.mouse.up(); await page.keyboard.up(modifier);
+        await expect(externalDrops()).toHaveText('[]');
+      }
+      await source.focus(); await page.keyboard.press('Enter');
+      await expect(page.getByLabel('Source clicks')).toHaveText('plain');
+      await page.getByRole('button', { name: 'Session action' }).click();
+      await expect(page.getByLabel('Source clicks')).toHaveText('action');
+      const disabled = await pointIn(page.getByRole('link', { name: 'Disabled source' }));
+      await page.mouse.move(disabled.x, disabled.y); await page.mouse.down();
+      const disabledTarget = await pointIn(tab('gamma'));
+      await page.mouse.move(disabledTarget.x, disabledTarget.y, { steps: 20 });
+      await expect(preview).toHaveCount(0); await page.mouse.up();
+      await expect(externalDrops()).toHaveText('[]');
+
+      for (const options of ['zoom', 'rtl', 'zoom&rtl', 'reduced']) {
+        await page.emulateMedia({ reducedMotion: options === 'reduced' ? 'reduce' : 'no-preference' });
+        await externalVisit(options);
+        await externalDrag(await pointIn(tab('gamma'), options.includes('rtl') ? .9 : .1));
+        await page.mouse.up();
+        await expect.poll(() => order('two')).toEqual(['external-view-1', 'gamma', 'delta']);
+        await cleanExternal();
+      }
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await externalVisit('standalone');
+      await expect(page.locator('[data-workspace-layout]')).toHaveCount(0);
+      await externalDrag(await pointIn(tab('gamma'), .1));
+      await page.mouse.up();
+      await expect.poll(() => order('two')).toEqual(['external-view-1', 'gamma', 'delta']);
+      await cleanExternal();
+      await drag('delta', await pointIn(tab('external-view-1'), .1));
+      await page.mouse.up();
+      await expect.poll(() => order('two')).toEqual(['delta', 'external-view-1', 'gamma']);
+      await cleanExternal();
+      await externalVisit('overflow');
+      await externalDrag(await pointIn(strip('two'), .98));
+      await expect.poll(() => strip('two').evaluate(element => element.scrollLeft)).toBeGreaterThan(100);
+      await page.mouse.up();
+      await expect(externalDrops()).not.toHaveText('[]');
+      await cleanExternal();
+      await page.addScriptTag({ url: `${origin}/axe.js` });
+      const externalViolations = await page.evaluate(async () => (await axe.run(document.getElementById('root'), { runOnly: { type: 'rule', values: ['button-name', 'aria-required-children', 'aria-required-parent', 'aria-valid-attr-value', 'nested-interactive'] } })).violations);
+      assert.deepEqual(externalViolations, [], `${name}: external fixture accessibility`);
+      assert.deepEqual(errors, [], `${name}: browser errors after external drags`);
+      console.log(`${name}: existing layout regressions plus external insertion and all four split edges, stable source/views, invalid targets, pane cap/minimum/compact guards, edge cancellation, links, zoom/RTL, overflow, reduced motion, Axe and strict CSP passed`);
     } finally { await browser.close(); }
   }
 } finally { await new Promise(resolve => server.close(resolve)); }

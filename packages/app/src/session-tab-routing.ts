@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind } from './session-tabs';
+import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -42,6 +42,16 @@ export function tabDestination(tab: SessionTab) {
   if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
+}
+
+/** Sidebar drag and menu intent always opens another view, never another session. */
+export function openChatView(runtime: AppRuntime, navigate: AnyRouter['navigate'], runtimeId: string, rootId: string, titleHint = '', target?: ChatViewTarget) {
+  try {
+    if (!runtime.connections.host(runtimeId)) throw new Error('This execution host is no longer available.');
+    const tab = runtime.tabs.openChatView(runtimeId, rootId, titleHint, target);
+    void navigate(tabDestination(tab)).catch(error => runtime.reportWorkspace(error));
+    return tab;
+  } catch (error) { runtime.reportWorkspace(error); }
 }
 
 /** Explicit creation intent: start a shell on the host, then open and select its tab. */

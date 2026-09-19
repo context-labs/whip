@@ -398,6 +398,16 @@ the client attached may be unavailable. This API does not add a subscription,
 fetch all history or load every child's transcript. Use `loadOlder(agentId)` and
 scoped content reads explicitly when needed.
 
+`await view.loadTrace()` reads durable span pages for the root, including inactive
+persisted conversations, independently of root snapshot/history refreshes.
+Concurrent callers share the pending read. Each call loads at most eight pages;
+`state.trace.hasMore` indicates explicit continuation. `loading` settles on
+completion, error, page-budget exhaustion or disconnect; retry resumes at the
+last durable page cursor. Call again on reconnect to catch up on missed span
+events. Empty successful reads set `loaded` without fabricating spans for
+conversations that predate tracing. Live span events share the root subscription
+and do not advance the durable page cursor.
+
 For scripts, `await client.events.subscribe(rootId, cursor)` gives a single
 bounded async iterator. Install a view or read a snapshot to obtain a cursor.
 Expired cursors, sequence gaps, and slow consumers fail explicitly; reacquire a

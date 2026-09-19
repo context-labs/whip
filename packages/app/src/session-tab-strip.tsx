@@ -7,7 +7,7 @@ import { Button, ContextMenu, IconButton, Input, Menu, Sheet, type MenuItem } fr
 import { WorkspaceTabs, workspaceTabId } from '@whip/ui/workspace-tabs';
 import { WorkspaceLayout, workspacePanelId, type WorkspaceDrop } from '@whip/ui/workspace-layout';
 import { SessionContent, SessionLoading } from './conversation';
-import { SessionInfoBar } from './session-info-bar';
+import { SessionTopBar } from './session-top-bar';
 import { isSessionTab, selectedSessionTab, sessionPanes, sessionViewPane, sessionSearch, type SessionPane, type SessionTab, type SplitEdge, viewSuffix } from './session-tabs';
 import { TerminalView } from './terminal-view';
 import { BrowserView } from './browser-view';
@@ -19,7 +19,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { browserDestination, openBrowserTab, draftDestination, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { browserDestination, openBrowserTab, draftDestination, openChatView, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(viewId?: string): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
@@ -175,7 +175,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     } catch (error) { runtime.reportWorkspace(error); }
   };
   const canSplit = (paneId: string, edge: SplitEdge) => {
-    if (compact || small || panes.length >= 4) return false;
+    if (compact || small || sessionPanes(runtime.tabs.workspace().layout).length >= 4) return false;
     const frame = [...document.querySelectorAll<HTMLElement>('[data-workspace-frame]')].find(el => el.dataset.workspaceFrame === paneId);
     if (!frame) return false;
     return edge === 'left' || edge === 'right' ? frame.clientWidth >= 641 : frame.clientHeight >= 481;
@@ -184,6 +184,18 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     if (!drop.edge) return true;
     const source = sessionViewPane(runtime.tabs.workspace(), drop.viewId);
     return !!source && !(source.id === drop.paneId && source.tabs.length === 1) && panes.length + (source.tabs.length > 1 ? 1 : 0) <= 4;
+  };
+  const sidebarSession = (data: unknown): { runtimeId: string; rootId: string; titleHint?: string } | undefined => {
+    if (!data || typeof data !== 'object' || !('runtimeId' in data) || !('rootId' in data)) return;
+    if (typeof data.runtimeId !== 'string' || typeof data.rootId !== 'string' || !data.rootId || !runtime.connections.host(data.runtimeId)) return;
+    return { runtimeId: data.runtimeId, rootId: data.rootId, titleHint: 'titleHint' in data && typeof data.titleHint === 'string' ? data.titleHint : '' };
+  };
+  const canDropSession = (data: unknown, drop: WorkspaceDrop) => !!sidebarSession(data) && (!drop.edge || canSplit(drop.paneId, drop.edge))
+    && runtime.tabs.canOpen() && sessionPanes(runtime.tabs.workspace().layout).some(pane => pane.id === drop.paneId);
+  const dropSession = (data: unknown, drop: WorkspaceDrop) => {
+    const session = sidebarSession(data);
+    if (!session || !canDropSession(data, drop)) return;
+    return openChatView(runtime, navigate, session.runtimeId, session.rootId, session.titleHint, { paneId: drop.paneId, index: drop.index, edge: drop.edge })?.id;
   };
   const transfer = (drop: WorkspaceDrop) => {
     try { runtime.tabs.transfer(drop.viewId, drop.paneId, drop.edge, drop.index); go(drop.viewId); }
@@ -241,7 +253,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     newTerminal() { newTerminal(focusedPane); },
   }));
   const add = <IconButton variant="ghost" label="New session tab" onClick={() => openNewChat(runtime, navigate)}><Plus size={17} /></IconButton>;
-  const renderStrip = (pane: SessionPane, shared: boolean) => <WorkspaceTabs groupId={shared ? pane.id : undefined} label={panes.length > 1 ? `Open sessions in pane ${panes.indexOf(pane) + 1}` : 'Open sessions'}
+  const renderStrip = (pane: SessionPane, shared: boolean) => <WorkspaceTabs groupId={pane.id} onExternalDrop={shared ? undefined : dropSession} canDropExternal={canDropSession} label={panes.length > 1 ? `Open sessions in pane ${panes.indexOf(pane) + 1}` : 'Open sessions'}
     windowDrag={inset && pane.id === panes[0]?.id} trafficLightInset={inset && sidebarHidden}
     leading={(!matched || pane.id === visiblePanes[0]?.id) ? utilities : undefined}
     value={matched ? pane.selected ?? null : null} onClose={id => close([id])} panelId={pane.selected ? workspacePanelId(pane.selected) : undefined}
@@ -271,7 +283,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     {notices}
     <ErrorNotice type="action" owner="workspace" title="Could not update the workspace" error={runtime.getSnapshot().workspaceError} onDismiss={() => runtime.clearWorkspaceError()} />
     {matched ? <WorkspaceLayout layout={workspace.layout} focusedPaneId={workspace.focusedPaneId} compact={compact} onCompactChange={setSmall}
-      onResize={(id, ratio) => runtime.tabs.resize(id, ratio)} onDrop={transfer} canDrop={canDrop} onFocusPane={focusPane}
+      onResize={(id, ratio) => runtime.tabs.resize(id, ratio)} onDrop={transfer} canDrop={canDrop} onExternalDrop={dropSession} canDropExternal={canDropSession} onFocusPane={focusPane}
       renderHeader={id => compact ? null : renderStrip(panes.find(p => p.id === id)!, true)}
       panels={visibleTabs.map(tab => {
         if (tab.kind === 'browser') return { id: tab.id, paneId: sessionViewPane(workspace, tab.id)!.id, label: `Browser: ${title(tab)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id), content: <BrowserView key={tab.id} tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/> };
@@ -287,10 +299,10 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${viewSuffix(tab.kind)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
           content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
-            <SessionInfoBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!views.errors.has(workspaceRootKey(tab))}
+            <SessionTopBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!views.errors.has(workspaceRootKey(tab))}
               activity={<span role="status">{views.errors.has(workspaceRootKey(tab)) ? 'Session unavailable' : 'Loading session…'}</span>}
-              onRepl={tab.kind !== 'repl' ? () => { void openSessionView(runtime, navigate, tab.id, 'repl'); } : undefined}
-              onTrace={tab.kind !== 'trace' ? () => { void openSessionView(runtime, navigate, tab.id, 'trace'); } : undefined} />
+              onRepl={() => { void openSessionView(runtime, navigate, tab.id, 'repl'); }}
+              onTrace={() => { void openSessionView(runtime, navigate, tab.id, 'trace'); }} />
             {views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}
           </> };
       })}/>

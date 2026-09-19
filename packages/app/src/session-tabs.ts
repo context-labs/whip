@@ -4,6 +4,7 @@ import { browserURL, browserTitle, MAX_BROWSER_TABS } from './browser-address';
 
 export interface SessionLocation { agent?: string; panel?: InspectorSection }
 export type SessionViewKind = 'chat' | 'repl' | 'trace';
+export interface ChatViewTarget { paneId?: string; index?: number; edge?: SplitEdge }
 export interface SessionSearch extends SessionLocation { view?: 'repl' | 'trace' }
 export interface SessionBackedTab {
   readonly id: string;
@@ -450,6 +451,31 @@ export class SessionTabs {
     const existing = this.preferred(runtimeId, rootId);
     if (existing) return existing.id;
     return this.add({ id: rootId, kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) }, paneId);
+  }
+  /** Open an independent root chat view, selecting and placing it in one write. */
+  openChatView(runtimeId: string, rootId: string, titleHint = '', target: ChatViewTarget = {}): SessionBackedTab {
+    if (!identity(runtimeId)) throw new Error('Invalid execution host identity');
+    if (!identity(rootId)) throw new Error('Invalid session identity');
+    const workspace = this.workspace();
+    const pane = sessionPanes(workspace.layout).find(p => p.id === (target.paneId ?? workspace.focusedPaneId));
+    if (!pane) throw new Error('This pane is no longer available. Choose another tab strip.');
+    if (target.index !== undefined && !Number.isFinite(target.index)) throw new Error('Invalid tab insertion index');
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab: SessionBackedTab = { id: newId(), kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) };
+    if (target.edge) {
+      if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Open this session in an existing pane.');
+      const newPane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+      this.write({ ...workspace, focusedPaneId: newPane.id, restoreSelection: true,
+        layout: replaceNode(workspace.layout, pane.id, node => splitNode(node, newPane, target.edge!)) });
+      return tab;
+    }
+    const selected = pane.tabs.findIndex(item => item.id === pane.selected);
+    const index = target.index ?? (selected < 0 ? pane.tabs.length : selected + 1);
+    const tabs = [...pane.tabs];
+    tabs.splice(Math.max(0, Math.min(tabs.length, Math.trunc(index))), 0, tab);
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
+    return tab;
   }
   /** Insert a tab for a shell the host already started, after the pane's selected tab. */
   openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {

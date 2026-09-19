@@ -1,5 +1,5 @@
 import { typography } from '@whip/ui/tokens.stylex';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -118,10 +118,10 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
 }
 
 /** The same catalog picker can edit a session or a settings draft. */
-export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, footer, xstyle }: {
+export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, onSessionOptions, xstyle }: {
   catalog?: CatalogResult; loading?: boolean; error?: string; model: string; provider: string; disabled?: boolean;
   onChange(model: string, provider: string): void | Promise<unknown>; onRetry?(): void; label?: string; settings?: boolean;
-  footer?: ReactNode;
+  onSessionOptions?(): void;
 } & Styled) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -187,7 +187,10 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
         <Link to="/settings" search={{ section: 'providers' }} {...stylex.props(styles.manage)} onClick={() => setOpen(false)}>
           <SlidersHorizontal size={14} /> Manage models
         </Link>
-        {footer}
+        {onSessionOptions && <Button variant="ghost" xstyle={styles.manage} disabled={pending}
+          onClick={() => { setOpen(false); onSessionOptions(); }}>
+          <SlidersHorizontal size={14} /> Session options
+        </Button>}
       </div>}
     </div>}
   </Popover>;
@@ -266,7 +269,7 @@ const styles = stylex.create({
   optionActive: { backgroundColor: colors.hover },
   check: { color: surface.secondaryText, flexShrink: 0 },
   footer: { flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },
-  manage: { display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: typography.size13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
+  manage: { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', width: '100%', fontWeight: 400, gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: typography.size13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
   card: { width: 232, maxWidth: 'var(--available-width)', maxHeight: 'var(--available-height)', overflow: 'auto', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: typography.size12, color: colors.foreground, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
   cardRow: { display: 'flex', flexShrink: 0, justifyContent: 'space-between', gap: 10, minWidth: 0 },
   cardLabel: { color: surface.secondaryText, flexShrink: 0, fontSize: typography.size11 },

@@ -1,3 +1,4 @@
+import { WorkspaceExternalSource } from '@whip/ui/workspace-tabs';
 import { ErrorNotice } from './error-feedback';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
@@ -8,7 +9,7 @@ import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
 import type { SessionCatalogPage } from '@whip/protocol';
 import { useQuery } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
-import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
+import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
@@ -288,7 +289,10 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
         return <div key={item.key} data-sidebar-session={session.id} data-sidebar-cwd={session.cwd}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }}>
           <ContextMenu items={menuItems} onOpenChange={actions.prepare}><div {...stylex.props(styles.sessionRow, sessionMarker, active && styles.selected)}>
-            <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
+            <WorkspaceExternalSource id={`sidebar:${JSON.stringify([runtimeId, session.id])}`}
+              data={{ runtimeId, rootId: session.id, titleHint: session.title }}
+              label={session.title || 'Untitled session'} status={<MessageSquare size={13}/>} disabled={touch || !runtimeId}>
+              {sourceProps => <Link {...sourceProps} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
               aria-current={active ? 'page' : undefined} title={`${session.title || 'Untitled session'}\n${session.cwd}`}
               onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -301,7 +305,8 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
                 : <Circle size={5} aria-hidden="true" />}</span>
               <span {...stylex.props(layout.grow)}><span {...stylex.props(styles.title, layout.ellipsis)}>{session.title || 'Untitled session'}</span>
               </span>
-            </Link>
+            </Link>}
+            </WorkspaceExternalSource>
             <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
           </div></ContextMenu>
         </div>;

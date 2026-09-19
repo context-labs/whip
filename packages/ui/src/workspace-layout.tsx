@@ -1,11 +1,10 @@
 import * as stylex from '@stylexjs/stylex';
-import { DragDropProvider } from '@dnd-kit/react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
-import { workspaceDragContext, workspaceDragPlugins, workspacePointerSensors } from './workspace-tabs';
+import { workspaceDragContext, WorkspaceDragScope, useWorkspaceDragTarget } from './workspace-drag';
 import { styles } from './workspace-layout.stylex';
-import { tabDrop, useWorkspaceTabDrag } from './workspace-tab-drag';
+import { tabDrop } from './workspace-tab-drag';
 import type { TabDrop } from './workspace-tab-drag';
 
 export type WorkspaceLayoutNode = { readonly type: 'pane'; readonly id: string } | {
@@ -26,6 +25,9 @@ export interface WorkspaceLayoutProps {
   onDrop: (drop: WorkspaceDrop) => void;
   /** Product limits (for example, a maximum pane count) can reject a proposed drop. */
   canDrop?: (drop: WorkspaceDrop) => boolean;
+  /** External items can open new views in tab strips or split edges, never replace pane content. */
+  onExternalDrop?: (data: unknown, drop: WorkspaceDrop) => string | void;
+  canDropExternal?: (data: unknown, drop: WorkspaceDrop) => boolean;
   renderHeader: (paneId: string) => ReactNode;
   /** Only the selected view of each visible pane belongs here; inactive tabs never mount. */
   panels: readonly { id: string; paneId: string; content: ReactNode; label: string; labelledBy?: string }[];
@@ -57,7 +59,12 @@ function contains(rect: DOMRect, point: { x: number; y: number }) {
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
 }
 
-export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, onDrop, canDrop, renderHeader, panels, compact = false, onCompactChange }: WorkspaceLayoutProps) {
+export function WorkspaceLayout(props: WorkspaceLayoutProps) {
+  const scope = useContext(workspaceDragContext);
+  return scope ? <WorkspaceLayoutContent {...props}/> : <WorkspaceDragScope><WorkspaceLayoutContent {...props}/></WorkspaceDragScope>;
+}
+
+function WorkspaceLayoutContent({ layout, focusedPaneId, onResize, onFocusPane, onDrop, canDrop, onExternalDrop, canDropExternal, renderHeader, panels, compact = false, onCompactChange }: WorkspaceLayoutProps) {
   const root = useRef<HTMLDivElement>(null);
   const slots = useRef(new Map<string, HTMLDivElement>());
   const [labelledPanels, setLabelledPanels] = useState<ReadonlySet<string>>(new Set());
@@ -104,14 +111,14 @@ export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, 
     return { left: (rect.left - bounds.left) / scaleX, top: (rect.top - bounds.top) / scaleY, width: rect.width / scaleX, height: rect.height / scaleY };
   }
 
-  function locateDrop(viewId: string, point: { x: number; y: number }): TabDrop | null {
+  function locateDrop(viewId: string, point: { x: number; y: number }, external: boolean): TabDrop | null {
     for (const pane of root.current?.querySelectorAll<HTMLElement>('[data-workspace-frame]') ?? []) {
       const rect = pane.getBoundingClientRect(), paneId = pane.dataset.workspaceFrame!;
       if (!contains(rect, point)) continue;
       const header = pane.querySelector<HTMLElement>('[data-workspace-header]')!;
       if (contains(header.getBoundingClientRect(), point)) {
         const strip = header.querySelector<HTMLElement>('[data-workspace-tab-strip]');
-        return strip ? tabDrop(strip, viewId, point) : null;
+        return strip && (!external || contains(strip.getBoundingClientRect(), point)) ? tabDrop(strip, viewId, point) : null;
       }
       const slot = slots.current.get(paneId);
       if (!slot || !slot.clientWidth || !slot.clientHeight) return null;
@@ -120,6 +127,7 @@ export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, 
       const distances = [{ edge: 'left' as const, distance: x }, { edge: 'right' as const, distance: 1 - x }, { edge: 'top' as const, distance: y }, { edge: 'bottom' as const, distance: 1 - y }];
       const closest = distances.sort((a, b) => a.distance - b.distance)[0]!;
       const edge = !isCompact && closest.distance < .24 ? closest.edge : undefined;
+      if (external && !edge) return null;
       if (edge && ((edge === 'left' || edge === 'right') ? pane.clientWidth < 640 + separatorSize : pane.clientHeight < 480 + separatorSize)) return null;
       const previewRect = { left: content.left, top: content.top, width: content.width, height: content.height };
       if (edge === 'left' || edge === 'right') { previewRect.width /= 2; if (edge === 'right') previewRect.left += previewRect.width; }
@@ -154,16 +162,20 @@ export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, 
     </Group>;
   }
 
-  const drag = useWorkspaceTabDrag({
-    locate: (id, point) => {
-      const candidate = locateDrop(id, point);
-      return candidate && (!canDrop || canDrop(candidate.drop)) ? candidate : null;
+  const scope = useContext(workspaceDragContext);
+  useWorkspaceDragTarget({
+    locate: (id, point, source) => {
+      const external = source.kind === 'external';
+      const candidate = locateDrop(id, point, external);
+      if (!candidate) return null;
+      return external
+        ? onExternalDrop && (!canDropExternal || canDropExternal(source.data, candidate.drop)) ? candidate : null
+        : !canDrop || canDrop(candidate.drop) ? candidate : null;
     },
-    onDrop,
+    onDrop: (drop, source) => source.kind === 'external' ? onExternalDrop?.(source.data, drop) : onDrop(drop),
     onPreview: target => setPreview(target && !target.insertion ? { drop: target.drop, rect: relative(target.rect) } : null),
   });
-  return <DragDropProvider sensors={workspacePointerSensors} plugins={workspaceDragPlugins} {...drag.handlers}>
-    <workspaceDragContext.Provider value={true}>
+  return (
       <div ref={root} data-workspace-layout data-workspace-compact={isCompact || undefined} {...stylex.props(styles.workspace)}>
         <div {...stylex.props(styles.tree)}>{renderTree(displayedLayout)}</div>
         {/* Stable sibling order matters too: DOM reordering can reset scroll and focused inputs. */}
@@ -175,9 +187,7 @@ export function WorkspaceLayout({ layout, focusedPaneId, onResize, onFocusPane, 
             onPointerDownCapture={event => focusFromPointer(panel.paneId, event)} onFocusCapture={() => onFocusPane(panel.paneId)}
             {...stylex.props(styles.content, !rect && styles.unmeasured)} style={rect}>{panel.content}</section>;
         })}
-        {drag.visible && preview && <div aria-hidden="true" data-workspace-drop={preview.drop.edge ?? 'tab'} {...stylex.props(styles.preview)} style={preview.rect}/>}
+        {scope?.visible && preview && <div aria-hidden="true" data-workspace-drop={preview.drop.edge ?? 'tab'} {...stylex.props(styles.preview)} style={preview.rect}/>}
       </div>
-      {drag.preview}
-    </workspaceDragContext.Provider>
-  </DragDropProvider>;
+  );
 }

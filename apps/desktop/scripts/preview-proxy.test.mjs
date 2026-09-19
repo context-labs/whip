@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { request } from 'node:http';
-import { connect } from 'node:net';
+import { connect, createServer } from 'node:net';
 import { once } from 'node:events';
 import { createPreviewProxy, isPublicPreviewAddress, previewDestination, openPinnedPublic } from '../src/preview-proxy.ts';
 import { previewFixture } from './preview-fixture.mjs';
@@ -14,6 +14,29 @@ function get(proxy, target, authenticated = true) {
     }); req.on('error', reject); req.end();
   });
 }
+test('an upstream disconnect renders an actionable error instead of a blank page', async () => {
+  // Simulate an SSH forward accepting locally, then closing when the remote port refuses.
+  const upstream = createServer(socket => socket.once('data', () => socket.destroy()));
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const proxy = await createPreviewProxy({ routes: [{
+    port: 3000, remoteHost: '127.0.0.1',
+    open: async () => {
+      const socket = connect(upstream.address().port, '127.0.0.1');
+      await once(socket, 'connect'); return socket;
+    },
+  }] });
+  try {
+    const response = await get(proxy, 'http://127.0.0.1:3000/');
+    assert.equal(response.code, 502);
+    assert.match(response.body, /Whip preview could not reach the requested service/);
+    assert.match(response.body, /SSH host/);
+    assert.match(response.body, /reload/i);
+  } finally {
+    await proxy.close();
+    await new Promise(resolve => upstream.close(resolve));
+  }
+});
+
 test('literal loopback aliases and public address boundary', async () => {
   for (const host of ['localhost', '127.0.0.1', '[::1]', '2130706433', '0x7f000001']) assert.equal(previewDestination(`http://${host}:3000`).loopback, true);
   for (const address of ['0.0.0.0', '10.0.0.1', '100.64.0.1', '127.1.2.3', '169.254.169.254', '172.16.0.1', '192.168.1.1', '224.0.0.1', '::1', '::ffff:127.0.0.1', 'fc00::1', 'fe80::1', '64:ff9b::7f00:1', '2002:7f00:1::']) assert.equal(isPublicPreviewAddress(address), false, address);

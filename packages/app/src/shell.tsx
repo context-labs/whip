@@ -9,6 +9,7 @@ import {
   useNativeSurfacePresence,
 } from '@whip/ui';
 import { workspacePanelId } from '@whip/ui/workspace-layout';
+import { WorkspaceDragScope } from '@whip/ui/workspace-tabs';
 import { selectedSessionTab } from './session-tabs';
 import { openBrowserTab, openNewChat } from './session-tab-routing';
 import {
@@ -128,7 +129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     else if (isSettingsSection(action)) void navigate({ to: '/settings', search: { section: action } });
   };
   return (
-    <SessionActionsProvider><ShellCommandsContext.Provider value={runCommand}><div {...stylex.props(layout.shell)}>
+    <SessionActionsProvider><WorkspaceDragScope><ShellCommandsContext.Provider value={runCommand}><div {...stylex.props(layout.shell)}>
       {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
       {!settings && !compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={<><Attention />{navigationToggle}</>}
@@ -172,6 +173,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         ]}
         onSelect={runCommand}
       />
-    </div></ShellCommandsContext.Provider></SessionActionsProvider>
+    </div></ShellCommandsContext.Provider></WorkspaceDragScope></SessionActionsProvider>
   );
 }

@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dialog, Field, IconButton, Select, Textarea } from '@whip/ui';
-import { ArrowUp, AtSign, Monitor, Paperclip, SlidersHorizontal } from 'lucide-react';
+import { ArrowUp, AtSign, Monitor, Paperclip } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
@@ -20,7 +20,7 @@ import { CatalogModelPicker, DraftEffortPicker, PickerSkeletons, catalogModels, 
 import { PermissionModeControl } from './permission-mode';
 import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
-import { SessionInfoBar } from './session-info-bar';
+import { SessionTopBar } from './session-top-bar';
 import { definitionOptions, useDefinitions } from './definitions';
 import { MCPImportScreen, shouldOffer, useMCPImportCandidates } from './mcp-import';
 import { ComposerAttachments } from './composer-attachments';
@@ -49,7 +49,7 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   };
   const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={sending} onSelect={selectHost}
     onManage={() => void navigate({ to: '/settings', search: { section: 'connections' } })} />;
-  return <ChatDropSurface ref={dropTarget}><SessionInfoBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
+  return <ChatDropSurface ref={dropTarget}><SessionTopBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
     <div {...stylex.props(styles.page)}><div {...stylex.props(styles.column)}>
       {host && runtime.platform.localRuntime && host.profile?.target.kind === 'local' && host.state !== 'connected'
         ? <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><LocalRuntimeSetup host={host} />{hostControl}</>
@@ -226,7 +226,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data?.result} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
           onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : 'off' })}
-          footer={<Button variant="ghost" onClick={() => setShowOptions(true)}><SlidersHorizontal size={14} />Session options</Button>} />
+          onSessionOptions={() => setShowOptions(true)} />
           : providers.inventory.isPending ? <PickerSkeletons count={2} />
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
         {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}

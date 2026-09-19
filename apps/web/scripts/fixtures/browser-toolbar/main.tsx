@@ -5,7 +5,7 @@ import * as stylex from '@stylexjs/stylex';
 import { initializeTheme, ThemeProvider, UIProvider } from '@whip/ui';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
-import { SessionInfoBar } from '../../../../../packages/app/src/session-info-bar';
+import { SessionTopBar } from '../../../../../packages/app/src/session-top-bar';
 import { BrowserView } from '../../../../../packages/app/src/browser-view';
 import { BrowserProviderControls } from '../../../../../packages/app/src/browser-provider-controls';
 import { RuntimeContext } from '../../../../../packages/app/src/context';
@@ -33,7 +33,7 @@ const queries = new QueryClient();
 function Fixture() {
   return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={queries}><ThemeProvider storage={localStorage}><UIProvider>
     <div {...stylex.props(styles.shell)}>
-      <SessionInfoBar host="This Mac" cwd="/workspace/whip" kind="chat" activity="Idle" onRepl={() => {}} onTrace={() => {}} onDetails={() => {}}/>
+      <SessionTopBar host="This Mac" cwd="/workspace/whip" kind="chat" activity="Idle" onRepl={() => {}} onTrace={() => {}} onDetails={() => {}}/>
       <main {...stylex.props(styles.page)}><BrowserView tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/></main>
     </div>
   </UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider>;

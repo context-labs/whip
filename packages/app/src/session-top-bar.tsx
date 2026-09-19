@@ -4,7 +4,8 @@ import { ChartGantt, ChevronDown, Code2, MoreHorizontal, PanelRight } from 'luci
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
-export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onTrace, onDetails, actions = [], onPrepare, pending = false }: {
+/** Shared top bar for chat, REPL, trace/span views, and their opening states. */
+export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onTrace, onDetails, actions = [], onPrepare, pending = false }: {
   host: string;
   cwd?: string;
   agentName?: string;
@@ -23,10 +24,13 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
   const missingProject = kind === 'new' ? 'Choose a project' : pending ? '' : 'Directory unavailable';
   const project = cwd?.split(/[\\/]/).filter(Boolean).at(-1) || cwd || missingProject;
   const identity = [host, cwd || missingProject].filter(Boolean).join(' / ');
-  const menu: MenuItem[] = [
-    ...(onRepl ? [{ id: 'repl', label: 'Open REPL', onSelect: onRepl }] : []),
-    ...(onTrace ? [{ id: 'trace', label: 'Open trace', onSelect: onTrace }] : []),
-    ...(onDetails ? [{ id: 'details', label: 'Session details', onSelect: onDetails }] : []),
+  const controls = kind === 'new' ? [] : [
+    { id: 'repl', label: 'Open REPL', description: 'Open REPL in a new tab', icon: Code2, onSelect: kind !== 'repl' ? onRepl : undefined },
+    { id: 'trace', label: 'Open trace', description: 'Open trace in a new tab', icon: ChartGantt, onSelect: kind !== 'trace' ? onTrace : undefined },
+    { id: 'details', label: 'Session details', description: 'Session details', icon: PanelRight, onSelect: onDetails },
+  ].filter(control => control.onSelect);
+  const menu: MenuItem[] = kind === 'new' ? [] : [
+    ...controls.map(({ id, label, onSelect }) => ({ id, label, onSelect })),
     ...(onRoot ? [{ id: 'root', label: 'Root conversation', onSelect: onRoot }] : []),
     ...actions,
   ];
@@ -45,15 +49,9 @@ export function SessionInfoBar({ host, cwd, agentName, kind, activity, onAgents,
       <div {...stylex.props(styles.actions)}>
         {kind === 'repl' && <span {...stylex.props(styles.mode)}><Code2 size={14} />REPL</span>}
         {kind === 'trace' && <span {...stylex.props(styles.mode)}><ChartGantt size={14} />Trace</span>}
-        {onRepl && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Open REPL in a new tab">
-          <IconButton variant="ghost" size="sm" label="Open REPL" onClick={onRepl}><Code2 size={16} /></IconButton>
-        </Tooltip></span>}
-        {onTrace && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Open trace in a new tab">
-          <IconButton variant="ghost" size="sm" label="Open trace" onClick={onTrace}><ChartGantt size={16} /></IconButton>
-        </Tooltip></span>}
-        {onDetails && <span {...stylex.props(styles.secondaryAction)}><Tooltip label="Session details">
-          <IconButton variant="ghost" size="sm" label="Session details" onClick={onDetails}><PanelRight size={16} /></IconButton>
-        </Tooltip></span>}
+        {controls.map(control => <span key={control.id} {...stylex.props(styles.secondaryAction)}><Tooltip label={control.description}>
+          <IconButton variant="ghost" size="sm" label={control.label} onClick={control.onSelect}><control.icon size={16} /></IconButton>
+        </Tooltip></span>)}
         {!!menu.length && <Menu onOpenChange={onPrepare} trigger={<IconButton variant="ghost" size="sm" label="Session actions"><MoreHorizontal size={16} /></IconButton>} items={menu} />}
       </div>
     </div>

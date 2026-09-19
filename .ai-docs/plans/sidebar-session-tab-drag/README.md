@@ -1,7 +1,7 @@
 # Drag sidebar sessions into workspace tabs
 
 Branch: `compaction-loop-and-ui-cleanup`
-Status: Research and proposed implementation plan; no implementation yet.
+Status: Implemented and validated; baseline test failures and Safari/manual acceptance limitations recorded below.
 
 ## Goal
 
@@ -32,9 +32,9 @@ The current implementation, not historical proposals, is the authority:
 1. Grab a sidebar session row. Keep normal click, modified link clicks, context menus, and touch scrolling unchanged. Begin dragging only after the existing 6px threshold; suppress native anchor dragging on this custom-drag surface.
 2. Keep the original row in place: this is opening another view, not moving a saved session. Show a compact floating tab-shaped preview with the session title and chat icon. Use existing contour, typography, semantic colors, and restrained shadow rather than a new visual style. No permanent grab handle or hover tooltip clutter.
 3. Over a valid tab strip, show the existing animated insertion gap. Use a normal tab-sized preview, not the full sidebar-row width. Match the existing 100ms ease-out movement; reduced-motion removes interpolation.
-4. Dropping before/between tabs inserts there; dropping in the usable empty stretch appends. Tab-strip overflow auto-scrolls. Header utility buttons, native traffic-light space, and content below the tab strip are not new drop targets for sidebar sources.
+4. Dropping before/between tabs inserts there; dropping in the usable empty stretch appends. Tab-strip overflow auto-scrolls. Header utility buttons, native traffic-light space, and content centers are not drop targets for sidebar sources. Follow-up: content edges split left/right/up/down using the existing attached-tab hit testing, preview, and compact/minimum-size restrictions.
 5. On successful drop, create and activate a fresh root chat view in the destination pane. Existing tabs, pane selections outside that pane, and sidebar ordering stay unchanged. Focus follows normal desktop chat activation.
-6. Escape, pointer cancellation, window blur, source unmount, or release outside a valid strip cancels without navigation, tab creation, storage writes, or session work. Never navigate merely on drag start or hover.
+6. Escape, pointer cancellation, window blur, source unmount, or release outside a valid strip or split edge cancels without navigation, tab creation, storage writes, or session work. Never navigate merely on drag start or hover.
 7. Add an explicit **Open in new tab** session action for keyboard/touch/non-drag access. It uses the same always-new operation in the focused pane, adjacent to its selected tab. Existing tab move/pane actions provide subsequent positioning. Keep the background-tab action's behavior unchanged in this scope.
 
 An existing session remains the same conversation in both views. Each new sidebar-created view begins at Root using ordinary new-chat-view reading defaults; it does not copy another view's child-agent or inspector state.
@@ -43,11 +43,11 @@ An existing session remains the same conversation in both views. Each new sideba
 
 ### 1. Atomic store operation and routing
 
-Add a focused operation such as `SessionTabs.openChatView(runtimeId, rootId, titleHint, { paneId, index })`:
+Add a focused operation such as `SessionTabs.openChatView(runtimeId, rootId, titleHint, { paneId, index, edge })`:
 
-- Validate runtime/root identity, explicit target-pane existence, and the unconditional 32-view limit before mutating anything.
+- Validate runtime/root identity, explicit target-pane existence, the unconditional 32-view limit, and four-pane limit for a split before mutating anything.
 - Allocate a fresh view ID even if the same root is already open or closed.
-- Create a root chat descriptor; insert at the bounded target index, select it, focus the target pane, and persist in one store write. Default placement for the menu action is after the selected tab.
+- Create a root chat descriptor; insert at the bounded target index or use `splitNode` to insert a new pane at the requested edge, select it, focus its pane, and persist in one store write. Default placement for the menu action is after the selected tab.
 - Return the created view/ID; navigate using the existing destination helper so history identifies this exact view. Report routing failure without retrying creation.
 - No schema migration, SDK/backend call, session creation, or fork operation.
 
@@ -61,7 +61,7 @@ Allow two explicit drag-source categories: existing workspace view and external 
 
 Adapt `useWorkspaceTabDrag` to accept a non-sortable source. External sources have no source-strip gap to close and no source tab to hide. Use target-tab width/default tab width for preview/gap geometry. Return/resolve the newly created view ID for settlement, or remove the preview cleanly if no destination is available; never try to settle onto a nonexistent source view.
 
-Register the current workspace target resolver with the shared scope. Existing tab drags retain pane-content/split targets; external sidebar drags only resolve tab strips. Recheck the destination and capacity at release. Keep existing click suppression and cleanup. Audit AutoScroller when extending provider scope so a tab drag does not accidentally scroll the sidebar.
+Register the current workspace target resolver with the shared scope. Existing tab drags retain pane-content/split targets; external sidebar drags resolve tab strips and (in the follow-up) all four content split edges, never centers. Recheck the destination and capacity at release. Keep existing click suppression and cleanup. Audit AutoScroller when extending provider scope so a tab drag does not accidentally scroll the sidebar.
 
 Desktop needs special validation: the strip's empty stretch is a native window-drag region. While a session drag is active, make only valid destination strip surfaces opt out as necessary; preserve ordinary window dragging and traffic-light controls when idle. Retain native Browser-surface occlusion for the floating preview.
 
@@ -78,7 +78,7 @@ Disconnected known hosts should retain existing unavailable-session presentation
 ## Non-goals
 
 - Dragging into browser/OS tabs, other windows, or detached windows.
-- Creating split panes by dragging a sidebar row onto content edges.
+- ~~Creating split panes by dragging a sidebar row onto content edges.~~ Superseded by the follow-up: sidebar rows now share all four attached-tab split edges and preview; center replacement remains excluded.
 - Reordering sidebar sessions, multi-selection, session forking, or modifying daemon work.
 - New touch-drag gestures or a general-purpose application drag framework.
 - Changing normal sidebar click reuse, independent/shared draft ownership, or tab limits.
@@ -95,15 +95,91 @@ App browser fixture (`apps/web/scripts/workspace-layout.mjs`): drag a closed ses
 
 Desktop smoke: drag across sidebar/titlebar and empty strip without moving the window, preserve idle window dragging, traffic lights, hidden sidebar, tab overflow, and preview visibility alongside native Browser panes. Inspect screenshots in light/dark themes at normal and increased contrast.
 
-Run focused tests, `npm run test:web`, `npm run check:web`, UI typecheck/tab/layout/CSP tests, and desktop validation for affected integration. No tests have been run for this documentation-only plan.
+Run focused tests, `npm run test:web`, `npm run check:web`, UI typecheck/tab/layout/CSP tests, and desktop validation for affected integration. See implementation validation below for executed checks and remaining platform limitations.
 
 ## Ordered delivery
 
 - [x] Trace current sidebar, store, routing, drag, and split-view boundaries.
 - [x] Confirm already-open behavior with the user: always another view.
-- [ ] Approve this plan.
-- [ ] Add atomic always-new operation plus store/routing tests.
-- [ ] Extract shared drag scope, with existing-tab regression coverage first.
-- [ ] Integrate sidebar sources, external target handling, preview, and accessible action.
-- [ ] Exercise browser and desktop interaction edge cases; review for minimality.
-- [ ] Update `docs/frontend.md` with the drag scope and sidebar click-vs-drag contract; add the behavior/code/test row to `docs/features.md`. Add a specific roadmap follow-up only if tracking is needed; do not reinterpret existing completed tab milestones as this feature already shipping.
+- [x] Approve this plan.
+- [x] Add atomic always-new operation plus store/routing tests.
+- [x] Extract shared drag scope, with existing-tab regression coverage first.
+- [x] Integrate sidebar sources, external target handling, preview, and accessible action.
+- [x] Exercise browser and desktop interaction edge cases; review for minimality.
+- [x] Update `docs/frontend.md` with the drag scope and sidebar click-vs-drag contract; add the behavior/code/test row to `docs/features.md`. Add a specific roadmap follow-up only if tracking is needed; do not reinterpret existing completed tab milestones as this feature already shipping.
+
+## Implementation notes (2026-09-19)
+
+- Shared scope extracted to `packages/ui/src/workspace-drag.tsx`, exported through the existing workspace-tabs subpath. UI receives opaque external payloads; app owns host/root validation and view creation.
+- Existing AutoScroller retained with vertical threshold disabled to avoid scrolling the sidebar/page. No additional dependency or persisted schema.
+- Existing tab/layout regression fixtures and added external-source scenarios pass Chromium and Firefox, including immediate source-removal plus same-task release, strict CSP, overflow/RTL/zoom, reduced motion, and all 66 tab themes with Axe. The populated standalone-strip fixture also verifies external insertion and existing-tab reorder through the shared scope.
+- Full web suite reports 81 passing files / 887 passing tests (final rerun: 891 total) and four failures in `multi-host-discovery.test.tsx`. An isolated `git archive HEAD` of app sources/tests and Vitest configuration, using the installed dependencies, reproduces the same four failures (two passing); these are baseline failures, not introduced here. The initial-search/status expectations conflict with current all-session search behavior.
+- Focused store/routing/action/sidebar/desktop-close tests: 110/110 pass; UI typecheck, production `check:web`, and `check:desktop` pass.
+- UI strict-CSP check passes Chromium/Firefox with `WHIP_UI_SKIP_SAFARI=1`. The default command reaches actual Safari but times out waiting for a rendered component (`violations: []`, `failures: []`); Safari validation remains blocked.
+- Full Electron staged smoke passed again against final renderer `032ebcc3dcc5d07acb25b88f16c8ddfeef8f475921e090bb09a63a1c8c7cd142`, including sidebar insertion through the exposed native-drag stretch, exact fresh ID/order, unchanged original views/shared draft, unchanged native window bounds, and zero renderer errors. Evidence: `/tmp/whip-sidebar-desktop-smoke-final.json`; screenshots/videos: `/tmp/whip-sidebar-desktop-smoke-final`. Fixtures shut down cleanly.
+- A source can disappear between the last animation frame and pointer release; release now checks connectivity again before resolving a drop.
+- Unmatched/home-route tab strips register their own target with the shell scope, preserving standalone reorder and allowing the first saved-session view into an empty strip. Layout-owned strips use only the layout resolver.
+
+### Final browser validation
+
+`WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/workspace-layout.mjs`
+passes all 10 workflows in each browser, with at most four active subscriptions.
+It verifies chosen-slot/cross-pane fresh views for open and closed sessions,
+unchanged original descriptors/DOM/reading positions, shared drafts, cancellation,
+exact duplicate Back/Forward and reload, the first drop into an empty home strip,
+keyboard **Open in new tab**, and no session-work commands. Evidence:
+`/tmp/whip-workspace-layout-results/workspace-layout.json`.
+
+The production fixture uses explicit upward-wheel reading intent and a
+mid-transcript position, matching the reading-position fixture and avoiding
+history-prepend changes near the top. A proposed populated-home assertion was
+removed: `/` intentionally restores the selected view, so that state is not
+reachable through navigation. Populated standalone insertion/reorder is tested
+directly in the UI fixture instead.
+
+Independent review found only the source-unmount race described above; the final
+review confirms it is fixed and the standalone/layout resolver ownership is sound.
+`git diff --check` passes. No dependencies, protocol changes, migration, git staging,
+or commits were added. Unrelated preview-proxy changes were left untouched.
+
+## Follow-up: sidebar split edges
+
+The earlier split-edge non-goal is superseded by the user's explicit request.
+`ChatViewTarget.edge` composes the existing `splitNode` into `openChatView` so a
+fresh root chat, new pane, selection and focus persist in one mutation. Sidebar
+sources now use attached-tab edge geometry and preview for left/right/up/down,
+without enabling center replacement. Capacity, pane existence and compact/minimum
+size restrictions are rechecked at release; the store independently enforces four
+panes and 32 views. Normal clicks, menu placement and attached-tab transfers remain
+unchanged.
+
+Focused app store/routing/sidebar/action/desktop-shortcut tests pass (115 tests),
+including all four nested split placements, unchanged original chat/REPL/trace
+descriptors, atomic persistence/notification/restore, and limit/stale-target
+rejection without a partial view or pane. App and UI typechecks pass. Independent
+read-only review found no actionable correctness or minimality issues.
+
+Follow-up validation:
+- `npm run test:web`: 892 passing, four unchanged `multi-host-discovery.test.tsx`
+  failures (the initial implementation already established these on archived HEAD).
+- `node packages/ui/tests/workspace-layout.mjs`: Chromium/Firefox pass existing
+  attached-tab regressions plus external four-edge previews/drops, pane cap,
+  compact/minimum size, center rejection and every cancellation path; Axe/CSP,
+  zoom/RTL and reduced-motion checks pass.
+- `npm run build:web` and `node apps/desktop/scripts/build.mjs --renderer-ready`: pass.
+- `WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/workspace-layout.mjs`:
+  14 workflows per browser, all edges open fresh root views with original
+  descriptors/DOM/reading/shared drafts intact and zero `command.submit` calls;
+  no more than four root subscriptions. Evidence remains at
+  `/tmp/whip-workspace-layout-results/workspace-layout.json`.
+- `WHIP_DESKTOP_SMOKE_ARTIFACTS=/tmp/whip-sidebar-split-desktop node apps/desktop/scripts/smoke.mjs`:
+  native all-four-edge smoke passes, including original draft DOM, native window
+  bounds, close/collapse and lifecycle checks; no renderer errors. Evidence and
+  edge-preview screenshots are in `/tmp/whip-sidebar-split-desktop/`.
+- `git diff --check` and changed smoke-script syntax checks pass. No staging or
+  commits; unrelated preview-proxy edits preserved.
+
+Remaining acceptance limitations from the initial implementation: actual Safari CSP smoke timed out; dedicated
+native Browser-pane-overlay and manual light/dark/increased-contrast interaction
+acceptance were not run. The shared native-surface occlusion path is reused,
+automated all-theme Axe/CSP checks pass, and the staged Electron drag smoke passes.

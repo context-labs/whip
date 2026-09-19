@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { SessionView, SessionViewSnapshot, TraceEvidence, TraceSpan } from '@whip/sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { TraceView } from '../src/trace-view';
+import * as traceMath from '../src/trace-math';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
@@ -18,7 +19,10 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete document.documentElement.dataset.motion;
+});
 
 const base = 1_700_000_000_000;
 const span = (overrides: Partial<TraceSpan> & { id: string }): TraceSpan => ({
@@ -44,7 +48,7 @@ function fixture(trace: Partial<TraceEvidence> | undefined = { loaded: true }) {
   } as unknown as SessionViewSnapshot };
   // ContentRead reads the connection through the session's client; a stable
   // snapshot keeps useSyncExternalStore quiet.
-  const connection = { state: 'connected' };
+  const connection = { state: 'connected', info: { connection_id: 'connection-1' } };
   const view = {
     session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection } },
     getSnapshot: () => holder.state,
@@ -57,7 +61,7 @@ function fixture(trace: Partial<TraceEvidence> | undefined = { loaded: true }) {
   const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider initialTheme="claude-code">
     <TraceView view={view} state={holder.state} agentId="root" runtimeId="host" viewId="view" connected={connected} />
   </ThemeProvider></UIProvider></RuntimeContext.Provider>;
-  return { app, set, view };
+  return { app, set, view, connection };
 }
 
 it('pages the durable spans once when connected and renders the tree with server-measured durations', async () => {
@@ -78,6 +82,20 @@ it('pages the durable spans once when connected and renders the tree with server
   expect(totals).toContain('tokens1.2K');
   // The header badge and the open span's row both say running.
   expect(screen.getAllByText('running').length).toBeGreaterThan(1);
+});
+
+it('starts with span details hidden and allows toggling them open and closed', () => {
+  const f = fixture();
+  render(f.app());
+  const toggle = screen.getByRole('button', { name: 'Details' });
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(screen.queryByRole('complementary', { name: 'Span details' })).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('complementary', { name: 'Span details' })).toBeDefined();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(screen.queryByRole('complementary', { name: 'Span details' })).toBeNull();
 });
 
 it('collapses a subtree, selects a span for the detail pane, and rolls cost up on the turn', async () => {
@@ -132,4 +150,186 @@ it('explains loading, disconnected, truncated and failed evidence without invent
   expect(screen.getByText(/Older traces were dropped/)).toBeDefined();
   expect(screen.getByRole('button', { name: 'Retry' })).toBeDefined();
   expect(await screen.findAllByRole('treeitem')).toHaveLength(1);
+});
+
+// Drive display frames separately from wall time: duration must use the daemon
+// offset, not the rAF timestamp, and skipped frames must not replay on resume.
+function animationClock() {
+  let time = 0;
+  let id = 0;
+  const pending = new Map<number, FrameRequestCallback>();
+  vi.spyOn(performance, 'now').mockImplementation(() => time);
+  vi.spyOn(Date, 'now').mockImplementation(() => base + time);
+  vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+    pending.set(++id, callback);
+    return id;
+  }));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn((id: number) => pending.delete(id)));
+  return {
+    pending,
+    advance(ms: number) {
+      act(() => {
+        time += ms;
+        const callbacks = [...pending.values()];
+        pending.clear();
+        callbacks.forEach(callback => callback(time));
+      });
+    },
+  };
+}
+const live = () => span({ id: 'turn', status: 'running', endMs: 0 });
+
+it('caps display updates near 30fps using daemon time, without recomputing cost/token rollups', () => {
+  const clock = animationClock();
+  const totals = vi.spyOn(traceMath, 'traceTotals');
+  const rollup = vi.spyOn(traceMath, 'rollup');
+  const f = fixture({ clockOffsetMs: 100, spans: { turn: live() } });
+  const mounted = render(f.app());
+  fireEvent.click(screen.getByRole('treeitem', { name: 'root · running' }));
+  expect(screen.getByText('running · 100ms')).toBeDefined();
+  const totalCalls = totals.mock.calls.length;
+  const rollupCalls = rollup.mock.calls.length;
+  expect(rollupCalls).toBeGreaterThan(0);
+  for (let frame = 1; frame <= 100; frame++) clock.advance(10);
+  expect(screen.getByText('running · 1.1s')).toBeDefined();
+  expect(totals).toHaveBeenCalledTimes(totalCalls);
+  expect(rollup).toHaveBeenCalledTimes(rollupCalls);
+  expect(f.view.loadTrace).toHaveBeenCalledTimes(1);
+  mounted.unmount();
+  expect(clock.pending.size).toBe(0);
+});
+
+it('skips short frames and stops for completed, disconnected and unmounted traces', () => {
+  const clock = animationClock();
+  const f = fixture({ spans: { turn: live() } });
+  const read = vi.spyOn(f.view, 'getSnapshot');
+  const mounted = render(f.app());
+  read.mockClear();
+  for (let frame = 1; frame <= 100; frame++) clock.advance(10);
+  expect(read.mock.calls.length).toBeGreaterThanOrEqual(29);
+  expect(read.mock.calls.length).toBeLessThanOrEqual(30);
+  clock.advance(10);
+  mounted.rerender(f.app(false));
+  expect(clock.pending.size).toBe(0);
+  clock.advance(500);
+  expect(screen.getByText('1.0s')).toBeDefined();
+  mounted.rerender(f.app());
+  expect(screen.getByText('duration').parentElement?.textContent).toBe('duration1.5s');
+  expect(clock.pending.size).toBe(1);
+  f.set({ spans: { turn: span({ id: 'turn', endMs: base + 1250 }) } });
+  mounted.rerender(f.app());
+  expect(clock.pending.size).toBe(0);
+  expect(screen.getByRole('treeitem', { name: 'root · 1.3s' })).toBeDefined();
+  f.set({ spans: { turn: live() } });
+  mounted.rerender(f.app());
+  expect(clock.pending.size).toBe(1);
+  mounted.unmount();
+  expect(clock.pending.size).toBe(0);
+});
+
+it('pauses every visible pane in hidden documents and catches up without reloading evidence', () => {
+  const clock = animationClock();
+  let hidden = false;
+  vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  const first = fixture({ spans: { turn: live() } });
+  const second = fixture({ spans: { turn: live() } });
+  const one = render(first.app());
+  const two = render(second.app());
+  expect(clock.pending.size).toBe(2);
+  act(() => { hidden = true; document.dispatchEvent(new Event('visibilitychange')); });
+  expect(clock.pending.size).toBe(0);
+  clock.advance(5000);
+  act(() => { hidden = false; document.dispatchEvent(new Event('visibilitychange')); });
+  expect(clock.pending.size).toBe(2);
+  expect(screen.getAllByText('5.0s')).toHaveLength(2);
+  expect(first.view.loadTrace).toHaveBeenCalledTimes(1);
+  expect(second.view.loadTrace).toHaveBeenCalledTimes(1);
+  one.unmount();
+  expect(clock.pending.size).toBe(1);
+  two.unmount();
+  expect(clock.pending.size).toBe(0);
+});
+
+it('respects OS and app reduced motion while continuing to show live evidence', async () => {
+  const clock = animationClock();
+  let reduced = true;
+  const media = new EventTarget();
+  vi.stubGlobal('matchMedia', () => ({
+    get matches() { return reduced; },
+    addEventListener: media.addEventListener.bind(media),
+    removeEventListener: media.removeEventListener.bind(media),
+  }));
+  const f = fixture({ spans: { turn: live() } });
+  const mounted = render(f.app());
+  expect(clock.pending.size).toBe(0);
+  clock.advance(1000);
+  f.set({ spans: { turn: live(), call: { ...spans[1]!, endMs: base + 1000 } }, clockOffsetMs: 500 });
+  mounted.rerender(f.app());
+  expect(screen.getByText('duration').parentElement?.textContent).toBe('duration1.5s');
+  expect(screen.getByText('$0.0040')).toBeDefined();
+  expect(clock.pending.size).toBe(0);
+  act(() => { reduced = false; media.dispatchEvent(new Event('change')); });
+  expect(clock.pending.size).toBe(1);
+  await act(async () => { document.documentElement.dataset.motion = 'reduce'; });
+  expect(clock.pending.size).toBe(0);
+  clock.advance(1000);
+  f.set({ spans: { turn: span({ id: 'turn', endMs: base + 1800 }) } });
+  mounted.rerender(f.app());
+  expect(screen.getByRole('treeitem', { name: 'root · 1.8s' })).toBeDefined();
+  await act(async () => { delete document.documentElement.dataset.motion; });
+  expect(clock.pending.size).toBe(0);
+});
+
+it('reloads durable spans after reconnect and when another view replaces the same root', async () => {
+  const f = fixture();
+  const mounted = render(f.app());
+  await waitFor(() => expect(f.view.loadTrace).toHaveBeenCalledTimes(1));
+  mounted.rerender(f.app(false));
+  expect(f.view.loadTrace).toHaveBeenCalledTimes(1);
+  mounted.rerender(f.app());
+  await waitFor(() => expect(f.view.loadTrace).toHaveBeenCalledTimes(2));
+  mounted.rerender(f.app());
+  expect(f.view.loadTrace).toHaveBeenCalledTimes(2);
+  f.connection.info.connection_id = 'connection-2';
+  mounted.rerender(f.app());
+  await waitFor(() => expect(f.view.loadTrace).toHaveBeenCalledTimes(3));
+  const other = fixture();
+  mounted.rerender(other.app());
+  await waitFor(() => expect(other.view.loadTrace).toHaveBeenCalledTimes(1));
+});
+
+it('distinguishes an empty historical trace from a failed read and offers retry', async () => {
+  const f = fixture({ spans: {}, loaded: true });
+  const mounted = render(f.app());
+  expect(screen.getByText('No recorded spans')).toBeDefined();
+  expect(screen.getByText(/Older conversations may predate tracing/)).toBeDefined();
+  expect(screen.queryByText('Loading trace…')).toBeNull();
+  f.set({ loaded: false, error: new Error('Request timed out: trace.page') });
+  mounted.rerender(f.app());
+  expect(screen.getByText('Trace unavailable')).toBeDefined();
+  expect(screen.queryByText('No recorded spans')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(f.view.loadTrace).toHaveBeenCalledTimes(2));
+  f.set({ loading: true, error: undefined });
+  mounted.rerender(f.app());
+  expect(screen.getByText('Loading trace…')).toBeDefined();
+  f.set({ loading: false, loaded: true, spans: { turn: spans[0]! } });
+  mounted.rerender(f.app());
+  expect(screen.getByRole('treeitem', { name: 'root · 10.0s' })).toBeDefined();
+});
+
+it('offers bounded historical paging continuation without allowing duplicate or disconnected reads', () => {
+  const f = fixture({ hasMore: true });
+  const mounted = render(f.app());
+  fireEvent.click(screen.getByRole('button', { name: 'Load more spans' }));
+  expect(f.view.loadTrace).toHaveBeenCalledTimes(2);
+  f.set({ loading: true });
+  mounted.rerender(f.app());
+  expect((screen.getByRole('button', { name: 'Loading trace…' }) as HTMLButtonElement).disabled).toBe(true);
+  f.set({ loading: false });
+  mounted.rerender(f.app(false));
+  expect((screen.getByRole('button', { name: 'Load more spans' }) as HTMLButtonElement).disabled).toBe(true);
+  f.set({ hasMore: false });
+  mounted.rerender(f.app());
+  expect(screen.queryByRole('button', { name: 'Load more spans' })).toBeNull();
 });

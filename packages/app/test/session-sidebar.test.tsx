@@ -4,6 +4,8 @@ import { expect, it, vi } from 'vitest';
 import { SessionSidebar } from '../src/session-sidebar';
 import { emptySidebarState } from '../src/sidebar-state';
 
+vi.hoisted(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
+
 const app = vi.hoisted(() => ({ hosts: [] as { id: string; name: string; state: string; endpoint: string }[] }));
 vi.mock('../src/context', () => ({
   useAppState: () => app,

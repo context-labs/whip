@@ -98,7 +98,16 @@ export async function createPreviewProxy(options: PreviewProxyOptions) {
     return supplied.length === credential.length && timingSafeEqual(supplied, credential);
   };
   const fail = (res: ServerResponse | Duplex, code: number) => {
-    if ('writeHead' in res) { res.writeHead(code, { 'Connection': 'close', ...(code === 407 ? { 'Proxy-Authenticate': `Basic realm="${realm}"` } : {}) }); res.end(); }
+    if ('writeHead' in res) {
+      const message = code === 502
+        ? 'Whip preview could not reach the requested service.\n\nFor an SSH preview, make sure the app is running on the selected SSH host and port, then reload.\n'
+        : code === 407 ? 'Whip preview authentication is required. Reopen the SSH preview.\n'
+        : 'Whip preview could not open this destination. Check that the host is connected and the address and port are approved, then reopen the SSH preview.\n';
+      res.writeHead(code, { 'Connection': 'close', 'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        ...(code === 407 ? { 'Proxy-Authenticate': `Basic realm="${realm}"` } : {}) });
+      res.end(message);
+    }
     else res.end(`HTTP/1.1 ${code} ${code === 407 ? 'Proxy Authentication Required' : 'Denied'}\r\nConnection: close\r\n${code === 407 ? `Proxy-Authenticate: Basic realm="${realm}"\r\n` : ''}Content-Length: 0\r\n\r\n`);
   };
   const start = async (req: IncomingMessage, client: Duplex, tunnel: boolean) => {

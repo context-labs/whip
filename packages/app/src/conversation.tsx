@@ -34,7 +34,7 @@ import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
 import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
-import { SessionInfoBar } from './session-info-bar';
+import { SessionTopBar } from './session-top-bar';
 import { openSessionView } from './session-tab-routing';
 import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
@@ -277,7 +277,7 @@ export function SessionContent({
   return (
     <ChatDropSurface ref={dropTarget}>
 
-      <SessionInfoBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
+      <SessionTopBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
         cwd={agentId === session.rootId ? (root ? root.meta.cwd : summaryCwd) : agent?.cwd} pending={opening}
         agentName={agentId === session.rootId ? 'Root' : agent?.name || agentId}
         onAgents={() => setPanel('agents')}
@@ -285,8 +285,8 @@ export function SessionContent({
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
             search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
         } : undefined}
-        onRepl={kind !== 'repl' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); } : undefined}
-        onTrace={kind !== 'trace' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace'); } : undefined}
+        onRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
+        onTrace={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace'); }}
         onDetails={() => setPanel('agents')} onPrepare={actions.prepare}
         actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
         activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}

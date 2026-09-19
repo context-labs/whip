@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RootSnapshot, StreamEvent } from '@whip/protocol';
-import type { SdkEvent, WhipClient } from '../src/client.js';
+import type { RootSnapshot, SpanPage, StreamEvent } from '@whip/protocol';
+import type { CallOptions, SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
 import { createSessionListView, createSessionView, executionRows, inboxItems } from '../src/state.js';
 
@@ -61,6 +61,7 @@ class Host {
   calls: { method: string; params: Record<string, unknown> }[] = [];
   connection = { state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection-1' } };
   history?: (params: Record<string, unknown>) => Promise<unknown>;
+  trace?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
   beforeAck?: (stream: Stream) => void;
   catalogRevision = '1';
   catalogItems = [{ id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', pinned: false, updated_at: '', truncated: false }];
@@ -74,9 +75,10 @@ class Host {
     this.beforeAck?.(stream);
     return stream;
   } };
-  async call(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
     this.calls.push({ method, params });
     if (method === 'root.snapshot') return structuredClone(this.root);
+    if (method === 'trace.page') return this.trace?.(params, options);
     if (method === 'history.page') return this.history?.(params) ?? {
       history_revision: this.root.history_revision, through_seq: 1, next_seq: 1, has_more: false,
       messages: [{ seq: 1, message: { role: 'user', content: 'child' } }],
@@ -1283,4 +1285,185 @@ test('a steer delivery boundary prevents adjacent response fragments from coales
   t.after(() => reopened.dispose());
   await reopened.start();
   assert.deepEqual(reopened.getSnapshot().root?.presentation?.map(row => row.payload), [{ text: 'Before.' }, { text: 'After.' }]);
+});
+
+function recordedTracePage(seq = '1', hasMore = false): SpanPage {
+  return { root_id: 'root', next_seq: seq, has_more: hasMore, server_time_ns: '1700000000000000000', spans: [{
+    id: `span-${seq}`, trace_id: 'old-turn', root_id: 'root', agent_id: 'root', kind: 'agent', name: 'old turn', status: 'ok',
+    start_ns: '1600000000000000000', end_ns: '1600000000001250000', updated_seq: seq,
+  }] };
+}
+function pendingTracePage() {
+  let resolve!: (page: SpanPage) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<SpanPage>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+test('historical trace reads survive snapshot refresh and concurrent callers wait for the same page', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const first = view.loadTrace();
+  let joined = false;
+  const second = view.loadTrace().then(() => { joined = true; });
+  await until(() => !!view.getSnapshot().trace?.loading);
+  assert.equal(joined, false);
+  await view.refresh();
+  pending.resolve(recordedTracePage());
+  await Promise.all([first, second]);
+  const trace = view.getSnapshot().trace!;
+  assert.equal(trace.loading, false);
+  assert.equal(trace.loaded, true);
+  assert.equal(trace.spans['span-1']!.startMs, 1600000000000);
+  assert.equal(trace.spans['span-1']!.endMs - trace.spans['span-1']!.startMs, 1.25);
+  assert.equal(host.calls.filter(call => call.method === 'trace.page').length, 1);
+});
+
+test('trace errors after refresh remain retryable and empty historical sessions settle as loaded', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  const rejected = assert.rejects(load, /timed out/);
+  await until(() => !!view.getSnapshot().trace?.loading);
+  await view.refresh();
+  pending.reject(new Error('Request timed out: trace.page'));
+  await rejected;
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.match(view.getSnapshot().trace!.error!.message, /timed out/);
+  host.trace = async () => ({ ...recordedTracePage('0'), spans: [] });
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.loaded, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.deepEqual(view.getSnapshot().trace!.spans, {});
+});
+
+test('trace disconnect aborts only the old read and late replies cannot overwrite reconnect results', async t => {
+  const host = new Host();
+  const first = pendingTracePage();
+  const next = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return first.promise; };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const oldLoad = view.loadTrace();
+  await until(() => !!signal);
+  host.notify('disconnected');
+  assert.equal(signal!.aborted, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = () => next.promise;
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  const newLoad = view.loadTrace();
+  await until(() => !!view.getSnapshot().trace?.loading);
+  first.resolve(recordedTracePage('1'));
+  await oldLoad;
+  assert.equal(view.getSnapshot().trace!.loading, true, 'old finally must not clear the new loading flag');
+  assert.equal(view.getSnapshot().trace!.spans['span-1'], undefined);
+  next.resolve(recordedTracePage('2'));
+  await newLoad;
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '2');
+});
+
+test('trace pagination pauses after eight pages and continues from its durable cursor, including after an error', async t => {
+  const host = new Host();
+  host.trace = async params => recordedTracePage(String(Number(params.after_seq) + 1), true);
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.pageCursor, '8');
+  assert.equal(view.getSnapshot().trace!.hasMore, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(host.calls.filter(call => call.method === 'trace.page').length, 8);
+  host.trace = async params => {
+    if (params.after_seq === '8') return recordedTracePage('9', true);
+    throw new Error('page failed');
+  };
+  await assert.rejects(view.loadTrace(), /page failed/);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '9');
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = async params => { assert.equal(params.after_seq, '9'); return recordedTracePage('10'); };
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.hasMore, false);
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.equal(Object.keys(view.getSnapshot().trace!.spans).length, 10);
+});
+
+test('trace pages cannot regress live spans or advance the durable cursor from live events', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  await until(() => !!view.getSnapshot().trace?.loading);
+  const live = { ...recordedTracePage().spans![0]!, updated_seq: '11', end_ns: '1600000000002500000' };
+  host.streams.at(-1)!.push('11', 'span.ended', live);
+  await until(() => view.getSnapshot().trace?.spans['span-1']?.updatedSeq === '11');
+  pending.resolve(recordedTracePage());
+  await load;
+  assert.equal(view.getSnapshot().trace!.spans['span-1']!.updatedSeq, '11');
+  assert.equal(view.getSnapshot().trace!.pageCursor, '1');
+  host.trace = async params => { assert.equal(params.after_seq, '1'); return recordedTracePage('11'); };
+  host.notify('disconnected');
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.pageCursor, '11');
+});
+
+test('trace disposal cancels pending transport and wrong-root/nonadvancing pages are retryable failures', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.trace = async () => ({ ...recordedTracePage(), root_id: 'other' });
+  await assert.rejects(view.loadTrace(), /different root/);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = async () => recordedTracePage('0', true);
+  await assert.rejects(view.loadTrace(), /did not advance/);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '0');
+  const pending = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const load = view.loadTrace();
+  await until(() => !!signal);
+  await view.dispose();
+  assert.equal(signal!.aborted, true);
+  pending.resolve(recordedTracePage());
+  await load;
+  assert.equal(view.getSnapshot().trace, undefined);
+  await assert.rejects(view.loadTrace(), /closed/);
+});
+
+test('runtime replacement cancels old trace evidence and refuses new trace reads on that view', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  await until(() => !!signal);
+  host.notify('connected', 'different-runtime');
+  assert.equal(signal!.aborted, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  pending.reject(new Error('late old-runtime failure'));
+  await load;
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.deepEqual(view.getSnapshot().trace!.spans, {});
+  await assert.rejects(view.loadTrace(), /runtime changed/);
 });

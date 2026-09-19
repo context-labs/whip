@@ -117,6 +117,7 @@ export class SessionView {
   private readonly lifetime = new AbortController();
   private readonly historyRequests = new Map<string, { epoch: number; key: string; controller: AbortController; promise: Promise<void> }>();
   private repair?: { epoch: number; promise: Promise<void> };
+  private traceRequest?: { controller: AbortController; promise: Promise<void> };
   private readonly recentRecoveryCursor = new Map<string, string>();
   private stream?: Awaited<ReturnType<WhipClient['events']['subscribe']>>;
   private disconnectListener?: () => void;
@@ -164,6 +165,7 @@ export class SessionView {
   async dispose(): Promise<void> {
     if (this.lifetime.signal.aborted) return;
     this.lifetime.abort();
+    this.cancelTraceRead();
     this.cancelHistoryReads();
     this.epoch++;
     clearTimeout(this.noticeTimer);
@@ -278,12 +280,14 @@ export class SessionView {
     if (connection.state === 'connected') {
       if (this.runtimeID && connection.info?.runtime_id !== this.runtimeID) {
         this.incompatibleRuntime = true;
+        this.cancelTraceRead();
         this.epoch++;
         this.cancelHistoryReads();
         void this.stream?.dispose();
         this.stream = undefined;
         this.set({ ...this.current, executions: undefined, status: 'error', error: new WhipError('runtime_changed', 'Execution runtime changed; open a new session view') }, true);
       } else if (connection.info?.connection_id !== this.lastConnectionID) {
+        if (this.lastConnectionID) this.cancelTraceRead();
         this.lastConnectionID = connection.info?.connection_id;
         this.recentRecoveryCursor.clear();
         this.current = { ...this.current, history: Object.fromEntries(Object.entries(this.current.history).map(([id, history]) => [id,
@@ -291,6 +295,7 @@ export class SessionView {
         if (refresh) void this.refresh();
       }
     } else {
+      this.cancelTraceRead();
       this.epoch++;
       this.cancelHistoryReads();
       this.stream = undefined;
@@ -524,24 +529,45 @@ export class SessionView {
    */
   async loadTrace(): Promise<void> {
     if (this.lifetime.signal.aborted) throw new Error('Session view is closed');
-    const epoch = this.epoch;
+    if (this.incompatibleRuntime) throw new WhipError('runtime_changed', 'Execution runtime changed; open a new session view');
+    if (this.traceRequest) return this.traceRequest.promise;
+    const controller = new AbortController();
+    // Trace pages are root-scoped, not snapshot/history-revision-scoped. A
+    // concurrent root refresh must not discard their result or strand loading.
+    const promise = Promise.resolve().then(() => this.fetchTrace(controller.signal));
+    const request = { controller, promise };
+    this.traceRequest = request;
+    try { await promise; }
+    finally { if (this.traceRequest === request) this.traceRequest = undefined; }
+  }
+
+  private cancelTraceRead(): void {
+    this.traceRequest?.controller.abort();
+    this.traceRequest = undefined;
+    if (this.current.trace?.loading) this.current = { ...this.current, trace: { ...this.current.trace, loading: false } };
+  }
+
+  private async fetchTrace(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return;
     const rootId = this.session.rootId;
     let evidence = this.current.trace ?? emptyTraceEvidence(rootId);
-    if (evidence.loading) return;
     this.set({ ...this.current, trace: { ...evidence, loading: true, error: undefined } }, true);
     try {
       for (let pages = 0; pages < 8; pages++) {
-        const page = await this.session.client.call('trace.page', { root_id: rootId, after_seq: evidence.pageCursor, limit: 2048 }, { signal: this.lifetime.signal });
-        if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+        const page = await this.session.client.call('trace.page', { root_id: rootId, after_seq: evidence.pageCursor, limit: 2048 }, { signal });
+        if (signal.aborted) return;
+        if (page.root_id !== rootId) throw new Error('Trace page belongs to a different root');
+        if (page.has_more && BigInt(page.next_seq) <= BigInt(evidence.pageCursor)) throw new Error('Trace page cursor did not advance');
         evidence = mergeSpanPage(this.current.trace ?? evidence, page);
-        this.set({ ...this.current, trace: { ...evidence, loading: page.has_more } }, true);
+        this.set({ ...this.current, trace: { ...evidence, loading: true } }, true);
         if (!page.has_more) break;
       }
-      if (evidence.loading) this.set({ ...this.current, trace: { ...evidence, loading: false } }, true);
     } catch (error) {
-      if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
-      this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), loading: false, error: asError(error) } }, true);
+      if (signal.aborted) return;
+      this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), error: asError(error) } }, true);
       throw error;
+    } finally {
+      if (!signal.aborted) this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), loading: false } }, true);
     }
   }
 

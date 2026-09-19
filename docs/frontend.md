@@ -432,9 +432,11 @@ The sidebar's 48px brand row and the 48px tab strip double as the window drag
 region via `-webkit-app-region` (the `windowDrag`/`windowNoDrag` entries in
 [`styles.ts`](../packages/app/src/styles.ts) and
 [`workspace-tabs.stylex.ts`](../packages/ui/src/workspace-tabs.stylex.ts));
-interactive children opt out — the tab list itself stays draggable so the
-strip's empty stretch moves the window, while individual tabs and utility
-buttons opt out to protect tab reordering and clicks. The traffic lights are
+interactive children opt out — while idle, the tab list stays draggable so the
+strip's empty stretch moves the window. During a sidebar-session drag, only the
+usable tab list temporarily opts out so its empty stretch can accept a new view;
+the traffic-light inset remains excluded. Individual tabs and utility buttons
+always opt out to protect reordering and clicks. The traffic lights are
 vertically centered in
 that strip (`trafficLightPosition: {x: 12, y: 18}`); the sidebar carries the
 theme-colored `WhipcodeWordmark` (`@whip/ui`) in both shells — a home link in
@@ -741,6 +743,23 @@ two views with identical URLs. Sidebar/search reuse the selected matching view,
 then one in its pane, then another existing view before adding a new tab. Matching
 always includes runtime and root identity.
 
+Dragging a saved sidebar session into a tab strip or onto a pane's left/right/top/bottom
+split edge, or choosing **Open in new tab**,
+always opens a fresh root chat view, even when that conversation is already open.
+It does not create or fork a daemon session. Existing views retain their reading,
+agent and inspector state; ordinary sidebar clicks still reuse matching views.
+`SessionTabs.openChatView` validates identity, target pane and the unconditional
+32-view limit (and four-pane limit for an edge), inserts/selects/focuses and persists
+the fresh view and optional split in one immutable update. Sidebar sources reuse
+the attached-tab edge hit testing and split preview, including compact/minimum-size
+restrictions; pane centers never accept sidebar drops. Preview and release both
+recheck capacity and target validity. Cancellation leaves the layout untouched. A
+new item uses its insertion index directly (unlike transfer, there is no removed
+source index to adjust). The menu inserts after the focused pane's selected tab.
+Both paths use `openChatView` in routing and `tabDestination`'s exact `whipViewId`;
+routing failure is reported without retrying creation. Known offline hosts can
+open unavailable views locally; a removed host cannot.
+
 The v3 window record migrates the last-used v1/v2 host layout first. Other legacy
 layouts remain recoverable under **Settings → Servers → Restore previous host tabs**.
 Restoring merges panes and closed-tab history after checking the window-wide
@@ -766,7 +785,20 @@ a replacement. Settings retains the tree and releases visible consumers.
 originating location and host before updating their view.
 
 `@whip/ui/workspace-layout` provides recursive geometry and one shared dnd-kit
-provider. It accepts generic rendered content; chat/REPL and future terminal descriptors
+provider. `WorkspaceDragScope` (exported through `@whip/ui/workspace-tabs`)
+wraps the shell's sidebar and workspace; standalone layouts retain a local scope.
+The layout registers its current target resolver with that scope; a standalone
+strip on an unmatched/home route registers its own resolver instead. Existing view
+sources keep content-edge split/transfer targets; `WorkspaceExternalSource` uses
+opaque app-owned payloads and accepts usable tab strips and all four content split
+edges, excluding utility controls, traffic lights and content centers. It keeps the original row in place
+and reuses the contoured tab face, insertion gaps, cancellation, reduced-motion,
+click suppression and native Browser-surface occlusion path. Auto-scroll is
+horizontal only, avoiding sidebar/page vertical scrolling. The app validates
+capacity and destination again at release and returns the created view ID for
+preview settlement. No navigation, storage write or session work happens on hover
+or cancellation. Touch/compact navigation retains ordinary link/menu behavior.
+It accepts generic rendered content; chat/REPL and future terminal descriptors
 and renderers belong in app. WHIP owns tree edits, persistence and product limits.
 The only new dependency, `react-resizable-panels`, supplies keyboard/pointer
 resizing. It has no vendor theme CSS. Selected content uses stable, sorted sibling
@@ -939,13 +971,24 @@ traces newest first and offers the whole session. **Open trace** sits beside **O
 menu and picker, and uses the same `openSessionView` helper.
 
 The SDK owns the data. `SessionView.loadTrace()` pages the daemon's durable
-spans (`trace.page`) into bounded `state.trace` evidence and live `span.started`
-/ `span.ended` events upsert by id, so the root span appears the moment a turn is
-admitted and no snapshot refresh is needed per span. `traceSpans(state, traceId)`
+spans (`trace.page`) into bounded `state.trace` evidence, including inactive
+persisted sessions. Reads survive ordinary root snapshot refreshes, coalesce
+concurrent callers, and cancel on disconnect/disposal/runtime replacement. The
+view catches up from its durable page cursor on reconnect; failures expose Retry.
+Each load reads at most eight pages; `hasMore` exposes Load more spans rather than
+leaving the loading indicator running. An empty completed read means no recorded
+spans, not a pending fetch: sessions predating tracing are not backfilled with
+invented timings. Live `span.started` / `span.ended` events upsert by id, so the
+root span appears the moment a turn is admitted and no snapshot refresh is
+needed per span. `traceSpans(state, traceId)`
 and `traceRoots(state)` are the only reads; the app adds selection, expansion,
-zoom and a 500 ms clock while any span is open. Timing is server-measured
-(nanosecond stamps taken on the daemon goroutine that saw the boundary) and open
-spans grow against the daemon's clock through the page's `server_time_ns`, so
+zoom and a requestAnimationFrame clock capped at about 30 fps while connected
+with open spans. Hidden documents, idle/disconnected views and OS/app reduced
+motion suspend animation; incoming span evidence still updates the view. Only
+selected views in visible workspace panes are mounted. Token/cost totals and
+descendant roll-ups are memoized independently of the animation clock. Timing is
+server-measured (nanosecond stamps taken on the daemon goroutine that saw the
+boundary) and open spans grow against the daemon's clock through the page's `server_time_ns`, so
 the view shows real historical durations, unlike the REPL's client-observed
 timer. Pure layout and roll-up math lives in `trace-math.ts`, ported from the
 HALO viewer: tree building, depth-first rows, domain and view clamping, ticks,
@@ -1706,8 +1749,12 @@ management stays at the end of the scrollable content. The brand/window controls
 and New session remain pinned; Search, Settings, host sections, and Servers share
 one scroll area. A theme-derived hairline and 12 px soft fade appear below the
 pinned header only after scrolling, with a reduced-motion-aware opacity transition.
-Host headings show connection status and collapse independently. Each pane's tab strip sits above a compact `SessionInfoBar`: host/project, selected
-agent, current activity and scoped actions. Full host/path identity is available
+Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
+agent, current activity and scoped actions. Chat, REPL and trace/span views use
+this same component, including loading and unavailable states. It owns the
+view-specific control visibility and a single action list for both toolbar buttons
+and the narrow-pane overflow menu; callers provide identity, activity and callbacks
+rather than assembling their own top bars. Full host/path identity is available
 on focus through a tooltip. Agent selection opens the existing paginated inspector;
 child views can return to Root. REPL keeps only language, loaded-cell count and
 history help in its local toolbar. New Chat shows its chosen host/project and
