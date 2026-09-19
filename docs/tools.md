@@ -23,12 +23,12 @@ positional arguments and does not contact the daemon.
 | `context` | `inspect`, `search`, `read` supplied or history handles |
 | `files` | `list`, `search`, `read`, `write`, `patch` |
 | `shell` | `run` (blocking, 120 s cap), `read` handle-backed output, background jobs: `start`, `poll`, `tail`, `wait`, `kill`, `list` |
-| `browser` | `run` |
+| `browser` | `run`; [desktop attachment lifecycle](browser-computer-use.md#desktop-browser-tabs) |
 | `computer` | `run` |
 | `models` | `call`, `batch` for stateless model work |
 | `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
 | `messages` | `send`, `list`, `read`, `complete`, `defer` |
-| `mcp` | `list_servers`, `list_tools`, `instructions`, `call` |
+| `mcp` | `list_servers`, `list_tools`, `search`, `describe`, `instructions`, `call` |
 | `state` | private/blackboard get, set, append, CAS, list/history, subscriptions |
 | `artifacts` | `put`, `inspect`, `read` |
 | `schedules` | `create`, `list`, `cancel` |
@@ -59,6 +59,28 @@ Unsupported bindings are reported; see the scratch contract in
 check its scratch warning and do not repeat external effects merely to save
 the checkpoint. Use `state`, `artifacts`, messages, and retained children for
 important durable work.
+
+## Desktop Browser helper mode
+
+Desktop Browser remains **experimental and release-gated**, enabled by default
+unless launched with `WHIP_DESKTOP_BROWSER_TABS=0`. An exact, unambiguous Desktop
+can service permission-gated `browser.open` (`browser_open` for MCP clients)
+without a manually created or offered tab. `browser.list_tabs`
+(`browser_list_tabs`) discovers only scoped current metadata on demand, without
+creating a page or granting control. No inventory is injected into prompts.
+Opening starts the attachment lifecycle; `browser.run` with `attachment_id`
+uses the existing helper language against that same human-visible page. Do not
+mix an attachment target with a legacy browser session. Missing selection or
+authority fails closed, without launching or falling back to another browser.
+
+Open, attach and preview-port expansion use the existing permission policy
+(Once-only consent in prompt mode, or the current automatic mode);
+attachment control is not implicit in a tab ID or generic browser capability.
+See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
+for the operation inventory, delegation and unsupported helpers, and the
+[SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+for explicit selection/release and transport ownership. Neither API discovery
+nor experimental enablement grants authority.
 
 ## Structured state
 
@@ -167,24 +189,48 @@ and `effective_budgets` fields are available through ordinary inspection as
 The daemon owns MCP connections. Both root and child kernels call:
 
 ```python
+mcp.search(query="lease search", limit=5)
+mcp.describe(server="docs", tool="search")
 mcp.list_servers()
-mcp.list_tools(server="docs")
+mcp.list_tools(server="docs", offset=0, limit=100)
 mcp.instructions(server="docs")
 mcp.call(server="docs", tool="search", arguments={"query": "leases"})
 ```
 
-Calls use the exact configured server and original tool name. `list_tools`
-marks which definitions the caller is authorized to use. Each call runs through
+Discovery reads the daemon's cached catalogs and never touches a server.
+`search` ranks tools across every ready server (or one, with `server=`) by
+name, then title, then description and schema property names; every query
+token must hit; results carry a one-line summary and no schema. `describe`
+returns one tool's full entry including its input schema, and names the
+nearest tools when the name is wrong. `list_tools` windows one server's
+name-sorted catalog (`offset`, `limit`, default 100) without schemas unless
+`schemas=True`; `list_servers` reports each server's total.
+
+Calls use the exact configured server and original tool name. Search results
+and listings mark which definitions the caller is authorized to use. Each call runs through
 the durable capability dispatcher, reserves operation capacity, and rechecks its
 grant and current server definition after permission and the server's call queue.
 Large results become handles through the same bounded-output path as built-in
-operations.
+operations. A call's text keeps every text part and appends any
+`structuredContent` as JSON; image, audio and binary resource parts are stored
+as content handles owned by the calling agent and named in the text
+(`[image 1: image/png, 48213 bytes; handle …]`), and image parts also reach the
+root's next turn as vision input through the same path browser and computer
+screenshots use. Children receive the handle only.
 
-Servers explicitly configured in native WHIP configuration are trusted. Imported
-Claude/Codex definitions retain their provenance, including when saved by the
-import command; ACP attachments also require consent or a saved allow rule.
-Only the daemon's native configuration establishes native trust. A client cannot
-claim it or replace a native definition by attaching a server of the same name.
+Servers explicitly configured in native WHIP configuration are trusted.
+Definitions discovered from the project's `.mcp.json`, the Codex file, the
+global Claude file, or the OpenCode files retain their provenance and require
+consent or a saved allow rule; `whip mcp import` and the app's import screen
+materialize them into native configuration, which is how an imported server
+becomes trusted. The project file is an import source of its own and is off
+unless enabled. ACP attachments are
+additive and untrusted for calls: they join the running manager, an
+attachment outside the agent definition's server list or one that names a
+native server is recorded as blocked instead, and re-attaching a
+non-native name replaces that entry. Only the daemon's native configuration establishes native
+trust. A client cannot claim it or replace a native definition by attaching a
+server of the same name.
 Explicit permission denials and revoked grants still win. Headless execution
 uses preauthorization or denies promptly; it never waits for a permission UI.
 
@@ -203,12 +249,16 @@ reconnecting a manager invalidates pending calls; transmitted calls are never
 automatically retried because their external outcome may be uncertain.
 
 `whip mcp serve` is a protocol bridge for external MCP clients. It hosts
-daemon-owned tool services directly and does not create a model agent.
+daemon-owned tool services directly and does not create a model agent. It
+cannot obtain new consent: operations covered by saved rules run, everything
+else is denied, and an outer client's approval is never treated as whip
+consent.
 
 ## Authorization and output
 
-- File, shell, and MCP operations use the capability dispatcher with the calling
-  agent’s identity and grants.
+- File, shell, MCP, and desktop Browser operations use the capability dispatcher
+  with the calling agent’s identity and grants. Browser v1 resource consent is
+  Once-only; the remembered-rule behavior below does not apply to it.
 - Omitted child capabilities inherit the parent set; an explicit list may
   only narrow it.
 - Permission approval is human/protocol-side and revalidates the exact

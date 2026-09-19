@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { chromium, firefox } from '@playwright/test';
+import { chromium, firefox, expect } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { startFixture, eventually } from '../../../packages/sdk/scripts/fixture.mjs';
 
@@ -39,13 +39,18 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     const composer = page.getByLabel('Message WHIP', { exact: true });
     const send = page.getByRole('button', { name: 'Send message', exact: true });
     await eventually(async () => await send.isEnabled() || await composer.isEnabled());
-    const prompt = 'hold:message-visibility';
+    const prompt = 'hold:thinking-response';
     await composer.fill(prompt); await send.click();
     const user = page.locator('[data-message-role="user"]').filter({ hasText: prompt });
     await user.getByRole('status').filter({ hasText: 'Sending…' }).waitFor();
     assert.equal(await user.count(), 1, 'One preview before request transmission');
     assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'No committed input yet');
     assert.equal((await fixture.effects()).length, 0, 'Host has not received the held request');
+    const working = page.locator('[data-transcript-working]');
+    await expect(working).toHaveText('Sending…');
+    await expect(working.locator('[data-turn-elapsed]')).toHaveCount(0);
+    await expect(working.locator('[data-activity-animation] > span')).toHaveCount(9);
+    await page.screenshot({ path: `${output}/${name}-sending.png` });
     assert.equal(await user.locator('time').count(), 1);
     const bubble = user.locator('[data-user-bubble]');
     const box = await bubble.boundingBox(), rowBox = await user.boundingBox();
@@ -63,6 +68,14 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     releaseSend();
     await eventually(async () => (await session.snapshot()).inbox?.some(item => item.status === 'running'));
     await eventually(async () => (await user.count()) === 1 && !(await user.getByRole('status').count()));
+    await expect(working).toContainText('Thinking…');
+    await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(0);
+    await expect(working.locator('[data-activity-animation]')).toHaveAttribute('data-activity-animation', 'running');
+    await expect(working).toContainText('Pondering…', { timeout: 10_000 });
+    await expect(working.locator('[data-turn-elapsed]')).toContainText('s');
+    await page.screenshot({ path: `${output}/${name}-thinking.png` });
+    await fixture.release('thinking-first-token');
+    await expect(working).toContainText('Writing a response…');
     assert.equal(await page.locator('[data-message-role="assistant"]').count(), 1, 'Response is streaming but unfinished');
     await bubble.hover(); await page.screenshot({ path: `${output}/${name}-light.png` });
     await composer.fill('Queued while the response runs'); await composer.press('Enter');
@@ -74,8 +87,9 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     await page.reload(); await composer.waitFor(); await user.waitFor();
     assert.equal(await user.count(), 1, 'Reload reconstructs running user input from the inbox');
     await bubble.hover(); await page.screenshot({ path: `${output}/${name}-dark.png` });
-    await fixture.release('message-visibility');
+    await fixture.release('thinking-response');
     await eventually(async () => Object.keys((await session.snapshot()).active_turns).length === 0);
+    await expect(working).toHaveCount(0);
     await eventually(async () => (await user.count()) === 1 && (await user.getAttribute('data-message-id')).startsWith('h:'));
     // Identical authored prompts must remain separate after fast completion.
     for (let index = 0; index < 2; index++) {
@@ -93,7 +107,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     await page.screenshot({ path: `${output}/${name}-narrow.png` });
     assert.deepEqual(errors, []);
     assert.deepEqual(await page.evaluate(() => window.__messageCsp), []);
-    console.log(`${name}: immediate pre-send bubble, running/reloaded input, exact-once completion, identical messages, hover/focus, right alignment, light/dark/narrow and CSP passed`);
+    console.log(`${name}: immediate Sending, thinking before the first token, 7s caption rotation, trailer completion, pre-send bubble, running/reloaded input, exact-once completion, identical messages, hover/focus, right alignment, light/dark/narrow and CSP passed`);
   } catch (error) {
     if (page) {
       await page.screenshot({ path: `${output}/${name}-failure.png` }).catch(() => {});

@@ -25,6 +25,73 @@
     }
   },
   {
+    "type": "BrowserCommandResultParams",
+    "value": {
+      "command_id": "",
+      "root_id": "",
+      "provider_epoch": "",
+      "attachment_generation": "",
+      "document_revision": ""
+    }
+  },
+  {
+    "type": "Accepted",
+    "value": {
+      "accepted": false
+    }
+  },
+  {
+    "type": "BrowserInventoryResultParams",
+    "value": {
+      "request_id": "",
+      "root_id": "",
+      "provider_epoch": "",
+      "tabs": []
+    }
+  },
+  {
+    "type": "BrowserProviderBindParams",
+    "value": {
+      "root_id": "",
+      "version": 0,
+      "desktop_id": "",
+      "window_id": "",
+      "offer_revision": "",
+      "create_profile_id": "",
+      "offered_tabs": [],
+      "offered_preview_hosts": []
+    }
+  },
+  {
+    "type": "BrowserProviderBindResult",
+    "value": {
+      "version": 0,
+      "provider_id": "",
+      "provider_epoch": ""
+    }
+  },
+  {
+    "type": "BrowserProviderEventParams",
+    "value": {
+      "root_id": "",
+      "provider_epoch": "",
+      "tab_id": "",
+      "tab_generation": "",
+      "attachment_id": "",
+      "attachment_generation": "",
+      "sequence": "0",
+      "document_revision": "",
+      "kind": ""
+    }
+  },
+  {
+    "type": "BrowserProviderUnbindParams",
+    "value": {
+      "root_id": "",
+      "provider_epoch": ""
+    }
+  },
+  {
     "type": "CommandStatusParams",
     "value": {
       "command_id": ""
@@ -57,6 +124,8 @@
       "default_execution_engine": "",
       "import_claude": false,
       "import_codex": false,
+      "mcp_import_offered": false,
+      "brand_icons": false,
       "revision": "",
       "default_model": "",
       "default_provider": "",
@@ -291,12 +360,6 @@
     }
   },
   {
-    "type": "Accepted",
-    "value": {
-      "accepted": false
-    }
-  },
-  {
     "type": "HostAttentionParams",
     "value": {
       "limit": 0,
@@ -480,6 +543,42 @@
       "created_at": "0001-01-01T00:00:00Z",
       "delivered_at": "0001-01-01T00:00:00Z",
       "done_at": "0001-01-01T00:00:00Z"
+    }
+  },
+  {
+    "type": "MCPBrandIconsParams",
+    "value": {
+      "keys": []
+    }
+  },
+  {
+    "type": "MCPBrandIconsResult",
+    "value": {
+      "icons": {}
+    }
+  },
+  {
+    "type": "MCPImportApplyParams",
+    "value": {
+      "names": []
+    }
+  },
+  {
+    "type": "MCPImportApplyResult",
+    "value": {
+      "imported": []
+    }
+  },
+  {
+    "type": "MCPImportCandidatesParams",
+    "value": {}
+  },
+  {
+    "type": "MCPImportCandidatesResult",
+    "value": {
+      "candidates": [],
+      "offered": false,
+      "config_path": ""
     }
   },
   {
@@ -867,6 +966,40 @@
     }
   },
   {
+    "type": "TraceExportParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "TraceExportResult",
+    "value": {
+      "content": {
+        "reference_id": "",
+        "digest": "",
+        "size": "0"
+      },
+      "spans": 0,
+      "traces": 0
+    }
+  },
+  {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "SpanPage",
+    "value": {
+      "root_id": "",
+      "spans": [],
+      "next_seq": "0",
+      "has_more": false,
+      "server_time_ns": "0"
+    }
+  },
+  {
     "type": "UploadBeginParams",
     "value": {
       "upload_id": "",
@@ -1141,6 +1274,29 @@
     "value": []
   },
   {
+    "type": "InboxRemoveParams",
+    "value": {
+      "id": "",
+      "inbox_seq": "0"
+    }
+  },
+  {
+    "type": "InboxControlResult",
+    "value": {
+      "agent_id": "",
+      "inbox_seq": "0",
+      "status": ""
+    }
+  },
+  {
+    "type": "InboxSteerParams",
+    "value": {
+      "id": "",
+      "inbox_seq": "0",
+      "turn_id": ""
+    }
+  },
+  {
     "type": "LSPListResult",
     "value": []
   },
@@ -1167,7 +1323,9 @@
     "type": "MCPImportStatusResult",
     "value": {
       "claude": false,
-      "codex": false
+      "codex": false,
+      "project": false,
+      "opencode": false
     }
   },
   {

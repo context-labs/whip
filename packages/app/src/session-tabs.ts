@@ -1,11 +1,14 @@
 import { isInspectorSection, type InspectorSection } from './navigation';
 import type { AppStorage } from './platform';
+import { browserURL, browserTitle, MAX_BROWSER_TABS } from './browser-address';
 
 export interface SessionLocation { agent?: string; panel?: InspectorSection }
-export interface SessionSearch extends SessionLocation { view?: 'repl' }
+export type SessionViewKind = 'chat' | 'repl' | 'trace';
+export interface ChatViewTarget { paneId?: string; index?: number; edge?: SplitEdge }
+export interface SessionSearch extends SessionLocation { view?: 'repl' | 'trace' }
 export interface SessionBackedTab {
   readonly id: string;
-  readonly kind: 'chat' | 'repl';
+  readonly kind: SessionViewKind;
   readonly runtimeId: string;
   readonly rootId: string;
   readonly titleHint: string;
@@ -20,6 +23,9 @@ export interface NewChatTab {
   readonly cwd: string;
   readonly permissionMode: PermissionMode;
   readonly executionEngine?: 'starlark' | 'quickjs';
+  readonly model?: string;
+  readonly provider?: string;
+  readonly effort?: string;
   /** Agent definition id the session runs; absent means the host's default (coding). */
   readonly definition?: string;
 }
@@ -32,11 +38,24 @@ export interface TerminalTab {
   readonly cwd: string;
   readonly titleHint: string;
 }
-export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab;
+export interface BrowserTab {
+  readonly id: string;
+  readonly kind: 'browser';
+  readonly url: string;
+  readonly titleHint: string;
+  readonly environmentId?: string;
+}
+export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab | BrowserTab;
+export const isBrowserTab = (tab: SessionTab): tab is BrowserTab => tab.kind === 'browser';
 /** Chat and REPL descriptors carry session identity; New Chat and terminal descriptors do not. */
-export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl';
+export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl' || tab.kind === 'trace';
+/** The route search value for a non-chat view; chat omits `view`. */
+export const viewSearch = (kind: SessionViewKind): SessionSearch['view'] => kind === 'chat' ? undefined : kind;
+export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl' || view === 'trace' ? view : 'chat';
+/** Tab title suffix for a non-chat view. */
+export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
 export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
-export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 export interface SessionPane {
@@ -68,6 +87,9 @@ export interface TabsSnapshot { readonly version: 3; readonly workspace: TabWork
 export const MAX_SESSION_TABS = 32;
 export const MAX_SESSION_PANES = 4;
 export const TAB_STORAGE_KEY = 'whip.web.workspace.v3';
+/** Old clients discard unknown kinds. Keep both the original layout and Browser-bearing recovery separately. */
+export const PRE_BROWSER_TAB_STORAGE_KEY = 'whip.web.workspace.pre-browser.v3';
+export const BROWSER_TAB_RECOVERY_KEY = 'whip.web.workspace.browser-recovery.v1';
 export const PREVIOUS_TAB_STORAGE_KEY = 'whip.web.workspace.v2';
 export const LEGACY_TAB_STORAGE_KEY = 'whip.web.tabs.v1';
 const MAX_BYTES = 64 * 1024;
@@ -80,11 +102,11 @@ const location = (value: unknown): Readonly<SessionLocation> => Object.freeze(ob
   ...(isInspectorSection(value.panel) ? { panel: value.panel } : {}),
 } : {});
 export function validateSessionSearch(search: Record<string, unknown>): SessionSearch {
-  return { ...location(search), ...(search.view === 'repl' ? { view: 'repl' } : {}) };
+  return { ...location(search), ...(search.view === 'repl' || search.view === 'trace' ? { view: search.view } : {}) };
 }
 /** Mode has one persisted owner; route search is derived from the descriptor. */
 export function sessionSearch(tab?: { kind: SessionTab['kind']; location?: Readonly<SessionLocation> }): SessionSearch {
-  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' ? { view: 'repl' } : {}) };
+  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' || tab?.kind === 'trace' ? { view: tab.kind } : {}) };
 }
 const newId = () => crypto.randomUUID();
 export function sessionPanes(node: SessionLayout): readonly SessionPane[] {
@@ -151,13 +173,23 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
       (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
       (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
+      (value.model !== undefined && !identity(value.model)) ||
+      (value.provider !== undefined && !identity(value.provider)) ||
+      ((value.model === undefined) !== (value.provider === undefined)) ||
+      (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||
       (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
       (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
+      ...(value.model === undefined ? {} : { model: value.model as string, provider: value.provider as string }),
+      ...(value.effort === undefined ? {} : { effort: value.effort as string }),
       ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
       ...(value.definition === undefined ? {} : { definition: value.definition as string }),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
       ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
+  }
+  if (object(value) && value.kind === 'browser' && !legacy) {
+    if (!identity(value.id) || typeof value.url !== 'string' || (value.environmentId !== undefined && !identity(value.environmentId))) return;
+    try { return { id: value.id, kind: 'browser', url: browserURL(value.url), titleHint: browserTitle(typeof value.titleHint === 'string' ? value.titleHint : ''), ...(value.environmentId === undefined ? {} : { environmentId: value.environmentId as string }) }; } catch { return; }
   }
   if (object(value) && value.kind === 'terminal' && !legacy) {
     if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
@@ -165,7 +197,7 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
   }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
-  if (kind !== 'chat' && kind !== 'repl') return;
+  if (kind !== 'chat' && kind !== 'repl' && kind !== 'trace') return;
   runtimeId ??= identity(value.runtimeId) ? value.runtimeId : undefined;
   if (!runtimeId) return;
   return { id: legacy ? value.rootId : value.id as string, kind, runtimeId, rootId: value.rootId, titleHint: title(value.titleHint), location: location(value.location) };
@@ -256,6 +288,7 @@ function purgeSavedRoot(raw: string | null, runtimeId: string, rootId: string): 
 export class SessionTabs {
   private snapshot: TabsSnapshot;
   private migrated: string[] = [];
+  private orphanedBrowserTabs: readonly BrowserTab[] = [];
   private listeners = new Set<() => void>();
   constructor(private readonly storage?: AppStorage, private readonly onNotice: (message: string) => void = () => {}, preferredRuntimeId?: string) {
     let raw: string | null = null, old: string | null = null;
@@ -276,6 +309,12 @@ export class SessionTabs {
     }
     if (initial) this.migrated.push(initial.runtimeId);
     this.snapshot = Object.freeze({ version: 3, workspace: restored ?? initial?.workspace ?? emptyWorkspace(), previous: Object.freeze(previous.filter(item => !this.migrated.includes(item.runtimeId))) });
+    // Only entries absent at startup are downgrade orphans; ordinary close-history expiry must not become permanent history.
+    try {
+      const saved = restore(storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      const known = new Set([...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].map(tab => tab.id));
+      this.orphanedBrowserTabs = (saved ? [...saved.tabs, ...saved.closed.map(item => item.tab)] : []).filter(isBrowserTab).filter(tab => !known.has(tab.id));
+    } catch { /* Recovery is optional when storage is unavailable. */ }
     // Keep original v1/v2 storage intact until the user restores or dismisses its
     // other layouts. They must never be evicted to fit the new window limits.
     if (initial) this.persist();
@@ -283,8 +322,23 @@ export class SessionTabs {
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   workspace(): TabWorkspace { return this.snapshot.workspace; }
+  private browserRecoveryText(extra: readonly BrowserTab[] = []) {
+    const current = [...extra, ...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].filter(isBrowserTab);
+    const saved = [...current, ...this.orphanedBrowserTabs].filter((tab, index, all) => all.findIndex(item => item.id === tab.id) === index);
+    const text = serialize({ ...emptyWorkspace(), layout: { type: 'pane', id: 'main', tabs: saved } }, []);
+    if (saved.length > MAX_SESSION_TABS || bytes(text) > MAX_BYTES) throw new Error('Restore or forget saved Browser addresses in Settings before adding more.');
+    return saved.length ? text : undefined;
+  }
   private persist() {
-    try { this.storage?.setItem(TAB_STORAGE_KEY, serialize(this.snapshot.workspace, this.migrated)); }
+    try {
+      const text = serialize(this.snapshot.workspace, this.migrated);
+      const recovery = this.browserRecoveryText();
+      if (recovery) {
+        if (!this.storage?.getItem(PRE_BROWSER_TAB_STORAGE_KEY)) this.storage?.setItem(PRE_BROWSER_TAB_STORAGE_KEY, this.storage.getItem(TAB_STORAGE_KEY) ?? serialize(emptyWorkspace(), []));
+        this.storage?.setItem(BROWSER_TAB_RECOVERY_KEY, recovery);
+      }
+      this.storage?.setItem(TAB_STORAGE_KEY, text);
+    }
     catch { this.onNotice('Session tabs are kept in memory because window storage is unavailable.'); }
   }
   private write(workspace: Omit<TabWorkspace, 'tabs'>, previous = this.snapshot.previous, migrated = this.migrated, durable = false) {
@@ -337,18 +391,6 @@ export class SessionTabs {
   dismissPrevious(runtimeId: string) {
     if (!this.snapshot.previous.some(item => item.runtimeId === runtimeId)) return;
     this.write(this.workspace(), this.snapshot.previous.filter(item => item.runtimeId !== runtimeId), [...this.migrated, runtimeId]);
-  }
-  /** Materialize a retained recovery identity without selecting it or reopening closed work. */
-  ensureNew(id: string, options: NewChatOptions = {}): SessionTab {
-    const workspace = this.workspace();
-    const existing = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
-    if (existing) return existing;
-    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
-    const tab = parseTab({ ...options, id, kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
-    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => pane.id === workspace.focusedPaneId
-      ? { ...pane, tabs: [...pane.tabs, tab] } : pane) }, undefined, undefined, true);
-    return Object.freeze(tab);
   }
   openNew(options: NewChatOptions = {}): NewChatTab {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
@@ -410,6 +452,31 @@ export class SessionTabs {
     if (existing) return existing.id;
     return this.add({ id: rootId, kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) }, paneId);
   }
+  /** Open an independent root chat view, selecting and placing it in one write. */
+  openChatView(runtimeId: string, rootId: string, titleHint = '', target: ChatViewTarget = {}): SessionBackedTab {
+    if (!identity(runtimeId)) throw new Error('Invalid execution host identity');
+    if (!identity(rootId)) throw new Error('Invalid session identity');
+    const workspace = this.workspace();
+    const pane = sessionPanes(workspace.layout).find(p => p.id === (target.paneId ?? workspace.focusedPaneId));
+    if (!pane) throw new Error('This pane is no longer available. Choose another tab strip.');
+    if (target.index !== undefined && !Number.isFinite(target.index)) throw new Error('Invalid tab insertion index');
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab: SessionBackedTab = { id: newId(), kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) };
+    if (target.edge) {
+      if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Open this session in an existing pane.');
+      const newPane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+      this.write({ ...workspace, focusedPaneId: newPane.id, restoreSelection: true,
+        layout: replaceNode(workspace.layout, pane.id, node => splitNode(node, newPane, target.edge!)) });
+      return tab;
+    }
+    const selected = pane.tabs.findIndex(item => item.id === pane.selected);
+    const index = target.index ?? (selected < 0 ? pane.tabs.length : selected + 1);
+    const tabs = [...pane.tabs];
+    tabs.splice(Math.max(0, Math.min(tabs.length, Math.trunc(index))), 0, tab);
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
+    return tab;
+  }
   /** Insert a tab for a shell the host already started, after the pane's selected tab. */
   openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
@@ -435,7 +502,56 @@ export class SessionTabs {
     this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })) });
     return true;
   }
+  canOpenBrowser(): boolean { return this.canOpen() && this.workspace().tabs.filter(isBrowserTab).length < MAX_BROWSER_TABS; }
+  openBrowser(input: Omit<BrowserTab, 'kind'>, paneId?: string, options: { background?: boolean } = {}): BrowserTab {
+    if (!this.canOpenBrowser()) throw new Error('Close a Browser tab before opening another (8 Browser tabs, 32 total).');
+    if ([...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].some(tab => tab.id === input.id)) throw new Error('This Browser tab identity was already used.');
+    const tab = parseTab({ ...input, kind: 'browser' });
+    if (!tab || tab.kind !== 'browser') throw new Error('Invalid Browser tab.');
+    this.browserRecoveryText([tab]);
+    this.add(tab, paneId); if (!options.background) this.activate(tab.id); return tab;
+  }
+  /** Roll back a failed native admission without leaking it into Reopen or downgrade recovery. */
+  discardBrowser(id: string) {
+    const workspace = this.workspace();
+    if (workspace.tabs.find(tab => tab.id === id)?.kind !== 'browser') return;
+    this.write(removeViews(workspace, [id], false));
+    try {
+      const saved = restore(this.storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      if (saved) this.storage?.setItem(BROWSER_TAB_RECOVERY_KEY, serialize(removeViews(saved, [id], false), []));
+    } catch { this.onNotice('The failed Browser tab could not be removed from saved recovery.'); }
+  }
+  updateBrowser(id: string, patch: Pick<BrowserTab, 'url' | 'titleHint'>) {
+    const workspace = this.workspace(), current = workspace.tabs.find(tab => tab.id === id);
+    if (!current || current.kind !== 'browser') return;
+    const next = parseTab({ ...current, ...patch });
+    if (!next) throw new Error('Invalid Browser address.');
+    if (next.kind === 'browser' && next.url === current.url && next.titleHint === current.titleHint) return;
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(tab => tab.id === id ? next : tab) })) });
+  }
+  browserRecovery(): readonly BrowserTab[] {
+    try {
+      const saved = restore(this.storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      return (saved ? [...saved.tabs, ...saved.closed.map(item => item.tab)] : []).filter(isBrowserTab)
+        .filter((tab, index, all) => !this.workspace().tabs.some(open => open.id === tab.id) && all.findIndex(item => item.id === tab.id) === index);
+    } catch { return []; }
+  }
+  recoverBrowserTabs() {
+    const recovered = this.browserRecovery(), workspace = this.workspace();
+    if (workspace.tabs.length + recovered.length > MAX_SESSION_TABS) throw new Error('Close tabs to make room for recovered Browser addresses.');
+    this.write({ ...workspace, closed: workspace.closed.filter(item => !recovered.some(tab => tab.id === item.tab.id)), layout: mapPanes(workspace.layout, pane => pane.id === workspace.focusedPaneId ? { ...pane, tabs: [...pane.tabs, ...recovered], selected: pane.selected ?? recovered[0]?.id } : pane) });
+    this.orphanedBrowserTabs = [];
+  }
+  forgetBrowserHistory() {
+    // Explicit privacy action; never resurrect addresses from a downgrade recovery copy.
+    this.orphanedBrowserTabs = [];
+    this.storage?.removeItem(BROWSER_TAB_RECOVERY_KEY);
+    const workspace = this.workspace();
+    this.write({ ...workspace, closed: workspace.closed.filter(item => !isBrowserTab(item.tab)) });
+    this.storage?.removeItem(BROWSER_TAB_RECOVERY_KEY);
+  }
   openRelated(viewId: string, kind: SessionBackedTab['kind']): SessionBackedTab {
+
     const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
     const source = pane?.tabs.find(tab => tab.id === viewId);
     if (!pane || !source || !isSessionTab(source)) throw new Error('This session view is no longer open');
@@ -471,11 +587,11 @@ export class SessionTabs {
     const existing = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId);
     // An expired history entry must never borrow and convert another open view.
     const id = existing?.id ?? (viewId
-      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: search.view === 'repl' ? 'repl' : 'chat', runtimeId, rootId, titleHint: '', location: location(search) })
+      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: kindFromSearch(search.view), runtimeId, rootId, titleHint: '', location: location(search) })
       : this.open(runtimeId, rootId));
     const workspace = this.workspace();
     const pane = sessionViewPane(workspace, id)!;
-    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: kindFromSearch(search.view), location: location(search) } : t) } : p) });
     return id;
   }
   updateLocation(viewId: string, search: SessionLocation) {
@@ -535,9 +651,11 @@ export class SessionTabs {
     if (!closed) return;
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before reopening another.');
     const pane = sessionPanes(workspace.layout).find(p => p.id === closed.paneId) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)!;
-    const tabs = [...pane.tabs]; tabs.splice(Math.min(closed.index, tabs.length), 0, closed.tab);
+    if (closed.tab.kind === 'browser' && !this.canOpenBrowser()) throw new Error('Close a Browser tab before reopening another (8 Browser tabs).');
+    const reopened = closed.tab.kind === 'browser' ? { ...closed.tab, id: newId() } : closed.tab;
+    const tabs = [...pane.tabs]; tabs.splice(Math.min(closed.index, tabs.length), 0, reopened);
     this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.filter(item => item !== closed) });
-    return closed.tab.id;
+    return reopened.id;
   }
   reorderPane(paneId: string, order: readonly string[]) {
     const workspace = this.workspace(), pane = sessionPanes(workspace.layout).find(p => p.id === paneId);
@@ -599,3 +717,6 @@ function splitNode(existing: SessionLayout, pane: SessionPane, edge: SplitEdge):
   const before = edge === 'left' || edge === 'top';
   return { type: 'split', id: newId(), direction: edge === 'left' || edge === 'right' ? 'horizontal' : 'vertical', ratio: .5, first: before ? pane : existing, second: before ? existing : pane };
 }
+
+/** The draft identity a New Chat tab's first message is composed under. */
+export const welcomeDraftKey = (draftId: string) => `new:${draftId}:prompt`;

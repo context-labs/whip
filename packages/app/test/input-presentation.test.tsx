@@ -4,6 +4,7 @@ import { UIProvider } from '@whip/ui';
 import type { HistoryView } from '@whip/sdk/state';
 import {
   SubmittedInputs,
+  queuedInputRows,
   admittedText,
   type InboxInput,
 } from '../src/input-presentation';
@@ -223,4 +224,46 @@ it('renders a user bubble with time and working copy/history controls', async ()
     </RuntimeContext.Provider>,
   );
   expect(container.querySelector('time')).toBeNull();
+});
+
+
+it('partitions queued inputs from chat and keeps identical messages and files distinct', () => {
+  const store = new SubmittedInputs();
+  const a = store.add(scope, 'Again', true);
+  const b = store.add(scope, 'Again', true);
+  store.accept(a, '10'); store.accept(b, '11');
+  const inputs = ['10', '11'].map(seq => ({ ...inbox(seq, 'queued'), origin: 'client', preview: { text: 'Again', attachment_count: 2, attachments: [] } }));
+  const queue = queuedInputRows(inputs.map(item => ({ item, stale: false })), store.getSnapshot());
+  expect(queue.map(row => row.id)).toEqual([`input:${a}`, `input:${b}`]);
+  expect(queue[0]?.preview?.attachment_count).toBe(2);
+  expect(conversationRows(undefined, presentation, inputs, store.getSnapshot(), new Map(), true, true)).toHaveLength(1);
+  expect(conversationRows(undefined, presentation, inputs, store.getSnapshot())).toHaveLength(3);
+});
+
+it('places a boundary-consumed queued message between the surrounding response fragments', () => {
+  const input = { ...inbox('7'), origin: 'client', delivery_seq: '25' };
+  const rows = conversationRows(undefined, [...presentation, { seq: '30', kind: 'stream.text', payload: { text: 'Changed direction' } }], [input], [], new Map(), true, true);
+  expect(rows.map(row => row.text)).toEqual(['Working', 'Again', 'Changed direction']);
+  expect(queuedInputRows([{ item: input, stale: false }], [])).toEqual([]);
+});
+
+it('retains unverified queue entries with a truthful state and excludes internal inputs', () => {
+  const human = { ...inbox('7', 'queued'), origin: 'client' };
+  const internal = inbox('8', 'queued');
+  const rows = queuedInputRows([{ item: human, stale: true }, { item: internal, stale: false }], []);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ stale: true, status: 'Checking queue…' });
+});
+
+it('correlates an inbox event before its receipt and keeps its key after local preview eviction or reload', () => {
+  const store = new SubmittedInputs();
+  const command = store.add({ ...scope, clientId: 'window' }, 'Same text', true);
+  const sending = queuedInputRows([], store.getSnapshot());
+  const accepted = { ...inbox('9', 'queued'), origin: 'client', command_client_id: 'window', command_id: command };
+  const received = queuedInputRows([{ item: accepted, stale: false }], store.getSnapshot());
+  expect(received).toHaveLength(1);
+  expect(received[0]?.id).toBe(sending[0]?.id);
+  expect(queuedInputRows([{ item: accepted, stale: false }], [])[0]?.id).toBe(sending[0]?.id);
+  const foreign = { ...accepted, seq: '10', command_client_id: 'other-window' };
+  expect(queuedInputRows([{ item: foreign, stale: false }], store.getSnapshot())).toHaveLength(2);
 });

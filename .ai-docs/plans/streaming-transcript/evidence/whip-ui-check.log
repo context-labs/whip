@@ -1,0 +1,4 @@
+
+> @whip/ui@0.1.0 check
+> tsc --noEmit
+

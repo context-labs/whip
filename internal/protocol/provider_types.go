@@ -143,6 +143,7 @@ type ProviderStatus struct {
 	AccountID           string   `json:"account_id,omitempty"`
 	Plan                string   `json:"plan,omitempty"`
 	Email               string   `json:"email,omitempty"`
+	TeamName            string   `json:"team_name,omitempty"`
 	ProjectID           string   `json:"project_id,omitempty"`
 	ProjectName         string   `json:"project_name,omitempty"`
 	MachineKeyName      string   `json:"machine_key_name,omitempty"`

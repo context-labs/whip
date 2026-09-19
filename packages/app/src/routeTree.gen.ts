@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as BrowserViewIdRouteImport } from './routes/browser.$viewId'
 import { Route as NewDraftIdRouteImport } from './routes/new.$draftId'
 import { Route as HRuntimeIdSRootIdRouteImport } from './routes/h.$runtimeId.s.$rootId'
 import { Route as HRuntimeIdTTerminalIdRouteImport } from './routes/h.$runtimeId.t.$terminalId'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BrowserViewIdRoute = BrowserViewIdRouteImport.update({
+  id: '/browser/$viewId',
+  path: '/browser/$viewId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NewDraftIdRoute = NewDraftIdRouteImport.update({
@@ -44,6 +50,7 @@ const HRuntimeIdTTerminalIdRoute = HRuntimeIdTTerminalIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/browser/$viewId': typeof BrowserViewIdRoute
   '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
   '/h/$runtimeId/t/$terminalId': typeof HRuntimeIdTTerminalIdRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/browser/$viewId': typeof BrowserViewIdRoute
   '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
   '/h/$runtimeId/t/$terminalId': typeof HRuntimeIdTTerminalIdRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/browser/$viewId': typeof BrowserViewIdRoute
   '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
   '/h/$runtimeId/t/$terminalId': typeof HRuntimeIdTTerminalIdRoute
@@ -68,6 +77,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/browser/$viewId'
     | '/new/$draftId'
     | '/h/$runtimeId/s/$rootId'
     | '/h/$runtimeId/t/$terminalId'
@@ -75,6 +85,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/settings'
+    | '/browser/$viewId'
     | '/new/$draftId'
     | '/h/$runtimeId/s/$rootId'
     | '/h/$runtimeId/t/$terminalId'
@@ -82,6 +93,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/settings'
+    | '/browser/$viewId'
     | '/new/$draftId'
     | '/h/$runtimeId/s/$rootId'
     | '/h/$runtimeId/t/$terminalId'
@@ -90,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  BrowserViewIdRoute: typeof BrowserViewIdRoute
   NewDraftIdRoute: typeof NewDraftIdRoute
   HRuntimeIdSRootIdRoute: typeof HRuntimeIdSRootIdRoute
   HRuntimeIdTTerminalIdRoute: typeof HRuntimeIdTTerminalIdRoute
@@ -109,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browser/$viewId': {
+      id: '/browser/$viewId'
+      path: '/browser/$viewId'
+      fullPath: '/browser/$viewId'
+      preLoaderRoute: typeof BrowserViewIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/new/$draftId': {
@@ -138,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  BrowserViewIdRoute: BrowserViewIdRoute,
   NewDraftIdRoute: NewDraftIdRoute,
   HRuntimeIdSRootIdRoute: HRuntimeIdSRootIdRoute,
   HRuntimeIdTTerminalIdRoute: HRuntimeIdTTerminalIdRoute,

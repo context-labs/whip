@@ -1,3 +1,4 @@
+import { useNativeSurfacePresence } from './native-surfaces';
 import * as stylex from '@stylexjs/stylex';
 import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Collapsible as BaseCollapsible } from '@base-ui/react/collapsible';
@@ -24,8 +25,8 @@ export function StatusIndicator({tone = 'neutral', children}: {tone?: Tone; chil
 export function Tabs({value, onValueChange, items, label = 'Sections'}: {value: string; onValueChange: (value: string) => void; items: {value: string; label: ReactNode; content: ReactNode; disabled?: boolean}[]; label?: string}) {
   return <BaseTabs.Root value={value} onValueChange={next => onValueChange(String(next))}><BaseTabs.List aria-label={label} {...stylex.props(styles.tabList)}>{items.map(item => <BaseTabs.Tab key={item.value} value={item.value} disabled={item.disabled} className={state => stylex.props(styles.control, styles.button, styles.tab, state.active && styles.tabActive).className}>{item.label}</BaseTabs.Tab>)}</BaseTabs.List>{items.map(item => <BaseTabs.Panel key={item.value} value={item.value} {...stylex.props(styles.tabPanel)}>{item.content}</BaseTabs.Panel>)}</BaseTabs.Root>;
 }
-export function Collapsible({title, children, open, defaultOpen, onOpenChange}: {title: ReactNode; children: ReactNode; open?: boolean; defaultOpen?: boolean; onOpenChange?: (open: boolean) => void}) {
-  return <BaseCollapsible.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}><BaseCollapsible.Trigger {...stylex.props(styles.control, styles.button, styles.ghost, styles.disclosure)} render={(props, state) => <button {...props}><ChevronRight size={14} aria-hidden {...stylex.props(styles.disclosureIcon, state.open && styles.disclosureOpen)}/>{title}</button>} /><BaseCollapsible.Panel {...stylex.props(styles.disclosurePanel)}>{children}</BaseCollapsible.Panel></BaseCollapsible.Root>;
+export function Collapsible({title, children, open, defaultOpen, onOpenChange, disabled, xstyle}: {title: ReactNode; children: ReactNode; open?: boolean; defaultOpen?: boolean; onOpenChange?: (open: boolean) => void; disabled?: boolean} & Styled) {
+  return <BaseCollapsible.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}><BaseCollapsible.Trigger disabled={disabled} {...stylex.props(styles.control, styles.button, styles.ghost, styles.disclosure, xstyle)} render={(props, state) => <button {...props}><ChevronRight size={14} aria-hidden {...stylex.props(styles.disclosureIcon, state.open && styles.disclosureOpen)}/>{title}</button>} /><BaseCollapsible.Panel {...stylex.props(styles.disclosurePanel)}>{children}</BaseCollapsible.Panel></BaseCollapsible.Root>;
 }
 export function Accordion({items}: {items: {id: string; title: ReactNode; content: ReactNode}[]}) {
   return <BaseAccordion.Root>{items.map(item => <BaseAccordion.Item key={item.id} value={item.id}><BaseAccordion.Header><BaseAccordion.Trigger {...stylex.props(styles.control, styles.button, styles.ghost)}><ChevronRight size={14}/>{item.title}</BaseAccordion.Trigger></BaseAccordion.Header><BaseAccordion.Panel {...stylex.props(styles.tabPanel)}>{item.content}</BaseAccordion.Panel></BaseAccordion.Item>)}</BaseAccordion.Root>;
@@ -79,6 +80,8 @@ const toastStyles = stylex.create({
 export function UIProvider({children}: {children: ReactNode}) {return <CSPProvider disableStyleElements><BaseTooltip.Provider delay={400}><BaseToast.Provider timeout={5000}>{children}<ToastViewport/></BaseToast.Provider></BaseTooltip.Provider></CSPProvider>;}
 function ToastViewport() {
   const {toasts} = BaseToast.useToastManager();
+  const visible = useNativeSurfacePresence(toasts.length > 0);
+  if (!visible) return null;
   return <BaseToast.Portal><BaseToast.Viewport {...stylex.props(toastStyles.viewport)}>{toasts.map(toast => <BaseToast.Root key={toast.id} toast={toast} {...stylex.props(styles.alert)}><BaseToast.Content {...stylex.props(styles.grow)}><BaseToast.Title {...stylex.props(styles.label)}/><BaseToast.Description {...stylex.props(styles.description)}/></BaseToast.Content><BaseToast.Close render={<IconButton label="Dismiss notification" variant="ghost"><X size={14}/></IconButton>}/></BaseToast.Root>)}</BaseToast.Viewport></BaseToast.Portal>;
 }
 export function useToast() {return BaseToast.useToastManager();}

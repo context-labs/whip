@@ -1,6 +1,33 @@
 {
   "type": "object",
   "properties": {
+    "part_id": {
+      "type": "string"
+    },
+    "display": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "child_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "accounting": {
       "type": [
         "null",
@@ -160,6 +187,9 @@
       "type": "string"
     },
     "invocation_id": {
+      "type": "string"
+    },
+    "operation_id": {
       "type": "string"
     },
     "host_status": {

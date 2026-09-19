@@ -3,6 +3,7 @@ package quickjs
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,5 +137,40 @@ func TestSyntaxErrorsAndJobSlicesPreserveCellBoundaries(t *testing.T) {
 	view, err = vm.Inspect(t.Context())
 	if err != nil || string(view.Value) != "true" {
 		t.Fatalf("bounded draining lost queued work: %+v, %v", view, err)
+	}
+}
+
+func TestGuestErrorsNameTheClassAndCellPosition(t *testing.T) {
+	factory, err := NewFactory(t.Context(), engine.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer factory.Close(t.Context())
+	vm, err := factory.New(t.Context(), "located")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close(t.Context())
+	cells := []struct{ id, source, want string }{
+		// Python triple quotes on line 3: the parser dies inside the string.
+		{"syntax", "const a = 1;\nconst b = 2;\nawait files.write({path: \"x.py\", content: '''def f():\n    return 1'''});", "SyntaxError: unexpected end of string at line 3:"},
+		// A handle object treated as text: the runtime error names the line.
+		{"runtime", "var handle = {size: 3};\nprint(handle.slice(0, 2));", "TypeError: not a function at line 2:"},
+	}
+	for _, cell := range cells {
+		_ = vm.RunCell(t.Context(), cell.id, cell.source)
+		if _, err := vm.Drain(t.Context(), 100); err != nil {
+			t.Fatal(err)
+		}
+		view, err := vm.Inspect(t.Context())
+		if err != nil || view.Error == nil {
+			t.Fatalf("%s: rejection missing from view: %+v, %v", cell.id, view, err)
+		}
+		if view.Error.Code != "E_GUEST" || !strings.Contains(view.Error.Message, cell.want) {
+			t.Fatalf("%s: got %s %q, want message containing %q", cell.id, view.Error.Code, view.Error.Message, cell.want)
+		}
+		if err := vm.Finish(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

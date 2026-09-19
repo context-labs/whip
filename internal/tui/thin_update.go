@@ -285,6 +285,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			var renderErr error
 			switch msg.action.Operation {
 			case "mcp.status":
+				m.cacheMCPInventory(msg.result.Output)
 				rendered, renderErr = renderMCPStatus(msg.result.Output)
 			case "lsp.status":
 				rendered, renderErr = renderLSPStatus(msg.result.Output)
@@ -524,6 +525,14 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case noticeMsg:
 		m.append(dimStyle.Render(string(msg)))
+		return m, nil
+	case discardMsg:
+		// Keep what was shown (the notice that follows explains it) but drop
+		// tool rows still queued from the discarded attempt: they never run.
+		m.flushThink()
+		m.flushCurrent()
+		m.blocks = slices.DeleteFunc(m.blocks, func(b block) bool { return b.kind == blockToolQueued })
+		m.refreshVP()
 		return m, nil
 	case usageMsg:
 		m.lastResp = llm.Usage(msg)

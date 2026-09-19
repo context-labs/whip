@@ -1,0 +1,17 @@
+
+> whip-clients@0.0.0 test:web
+> vitest run --config apps/web/vitest.config.ts packages/app/test/chat-activity.test.tsx packages/app/test/timeline-reading.test.tsx packages/app/test/repl-view.test.tsx packages/app/test/timeline.test.tsx
+
+
+ RUN  v5.0.0 /Users/samheutmaker/Desktop/context-labs/src/rlm/whip
+
+
+ Test Files  4 passed (4)
+      Tests  57 passed (57)
+   Start at  12:06:11
+   Duration  4.22s (transform 36%, environment 28%, import 21%, tests 12%, setup 4%)
+
+  Transform  transforming modules took 5.13s · 36% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

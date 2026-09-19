@@ -562,12 +562,25 @@ func TestBeforeSpawnOptionalProceedsUnanswered(t *testing.T) {
 }
 
 // ephemeralSystem returns the ephemeral system message of a provider request,
-// which sits after the composed prompt and never enters history.
+// which rides last so a change in it never disturbs the cached prefix, and
+// never enters history.
 func ephemeralSystem(request llm.Request) string {
-	if len(request.Messages) > 1 && request.Messages[1].Role == "system" {
-		return request.Messages[1].Content
+	if n := len(request.Messages); n > 1 && request.Messages[n-1].Role == "system" {
+		return request.Messages[n-1].Content
 	}
 	return ""
+}
+
+// lastTranscriptMessage is the newest history message of a request. The
+// ephemeral notice rides last, so a fake provider that branches on the latest
+// user or tool message must look past it.
+func lastTranscriptMessage(messages []llm.Message) llm.Message {
+	for _, message := range slices.Backward(messages) {
+		if message.Role != "system" {
+			return message
+		}
+	}
+	return llm.Message{}
 }
 
 // turn_start contributes to the turn's requests without entering history,

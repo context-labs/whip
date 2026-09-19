@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, ChevronDown, Settings2, Palette, Cable, Bot, Network, LifeBuoy, Info, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Settings2, Palette, Cable, Bot, Network, Info, Search } from 'lucide-react';
 import { Button, Input, Sheet } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, typography, scale } from '@whip/ui/tokens.stylex';
@@ -8,11 +8,11 @@ import { useAppState, useRuntime } from './context';
 import { HostSelector } from './host-selector';
 import { layout } from './styles';
 import { AppearanceSettings } from './settings/appearance';
-import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, RecoverySettings, ConnectionsSettings, AgentsSettings } from './settings/sections';
+import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, ConnectionsSettings, AgentsSettings, MCPImportSettings } from './settings/sections';
 import { SettingsEditsProvider } from './settings/unsaved';
 import { settingsCategories, searchSettings, settingsBackDestination, type SettingsSearch, type SettingsSection } from './settings/navigation';
 
-const icons = { general: Settings2, appearance: Palette, providers: Cable, execution: Bot, connections: Network, recovery: LifeBuoy, about: Info };
+const icons = { general: Settings2, appearance: Palette, providers: Cable, execution: Bot, connections: Network, about: Info };
 
 export function Settings(props: SettingsSearch) {
   return <SettingsEditsProvider><SettingsLayout {...props} /></SettingsEditsProvider>;
@@ -39,7 +39,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
   if (!identityChanged && observedHost?.client) retained.current.host = observedHost;
   const host = identityChanged || !observedHost?.client ? retained.current.host ?? observedHost : observedHost;
   const enabled = !identityChanged && !!observedHost?.client && observedHost.state === 'connected';
-  const hostSection = section === 'providers' || section === 'execution' || section === 'recovery';
+  const hostSection = section === 'providers' || section === 'execution';
   const results = searchSettings(query, !!runtime.platform.notify, !!runtime.platform.updates);
   const navigateSection = (next: SettingsSection, anchor?: string) => {
     void navigate({ to: '/settings', search: { section: next, ...(target ? { host: target } : {}), ...(anchor ? { setting: anchor } : {}) }, replace: true });
@@ -97,8 +97,8 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
     <div {...stylex.props(styles.footer)}><span>Whip{runtime.platform.updates?.currentVersion ? ` · ${runtime.platform.updates.currentVersion}` : ''}</span></div>
   </>;
   return <div data-settings-layout {...stylex.props(styles.root)}>
-    <aside data-settings-navigation {...stylex.props(styles.sidebar)} aria-label="Settings navigation">
-      <div aria-hidden {...stylex.props(styles.titlebar, runtime.platform.chrome === 'inset' && layout.windowDrag)} />
+    <aside data-settings-navigation {...stylex.props(styles.sidebar, runtime.platform.chrome !== 'inset' && styles.webSidebar)} aria-label="Settings navigation">
+      {runtime.platform.chrome === 'inset' && <div aria-hidden {...stylex.props(styles.titlebar, layout.windowDrag)} />}
       <Button variant="ghost" onClick={back} xstyle={styles.back}><ArrowLeft size={16} />Back to workspace</Button>
       {sidebar}
     </aside>
@@ -108,7 +108,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
         <Button variant="ghost" onClick={back}><ArrowLeft size={16} />Back</Button>
         <Button variant="ghost" aria-expanded={navigation} onClick={() => setNavigation(true)}>{category.label}<ChevronDown size={15} /></Button>
       </header>
-      <div aria-hidden {...stylex.props(styles.mainTitlebar, runtime.platform.chrome === 'inset' && layout.windowDrag)} />
+      {runtime.platform.chrome === 'inset' && <div aria-hidden {...stylex.props(styles.mainTitlebar, layout.windowDrag)} />}
       <main ref={content} aria-labelledby="settings-title" {...stylex.props(styles.scroll)}>
         <div {...stylex.props(styles.content)}>
           <h1 id="settings-title" {...stylex.props(styles.heading)}>{category.label}</h1>
@@ -124,9 +124,9 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
           {section === 'general' && <GeneralSettings />}
           {section === 'providers' && host?.client && <ProvidersSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
+          {section === 'execution' && host?.client && <MCPImportSettings key={`mcp-import:${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} hostName={host.name} />}
           {section === 'execution' && host?.client && <AgentsSettings key={`agents:${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'connections' && <ConnectionsSettings />}
-          {section === 'recovery' && <RecoverySettings key={`${host?.id}:${host?.runtimeId}`} client={host?.client} enabled={enabled} />}
           {section === 'about' && <AboutSettings />}
         </div>
       </main>
@@ -137,6 +137,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
 const styles = stylex.create({
   root: { display: 'flex', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' },
   sidebar: { width: 248, flexShrink: 0, display: { default: 'flex', [scale.phone]: 'none' }, flexDirection: 'column', gap: 12, paddingInline: 12, borderRightWidth: 1, borderRightStyle: 'solid', borderRightColor: surface.quietBorder, backgroundColor: surface.navigation },
+  webSidebar: { paddingTop: 12 },
   titlebar: { height: 34, flexShrink: 0, marginInline: -12 },
   mainTitlebar: { height: 34, flexShrink: 0, display: { default: 'block', [scale.phone]: 'none' } },
   back: { justifyContent: 'flex-start', alignSelf: 'stretch', width: '100%', color: surface.secondaryText, fontSize: typography.size12 },

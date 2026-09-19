@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../src/runtime';
-import { bindSessionTabs, openNewChat, openSessionView } from '../src/session-tab-routing';
+import { bindSessionTabs, openNewChat, openSessionView, openChatView } from '../src/session-tab-routing';
 import { SessionTabs, selectedSessionTab } from '../src/session-tabs';
 import { newSessionSearch } from '../src/sidebar-state';
 import type { AppStorage } from '../src/platform';
@@ -12,7 +12,7 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
   const connectionEvents = new Set<() => void>(), routeEvents = new Set<() => void>();
   let connection = { state: 'connecting', info: undefined as { runtime_id: string } | undefined };
   const client = { getSnapshot: () => connection, subscribe: (fn: () => void) => { connectionEvents.add(fn); return () => connectionEvents.delete(fn); } };
-  const runtime = { tabs, connections: { home: () => ({ client }), host: (id: string) => connection.info?.runtime_id === id ? { client } : undefined }, rememberSession: vi.fn(), getSnapshot: () => ({ client, hosts: [], selectedHostId: undefined }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())), reportWorkspace: vi.fn(() => runtimeEvents.forEach(fn => fn())), clearWorkspaceError: vi.fn() } as unknown as AppRuntime;
+  const runtime = { tabs, connections: { home: () => ({ client }), host: (id: string) => connection.info?.runtime_id === id ? { client, state: connection.state } : undefined }, rememberSession: vi.fn(), getSnapshot: () => ({ client, hosts: [], selectedHostId: undefined }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())), reportWorkspace: vi.fn(() => runtimeEvents.forEach(fn => fn())), clearWorkspaceError: vi.fn() } as unknown as AppRuntime;
   const router = {
     state: { location: { pathname: path, href: path, search: {} as Record<string, unknown>, state: { __TSR_key: key, whipViewId: undefined as string | undefined } } },
     subscribe: (_kind: string, fn: () => void) => { routeEvents.add(fn); return () => routeEvents.delete(fn); },
@@ -21,9 +21,65 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
   return { tabs, runtime, router,
     start: () => bindSessionTabs(runtime, router as unknown as AnyRouter),
     connect(runtimeId = 'mac') { connection = { state: 'connected', info: { runtime_id: runtimeId } }; runtimeEvents.forEach(fn => fn()); },
+    disconnect() { connection = { ...connection, state: 'disconnected' }; runtimeEvents.forEach(fn => fn()); },
     route(pathname: string, search: Record<string, unknown> = {}, whipViewId?: string) { router.state.location = { pathname, href: pathname, search, state: { __TSR_key: crypto.randomUUID(), whipViewId } }; routeEvents.forEach(fn => fn()); },
   };
 }
+describe('always-new chat routing', () => {
+  it('routes identical session URLs with fresh view identities and restores Back/Forward selection', async () => {
+    const f = fixture('/h/mac/s/root'); f.connect();
+    f.tabs.visit('mac', 'root', {});
+    const original = f.tabs.workspace().tabs[0]!;
+    const dispose = f.start();
+    const tab = openChatView(f.runtime, f.router.navigate, 'mac', 'root', 'Root');
+    expect(tab!.id).not.toBe(original.id);
+    expect(f.router.navigate).toHaveBeenLastCalledWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: {}, state: { whipViewId: tab!.id } });
+    f.route('/h/mac/s/root', {}, tab!.id);
+    f.route('/h/mac/s/root', {}, original.id);
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(original.id);
+    f.route('/h/mac/s/root', {}, tab!.id);
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(tab!.id);
+    expect(f.tabs.workspace().tabs).toHaveLength(2);
+    dispose();
+  });
+
+  it('opens a local view for a known disconnected host without session work', () => {
+    const f = fixture(); f.connect(); f.disconnect();
+    const tab = openChatView(f.runtime, f.router.navigate, 'mac', 'root');
+    expect(tab).toMatchObject({ runtimeId: 'mac', rootId: 'root', kind: 'chat' });
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(tab!.id);
+    expect(f.router.navigate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: { whipViewId: tab!.id } }));
+    expect(f.runtime.reportWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('reports removed-host, stale-pane and capacity errors without navigation or mutation', async () => {
+    const f = fixture();
+    const empty = f.tabs.getSnapshot();
+    await openChatView(f.runtime, f.router.navigate, 'mac', 'root');
+    expect(f.runtime.reportWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ message: expect.stringContaining('no longer available') }));
+    expect(f.tabs.getSnapshot()).toBe(empty);
+    f.connect();
+    await openChatView(f.runtime, f.router.navigate, 'mac', 'root', '', { paneId: 'removed' });
+    expect(f.tabs.getSnapshot()).toBe(empty);
+    for (let i = 0; i < 32; i++) f.tabs.openChatView('mac', 'root');
+    const full = f.tabs.getSnapshot();
+    await openChatView(f.runtime, f.router.navigate, 'mac', 'root');
+    expect(f.tabs.getSnapshot()).toBe(full);
+    expect(f.runtime.reportWorkspace).toHaveBeenCalledTimes(3);
+    expect(f.router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('reports navigation failure without retrying the already-created view', async () => {
+    const f = fixture(); f.connect();
+    const failure = new Error('Navigation unavailable');
+    f.router.navigate.mockRejectedValueOnce(failure);
+    await openChatView(f.runtime, f.router.navigate, 'mac', 'root');
+    expect(f.tabs.workspace().tabs).toHaveLength(1);
+    expect(f.router.navigate).toHaveBeenCalledOnce();
+    expect(f.runtime.reportWorkspace).toHaveBeenCalledExactlyOnceWith(failure);
+  });
+});
+
 describe('tab route authority', () => {
   it('opens REPL with a new history identity and Back/Forward selects without converting the chat', async () => {
     const f = fixture('/h/mac/s/root'); f.tabs.visit('mac', 'root', { agent: 'child' });

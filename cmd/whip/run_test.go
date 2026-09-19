@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -653,13 +654,19 @@ func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
 					code = fmt.Sprintf("await files.write({path:%q, content:'written'});", target)
 				}
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// The daemon probes provider reachability with HEAD; only model
+					// calls carry a body.
+					if r.Method != http.MethodPost {
+						w.WriteHeader(http.StatusOK)
+						return
+					}
 					var req llm.Request
 					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 						t.Error(err)
 						return
 					}
 					w.Header().Set("Content-Type", "text/event-stream")
-					if req.Messages[len(req.Messages)-1].Role == "tool" || len(req.Tools) == 0 {
+					if lastTranscriptRole(req.Messages) == "tool" || len(req.Tools) == 0 {
 						fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
 						return
 					}
@@ -688,4 +695,16 @@ func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
 			})
 		}
 	}
+}
+
+// lastTranscriptRole is the role of the newest history message. The ephemeral
+// notice rides last, so a fake provider that branches on the latest tool result
+// must look past system messages.
+func lastTranscriptRole(messages []llm.Message) string {
+	for _, message := range slices.Backward(messages) {
+		if message.Role != "system" {
+			return message.Role
+		}
+	}
+	return ""
 }

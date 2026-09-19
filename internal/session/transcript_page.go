@@ -29,12 +29,13 @@ type TranscriptReadOptions struct {
 }
 
 type TranscriptPageEntry struct {
-	Role     string        `json:"role,omitempty"`
-	Authored bool          `json:"authored,omitempty"`
-	SentAt   *time.Time    `json:"sent_at,omitempty"`
-	Seq      int           `json:"seq"`
-	Message  *llm.Message  `json:"message,omitempty"`
-	Body     *RuntimeValue `json:"body,omitempty"`
+	Presentation *llm.TranscriptPresentation `json:"presentation,omitempty"`
+	Role         string                      `json:"role,omitempty"`
+	Authored     bool                        `json:"authored,omitempty"`
+	SentAt       *time.Time                  `json:"sent_at,omitempty"`
+	Seq          int                         `json:"seq"`
+	Message      *llm.Message                `json:"message,omitempty"`
+	Body         *RuntimeValue               `json:"body,omitempty"`
 }
 
 type BoundedTranscriptPage struct {
@@ -152,14 +153,16 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 				}
 			}
 			var metadata struct {
-				Role     string     `json:"role"`
-				Authored bool       `json:"authored"`
-				SentAt   *time.Time `json:"sent_at"`
+				Presentation *llm.TranscriptPresentation `json:"presentation"`
+				Role         string                      `json:"role"`
+				Authored     bool                        `json:"authored"`
+				SentAt       *time.Time                  `json:"sent_at"`
 			}
 			if err := json.Unmarshal(entry.data, &metadata); err != nil {
 				return page, err
 			}
 			item.Role, item.Authored, item.SentAt = metadata.Role, metadata.Authored, metadata.SentAt
+			item.Presentation = llm.BoundPresentation(metadata.Presentation, max(128, min(8192, opts.MaxBytes/3)))
 			grant := ContentGrant{RootID: rootID, AgentID: agentID, Scope: ContentGrantAgent}
 			if rootID == agentID {
 				grant.AgentID, grant.Scope = "", ContentGrantRoot

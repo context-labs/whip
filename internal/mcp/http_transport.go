@@ -3,12 +3,22 @@ package mcp
 import (
 	"context"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// streamHeaderGrace bounds how long the standalone GET stream may withhold the
+// end of its header block before connect proceeds without it. The SDK opens
+// that stream synchronously inside Client.Connect, so a server that sends its
+// status line and headers but not the terminating blank line until its first
+// event (Executor 1.0.0 does) would otherwise stall every connect until the
+// startup deadline. A variable so tests can shorten it.
+var streamHeaderGrace = 2 * time.Second
 
 // bindHTTPContext gives detached SDK requests the connection's owned lifetime.
 // The SDK opens standalone SSE before Client.Connect returns, and its Close
@@ -83,6 +93,9 @@ func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Respon
 		}
 		cancel()
 	})
+	if isStandaloneStream(request) {
+		return t.roundTripStream(request.Clone(ctx), finish)
+	}
 	response, err := t.base.RoundTrip(request.Clone(ctx))
 	if err != nil {
 		finish()
@@ -92,6 +105,76 @@ func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Respon
 	// rather than cancelling a healthy stream when its headers arrive.
 	response.Body = &connectionHTTPBody{ReadCloser: response.Body, finish: finish}
 	return response, nil
+}
+
+// isStandaloneStream recognizes the SDK's server-to-client notification
+// stream: the only GET the streamable client issues.
+func isStandaloneStream(request *http.Request) bool {
+	return request.Method == http.MethodGet && strings.Contains(request.Header.Get("Accept"), "text/event-stream")
+}
+
+// roundTripStream opens the standalone stream without letting it gate the
+// connect. A response whose headers complete within streamHeaderGrace is
+// returned as is, so a prompt 405 or a healthy stream behaves exactly as the
+// SDK expects. Past the grace, the SDK gets an idle 200 text/event-stream now
+// and the real body is spliced in if the server ever finishes its headers.
+// A late non-stream answer leaves the idle stream open rather than ending it:
+// the SDK fails the whole connection after a few no-progress reconnects, and
+// a server that declined a stream is no worse off idle.
+func (t *connectionHTTPTransport) roundTripStream(request *http.Request, finish func()) (*http.Response, error) {
+	type result struct {
+		response *http.Response
+		err      error
+	}
+	results := make(chan result, 1)
+	go func() {
+		response, err := t.base.RoundTrip(request) //nolint:bodyclose // the caller owns and closes the returned response
+		results <- result{response, err}
+	}()
+	grace := time.NewTimer(streamHeaderGrace)
+	defer grace.Stop()
+	select {
+	case r := <-results:
+		if r.err != nil {
+			finish()
+			return nil, r.err
+		}
+		r.response.Body = &connectionHTTPBody{ReadCloser: r.response.Body, finish: finish}
+		return r.response, nil
+	case <-request.Context().Done():
+		finish()
+		return nil, request.Context().Err()
+	case <-grace.C:
+	}
+	reader, writer := io.Pipe()
+	go func() {
+		r := <-results
+		if r.err != nil {
+			_ = writer.CloseWithError(r.err)
+			finish()
+			return
+		}
+		mediaType, _, _ := mime.ParseMediaType(r.response.Header.Get("Content-Type"))
+		if r.response.StatusCode != http.StatusOK || mediaType != "text/event-stream" {
+			_ = r.response.Body.Close()
+			logf("standalone stream answered %d %s after the header grace; leaving it idle", r.response.StatusCode, mediaType)
+			return
+		}
+		_, err := io.Copy(writer, r.response.Body)
+		_ = r.response.Body.Close()
+		_ = writer.CloseWithError(err)
+		finish()
+	}()
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       &connectionHTTPBody{ReadCloser: reader, finish: finish},
+		Request:    request,
+	}, nil
 }
 
 type connectionHTTPBody struct {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
+	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -25,6 +26,15 @@ func (r *toolRunner) bind(root *Session) error {
 		return errors.New("tool services are required")
 	}
 	r.services.SetMCPProvider(root.mcpProvider)
+	r.services.SetDesktopBrowserProvider(root.desktopBrowserProvider)
+	// Tool hosts own their content; never borrow a model root or provider identity.
+	r.services.SetMCPAttachmentStore(func(ctx context.Context, mime string, data []byte) (string, error) {
+		value, err := root.StoreContent(ctx, root.authority.AgentID, sessionstore.RuntimePayload{Data: data, MediaType: mime, Source: "MCP tool result"})
+		if err != nil {
+			return "", err
+		}
+		return value.ReferenceID, nil
+	})
 	return r.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
 }
 

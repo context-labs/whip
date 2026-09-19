@@ -1,3 +1,4 @@
+import { useNativeOverlay } from './native-surfaces';
 import * as stylex from '@stylexjs/stylex';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
@@ -230,8 +231,9 @@ export function ThemePicker({compact = false, presentation = 'dialog'}: {compact
   const selected = theme === 'auto' ? 'System appearance' : themes.find(item => item.id === theme)?.name ?? theme;
   const options = useMemo<Option[]>(() => [{value: 'auto', label: 'System appearance', icon: <Monitor size={18} aria-hidden/>}, ...themes.map(item => ({value: item.id, label: item.name, description: item.dark ? 'Dark' : 'Light', icon: <ThemeSwatch theme={item}/>}))], [themes]);
   const collection = useMemo(() => BaseCombobox.createItems(options, {getValue: item => item.value, getLabel: item => item.label}), [options]);
-  if (presentation === 'popover') return <BaseCombobox.Root items={collection} value={theme} open={open} inputValue={query}
-    onInputValueChange={setQuery} onOpenChange={next => {setOpen(next); setQuery(''); if (!next) cancelPreview();}}
+  const overlay = useNativeOverlay(presentation === 'popover' && open, next => {setOpen(next); setQuery(''); if (!next) cancelPreview();});
+  if (presentation === 'popover') return <BaseCombobox.Root items={collection} value={theme} {...overlay} inputValue={query}
+    onInputValueChange={setQuery}
     onItemHighlighted={(id, details) => {if (id && details.reason !== 'none') previewTheme(id);}}
     onValueChange={id => {if (id) setTheme(id); setOpen(false); setQuery('');}} autoHighlight>
     <BaseCombobox.Trigger render={<Button aria-label={`Color theme: ${selected}`} xstyle={pickerStyles.trigger}/>}>

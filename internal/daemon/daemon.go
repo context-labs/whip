@@ -23,14 +23,15 @@ type rootEntry struct {
 
 // Daemon owns the durable store and exactly one live actor per opened root.
 type Daemon struct {
-	providers *ProviderService
-	store     *session.Store
-	factory   Factory
-	control   *Control
-	executors *executorRegistry
-	terminals *terminal.Manager
-	ctx       context.Context
-	cancel    context.CancelFunc
+	providers        *ProviderService
+	store            *session.Store
+	factory          Factory
+	control          *Control
+	executors        *executorRegistry
+	browserProviders *browserProviders
+	terminals        *terminal.Manager
+	ctx              context.Context
+	cancel           context.CancelFunc
 
 	mu      sync.Mutex
 	wg      sync.WaitGroup
@@ -53,7 +54,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), terminals: terminal.NewManager(ctx), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), browserProviders: newBrowserProviders(store), terminals: terminal.NewManager(ctx), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
 	if len(providers) > 0 {
 		daemon.providers = providers[0]
 	}
@@ -251,6 +252,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	root = newSession(d.store, meta, authority, components, d.factory)
 	root.providers = d.providers
 	root.executors = d.executors
+	root.browserProviders = d.browserProviders
 	// Bind hooks may reconstruct durable child agents through actor-owned
 	// store operations, so the serialization boundary must exist first.
 	root.supervisor.startActor(root.run)
@@ -291,6 +293,7 @@ func configureMCP(root *Session, components Components) {
 func (d *Daemon) Close() error {
 	d.once.Do(func() {
 		defer d.store.ReleaseDaemon()
+		d.browserProviders.shutdown()
 		d.mu.Lock()
 		d.closing = true
 		d.cancel()

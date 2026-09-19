@@ -3,10 +3,12 @@ import { expect, it, vi } from 'vitest';
 import { ActivityIndicator, ThemeProvider, UIProvider } from '@whip/ui';
 import type { ExecutionCell, SessionViewSnapshot } from '@whip/sdk/state';
 import { conversationActivityRows, isActivityGroup, responseCopies, type ActivityGroup } from '../src/chat-activity-rows';
-import { activityStatus, ActivityGroupRow, ChatActivity } from '../src/chat-activity';
+import { activityStatus, TranscriptWorking } from '../src/chat-activity';
 import { timelineRows, type TimelineRow } from '../src/conversation-rows';
 import { readingTarget } from '../src/reading-positions';
-import { ExecutionTime } from '../src/execution-time';
+import { ActivityHeader, ActivityDetail, InlineAgent } from '../src/transcript-activity';
+import { ExecutionTime, formatHostDuration } from '../src/execution-time';
+import { MotionContext } from '../src/transcript-motion';
 
 const cell = (id: string, seq?: number, status: ExecutionCell['status'] = 'completed'): ExecutionCell => ({
   kind: 'cell', id, callId: id, agentId: 'root', seq, status, code: `print('${id}')`, output: '', hosts: [],
@@ -17,6 +19,15 @@ const state = (overrides: Record<string, unknown> = {}): SessionViewSnapshot => 
   status: 'live', root: { root_id: 'root', active_turns: { root: 'turn' }, agents: [], permissions: [], questions: [], presentation: [], agent_presentations: {}, ...overrides },
   history: {}, collections: {}, retainedBytes: 0, unavailable: false, truncated: false,
 } as unknown as SessionViewSnapshot);
+
+it('rounds host durations to whole units except sub-millisecond measurements', () => {
+  for (const [raw, display] of [
+    ['2.93134ms', '3ms'], ['37.094122ms', '37ms'], ['48.464938ms', '48ms'], ['8.87777ms', '9ms'],
+    ['1ms', '1ms'], ['0.125ms', '0.13ms'], ['125µs', '0.13ms'], ['400ns', '0.00ms'],
+    ['0.999ms', '1ms'], ['999.9ms', '1s'], ['1.8s', '2s'], ['1m59.9s', '2m0s'],
+    ['2h3m4.567s', '2h3m5s'], ['', ''], ['unavailable', 'unavailable'],
+  ]) expect(formatHostDuration(raw!)).toBe(display);
+});
 
 it('does not call a failed session snapshot a host connection failure', () => {
   const unavailable = { ...state(), root: undefined, error: new Error('Snapshot unavailable') };
@@ -62,10 +73,10 @@ it('groups typed contiguous cells while preserving authored prose and notices ex
   expect(conversationActivityRows([{ ...tool('a', 1), toolName: 'another-tool' }], [cells[0]!])[0]!.role).toBe('tool');
 });
 
-it('turns, failures, gaps and restarts split groups rather than claiming one continuous operation', () => {
+it('turn boundaries, gaps and restarts split groups while failures stay in their activity', () => {
   const cells = [cell('a', 1), { ...cell('b', 2, 'failed'), turnId: 'one' }, { ...cell('c', 3), turnId: 'one' }, { ...cell('d', 4), turnId: 'two' }, cell('e', 5)];
   const output = conversationActivityRows(cells.map(item => tool(item.id, item.seq)), [...cells, { kind: 'restart', id: 'restart', agentId: 'root', seq: 4, text: 'Restarted' }]);
-  expect(output.filter(isActivityGroup).map(row => row.cells.length)).toEqual([1, 1, 1, 1, 1]);
+  expect(output.filter(isActivityGroup).map(row => row.cells.length)).toEqual([1, 2, 1, 1]);
 });
 
 it('folds internal deliveries into following work without absorbing prose or earlier executions', () => {
@@ -86,11 +97,9 @@ it('agent updates retain their raw contents and never imply an execution complet
   const readBody = vi.fn();
   const update: TimelineRow = { id: 'digest', role: 'mailbox', text: 'Mailbox digest: keep the full report.' };
   const activity = conversationActivityRows([update], []).filter(isActivityGroup)[0]!;
-  const view = render(<ThemeProvider><UIProvider><ActivityGroupRow group={activity} open connected density="detailed" onToggle={vi.fn()} readBody={readBody} /></UIProvider></ThemeProvider>);
+  const view = render(<ThemeProvider><UIProvider><ActivityHeader group={activity} open connected density="detailed" toggle={vi.fn()} /></UIProvider></ThemeProvider>);
   expect(screen.getByText('Agent updates')).toBeDefined();
-  expect(screen.queryByText('Completed work')).toBeNull();
-  expect(view.container.querySelector('[data-agent-updates]')!.hasAttribute('open')).toBe(false);
-  expect(view.container.querySelector('[data-agent-update] pre')!.textContent).toBe(update.text);
+  expect(view.container.querySelector('[data-agent-update] pre')).toBeNull();
   expect(readBody).not.toHaveBeenCalled();
   const many = conversationActivityRows(Array.from({ length: 14 }, (_, index) => ({ ...update, id: String(index) })), []).filter(isActivityGroup);
   expect(many.map(group => group.updates!.length)).toEqual([6, 6, 2]);
@@ -125,6 +134,44 @@ it('uses retained event identity after a prefix is dropped instead of joining by
   expect(result.filter(isActivityGroup).flatMap(group => group.cells).filter(cell => cell.id === 'current')).toHaveLength(1);
 });
 
+it('does not append old unplaced executions after newer responses or move their copy footer', () => {
+  const rows = [
+    tool('recorded', 1),
+    { id: 'old-reply', role: 'assistant', text: 'Earlier response.' },
+    { id: 'input', role: 'user', text: 'Follow-up' },
+    { id: 'reply', role: 'assistant', text: 'Current response.' },
+  ];
+  const executions = [
+    { ...cell('recorded', 1), turnId: 'old' },
+    { ...cell('unmatched'), turnId: 'old', historyUnmatched: true },
+    { ...cell('unrecorded'), turnId: 'old' },
+    { ...cell('stale-running', undefined, 'running'), turnId: 'old' },
+    cell('unknown-turn'),
+  ];
+  for (const activeTurn of [undefined, 'new']) {
+    const output = conversationActivityRows(rows, executions, [], activeTurn);
+    expect(output.map(row => isActivityGroup(row) ? row.cells.map(cell => cell.id) : row.id)).toEqual([
+      ['recorded'], 'old-reply', 'input', 'reply',
+    ]);
+    expect([...responseCopies(output, false).keys()]).toEqual(['old-reply', 'reply']);
+  }
+  expect(executions).toHaveLength(5); // Evidence stays available to the REPL.
+});
+
+it('shows unplaced work only for the active turn and keeps its identity when history arrives', () => {
+  const execution = { ...cell('missing-prefix', undefined, 'running'), turnId: 'turn' };
+  const pending = conversationActivityRows([], [execution], [], 'turn').filter(isActivityGroup);
+  expect(pending).toHaveLength(1);
+  expect(pending[0]!.cells).toEqual([execution]);
+  // A settled operation can still belong to a turn that is continuing to work.
+  const completed = { ...execution, status: 'completed' as const };
+  expect(conversationActivityRows([], [completed], pending, 'turn')[0]!.id).toBe(pending[0]!.id);
+  expect(conversationActivityRows([], [completed], pending)).toEqual([]);
+  expect(conversationActivityRows([], [execution], pending, 'next-turn')).toEqual([]);
+  const restored = conversationActivityRows([tool('missing-prefix', 4)], [{ ...completed, seq: 4 }], pending);
+  expect(restored[0]!.id).toBe(pending[0]!.id);
+});
+
 it('merged groups preserve bookmarks for both prior identities', () => {
   const cells = [cell('a', 1), cell('b', 2)];
   const previous = conversationActivityRows([tool('a', 1), { id: 'boundary', role: 'notice', text: 'Old boundary' }, tool('b', 2)], cells).filter(isActivityGroup);
@@ -133,51 +180,25 @@ it('merged groups preserve bookmarks for both prior identities', () => {
   expect(readingTarget(merged, '1', bookmark)).toEqual({ index: 0, offset: 12, fallback: false });
 });
 
-it('appending executions preserves a focused cell in the bounded expanded window', () => {
-  const items = Array.from({ length: 6 }, (_, index) => cell(String(index)));
-  const props = { open: true, connected: true, density: 'detailed' as const, onToggle: vi.fn(), readBody: vi.fn() };
-  const app = (items: ExecutionCell[]) => <ThemeProvider><UIProvider><ActivityGroupRow group={group(items)} {...props} /></UIProvider></ThemeProvider>;
-  const view = render(app(items));
-  const first = view.container.querySelector<HTMLElement>('[data-activity-cell="0"]')!;
-  first.tabIndex = 0;
-  first.focus();
-  view.rerender(app([...items, cell('6')]));
-  expect(document.activeElement).toBe(first);
-  expect(view.container.querySelectorAll('[data-activity-cell]')).toHaveLength(6);
+it('inline agent cards use the typed child identity without hydrating a transcript', () => {
+  const onAgent = vi.fn();
+  const row = { ...tool('spawn'), role: 'agent-activity' as const, cell: cell('spawn'), agentHost: { id: 'host', name: 'agents.spawn', status: 'completed' as const, summary: '', duration: '', display: { child_id: 'child', label: 'Reviewer' } } };
+  const view = render(<ThemeProvider><UIProvider><InlineAgent row={row} connected active={false} onAgent={onAgent} readBody={vi.fn()} /></UIProvider></ThemeProvider>);
+  fireEvent.click(screen.getByRole('button', { name: /Reviewer/ }));
+  expect(onAgent).toHaveBeenCalledWith('child');
+  expect(view.container.querySelector('[data-inline-agent]')).toBeTruthy();
+  expect(screen.getByText('Status unavailable')).toBeTruthy();
 });
 
-it('agent rows show names, stay bounded, and open an agent without hydrating its transcript', () => {
-  const onAgent = vi.fn(), onAllAgents = vi.fn();
-  const snapshot = state({ agents: Array.from({ length: 8 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Review ${index}`, model: 'model', status: 'running' })) });
-  render(<ThemeProvider><UIProvider><ChatActivity state={snapshot} agentId="root" connected onAgent={onAgent} onAllAgents={onAllAgents} /></UIProvider></ThemeProvider>);
-  expect(screen.getAllByRole('button', { name: /^Review / })).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button', { name: /^Review 0/ }));
-  expect(onAgent).toHaveBeenCalledWith('child-0');
-  fireEvent.click(screen.getByRole('button', { name: 'View all session agents' }));
-  expect(onAllAgents).toHaveBeenCalledOnce();
-});
-
-it('expanded groups bound code and DOM work and never fetch stored bodies automatically', () => {
+it('explicit execution details keep language and output and do not fetch stored bodies', () => {
   const readBody = vi.fn(), onOpenRepl = vi.fn();
-  render(<ThemeProvider><UIProvider><ActivityGroupRow group={group(Array.from({ length: 100 }, (_, index) => ({ ...cell(String(index)), code: 'x'.repeat(20_000) })))}
-    open connected density="detailed" onToggle={vi.fn()} readBody={readBody} onOpenRepl={onOpenRepl} /></UIProvider></ThemeProvider>);
-  expect(screen.getByText(/Showing 6 of 100/)).toBeDefined();
-  expect(document.querySelectorAll('pre')).toHaveLength(6);
-  expect(document.body.textContent!.length).toBeLessThan(30_000);
+  const execution = { ...cell('js'), language: 'javascript', code: 'await files.read({path: "README.md"})', output: 'hello' };
+  render(<ThemeProvider><UIProvider><ActivityDetail item={{ id: 'js', kind: 'execution', cell: execution }} groupId="group" readBody={readBody} onOpenRepl={onOpenRepl} /></UIProvider></ThemeProvider>);
+  expect(screen.getByText('JavaScript')).toBeDefined();
+  expect(screen.getByText('hello')).toBeDefined();
   expect(readBody).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open in REPL' }));
   expect(onOpenRepl).toHaveBeenCalledOnce();
-});
-
-it('named agents keep focus and admission order as other agents need attention', () => {
-  const children = Array.from({ length: 4 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Agent ${index}`, status: 'running' }));
-  const app = (agents: unknown[]) => <ThemeProvider><UIProvider><ChatActivity state={state({ agents })} agentId="root" connected onAgent={vi.fn()} onAllAgents={vi.fn()} /></UIProvider></ThemeProvider>;
-  const view = render(app(children));
-  const focused = screen.getByRole('button', { name: /^Agent 2/ });
-  focused.focus();
-  view.rerender(app([{ ...children[3], blocking_reason: 'permission' }, ...children.slice(0, 3).reverse()]));
-  expect(document.activeElement).toBe(focused);
-  expect(screen.getAllByRole('button', { name: /^Agent / }).map(item => item.getAttribute('data-activity-agent'))).toEqual(['child-0', 'child-1', 'child-2']);
 });
 
 it('observed time pauses its timer while hidden and never invents a timer for replay', () => {
@@ -218,4 +239,77 @@ it('motion starts after a short delay and stops when hidden or reduced', () => {
   expect(vi.getTimerCount()).toBe(0);
   hidden.mockRestore();
   vi.useRealTimers();
+});
+
+it('bridges sending into authoritative work without masking delivery uncertainty or queued input', () => {
+  const idle = state({ active_turns: {} });
+  const failed = { last_turn: { status: 'failed' } } as Parameters<typeof activityStatus>[4];
+  expect(activityStatus(idle, 'root', [], true, failed, 'Sending…')).toMatchObject({ text: 'Sending…', active: true, pending: true });
+  for (const delivery of ['Queued', 'Checking delivery…', 'Not received · retry from the composer']) {
+    expect(activityStatus(idle, 'root', [], true, undefined, delivery)).toMatchObject({ active: false, pending: true });
+  }
+  expect(activityStatus(state(), 'root', [], true, undefined, 'Queued')).toMatchObject({ text: 'Working', active: true });
+  expect(activityStatus(idle, 'root', [], false, undefined, 'Sending…')).toMatchObject({ text: 'Reconnecting · activity updates paused', active: false, pending: true });
+  expect(activityStatus(state({ active_turns: {}, questions: [{ question_id: 'q' }] }), 'root', [], true, undefined, 'Sending…')).toMatchObject({ text: 'Waiting for your answer', active: false, pending: true });
+});
+
+it('renders immediately, rotates only during work, and stops timers on hidden, waiting and settled states', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(10_000);
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const app = (status: Parameters<typeof TranscriptWorking>[0]['status'], turnId?: string, motion = true) =>
+    <MotionContext.Provider value={motion}><TranscriptWorking key={turnId ?? 'pending'} status={status} turnId={turnId} /></MotionContext.Provider>;
+  const view = render(app({ text: 'Sending…', active: true, pending: true }));
+  const indicator = () => view.container.querySelector('[data-activity-animation]')!;
+  expect(screen.getByText('Sending…')).toBeTruthy();
+  expect(indicator().children).toHaveLength(9);
+  expect(indicator().getAttribute('data-activity-animation')).toBe('running');
+  expect(view.container.querySelector('[data-turn-elapsed]')).toBeNull();
+  expect(vi.getTimerCount()).toBe(0);
+  view.rerender(app({ text: 'Working', active: true }, 'first'));
+  expect(screen.getByText('Thinking…')).toBeTruthy();
+  expect(screen.getByText('0s')).toBeTruthy();
+  act(() => vi.advanceTimersByTime(7000));
+  expect(screen.getByText('Pondering…')).toBeTruthy();
+  expect(screen.getByText('7s')).toBeTruthy();
+  expect(view.container.querySelector('[role="status"], [aria-live]')).toBeNull();
+  view.rerender(app({ text: 'Working', active: true }, 'first', false));
+  expect(screen.getByText('Thinking…')).toBeTruthy();
+  expect(indicator().getAttribute('data-activity-animation')).toBe('static');
+  hidden.mockReturnValue(true);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(vi.getTimerCount()).toBe(0);
+  hidden.mockReturnValue(false);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  view.rerender(app({ text: 'Waiting for your approval', active: false, attention: true }, 'first'));
+  expect(screen.getByText('Waiting for your approval')).toBeTruthy();
+  expect(vi.getTimerCount()).toBe(0);
+  view.rerender(app({ text: 'Working', active: true }, 'second'));
+  expect(screen.getByText('0s')).toBeTruthy();
+  view.rerender(app({ text: 'Last turn failed', active: false, attention: true }));
+  expect(view.container.textContent).toBe('');
+  expect(vi.getTimerCount()).toBe(0);
+  view.unmount(); hidden.mockRestore(); vi.useRealTimers();
+});
+
+it('missing raw records split activity, prevent cross-gap call binding, and mark available copies incomplete', () => {
+  const history = { revision: '1', throughSeq: 6, nextSeq: 1, hasMore: false, loading: false, truncated: false,
+    gaps: [{ fromSeq: 3, toSeq: 4, status: 'paused' as const }], messages: [
+      { seq: 1, message: { role: 'assistant', content: 'Before the missing input.' } },
+      { seq: 2, message: { role: 'assistant', content: '', tool_calls: [{ id: 'reused', function: { name: 'rlm_exec', arguments: '{}' } }] } },
+      { seq: 5, message: { role: 'tool', tool_call_id: 'reused', content: 'Unproven result' } },
+      { seq: 6, message: { role: 'assistant', content: 'After the missing input.' } },
+    ] };
+  const rows = timelineRows(history, [], true);
+  expect(rows.find(row => row.seq === 2)?.text).toBe('');
+  expect(rows.map(row => row.seq)).toEqual([1, 2, 3, 5, 6]);
+  expect(rows.find(row => row.historyGap)?.id).toBe('history-gap:1:4');
+  const projected = conversationActivityRows(rows, [{ ...cell('first', 2), callId: 'reused' }]);
+  const copies = [...responseCopies(projected, false).values()];
+  expect(copies).toEqual([
+    { label: 'Copy visible response', text: 'Before the missing input.' },
+    { label: 'Copy visible response', text: 'After the missing input.' },
+  ]);
+  history.gaps[0]!.fromSeq = 4;
+  expect(timelineRows(history, [], true).find(row => row.historyGap)?.id).toBe('history-gap:1:4');
 });

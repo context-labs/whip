@@ -166,6 +166,29 @@ No filesystem watcher or mid-turn prompt mutation is involved.
 Callbacks copy state under a mutex, release the mutex, then invoke external
 code. The repository’s analyzer and race tests enforce this ownership rule.
 
+## Desktop Browser ownership
+
+The experimental desktop Browser path has a separate native
+lifetime, not a newest-client-wins destination. The broker binds each root to
+one exact authenticated connection/provider epoch and admits at most eight
+active attachments. Each tab serializes an entire helper batch with **one active
+and four queued**; distinct tabs may progress independently. Waiting is
+cancellable, does not hold the provider registry mutex, and rechecks live
+attachment/document/issuer authority before execution. Permission waiting is
+outside the page execution timeout. Delegation requires an idle handoff and
+transfers control rather than sharing it.
+
+Command IDs are separate from operation IDs. Exact-identity cancellation can
+retire pending work, but a delivered mutation may already have happened:
+`outcome_unknown` is not permission to replay. Late results cannot revive a
+retired command, attachment or epoch. Exact-holder/epoch unbind, disconnect and
+revocation cancel dependent work; reconnect does not rebind automatically.
+Agent release never owns the human tab's lifetime. The SDK waits for native
+selection acknowledgement and bounds ordered observations; see the
+[SDK provider lifetime and queue limits](../packages/sdk/README.md#experimental-native-browser-provider)
+and [Browser lifecycle](browser-computer-use.md#desktop-browser-tabs). These
+ownership rules are not a packaged-release acceptance claim.
+
 ## Kernel containment
 
 Kernel cells have limits for Starlark steps or QuickJS jobs, host requests, compute time, memory,

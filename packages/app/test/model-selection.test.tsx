@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
-import { ThemeProvider, UIProvider } from '@whip/ui';
+import { Dialog, ThemeProvider, UIProvider } from '@whip/ui';
+import userEvent from '@testing-library/user-event';
 import type { ProviderCatalogsResult } from '@whip/protocol';
 import { useState, type ComponentProps } from 'react';
 import { modelOptions } from '../src/model-options';
@@ -89,6 +90,41 @@ it('shows the routing provider logo and updates it when choosing another provide
   expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openai$/);
   expect(trigger.textContent).toBe('gpt-5.5');
   expect(trigger.title).toBe('gpt-5.5 · openai-codex');
+});
+
+it.each(['pointer', 'keyboard'])('closes the model picker when opening session options with %s', async interaction => {
+  const user = userEvent.setup();
+  const change = vi.fn();
+  function Picker() {
+    const [showOptions, setShowOptions] = useState(false);
+    return <>
+      <CatalogModelPicker model="gpt-5.5" provider="openrouter" catalog={catalog} onChange={change}
+        onSessionOptions={() => setShowOptions(true)} />
+      <Dialog open={showOptions} onOpenChange={setShowOptions} title="Session options">
+        <p>Session configuration</p>
+      </Dialog>
+    </>;
+  }
+  const route = createRootRoute({ component: () => <ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider> });
+  const router = createRouter({ routeTree: route, history: createMemoryHistory() });
+  render(<RouterProvider router={router} />);
+  await user.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  const options = await screen.findByRole('button', { name: 'Session options' });
+  if (interaction === 'keyboard') {
+    options.focus();
+    await user.keyboard('{Enter}');
+  } else {
+    await user.click(options);
+  }
+  const dialog = await screen.findByRole('dialog', { name: 'Session options' });
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Search models', hidden: true })).toBeNull());
+  expect(screen.queryByRole('option', { hidden: true })).toBeNull();
+  expect(change).not.toHaveBeenCalled();
+  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Session options' })).toBeNull());
+  await user.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  expect(await screen.findByRole('textbox', { name: 'Search models' })).toBeTruthy();
 });
 
 it('preserves the model selection popup for an action failure and closes on successful retry', async () => {

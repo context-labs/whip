@@ -120,8 +120,10 @@ func removeTrailingCommas(src []byte) []byte {
 	return out
 }
 
-// parseJSONC decodes JSONC (JSON with comments and trailing commas) into v.
-func parseJSONC(data []byte, v any) error {
+// ParseJSONC decodes JSONC (JSON with comments and trailing commas) into v.
+// Other agents write JSONC too (OpenCode's opencode.jsonc), so MCP discovery
+// shares this parser instead of growing a second.
+func ParseJSONC(data []byte, v any) error {
 	stripped, err := stripJSONC(data)
 	if err != nil {
 		return err

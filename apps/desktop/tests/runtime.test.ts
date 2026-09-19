@@ -26,7 +26,7 @@ async function fixture(t: TestContext, options: { distribution?: string; initial
   await mkdir(source);
   const script = `#!/bin/sh
 case "$1 $2" in
-  '_desktop-runtime-info ') printf '%s\\n' '${JSON.stringify(info)}' ;;
+  '_desktop-runtime-info ') printf 'info:%s\\n' "$INFERENCE_API_KEY" >> ${quote(log)}; printf '%s\\n' '${JSON.stringify(info)}' ;;
   '_desktop-runtime-sync --executable')
     printf 'sync:%s\\n' "$*" >> ${quote(log)}
     case " $* " in *' --interrupt '*) approved=1 ;; *) approved=0 ;; esac
@@ -389,15 +389,100 @@ test('startup synchronization waits for an overlapping local connection', async 
   await f.runtime.install(f.executable, signal());
   const hold = path.join(f.directory, 'hold-start');
   await writeFile(hold, 'hold');
-  const connection = f.runtime.prepare(signal(), () => {});
-  // Let prepare finish its initial synchronization and enter startup.
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const log = await readFile(f.log, 'utf8');
-    if (log.split('status:').length >= 4) break;
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
+  let starting!: () => void;
+  const started = new Promise<void>(resolve => { starting = resolve; });
+  const connection = f.runtime.prepare(signal(), message => {
+    if (message.startsWith('Starting')) starting();
+  });
+  await started;
   const sync = f.runtime.synchronize(signal());
   await rm(hold);
   assert.equal(await connection, f.socket);
   await sync;
+});
+
+async function shellFixture(t: TestContext, f: Awaited<ReturnType<typeof fixture>>) {
+  const shell = path.join(f.directory, 'login-shell');
+  const shellLog = path.join(f.directory, 'shell.log');
+  const keyFile = path.join(f.directory, 'shell-key');
+  await writeFile(keyFile, 'first-key');
+  await writeFile(shell, `#!/bin/sh
+printf 'read\\n' >> ${quote(shellLog)}
+printf '\\0WHIP_ENV\\0INFERENCE_API_KEY\\0%s\\0' "$(cat ${quote(keyFile)})"
+`, { mode: 0o700 });
+  const previous = process.env;
+  process.env = { ...f.opts.env, SHELL: shell };
+  t.after(() => { process.env = previous; });
+  const runtime = new LocalRuntime({ ...f.opts, env: undefined });
+  const reads = async () => (await readFile(shellLog, 'utf8')).trim().split('\n').length;
+  return { runtime, reads, keyFile };
+}
+
+test('running startup reads the shell and verifies the daemon once; reconnect and restart refresh the environment', async t => {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  await f.runtime.prepare(signal(), () => {});
+  await writeFile(f.log, '');
+  const shell = await shellFixture(t, f);
+  assert.equal(await shell.runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal(await shell.reads(), 1);
+  let commands = (await readFile(f.log, 'utf8')).trim().split('\n');
+  assert.deepEqual(commands, ['info:first-key', `status:${f.executable}`]);
+  await writeFile(shell.keyFile, 'second-key');
+  assert.equal(await shell.runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal(await shell.reads(), 2);
+  assert.match(await readFile(f.log, 'utf8'), /info:second-key/);
+  await writeFile(shell.keyFile, 'restart-key');
+  assert.equal((await shell.runtime.restart(signal())).state, 'running');
+  assert.equal(await shell.reads(), 3);
+  commands = (await readFile(f.log, 'utf8')).trim().split('\n');
+  assert.equal(commands.filter(line => line.startsWith('start:')).length, 1);
+  assert.equal(commands.filter(line => line === 'info:restart-key').length, 2);
+});
+
+test('stopped startup shares its environment but rechecks readiness after starting', async t => {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  await writeFile(f.log, '');
+  const shell = await shellFixture(t, f);
+  assert.equal(await shell.runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal(await shell.reads(), 1);
+  const commands = (await readFile(f.log, 'utf8')).trim().split('\n');
+  assert.equal(commands.filter(line => line.startsWith('status:')).length, 2);
+  assert.equal(commands.filter(line => line.startsWith('start:')).length, 1);
+  assert.equal((await shell.runtime.test(signal())).state, 'running');
+  assert.equal(await shell.reads(), 2);
+});
+
+test('connection preparation preserves update approval and probes the replacement before attaching', async t => {
+  const f = await upgradeFixture(t);
+  let approved = false;
+  const next = new LocalRuntime({ ...f.next, confirmUpdate: async () => approved });
+  await assert.rejects(next.prepare(signal(), () => {}), /update deferred/);
+  assert.equal(await fileDigest(f.executable), f.manifest.files.whipcode.sha256);
+  approved = true;
+  await writeFile(f.log, '');
+  assert.equal(await next.prepare(signal(), () => {}), f.socket);
+  assert.equal(await fileDigest(f.executable), f.next.manifest.files.whipcode.sha256);
+  const commands = (await readFile(f.log, 'utf8')).trim().split('\n');
+  const sync = commands.map(line => line.startsWith('sync:')).lastIndexOf(true);
+  assert.ok(sync >= 0);
+  assert.ok(commands.slice(sync + 1).includes(`status:${f.executable}`));
+  await writeFile(f.executable, 'external replacement');
+  await assert.rejects(next.prepare(signal(), () => {}), /changed outside desktop/);
+});
+
+test('failed and cancelled attempts release the runtime for a fresh retry', async t => {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  const shell = await shellFixture(t, f);
+  const progressError = new Error('cancel fixture');
+  await assert.rejects(shell.runtime.prepare(signal(), message => {
+    if (message.startsWith('Checking')) throw progressError;
+  }), /cancel fixture/);
+  assert.equal(await shell.reads(), 1);
+  const controller = new AbortController();
+  await assert.rejects(shell.runtime.prepare(controller.signal, () => controller.abort()), { name: 'AbortError' });
+  assert.equal(await shell.runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal(await shell.reads(), 2);
 });

@@ -2,7 +2,7 @@
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
 It explains the current design, why it exists, and how to extend it. Updated on
-2026-09-08 for the multi-host workspace and native companion.
+2026-09-17 for intent-controlled transcript following and immediate inline activity.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -124,6 +124,10 @@ Electron consumes the exact `apps/web` production build through `AppPlatform`.
 There is one Vite build, StyleX extraction and route tree. The sorted renderer
 manifest verifies the copied files in Go's embed input and Electron's staging
 directory. Desktop packaging must preserve those bytes in ASAR.
+For UI development, `npm run dev:desktop -- --attach` uses the same Vite renderer
+and the main installed daemon by default, without rebuilding or managing its
+native runtime. Explicit home/executable flags can select an isolated daemon. This unpackaged mode has separate GUI settings and uses the native
+Unix-socket bridge. See [desktop development](desktop.md#build-and-develop).
 Node APIs, Electron IPC, filesystem access, and `@whip/sdk/node` stay in
 `apps/desktop`; the Vite import-graph guard rejects them in the renderer.
 `@whip/app/desktop-bridge` exports only the serialized host contract. The desktop
@@ -152,6 +156,134 @@ Do not add Redux/Zustand, TanStack DB, a second Query client per feature, anothe
 CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
+
+## Native Browser workspace boundary
+
+Browser tabs are enabled by default in desktop builds; main honors
+`WHIP_DESKTOP_BROWSER_TABS=0` as an explicit launch-time opt-out. Availability
+does not grant agent control or preview-network authority.
+
+Desktop Browser tabs use the same split-workspace descriptors and tab strip as
+sessions, files and terminals. [`BrowserWorkspace`](../packages/app/src/browser-workspace.ts)
+owns renderer observation/admission and pane routing; Electron
+[`BrowserManager`](../apps/desktop/src/browser-manager.ts) owns the actual
+`WebContentsView` pages, profile partitions and live inventory. A descriptor
+stores only its ID, URL, title hint and optional inert preview-environment ID—not
+a daemon, agent attachment or network grant. Missing native support preserves
+these descriptors as unavailable rather than erasing them. New Browser tabs are
+capped at eight (within 32 total workspace tabs), with four presented guests;
+otherwise-valid over-cap restore metadata remains available for recovery.
+
+[`BrowserPlatform`](../packages/app/src/browser-types.ts) is the optional,
+versioned human-tab API. Mutations quote native epoch/tab/generation; presentation
+is a full monotonic CSS-viewport geometry snapshot. Shared overlay owner tokens
+must await native **hide acknowledgement before mounting interactive overlays**.
+Restoring metadata does not navigate, and creating a page requires explicit
+workspace admission before realization. Native snapshots are observations, never
+instructions to admit an unknown page. Model-created tabs enter the captured
+originating pane in the background.
+
+On a full renderer navigation, native invalidates the old browser epoch without
+broadcasting its replacement to the outgoing document. The incoming renderer
+learns the new epoch through its initial snapshot. This prevents a final
+visibility update from the old document consuming the new workspace's first
+presentation revision and blocking dialogs with a stale-presentation error.
+
+Agent control is deliberately separate:
+[`BrowserAssociations`](../packages/app/src/browser-provider.ts) advertises inert
+Browser v2 availability for an exact open conversation, verified execution host,
+native window and captured pane, even when no Browser tabs exist. It also records
+the user's explicit conversation/provider/tab/pane offers. Availability shares no
+human pages, creates no tab and grants no preview-network or control authority.
+The daemon promotes an unambiguous candidate only after create approval through
+the existing permission policy. Multiple candidate windows require explicit
+selection; connection order and focus never choose a destination.
+`browser.list_tabs()` requests bounded current metadata on demand, limited to
+root-offered pages, the caller's created pages and its live attachments. The
+native main process verifies provider epochs and tab generations; the daemon
+adds only the caller's attachment handles. Titles and URLs are untrusted data,
+not instructions. Neither tab inventories nor attachment inventories are injected
+into turn prompts.
+
+[`client.browser`](../packages/sdk/src/browser.ts) owns selected-holder transport,
+command IDs, cancellation, upload and teardown; the daemon owns durable scoped
+permission decisions. [`BrowserAgentBridge`](../packages/app/src/browser-agent-types.ts)
+is a trusted native adapter, not an arbitrary-CDP method on `BrowserPlatform`.
+The controlled page is the human's page. Reconnect may re-advertise inert
+availability, but never restores attachment grants or replays commands. Focus
+changes, restored IDs and copied attachment IDs never grant authority. Releasing
+an attachment does not close a human tab. Preview-network authority is separate
+again, bound to the verified SSH connection and tab environment; URL connections
+are not SSH preview providers. Standalone human preview admission uses a
+parented native confirmation sheet in Electron main, not the SSH authentication
+prompt flow; it cannot create agent authority. See [desktop Browser behavior](desktop.md#browser-tabs-experimental)
+and [agent operations](browser-computer-use.md#desktop-browser-tabs).
+
+### Browser Design Mode
+
+Design Mode uses a separate trusted native sibling `WebContentsView` above the
+selected guest. The isolated `apps/web/design.html` entry imports only
+`@whip/app/browser-design`, UI/theme code, and its dedicated design-only preload;
+it never initializes an app runtime or receives the normal desktop bridge.
+Native [`BrowserDesignController`](../apps/desktop/src/browser-design.ts) owns
+one exclusive human debugger lease, isolated-world DOM observations, selection
+identities, overlay geometry, and capture. The overlay intercepts selection
+clicks/keys; only bounded wheel input is forwarded to the guest. It yields to
+existing native hide holds **before** acknowledgement; this does not weaken the
+ordinary portal/modal boundary. Guest pages retain no app preload or authority.
+Exact Cmd+Shift+D routes from guest/overlay native key handling and the browser
+section's DOM handler through existing Browser shortcut events to the same app
+DesignControl toggle. BrowserWorkspace rechecks the selected pane, current
+epoch/generation, and native-surface holds; no global OS shortcut or guest bridge
+is introduced. Repeats, composing input, extra modifiers, and stale/hidden
+native surfaces do not toggle.
+
+The app-side [controller](../packages/app/src/browser-design-controller.ts) owns
+prompt/destination/capture state; [integration](../packages/app/src/browser-design.tsx)
+projects connected, open conversation targets and defaults only an unambiguous
+explicit page association. The isolated overlay receives bounded serializable
+models and emits validated intents quoting a lease and document/selection revision.
+It has no SDK, host connection, upload, or arbitrary CDP access. Theme backgrounds
+must remain transparent on this native surface.
+
+The hover outline alone transitions `left`, `top`, `width`, and `height` together
+using StyleX `appearance.motionFast` (100ms), ease-out. One stable DOM outline
+retargets from its current presentation without a JavaScript animation queue or
+scale transform, preserving constant border thickness. First appearance snaps;
+selected outlines, tooltip, composer, and click hit-testing never interpolate.
+Native hover IDs identify consecutive observations of the same live backend node,
+independently of selection IDs. Native `hoverGeometryRevision` invalidates motion
+on scroll/resize/zoom/security hiding even if React batches away a cleared model;
+missing revisions fail closed to snapping. Same-node geometry changes also snap.
+The renderer compares lease, document/selection revision and viewport before
+animating and removes invalid/nonactive hover immediately. Both app Reduce Motion
+and OS `prefers-reduced-motion` disable interpolation, including an in-flight move.
+
+Captured page text is an **untrusted text evidence attachment**, never concatenated
+into authored instructions or passed through mention/skill expansion. A viewport
+PNG is included by default and can be excluded. Existing
+[`CompositionStore`](../packages/app/src/compositions.ts) surface-scoped keys retain
+normal upload quotas and cancellation; [`submitChatInput`](../packages/app/src/chat-submission.ts)
+is shared with normal chat. Design drafts do not overwrite the destination composer.
+Confirmed admission clears the matching draft, evidence preview, and native selection,
+closing the composer while leaving Design Mode active for another selection. The
+reset is document/selection-revision scoped so late admission cannot erase newer picks.
+
+Design submissions carry a bounded `design_context` presentation descriptor with exact
+uploaded attachment identities. The daemon persists it in inbox previews and authored
+message presentation, adding resolved content-part indices for history. The transcript
+uses those indices—not filenames or text matching—to group the screenshot and selected
+elements separately from authored prose. Full model evidence is unchanged. The shared
+[attachment UI](../packages/app/src/browser-design-attachment.tsx) offers captured page
+details and raw context on demand; pending/queued attachments load through the existing
+scoped content reader. Older messages without this provenance keep their ordinary,
+inspectable presentation. Page labels remain untrusted plain text and never retarget a
+live page when opened from history.
+
+Admission uncertainty uses existing command recovery, not a new command ID/retry.
+Live nodes are transient; accepted text/image attachments use normal transcript
+persistence. Navigation or stale nodes require reselection, never selector-based
+silent retargeting. Inspecting/sending context grants no agent browser control.
 
 ## Native mobile companion
 
@@ -204,8 +336,8 @@ cache lifetime. Thus each index has at most four retained host pages, not four
 pages per host. Partial failures keep healthy hosts visible. Counts describe
 loaded human requests and show `+` or `?` when incomplete or unavailable.
 Completed commands invalidate these indexes. Lists never subscribe to root
-transcripts. Session search is debounced and supports active/archived and host
-filters. Device pins are explicitly local, bounded by the settings quota and
+transcripts. Session search is debounced, always includes active and archived
+sessions, and supports a host filter. Device pins are explicitly local, bounded by the settings quota and
 128 identities; host-provided pins remain visible.
 
 Use the private SQLCipher database for four saved hosts, bounded preferences,
@@ -278,6 +410,19 @@ changes. Cancellation preserves the directory; unavailable native choosers fall
 back to browsing directories on the original host.
 Bootstrap calls `platform.dispose()` after the shared application unmounts.
 
+Browser and desktop bootstrap share a centered `WhipcodeWordmark` splash in
+[`startup-screen.tsx`](../packages/app/src/startup-screen.tsx). It uses HALO's
+logo rise, fade-out and content entrance with Whip theme colors. The mounted
+router is inert while covered; the initial Local connection settling releases the
+splash, with a three-second ceiling to expose recovery for slow/offline hosts.
+Saved remote connections continue in the background and never gate the splash.
+There is no minimum hold or replay on navigation/reconnection. System and saved
+reduced-motion preferences skip animation. Startup acquires the shared native-surface
+hold before showing the splash and retains it through content entrance: CSS visibility
+and stacking cannot hide Electron browser views. The hold releases when fully visible
+or unmounted. Native prompts remain outside the inert subtree, and desktop `ready()`
+still signals the mounted shell.
+
 The desktop window hides its native title bar on macOS (`titleBarStyle:
 'hiddenInset'` in [`main.ts`](../apps/desktop/src/main.ts)) and the renderer
 owns the top chrome. The bridge reports this as `chrome: 'inset'`
@@ -287,9 +432,11 @@ The sidebar's 48px brand row and the 48px tab strip double as the window drag
 region via `-webkit-app-region` (the `windowDrag`/`windowNoDrag` entries in
 [`styles.ts`](../packages/app/src/styles.ts) and
 [`workspace-tabs.stylex.ts`](../packages/ui/src/workspace-tabs.stylex.ts));
-interactive children opt out — the tab list itself stays draggable so the
-strip's empty stretch moves the window, while individual tabs and utility
-buttons opt out to protect tab reordering and clicks. The traffic lights are
+interactive children opt out — while idle, the tab list stays draggable so the
+strip's empty stretch moves the window. During a sidebar-session drag, only the
+usable tab list temporarily opts out so its empty stretch can accept a new view;
+the traffic-light inset remains excluded. Individual tabs and utility buttons
+always opt out to protect reordering and clicks. The traffic lights are
 vertically centered in
 that strip (`trafficLightPosition: {x: 12, y: 18}`); the sidebar carries the
 theme-colored `WhipcodeWordmark` (`@whip/ui`) in both shells — a home link in
@@ -313,6 +460,13 @@ before local connection, coordinates restart with the Go maintenance lock, and
 consumes the existing update approval after matching readiness. Any running daemon
 requires explicit interruption approval; a UI status snapshot is not an idle fence.
 An explicitly chosen external binary is never automatically adopted or replaced.
+Local connection preparation owns startup synchronization; the window-ready
+event does not launch a second check. Synchronization and attachment share one
+shell environment and reuse a successful unchanged-runtime probe under the same
+mutation lock. Starting a stopped daemon or replacing an executable triggers a
+fresh readiness check. Results are discarded after the attempt; reconnect,
+diagnostics and restart reread the environment. Restart also shares one
+environment across its preflight, command and readiness checks.
 Normal stable and beta desktop channels share the default `~/.whipcode` runtime
 home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
 redirects local work. The canonical installation on the development Mac is
@@ -350,14 +504,33 @@ runtime-identity acceptance remain unchanged. Disconnecting, switching hosts and
 quitting the GUI do not stop accepted work. Browser adapters omit `localRuntime`;
 URL and SSH connections retain their existing transport paths.
 
-[`HostPrompts`](../packages/app/src/host-prompts.tsx) uses the shared Application
-child slot and its existing theme/UI/Query providers. Bootstrap observes prompts
-before starting a connection, so SSH challenges cannot race the first render.
-One dialog presents a bounded queue of four prompts; host-key fingerprints are
-plain selectable text and require explicit confirmation. Answers are ephemeral:
-clear inputs on submission, dismissal and unmount, and never put them in drafts,
-preferences or logs. Queue identities reject stale answer completions, failures
-remain visible, and final teardown declines outstanding challenges. Subscription
+[`HostConnectionDialog`](../packages/app/src/host-connection-dialog.tsx) is the
+shared SSH connection surface for Add server and the saved server's Connect action.
+Configuration remains mounted but hidden while the same dialog presents progress,
+host-key verification, authentication, or failure. Cancel stops the attempt and
+returns a new connection to its preserved form; saved reconnects close. Error
+recovery offers retry and editing. Success closes only after `HostConnections`
+verifies the daemon and, for new profiles, saves it. The dialog observes that owner;
+it does not create another transport or persist connection state.
+
+The desktop adapter creates the bounded
+[`host-prompt-controller`](../packages/app/src/host-prompt-controller.ts) before
+startup, exposed through `AppPlatform.hostPrompts`. It registers each native attempt
+ID against its profile ID before preparation and retires prompts when that attempt
+is released. The foreground dialog claims its host's prompts; unrelated prompts
+remain queued rather than stacking dialogs. [`HostPrompts`](../packages/app/src/host-prompts.tsx)
+uses the Application child slot for background authentication, opening the same
+connection surface only when input is needed. Ordinary background connection
+progress does not open a dialog. Server rows retain status badges; detailed SSH
+progress and errors stay in the active dialog, with host error notices available
+after dismissal.
+
+[`HostPromptForm`](../packages/app/src/host-prompt-form.tsx) renders selectable
+host-key fingerprints with explicit confirmation and bounded authentication fields.
+Answers are ephemeral: clear inputs on submission, dismissal and unmount, and never
+put them in drafts, preferences or logs. The four-prompt queue identifies answers
+by serial and connection attempt, rejects stale completions, and leaves failed
+answers visible. Final teardown declines outstanding challenges. Subscription
 cleanup permits React StrictMode's immediate effect replay before disposal.
 
 The desktop adapter owns one disposable update listener and a referentially
@@ -404,12 +577,21 @@ on platforms that support SSH. Fields, alerts, and advanced/recovery disclosures
 use shared `@whip/ui` components. Blank names derive from the normalized URL
 host (including a non-default port), while SSH names derive from the host/alias. URL
 connect-on-launch and explicit replacement-identity acceptance remain collapsed
-under Advanced. SSH overrides remain in their disclosure with no invented
-auto-connect control. URL saves require Local's loaded shared registry; native
+under Advanced. New SSH connections show a searchable single-selection profile list from the
+viewing Mac’s configuration. `AppPlatform.listSSHProfiles` is an optional native
+capability; older desktop bridges retain manual entry. Discovery runs only while
+SSH setup is mounted, through one transient Query entry, never on app startup.
+Refresh retains the previous rows and fixed list viewport; failures, empty config,
+no matches, and truncated results remain distinct. Already verified SSH aliases
+show Added. Advanced switches to the manual form, with both drafts owned by the
+parent form so method/mode switches retain input. The shared RadioGroup card
+variant owns accessible selection; no app-specific radio controls are introduced.
+SSH overrides retain their existing meanings, with no auto-connect control. URL saves require Local's loaded shared registry; native
 SSH saves do not. Pending native saves can be cancelled through their scoped
-AbortSignal without detaching other hosts. Validation/save failures preserve the form. A successful save
-selects and initiates connection before closing; connection failure remains on
-the row, not mislabeled as successful connection. Dialogs restore focus to the
+AbortSignal without detaching other hosts. Validation/save failures preserve the form. Native save verifies the connection before selecting the server and closing;
+progress and failures stay in the dialog, and retry reuses the form’s target ID.
+URL save selects and initiates connection before closing; subsequent connection
+failure remains on its server row. Dialogs restore focus to the
 originating Add button or row menu trigger. No additional controller or store
 owns these effects.
 
@@ -446,8 +628,9 @@ Clearing a previously persisted draft remains unsaved if deleting its durable
 record fails; an in-memory tombstone does not authorize a successful close.
 
 Desktop Cmd-W invokes the existing focused-tab close action, preserving drafts
-and daemon work. Closing the final session tab returns to New session; Cmd-W on
-a page with no active session tab hides the window. It does not disconnect any
+and daemon work. Closing the final session or terminal tab opens a New Chat on that tab's host and
+folder, so the workspace always offers a place to type; closing a New Chat as the
+last tab empties the workspace, and Cmd-W with no active tab hides the window. It does not disconnect any
 SDK client. Stable and beta hosts format `whip://` and `whip-beta://` links
 respectively through the preload's channel capability; both use the same renderer.
 Native session links use
@@ -509,7 +692,11 @@ update their source, boundary tests, and this table together.
 | Resource | Bound | Source |
 | --- | --- | --- |
 | SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/sdk/src/state.ts) |
+| Durable presentation | 64 KiB per transcript record, 128 ordered parts, 128 host operations per execution; inline content-handle summaries at most 8 KiB within page bounds | [presentation.go](../internal/llm/presentation.go) |
+| Markdown display cache | 512 documents / 2 MiB source, coalesced to 30 live parses/second; per-block fade chunks capped at 32 | [streaming-markdown.tsx](../packages/app/src/streaming-markdown.tsx) |
+| Transcript disclosures | 128 explicit choices, 512 member aliases per activity group | [timeline.tsx](../packages/app/src/timeline.tsx), [chat-activity-rows.ts](../packages/app/src/chat-activity-rows.ts) |
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
+| SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
 | Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
@@ -518,9 +705,10 @@ update their source, boundary tests, and this table together.
 | Submission previews | 32 entries, 1 MiB total; confirmed entries evicted first | [input-presentation.ts](../packages/app/src/input-presentation.ts) |
 | Attachments | 16 files per recipient; 20 MiB across the window; serial uploads | [compositions.ts](../packages/app/src/compositions.ts) |
 | Reading bookmarks | 128 entries, 64 KiB | [reading-positions.ts](../packages/app/src/reading-positions.ts) |
-| Search | One 64-item / 256 KiB page per included host while open; recent results reuse each host’s catalog | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
+| Search | One 64-item / 256 KiB all-status page per included host while open, plus each host’s initial page cached for five minutes; catalog revisions invalidate results | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
 | Attention | One 64-item / 256 KiB advisory page per connected host | [attention.tsx](../packages/app/src/attention.tsx) |
 | Agent mailbox pages | At most 4 bounded Query pages | [observation.tsx](../packages/app/src/details/observation.tsx) |
+| Visible stored chat messages | Automatic scoped reads up to 64 MiB per body; Query deduplication, cancellation and zero inactive cache lifetime; retained response-copy prose at most 256 Ki characters / 512 entries per timeline | [timeline.tsx](../packages/app/src/timeline.tsx) |
 | Explicit content inspection | 1 MiB text read; 64 MiB download; rendering has its own smaller caps | [shared.tsx](../packages/app/src/details/shared.tsx) |
 
 Payload limits do not equal total JavaScript heap limits. Preserve visible
@@ -541,7 +729,8 @@ mount and from its last cursor on reconnect, redraws on a cursor gap, forwards t
 composer and terminal shortcuts to the app, and offers Restart (a new shell behind the same
 tab) or Reattach when the daemon reports exit or a takeover. Session-backed descriptors store runtime/root identity;
 New Chat descriptors store an independent draft ID, optional host profile/runtime,
-working directory, permission mode and optional execution engine selection. Prompt text and recovery payloads never enter
+working directory, permission mode and optional execution engine, agent definition,
+model/provider pair and reasoning effort selections. Prompt text and recovery payloads never enter
 the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
 leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
 The global session view ID identifies one presentation of that host’s session. Duplicates share
@@ -554,6 +743,23 @@ two views with identical URLs. Sidebar/search reuse the selected matching view,
 then one in its pane, then another existing view before adding a new tab. Matching
 always includes runtime and root identity.
 
+Dragging a saved sidebar session into a tab strip or onto a pane's left/right/top/bottom
+split edge, or choosing **Open in new tab**,
+always opens a fresh root chat view, even when that conversation is already open.
+It does not create or fork a daemon session. Existing views retain their reading,
+agent and inspector state; ordinary sidebar clicks still reuse matching views.
+`SessionTabs.openChatView` validates identity, target pane and the unconditional
+32-view limit (and four-pane limit for an edge), inserts/selects/focuses and persists
+the fresh view and optional split in one immutable update. Sidebar sources reuse
+the attached-tab edge hit testing and split preview, including compact/minimum-size
+restrictions; pane centers never accept sidebar drops. Preview and release both
+recheck capacity and target validity. Cancellation leaves the layout untouched. A
+new item uses its insertion index directly (unlike transfer, there is no removed
+source index to adjust). The menu inserts after the focused pane's selected tab.
+Both paths use `openChatView` in routing and `tabDestination`'s exact `whipViewId`;
+routing failure is reported without retrying creation. Known offline hosts can
+open unavailable views locally; a removed host cannot.
+
 The v3 window record migrates the last-used v1/v2 host layout first. Other legacy
 layouts remain recoverable under **Settings → Servers → Restore previous host tabs**.
 Restoring merges panes and closed-tab history after checking the window-wide
@@ -563,6 +769,10 @@ without consuming the original layout. Both initial migration and explicit resto
 validate the expanded v3 metadata before marking a layout migrated. Original v1/v2
 storage is retained, with restored/dismissed identities recorded in v3. Failed
 writes visibly use memory, leaving original layouts recoverable on reload.
+
+Each desktop tab strip has one plus-button menu, with **New session** first,
+followed by the available terminal, Browser, and pane actions. The compact mobile
+bar retains its direct New session button.
 
 `SessionTabStrip` coordinates the workspace and renders one selected session view
 per visible pane. `ConversationRoute` handles admission/host status only. The
@@ -579,7 +789,20 @@ a replacement. Settings retains the tree and releases visible consumers.
 originating location and host before updating their view.
 
 `@whip/ui/workspace-layout` provides recursive geometry and one shared dnd-kit
-provider. It accepts generic rendered content; chat/REPL and future terminal descriptors
+provider. `WorkspaceDragScope` (exported through `@whip/ui/workspace-tabs`)
+wraps the shell's sidebar and workspace; standalone layouts retain a local scope.
+The layout registers its current target resolver with that scope; a standalone
+strip on an unmatched/home route registers its own resolver instead. Existing view
+sources keep content-edge split/transfer targets; `WorkspaceExternalSource` uses
+opaque app-owned payloads and accepts usable tab strips and all four content split
+edges, excluding utility controls, traffic lights and content centers. It keeps the original row in place
+and reuses the contoured tab face, insertion gaps, cancellation, reduced-motion,
+click suppression and native Browser-surface occlusion path. Auto-scroll is
+horizontal only, avoiding sidebar/page vertical scrolling. The app validates
+capacity and destination again at release and returns the created view ID for
+preview settlement. No navigation, storage write or session work happens on hover
+or cancellation. Touch/compact navigation retains ordinary link/menu behavior.
+It accepts generic rendered content; chat/REPL and future terminal descriptors
 and renderers belong in app. WHIP owns tree edits, persistence and product limits.
 The only new dependency, `react-resizable-panels`, supplies keyboard/pointer
 resizing. It has no vendor theme CSS. Selected content uses stable, sorted sibling
@@ -705,6 +928,30 @@ the reader; the exhausted control is hidden, disabled, and excluded from accessi
 Transcript pages can contain no execution cells, so cell count does not determine
 exhaustion. The SDK keeps the older cursor and availability consistent with the
 retained history across refreshes, revision changes and cache eviction.
+`SessionView` also tracks interior gaps in raw transcript sequence coverage.
+A snapshot boundary is not proof that every record before it is loaded. After
+resuming event consumption, the SDK automatically repairs pending gaps for the
+root and opened children through revision-pinned `history.page` requests. Reads
+are shared per agent; each automatic pass is capped at four sequential pages of
+128 records / 256 KiB. Requests are cancelled on refresh, disconnect, child closure
+and disposal. Errors stay local to the gap; exhausted passes expose an explicit
+one-page continuation. Ordinary refreshes do not restart failed/paused gaps;
+reconnection allows another bounded attempt. Gap descriptors (at most 511 per
+agent, with 512-character errors) count against the existing 8 MiB view budget.
+
+Chat, REPL and native mobile expose the same loading/retry boundary. It splits
+activity groups and marks available response copies incomplete; a body handle
+alone is not a gap. Recovered records reconcile existing execution identities
+and appear without arrival motion. The shared reading list preserves a surviving
+visible row when a gap control disappears, using its existing virtualizer and
+bounded restoration loop. Keyboard focus moves to recovered content only if the
+focused control disappears; selection and manual disclosures remain intact.
+Programmatic compensation never triggers history paging. Explicit gap navigation
+can evict a newer suffix; `latestMissing` keeps Latest available, and `loadLatest`
+reloads a recent window before scrolling. User scrolling cancels a pending jump.
+Memory pressure may evict an entire retained edge; ordinary older paging and
+Latest keep those edges reachable without an automatic refetch loop.
+
 REPL bookmarks use a mode suffix within the existing runtime/view/agent namespace;
 closing the view forgets both modes. Output previews show six lines, following
 the tail while running and the beginning after completion. Expanded output IDs
@@ -716,6 +963,51 @@ through live observation and history replay. Checkpoint notices do not change a
 completed cell into a failed execution.
 
 Code and scoped large-body reads use existing UI/SDK limits and copy controls.
+
+### Session trace viewer
+
+The third session view kind, `trace` (`?view=trace`), shows one trace as an
+execution tree beside a waterfall, with a detail pane for the selected span. A
+trace is one root turn and everything it caused, including child turns, or one
+user command that called the model outside a turn (`/compact`, goal from
+context), named `compact` or `goal`; the toolbar's picker lists the session's
+traces newest first and offers the whole session. **Open trace** sits beside **Open REPL** in the info bar, tab context
+menu and picker, and uses the same `openSessionView` helper.
+
+The SDK owns the data. `SessionView.loadTrace()` pages the daemon's durable
+spans (`trace.page`) into bounded `state.trace` evidence, including inactive
+persisted sessions. Reads survive ordinary root snapshot refreshes, coalesce
+concurrent callers, and cancel on disconnect/disposal/runtime replacement. The
+view catches up from its durable page cursor on reconnect; failures expose Retry.
+Each load reads at most eight pages; `hasMore` exposes Load more spans rather than
+leaving the loading indicator running. An empty completed read means no recorded
+spans, not a pending fetch: sessions predating tracing are not backfilled with
+invented timings. Live `span.started` / `span.ended` events upsert by id, so the
+root span appears the moment a turn is admitted and no snapshot refresh is
+needed per span. `traceSpans(state, traceId)`
+and `traceRoots(state)` are the only reads; the app adds selection, expansion,
+zoom and a requestAnimationFrame clock capped at about 30 fps while connected
+with open spans. Hidden documents, idle/disconnected views and OS/app reduced
+motion suspend animation; incoming span evidence still updates the view. Only
+selected views in visible workspace panes are mounted. Token/cost totals and
+descendant roll-ups are memoized independently of the animation clock. Timing is
+server-measured (nanosecond stamps taken on the daemon goroutine that saw the
+boundary) and open spans grow against the daemon's clock through the page's `server_time_ns`, so
+the view shows real historical durations, unlike the REPL's client-observed
+timer. Pure layout and roll-up math lives in `trace-math.ts`, ported from the
+HALO viewer: tree building, depth-first rows, domain and view clamping, ticks,
+roll-ups over descendants, display names. Header totals are sums over the
+loaded spans and are flagged when the evidence is truncated; cost only counts
+spans whose price Whip knew.
+
+The tree and waterfall are two columns of one virtualized row list at 28 px, so
+they never scroll apart. The detail pane shows Overview (duration, start and end
+offsets, cost rolled up for agent spans, tokens, model, children, agent, status)
+and Raw (the span JSON), with the bounded input/output/error excerpts the daemon
+kept in span attrs, and a Read action for the bodies it interned instead of
+excerpting: the system prompt and ephemeral notice each model call sent and the
+summary a compaction produced. Full bodies are in the export. Export from the CLI:
+`whip sessions export <root> [-o file] [-push URL]`.
 
 ## Data fetching and synchronization
 
@@ -769,6 +1061,11 @@ raw events by the previous root cursor before grouping them; cumulative tool
 values replace earlier values and row identities remain stable. Partial snapshots
 do not join text across unverified gaps, including the boundary back to live
 delivery. Omission flags and the session view's memory budget still apply.
+Usage and host-operation updates do not split a continuous, identified text or
+reasoning part. Gaps and standalone notices still separate fragments; the chat
+projection gives each retained fragment a unique row key while keeping its
+durable part identity as a reading alias. React, Markdown caches and virtualizer
+measurements must never share a key between separate fragments.
 Initial attachment, reconnect, subscription failure/gaps, history revision changes,
 and an agent's ended or replaced turn use snapshot replacement. This retains
 received activity; it does not recover events absent from the bounded snapshot.
@@ -840,14 +1137,46 @@ Optional `discovery_error` is shown in Settings; a failed save does not hide
 available effective routes.
 Rows and model controls share `ProviderLogo`, backed by bundled SVGs under
 `src/assets/` with source attribution. Unknown providers use the sparkle fallback.
-Rows use source labels and shared Dialog primitives.
+Color variants retain their source brand fills. OpenRouter uses its official
+purple or lime SVG according to the resolved Whip theme; OpenAI and xAI retain
+their monochrome primary marks. SVG viewBoxes are fitted to the artwork for
+consistent visible sizing, and provider connection rows use 20px icons.
+Connected Settings rows show credential-source badges; unconnected rows omit them
+because a configured environment variable does not mean a key is present.
+Rows use shared Dialog primitives. `ProviderConnectionList` owns the same compact
+connection-choice list for Settings and onboarding: Inference.net, OpenRouter,
+OpenAI, and ChatGPT subscription by default, with Show all/fewer providers.
+Settings keeps connected, disabled, and attention groups visible independently
+of this expansion; onboarding also keeps custom and attention/disabled choices
+accessible. A configured environment reference alone does not expand the list.
+API-key entry and replacement show the input first, followed by shared guidance
+for saving a key on the host or supplying its environment variable. The account
+status block is hidden during key entry; connected-account management retains
+source details and controls. Connected-account dialogs lead with connection status
+and a compact list of account details. A shared Connection options menu holds
+sign-in replacement, key replacement, rotation, enable/disable, and disconnect
+actions according to the credential source; Done is the only primary action.
+Inference.net account sign-in persists the selected team name with its ID, and
+provider status exposes the optional `team_name` for a Team row below Email.
+Older saved accounts without a name omit the row until the next sign-in;
+rendering account details does not make a network lookup or guess the name.
+First-time sign-in shows the browser/API-key choices without credential-source
+status controls. An empty environment definition belongs in Connect a provider,
+not Needs attention. Disabled providers have their own Settings group and an
+Enable on this host action. Enable/disable updates only the selected provider in
+the revision-checked disabled list; credentials, account details, and model defaults
+remain intact. Enabling reuses the existing connection without key entry or sign-in.
 Provider marks align with the title line; the Inference.net mark retains its
 monorepo brand colors, with the neutral bar following the active theme.
 The daemon owns readiness, default-provider resolution, environment discovery,
-and durable `disabledProviders` opt-outs. The renderer never probes environment
+and `disabledProviders` opt-outs. The renderer never probes environment
 variables or infers connection state from the existence of a config entry.
-Connect/disconnect invalidate that host's inventory, defaults and model queries.
-`provider.disconnect` requires the inventory's configuration revision.
+Connect/disconnect and enable/disable invalidate that host's inventory, defaults and model queries.
+`provider.disconnect` requires the inventory's configuration revision. It clears
+Whip-owned credentials and legacy disable flags, restoring built-in environment
+references without changing custom endpoints or model defaults. The dialog
+reports when host-managed credentials still make a provider available. External
+credentials are removed at their source; opening the dialog never modifies them.
 The shared host API also exposes `provider.get/create/update/remove` for custom
 connection configuration. `get` returns editable endpoint metadata, credential
 source summaries and removal blockers without reading back secrets or executing
@@ -857,7 +1186,26 @@ commands. A lost reply requires rereading the stable provider ID before an
 explicit retry. The TUI currently supplies the custom form; web/desktop use the
 saved inventory without a second file editor or a database-backed provider store.
 The screen requires `provider.list`; it has no alternate editor for older hosts.
-The connection dialogs use `provider-login.tsx` for account login flows.
+The connection dialogs use `provider-login.tsx` for account login flows. Method
+choice, API-key entry, active browser sign-in, and connected-account management
+are mutually exclusive screens. API-key drafts survive rejected validation and
+temporary host disconnects; Back and Close ask before discarding a nonempty key.
+Closing a login dialog aborts only renderer requests, not the host-owned login.
+Explicit Cancel returns to method choice only when the host reports `cancelled`;
+interrupted provisioning retains recovery guidance because its outcome can be
+uncertain. Retry reconciles active host flows before beginning a replacement.
+Login mutation responses update the host-scoped `provider-login-flows` Query
+entry; polling remains the authority for asynchronous progress. Workspace and
+project choices stay local until Continue/Connect. Workspace changes are allowed
+from `choose_project`, clearing the old project inventory before discovery;
+loading and provisioning cannot accept a concurrent workspace change. Project
+creation validation errors retain the entered name, while terminal host failures
+require a new sign-in. Loading, provisioning, expiry, and host unavailability
+have separate presentations; no API-key form is shown beside an active login.
+Dialog bodies reserve progress/footer space and bound long choice lists using
+shared ScrollArea and RadioGroup components. Successful observed flows refresh
+that host's inventory before returning to setup; authentication never changes
+the user's default model.
 Unavailable provider descriptors are filtered from model choices while aliases
 and saved defaults remain intact; an unavailable default offers explicit repair.
 Provider defaults use the composer’s `CatalogModelPicker`: one choice sets both
@@ -870,8 +1218,9 @@ shared effort helper offers catalog-supported levels or the model default when
 capabilities are unknown. Selecting a different route resets an unsupported
 effort; background catalog refreshes never change saved defaults or dirty drafts.
 
-Welcome and Settings reuse `provider-setup.tsx` and the existing connection/login
-dialogs. `provider.list` accepts optional model/provider inputs and returns an
+Welcome and Settings share `ProviderConnectionRow`, `SettingsGroup` and the existing
+connection/login dialogs. `provider-setup.tsx` owns onboarding and explicit default
+model confirmation. `provider.list` accepts optional model/provider inputs and returns an
 optional `selection` (resolved pair, local readiness and reason); provider entries
 carry `recommended`, `suggested_model`, `category`, `family` and `key_url`.
 These optional non-secret fields describe preset presentation; `family` never
@@ -899,56 +1248,103 @@ singleton team/project login choices under the existing flow owner; clients only
 observe states and present actual choices. Browser/device-code actions and keys
 remain ephemeral and host-pinned.
 
-`welcome.tsx` is a pre-session composer. It uses the native folder picker where
-available and a host directory browser otherwise. A folder, explicit send and a
+`welcome.tsx` is a pre-session composer. Its ready state follows Paper EA1-0:
+a centered 620px column with a heading, composer, and compact host/folder buttons.
+The composer retains chat's control order: attachment/context on the left and
+permission, model, effort and send on the right, wrapping on narrow panes. It uses
+the shared Whip controls and theme tokens. Attachment and context controls remain
+disabled until a session exists; their backend operations require a root identity.
+The folder button opens the native system picker directly for the local machine
+and the host directory browser for remote hosts. If a local host has no native
+picker available, the existing host-browser fallback remains available.
+
+`remote-directory-dialog.tsx` implements the remote picker from Paper FYQ-1,
+G8C-1 and GHR-1 using shared Dialog, Input, Checkbox, Menu and Button components.
+It shows the selected host, breadcrumbs, an editable absolute or home-relative
+path, Home/File system locations and up to five distinct recent directories from
+that host's loaded session catalog. Recent folders are not separately persisted.
+Single-click selects; double-click, Enter or the trailing chevron opens a folder.
+Arrow keys move selection, Cmd/Ctrl+Shift+G edits the path and Cmd/Ctrl+Enter
+confirms. Escape first leaves path editing, then closes the dialog. Confirmation
+updates only the draft folder; it never sends the first message.
+
+Listings use `client.host.directories` with a 64-entry page, a debounced filename
+prefix and hidden folders off by default. Next/First controls expose pagination;
+counts describe the displayed page and host truncation remains visible. Navigation
+history is capped at 32 entries. `directory-queries.ts` shares listing reads across
+browsing, selection validation and prefetching, with abort signals and runtime,
+path, prefix, hidden-folder and page scope. Unlike ordinary detail queries, these
+reads stay fresh for 10 seconds and inactive results remain for up to 60 seconds
+to support Back and reopening. Inactive results share a 32-page / 2 MiB serialized
+UTF-16 data budget across hosts; eviction also removes saved scroll positions.
+Active listings remain bounded by the 64-entry API page. Nothing is persisted.
+The remote trigger warms its initial path on hover/focus. While open, the picker
+warms Home, parent, recent locations and the next page, plus hovered/focused rows.
+The shared prefetch queue holds at most eight destinations and runs at most two
+requests, yielding to observed reads. Navigation cancels unrelated speculative
+reads; closing or changing the host cancels pending unused reads.
+A selected child's own listing establishes readability and serves a subsequent
+open. Confirmation revalidates expired results. Loading, path editing, unreadable
+selections and disconnections disable confirmation; a late validation result
+cannot confirm a changed choice. Reconnect revalidates the listing and selection;
+changing client/runtime retires the picker.
+Rows and their breadcrumbs remain together during pending navigation, with
+interaction disabled until the destination is ready. Refreshes preserve rows,
+uncached initial reads use row-sized placeholders, and a delayed indicator avoids
+flashing on fast reads. Section borders use the theme's border color. The footer
+reserves a scrollable validation area so pending/error messages do not move its
+actions; long host labels truncate and Recent avoids repeating the host name.
+On phones, Locations moves into a menu and the selected path stacks above actions.
+The behavior is covered by `remote-directory-dialog.test.tsx`,
+`directory-queries.test.ts`, `directory-picker.test.tsx` and the welcome flow tests.
+
+The host menu shows names, endpoints and connection status,
+plus **Manage servers**. Switching hosts preserves the prompt and clears the
+host-specific folder, model/provider and effort choices. A folder, explicit send and a
 usable route are required before execution. The shared permission control starts
 at Ask; `session.create.permission_mode` saves that mode atomically with creation
 and command acceptance. Retrying creation never resets a later session choice.
+Model and effort choices belong to the draft and never write host defaults.
+An unavailable saved effort remains visible and requires an explicit replacement.
+When no ready route exists, provider setup replaces the composer with the Paper
+ELF-0 layout in the same centered column: the 24px heading, 16px heading gap,
+12px panel inset, rows at least 64px tall, 8px row/footer gaps and shared buttons.
+The initial list shows common providers (including OpenRouter) plus configured connections needing
+attention, preserving host inventory order. **Show all providers** reveals the
+remaining inventory and Refresh. **Connect Remote** opens the shared Add server
+dialog for local setup; remote setup retains its execution-host selector.
+Provider rows grow for wrapped labels and mobile touch targets. Connection and
+model confirmation reuse the existing flows; completing setup restores the draft
+composer without sending it.
 
-`WelcomeSubmissions` in `welcome-submission.ts` owns first-message recovery in
-`AppRuntime`. Per-draft metadata journals freeze the original host/client,
-create/submit identities, parameters, root and state, but no prompt text. They are
-bounded to 32 records, 8 KiB each and 256 KiB total (UTF-8, including legacy records); admission uses the platform storage transaction before any
-network work. State transitions and retirement use that transaction and check the
-original create identity, so a late observer cannot replace a newer submission.
-The editable welcome prompt and frozen submission use the existing
-bounded draft store (32 nonempty entries, 256 KiB each, 1 MiB total), keyed by stable
-draft ID independently of host selection. Editable and frozen copies compete for
-that budget; unresolved frozen copies survive ordinary cross-window draft cleanup.
-Durable draft revisions distinguish later edits even when text becomes identical.
-Revision-only metadata is removed on startup; keys and tokens never enter either
-store. Storage failure prevents sending instead of leaving an unrecorded request.
+Sending the first message is three commands through the runtime's command
+runner: `sessions.create`, an optional `session.effort` with `persist_default:
+false` when the draft chose an effort, then `submit`. Acceptance of the submit
+promotes the New Chat tab in place into the session's tab (`SessionTabs.promoteNew`);
+the router follows only when that draft route is still focused, so a background
+pane never steals focus. The draft is cleared only if its text is still what was
+sent; a failure before acceptance keeps the text and shows the error under the
+composer. An uncertain or absent delivery shows the command runner's notice with
+Check status and Send again, the same handling ordinary messages get. There is no
+separate first-message journal: a reload during the few seconds of a first send
+can leave a created session in the sidebar beside the retained draft, an accepted
+trade for the recovery layer and its UI that used to cover it. Storage from that
+layer (`whip.web.welcome*` records and frozen `:submission` draft copies) is
+removed at startup.
 
-Welcome offers **Execution language** only before session creation, using the
+Welcome offers **Session options** in the model picker's footer for the agent
+definition and **Execution language**, keeping them out of the initial composer.
+Execution language is available only before session creation, using the
 host's advertised `execution_engines`. Starlark is the initial default; JavaScript
-(QuickJS) is opt-in. The selected value survives draft navigation and is frozen
-as an explicit `execution_engine` in the creation journal before admission.
-Legacy journals without a language retain Starlark. Status recovery never sends
-a payload; an explicit retry of an absent creation retains the original language.
+(QuickJS) is opt-in. The selected value survives draft navigation and is sent as
+an explicit `execution_engine` with the create command.
 The host owns the immutable session selection, inherited by all descendants.
 Execution settings change `default_execution_engine` for future sessions only,
 through the existing revisioned configuration query and editor. Missing discovery
-disables creation instead of assuming a language is supported.
+disables creation instead of assuming a language is supported. Neither reconnect,
+host switching nor auth completion silently submits the draft.
 
-Create and submit retain separate original command identities. Reload/reattach
-checks status; a confirmed absent request requires explicit retry with the original
-identity. Accepted input durably promotes the same draft descriptor to a session
-before retiring its journal and clears only the matching draft revision. App-owned
-completion works after unmount or close, preserves pane/order/view identity, and
-never reopens closed tabs or steals another pane/Settings focus. Only the still-focused
-draft route is replaced with its session URL. Failed promotion retains recovery.
-Later execution failures remain in runtime command observations. `welcome-recovery.tsx`
-keeps unresolved operations and nonempty orphan prompts reachable from empty/New Chat
-state after history eviction or capacity-blocked legacy import. Local editing locks
-while first-message admission/recovery is pending; newer programmatic revisions remain
-recoverable in a separate draft after promotion. Accepted journals whose cleanup failed
-can retry durable association and retirement offline without another create/submit.
-Legacy host prompts/journals are imported once with deterministic ownership; original
-command identities survive. Neither reconnect, host switching nor auth completion
-silently submits the draft. New-draft admission, metadata edits and promotion reject
-storage failure rather than claiming an unpersisted durable transition.
-
-Provider/runtime/recovery settings share `HostSelector` with new-session setup:
+Provider and runtime settings share `HostSelector`:
 the dropdown shows the host name and connection dot, followed by a status badge.
 The initial selection follows the last session's host or Local. Pin the resolved host for the Settings visit: disappearance or
 identity replacement preserves the old form disabled, rather than silently
@@ -960,7 +1356,7 @@ Appearance and keyboard preferences remain viewing-device settings.
 `/settings` takes over the app window with its own category navigation and
 independently scrolling content. It hides conversation navigation and the tab
 strip; it never inserts a Settings tab or rebuilds the saved split tree. Runtime,
-connection management, notifications, command recovery and global dialogs remain
+connection management, notifications and global dialogs remain
 mounted above the route. Visible session consumers release their leases while
 Settings is open; daemon work continues.
 
@@ -978,7 +1374,7 @@ exit clears the record. Composer drafts, attachments, split layout and reading
 positions retain their existing owners.
 
 The category modules live under `settings/`: General, Appearance, Providers &
-models, Agents & execution, Servers, Recovery, and About & updates. Agents &
+models, Agents & execution, Servers, and About & updates. Agents &
 execution also hosts the agent editor (`settings/agents.tsx`): it lists the
 host's definitions from `definitions.list`, derives the module and capability
 catalog from the built-in coding definition, builds the canonical document with
@@ -1000,8 +1396,7 @@ submit category-scoped revision-checked patches. `SettingsEditsProvider` guards
 category/host/Back navigation with Save, Discard, or Stay; secret inputs allow only
 Discard or Stay and never enter persisted recovery. Reverting fields to their
 original values makes the form clean. Provider polling exists only during an
-active login flow and is aborted on cleanup. Recovery filters durable commands by
-their owning runtime, while local draft recovery remains available offline.
+active login flow and is aborted on cleanup.
 
 Subscription login uses the same host-scoped daemon flow as API-provider
 onboarding: the optional `provider` selects `openai-codex`, with omission retaining
@@ -1012,74 +1407,130 @@ login invalidates configuration, status and catalog queries for that host.
 
 ## Conversation and navigation patterns
 
-Chat folds adjacent typed `rlm_exec` rows into quiet, expandable activity groups.
-Internal mailbox digests join the following executions at their delivery boundary;
-they never merge into earlier work or across authored prose. Standalone digests
-appear as **Agent updates**, without claiming an execution outcome. Raw deliveries
-remain behind a separate **Agent messages** disclosure, closed even at Detailed
-density, with stored bodies read only on request. Groups retain at most six
-digests before starting another group, and preserve digest IDs/sequences for
-reading bookmarks. Agent-written replies remain verbatim; UI code does not infer
-that a reply is redundant from its wording or parse digest text for agent status.
-`conversationActivityRows` consumes the existing portable `conversationRows` and
-SDK `executionRows`; the app does not parse results or subscribe to events again.
-Authored prose, notices, known turns and restart boundaries remain separate.
-Unknown historical turn identity is never presented as a turn duration or total.
-Group keys survive append, prepend and live-to-recorded reconciliation; bounded
-member aliases restore old reading bookmarks. Explicit disclosure choices are
-capped at 128 and pruned with retained groups. Expanded groups show six cells in
-a stable window, three host operations per cell and bounded code/output previews;
-**Open in REPL** opens the full retained record in a fresh adjacent tab.
-Expanded details use one quiet inset rule and a content-width REPL action.
-Message prose has its own element so trailing paragraph/list margins cannot
-compound with the action area. Assistant paragraphs have no action spacer.
-`responseCopies` places one visible copy footer after a completed response's
-prose and activity, delimited by authored input; internal deliveries remain in
-that response. Active responses have no footer, and queued input cannot finish
-one. Copy includes retained assistant prose only, capped at 256K characters;
-partial history/body windows are labeled **Copy visible response**. This view
-does not invent historical turn IDs or merge virtual reading rows. User message
-actions retain a fixed 28px footer on fine pointers and visible 44px targets on
-coarse pointers. A narrow desktop viewport alone does not enlarge those actions.
+Desktop and web chat use the richer `conversationRows(..., true)` display projection;
+native mobile retains the portable default. The daemon's turn journal captures
+version-1 presentation metadata even without a connected client. Ordered parts
+reference canonical prose and tool bodies; exposed reasoning and typed host
+operation fields are retained separately. Metadata is committed on success,
+failure and cancellation, preserved by raw-history paging/fork/rewind/compaction,
+and excluded from provider requests, continuation data and token accounting.
+An interrupted attempt's pending evidence follows its last journal record.
+Records cap metadata at 64 KiB, 128 parts and 128 operations per execution.
+Oversized message handles retain a compact identity/outcome summary inline;
+full details require the existing scoped content read. Omission is visible as
+**Partial activity**, never a complete count. Old transcripts use generic execution
+rows; no source-code parsing invents operations.
 
-Large stream events retain agent/turn/call/invocation identity inline with a
-content handle. Complete small fields can remain inline; omitted arguments or
-results are unavailable, not parse failures or evidence of success. The SDK
-coalesces cumulative updates by agent, turn and call. Older content-only events
-advance the cursor and signal unavailable evidence without creating anonymous
-root-agent tool rows. Accounting/usage events do not consume the bounded snapshot
-presentation window. Full event bodies remain explicitly scoped content reads;
-rendering never dereferences them for each token update.
+`conversationActivityRows` is one chronological pass over those parts and the
+SDK's execution projection. Reasoning and ordinary operations form quiet trees.
+Prose, images, authored input, notices, mailbox delivery boundaries, scratch
+restarts, different known turns and agent launches end the group. Failed host
+operations stay in place, even if their enclosing execution catches the error.
+Summary counts count invocations and deduplicate edits only by exact typed file
+target. The enclosing execution is not counted again. SDK reconciliation scopes
+identities to root, agent, revision, turn, part, tool and invocation; the UI does
+not replay events or fetch traces. Executions without a matching transcript row
+may appear at the chat tail only while their known turn is active. Older unplaced
+evidence remains available in the REPL; it must not drift under later responses
+or move their copy footers. Matched activity stays at its recorded position.
 
-`CurrentActivity` in the session information bar reads the selected session
-snapshot and execution projection. Its single polite status prioritizes connection
-health and human requests, then current operation/model activity; idle stays distinct
-from successful completion. `ChatActivity` keeps direct child rows above the composer. They show agent
-names and current lifecycle state, with at most three visible and no eager child
-transcript reads. Counts from incomplete snapshots say **At least**. Retained
-children are labeled **Session agents**, not attributed to an unproven turn.
-Inactive unrelated children stay in the inspector; visible agent admission order
-is retained, and attention changes do not evict a focused agent row.
-The shared `ActivityIndicator` starts gentle opacity motion after one second,
-stops in hidden documents, and respects OS and Appearance reduced motion. Its
-pause control updates the existing device preference. Status text remains static
-and readable, with one polite live region and no per-token/timer announcements.
-Chat and REPL reuse `ExecutionTime` for client-observed durations. Its isolated
-timer stops while hidden; replay never starts a new historical clock.
+Group headers, operation steps, expanded details and top-level Markdown blocks
+are individual rows in the existing virtual list. There is no six-cell or
+three-operation display cap; DOM virtualization is separate from data retention.
+Only the streaming tail automatically opens. Compact and Comfortable settle
+closed (Comfortable retains its small loaded preview); Detailed remains open.
+Manual disclosure choices take precedence, are capped at 128 and survive ordinary
+virtual remounts and live/history reconciliation. Stable member aliases are capped
+at 512 per group. Automatic folding waits for entrance motion and for selection
+or focus to leave the group. Live reasoning shows its last 24 lines; settled
+reasoning begins at the start. Available larger reasoning, execution code/output,
+and raw mailbox messages remain behind explicit disclosures and content reads.
+**Open in REPL** shares the existing execution evidence and opens an adjacent tab.
 
-Protocol 5.1 adds `stream.cell.host.started` immediately before host dispatch.
-`stream.cell.host` remains completion-only. Turn and invocation IDs join these
-events in SDK evidence; host cancellation, caught host errors and cell/turn
-outcomes remain distinct. Snapshot/replay can recover known current operations;
-missing prefixes fall back to generic activity. Old daemons still support
-accurate Running through existing tool lifecycle events. Older clients preserve
-ordered delivery but surface the new kind as unavailable detail; update their
-renderer to use the richer event. Never filter events out of a sequenced stream.
+Typed `agents.spawn` child IDs produce separate chronological cards. Name/model
+and lifecycle state come from the existing agent collection; there are no child
+transcript subscriptions just to populate cards. The inspector remains the full
+agent directory, including older children without a proven launch location. The
+composer's duplicate agent dock is removed. `CurrentActivity` remains the single
+polite live status in the information bar; no per-token announcements are added.
+
+`TranscriptWorking` renders a quiet activity line below the transcript, inside
+the same reading scroller. It immediately bridges local submission previews as
+**Sending…**, then uses the existing SDK turn/operation status. Queued and
+uncertain delivery stay explicit; permission/question waits and disconnected
+views stop the animation. Completed, failed and cancelled turns remove the
+trailer, leaving existing outcome notices responsible for errors. Empty active
+conversations also render the trailer before their first response event.
+
+The generic UI `ActivityIndicator` matrix variant uses a theme-colored 3×3 dot
+wave with a 750ms opacity cycle and no entrance delay. Its existing compact dots
+remain unchanged in the information bar. Generic working/thinking captions rotate
+every 7 seconds; known tool and response phases retain their specific labels.
+The elapsed clock starts with the current turn, using its recorded start when
+available and otherwise the client observation time. Sending has no clock;
+an older turn's timestamp is never reused. Only the trailer's local clock updates
+once per second, and hidden/waiting/settled views leave no ticking interval.
+Shared reduced-motion settings stop the wave and caption rotation. The trailer
+adds no live region, requests, retained history, or SDK event reconciliation.
+
+`streaming-markdown.tsx` retains TanStack Markdown and safe app renderers. Live
+changes are coalesced to at most 30 parses/second, with stable unchanged block
+ASTs and a 512-document / 2 MiB source cache. This is not an incremental parser.
+Conservative trailing inline delimiter completion affects display only. One
+response-copy footer uses original retained assistant prose before display splits;
+reasoning, tool output and mailbox deliveries are excluded. Partial history reads
+say **Copy visible response**, with the existing 256K-character bound. Selected
+Markdown blocks preserve their DOM until selection ends, then display the latest
+source; other blocks continue streaming. Code decoration receives original token
+offsets and never changes its source or copy semantics.
+
+`transcript-motion.tsx` adapts Zeron's MIT-licensed motion with native Web Animations
+and static StyleX styles. Text fades are opacity-only, use the 160ms gap seed,
+70/30 moving average and 120–400ms clamp, with acceleration for concurrent chunks.
+Rows reveal over 360ms, connectors over 480ms, first rows wait 90ms and simultaneous
+rows stagger by 65ms. Activity content fades with a 4px lift; folds and chevrons use
+140ms ease-out. Active summaries sweep muted-to-normal text over 3.4 seconds.
+Entrance reveals clip the measured row while reserving its layout space; delayed
+zero-height rows would defeat virtualization by mounting every waiting operation.
+Initial history, reattachment and virtual remounts do not replay entrance motion.
+Hidden documents and reduced motion stop animations and use final states.
+
+Chat enables `ReadingList.chatFollow`; REPL keeps its existing following behavior.
+Following is explicit user intent, independent of distance after a layout change.
+TanStack owns end anchoring and ordinary resize/prepend compensation. An exact
+end correction on append, layout and container/viewport resize accounts for
+surrounding padding, turn feedback and composer height. Indexed `followOnAppend`
+is disabled: its pending target can keep reconciling after a user interruption.
+There is no streaming scroll animation loop. CSS `overflow-anchor: none` keeps
+browser anchoring from competing with virtual measurements.
+
+Chat's scrolling viewport has a static alpha mask: a short 20px fade at the top
+and a softer 40px fade toward the composer. The theme shows through without a
+colored overlay or pointer interception. Bottom content padding keeps the newest
+message and activity footer clear of the fade when pinned; scroll padding keeps
+keyboard-revealed content inside the readable area. Composer and Latest controls
+sit outside the mask. REPL/trace views are unaffected. Forced-colors and print
+turn the mask off; the fade itself adds no animation or scroll listeners.
+
+Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
+selection detach immediately, even within the old 70px proximity threshold.
+Ordinary row clicks, Tab and Enter do not detach. A downward user scroll reaching
+the actual bottom (2px rounding tolerance), or **Latest**, resumes following;
+content growth and programmatic scrolls never resume it or load history.
+Only **Latest** uses native smooth scrolling, which new scroll input cancels;
+reduced motion uses an immediate jump. TanStack's default resize predicate keeps
+a growing block spanning the viewport stationary while reading it. Existing
+bookmark, attachment, permission, question and authored-input ownership remains.
+Pointer presses pause automatic movement until the click completes so a growing
+transcript cannot move an action away from the pointer between down and up.
 
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
 model/effort trigger, permission-mode toggle, and Send. It omits a visible
-heading and shortcut hints. Toolbar controls wrap in narrow panes so Send/Pause
+heading and shortcut hints. Autosizing reserves the composer's current height
+while measuring the collapsed textarea, then releases it after applying the new
+height. The measurement must not temporarily enlarge the transcript viewport and
+clamp its scroll position on each keystroke. Toolbar controls wrap in narrow panes so Send/Pause
 stays reachable. `model-selection.tsx` provides separate model and
 reasoning popovers that apply the selected option immediately; the inspector
 retains explicit Apply actions and exact model/provider entry. The controls
@@ -1110,12 +1561,79 @@ Drafts remain untouched by model selection, and host defaults are not changed.
 Standard text inputs use a single neutral focus border. The composer keeps its
 quiet outer border unchanged on focus and has no separate textarea outline.
 
+Composer image attachments use local object URLs owned by `CompositionStore`.
+The original file's bytes remain counted in the 20 MiB window attachment budget
+until the draft releases it; previews do not add base64 copies or content reads.
+URLs survive view unmounts and upload settlement, and are revoked on removal,
+accepted submission (only its captured attachment IDs), root deletion, host
+invalidation, and store disposal. Failed or uncertain submissions keep their
+previews. These window-local URLs never enter submitted payloads or persistence.
+`composer-attachments.tsx` renders 120 px square, cropped image tiles above the
+textarea, wrapping in selection order within a bounded scroll area. Each tile
+reserves its size while decoding, shows a small decode/upload spinner, exposes
+removal independently of previewing, and opens the original in the shared Dialog.
+Upload and decode failures remain distinct; ordinary files keep filename rows.
+Picker, paste, and drop share the same attachment path. Image loading must not
+resize the composer or disturb transcript reading anchors.
+
+`chat-file-drop.tsx` widens file dropping to each visible chat body, including
+transcript, blank space, queue and composer. The composer supplies its existing
+attachment callback and availability; New Chat supplies local staging. Native
+listeners bind to that pane's DOM container, so portaled dialogs and other panes
+cannot accidentally route files to it. File objects are captured synchronously
+on drop and admitted once. Hover never changes focus, recipient or scroll state.
+The theme-derived overlay is positioned outside layout, ignores pointer events,
+and updates only on entry/exit. Nested drag boundaries do not flicker; a short
+one-shot expiry handles OS cancellation that emits no final page event. Listeners
+and the expiry are removed when the recipient/view disappears. A renderer-level
+file-only guard prevents unhandled shell drops from navigating away, without
+attaching them or intercepting text/link/tab drags or native Browser uploads.
+Unavailable targets explain why a drop cannot be accepted; existing attachment
+bounds, upload ownership and errors stay in the composition path.
+
+New Chat uses the same previews and attachment budgets. `CompositionStore.stage`
+retains local files under the stable welcome draft key without creating a session,
+reading file bodies, or uploading. Switching hosts is safe before Send because no
+content references exist yet. Once Send creates the root, `adopt` transfers the
+files and preview identities into that root's composer, and uploads through the
+normal scoped SDK path. The tab promotes at creation for an attached first message;
+upload or effort failures leave its draft in that session, so correcting them does
+not create another root. The shared admission path clears only accepted attachment
+IDs and matching text. Image-only first messages are supported. Closed/reopened
+draft tabs retain their files in window memory; dropping them from closed-tab
+history releases the files. Reload still requires reselecting local attachments.
+
 User messages use right-aligned, theme-derived bubbles. Timestamps and existing
 copy/history actions appear below the bubble on hover or keyboard focus; touch
 keeps the controls available. Show recorded `sent_at` values when supplied, and
 never invent timestamps for historical messages that lack them.
 Agent responses omit a repeated author heading and show one left-aligned copy
 control in the completed response footer, with no per-paragraph copy control.
+
+A large image attachment must not replace its message with a “Read stored message”
+button. Mounted user/assistant rows automatically fetch referenced transcript
+bodies through the existing SDK content API and render their text and embedded
+images inline. Reads are keyed by runtime/root/agent, history revision and immutable
+content identity, cancelled on unmount, and released from Query when no row uses
+them. They do not expand the SDK history window or subscribe to additional agents.
+A failed transfer exposes an in-place Retry; a disconnected host shows a reconnect
+status. User image attachments sit above the text bubble in a right-aligned,
+wrapping strip of 80 px square thumbnails. Each reserves its space during native
+lazy loading/decoding and shows its own small spinner until ready, or an inline
+failure if decoding fails. Clicking a thumbnail opens the original in the shared
+accessible dialog; image-only messages have no empty text bubble. Assistant/tool
+images retain their larger inline presentation. External image URLs retain the
+existing explicit-link behavior. Full tool outputs still require disclosure.
+
+The desktop/web projection distinguishes the provider's `user` role from actual
+authored input using `authored` on the message or its bounded history entry.
+Unauthored deliveries, including browser/computer screenshots and MCP images,
+stay in collapsed **Activity details**, never user bubbles or attachment strips.
+They do not split response-copy boundaries. Referenced internal bodies use the
+same scoped content reader only while their details are explicitly open; closing
+the disclosure cancels the read and releases its inactive cache. The portable
+mobile projection is unchanged. Do not identify internal images by caption text
+or associate them with a particular tool invocation without a recorded identity.
 
 Committed history only includes a turn's messages after that turn finishes.
 `input-presentation.ts` therefore owns window-local submission previews (at most
@@ -1128,6 +1646,41 @@ session view hands over to authoritative inbox/history; this opens no additional
 root views. Confirmed previews are evicted first under the bound, and admission
 fails visibly rather than evicting an unresolved preview. Host detach clears them.
 Prompt bodies are not added to persistent command recovery records.
+
+Supported desktop/web composers show waiting client inputs once, in the queue
+strip above the draft, instead of pending transcript bubbles. Send/Enter during
+an active turn enqueues normally. The composer has one primary action: Send when
+there is text or an attachment, otherwise Stop while a turn is active. Steer promotes that
+exact inbox entry into the current turn's next safe model-loop boundary. Remove
+only cancels waiting input. It cannot stop a claimed turn. Both controls use
+`runtime.run` and the original control command's recovery identity. The draft
+and its newer attachments are independent of these controls. Older daemons
+without both `inbox.steer` and `inbox.remove` keep the delivery dropdown and
+legacy pending bubbles. Native mobile keeps its existing presentation.
+
+The daemon records client origin, originating command identity, a pending
+steer's target turn and the delivery event position on the existing inbox.
+Completion, failure, cancellation and recovery clear obsolete steering intent;
+unclaimed input remains in ordinary FIFO order. A claimed steer's `inbox.running`
+event separates live prose fragments, and `delivery_seq` places its authored
+input between them until committed history takes over. Internal agent inputs
+and legacy entries with unproven provenance never acquire queue controls.
+
+`inboxItems` in the SDK merges snapshot and paged evidence by agent/sequence.
+Collection revision and event cursor determine freshness. Partial snapshots
+retain at most 128 previously observed waiting inputs as unverified evidence;
+their controls stay disabled until a fresh snapshot/page or lifecycle event
+resolves them. Pages and this evidence count against the existing 8 MiB session
+budget. The UI exposes incomplete coverage through Load more and never treats
+absence from a partial snapshot as delivery. Queue controls add no subscriptions.
+
+Stored previews contain at most 2 KiB of UTF-8 text and 16 attachment descriptors
+within 16 KiB total; counts and truncation remain explicit. Full bodies stay in
+existing scoped content storage. The strip shows roughly three rows and
+virtualizes queues over 16 entries. Mounted image previews use scoped content
+reads, reserve their geometry and release object URLs/cache on unmount. Full
+message/file inspection uses the shared dialog, retaining all available attachment
+references. Claimed input keeps its attachment thumbnails in the transcript.
 
 Keep Sending, Queued and Checking delivery distinct. Definitive rejection removes
 the local preview and preserves an unaccepted draft; uncertain input remains
@@ -1154,6 +1707,10 @@ instructions. Keep URL/content checks in the existing rendering paths.
 kept mounted for keyboard access. When the final page removes the control,
 TanStack compensates for its height change along with the prepended messages;
 the control must not introduce an unmeasured offset outside the virtual list.
+In chat, a visible selected/focused row becomes the resize anchor: delayed
+message/image growth before it is compensated through the same virtualizer,
+including a loading row that spans the viewport edge. REPL keeps its default
+measurement behavior.
 
 Browser reading-position checks must let scrolling and row measurement settle
 before recording an anchor. Touch scrolling can defer a size correction beyond
@@ -1184,12 +1741,24 @@ session rows in one scroll area. Group within each host by exact `cwd`: worktree
 a distinguishing parent suffix, and full paths remain available in labels and
 titles. Groups follow their first catalog occurrence; sessions retain server
 pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
-existing page/cache limits. Sidebar labels never lease root views.
+existing page/cache limits. Each directory initially shows at most seven sessions;
+More reveals seven additional loaded sessions per click. Only once all loaded
+sessions in the directory are visible does Less replace More; Less resets to seven.
+Expansion is local to the mounted host list (up to 64 directory preferences);
+route navigation reveals an older selected session by expanding its directory.
+Sidebar labels never lease root views.
 
 New session, Search sessions and Settings are the top destinations; execution-host
-management stays in the footer. Host headings show connection status and collapse
-independently. Each pane's tab strip sits above a compact `SessionInfoBar`: host/project, selected
-agent, current activity and scoped actions. Full host/path identity is available
+management stays at the end of the scrollable content. The brand/window controls
+and New session remain pinned; Search, Settings, host sections, and Servers share
+one scroll area. A theme-derived hairline and 12 px soft fade appear below the
+pinned header only after scrolling, with a reduced-motion-aware opacity transition.
+Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
+agent, current activity and scoped actions. Chat, REPL and trace/span views use
+this same component, including loading and unavailable states. It owns the
+view-specific control visibility and a single action list for both toolbar buttons
+and the narrow-pane overflow menu; callers provide identity, activity and callbacks
+rather than assembling their own top bars. Full host/path identity is available
 on focus through a tooltip. Agent selection opens the existing paginated inspector;
 child views can return to Root. REPL keeps only language, loaded-cell count and
 history help in its local toolbar. New Chat shows its chosen host/project and
@@ -1203,8 +1772,9 @@ and permissions stay beside the composer, along with child activity and requests
 Session details also opens from the tab menu or command palette.
 
 Search opens a centered dialog with an automatically focused search field, host
-labels/filter, and up to 64 recent catalog entries per host. Typing debounces
-200 ms and uses an independent 64-item / 256 KiB Query page and cursor per host.
+labels/filter, and active and archived sessions together, with no status selector.
+Empty and typed searches use an independent 64-item / 256 KiB Query page and
+cursor per host. Typing debounces 200 ms.
 A failed or offline host shows its own status while healthy results remain usable.
 Enter opens the highlighted result, arrow keys move the highlight, and Escape/close
 restores focus. Highlight identity includes the runtime/root pair, so a later
@@ -1212,7 +1782,14 @@ response from another host cannot change which session Enter opens. On mobile,
 opening search closes the navigation Sheet and returns focus to its toggle.
 Search retains native modified links, remembered inspector locations and
 background-tab actions. Its catalog/query observers only mount while open;
-closing releases pending reads and cached search pages.
+closing releases pending reads and typed-search/cursor pages. Each host's initial
+all-status page remains cached for five minutes after its last observer unmounts,
+so reopening shows cached results immediately and refreshes them in the background
+on every mount. Host connection/reconnection prefetches this same initial page
+into the dialog's Query cache, including active and archived sessions, without
+waiting for the dialog to open. The prefetch uses the verified connection client
+directly, before the host snapshot is published. A cold open before prefetch
+finishes (or after cache expiry) still loads normally; there is no background poller.
 
 Attention aggregates one lightweight advisory page per connected host, polling
 every three seconds without leasing roots. Its sheet labels hosts, supports a
@@ -1255,7 +1832,7 @@ most four hosts and 64 directories per host within 64 KiB; oldest preferences
 revert to expanded when evicted. Storage failure visibly falls back to memory.
 Catalog refresh preserves the visible anchor; explicit session navigation
 expands/reveals its loaded directory without polling undoing manual collapse.
-Below 768 px the existing Sheet contains a bounded list and footer, uses >=44 px
+Below 768 px the existing Sheet uses the same pinned header and bounded scroll area, uses >=44 px
 targets, and has no resize handle. Colors remain theme-derived.
 
 ### Conversation row actions
@@ -1278,7 +1855,7 @@ only when the current route displays the deleted root.
 Archive is durable metadata, independent of execution and recency. Active SDK
 catalogs exclude archived roots; explicit root reads and Attention include them.
 Archiving never closes tabs, clears drafts, or stops work. Archived sessions are
-available through the search dialog's Active/Archived/All filter and sidebar
+always included in Search sessions; there is no separate archived-only sidebar
 entry. Undo issues a restore command. Search observes the existing catalogs'
 revision changes to refresh affected hosts and invalidate old page cursors,
 including changes from another client; it adds no background catalog poller.
@@ -1347,6 +1924,47 @@ Preserve the production CSP and existing geometry exceptions. The only script-so
 relaxation is `'wasm-unsafe-eval'` for ghostty-web's terminal parser; no style-source
 relaxation is acceptable, which is why xterm.js was not adopted.
 
+### Empty workspace
+
+The empty workspace (`empty-workspace.tsx`) is the front door: first run, storage
+loss, and URLs whose tab is not open here. It reuses the New Chat heading, lists
+the shell's actions as rows with the live keycaps from Settings (`formatForDisplay`
+from the hotkeys package). One vocabulary across the sidebar, palette and this page:
+New session · Search sessions · New terminal · Commands · Reopen closed tab.
+Empty states everywhere ask "What do you want to work on?"; failure copy is
+reserved for stale URLs and real errors.
+
+### Loading states and placeholders
+
+Keep the interface still while a host answers. Four rules, in priority order
+(background and measurements: `.ai-docs/plans/loading-states/`):
+
+1. Never show a wrong state as a placeholder. "Unavailable", "Connect a
+   provider", "not available" describe outcomes; while a read is still pending
+   the copy is neutral ("Loading session…") or absent. Derive failure copy from
+   an error or a terminal status, never from "no data yet".
+2. Reserve the footprint instead of swapping components. Header, composer and
+   toolbar exist from the first paint at their final height and their contents
+   fill in; a disabled real control or an empty fixed-height slot usually
+   suffices. `SessionContent` and `WelcomeComposer` do this with an `opening` /
+   `isPending` flag rather than a separate loading view.
+3. Use a skeleton only where a blank slot would read as incomplete: the
+   composer's mode/model/effort pills (`PickerSkeletons`) and short lists that
+   fill a dialog (SSH profiles, folder rows). No skeleton for one-line status
+   text, sidebar sessions, or settings sections.
+4. Put status text where the content will appear, inside the slot it describes,
+   so removing it does not shift what follows.
+
+Spinners may be delayed to avoid flashing on fast reads (the directory dialog
+waits 180 ms); footprint reservation is never delayed, because a slot that
+appears late is itself a flash. When two layouts are mutually exclusive and the
+choice needs a host round trip (New Chat's composer versus provider setup), the
+answer is fetched ahead of time: `AppRuntime.primeProviders` warms the provider
+inventory when a host connects (the splash waits for Local's), and the last
+answer is remembered per host in device storage (`provider-readiness.ts`) so the
+first paint after a reload is already right. Route bodies for tabs the workspace already
+owns render nothing, so a route commit never paints their "missing" copy.
+
 ### Themes are foundational
 
 The Go theme catalog and resolver feed `cmd/themegen`, which produces
@@ -1403,7 +2021,8 @@ Tool density belongs to AppRuntime: Compact shows summaries, Comfortable adds at
 most three lines/512 characters of already-loaded content, and Detailed initially
 opens available tool details. Manual disclosure state wins for the mounted row.
 Density does not auto-open reasoning or mailbox details and never dereferences a
-body handle; full content still requires an explicit user action.
+tool/reasoning body handle; full tool content still requires an explicit user action.
+Ordinary user/assistant message bodies load automatically when their virtual rows mount.
 
 Increased contrast adapts semantic foregrounds and control/focus boundaries while
 preserving the chosen palette. System contrast uses the browser media query, with
@@ -1468,7 +2087,9 @@ Malformed known messages are protocol errors. Feature components must not create
 their own WebSocket clients or handwritten JSON-RPC envelopes.
 
 The browser uses the daemon's WebSocket API and scoped HTTP content transfers.
-Content references remain references until explicitly opened within limits.
+Content references remain references until a bounded consumer reads them. Visible
+user/assistant chat rows automatically read their stored message bodies through
+the SDK; tool output, reasoning and inspector content still require disclosure.
 The daemon validates root/agent/reference association; a browser URL must not
 bypass that scope. Web serving has host/origin checks despite the absence of
 connection authentication. SDK Node scripts may use Unix sockets with networking
@@ -1480,6 +2101,12 @@ CSS layers and extraction with runtime injection disabled, and explicit
 prebundling of Base UI/TanStack's CommonJS store shims. App/UI source must be
 compiled even when installed from package archives. Do not rely only on workspace
 symlinks to prove package correctness. Generated routes are not edited by hand.
+In development, a pre-middleware transforms `packages/ui/src/tokens.stylex.ts`
+before serving StyleX's virtual CSS. This ensures `defineConsts` values (including
+media queries) are available even when the browser requests CSS before importing
+the token module. Use Vite's transform cache so token edits still invalidate normally.
+`apps/web/scripts/stylex-dev.test.mjs` reproduces that cold partial-module graph and
+runs in `task web`; production extraction remains unchanged.
 
 Both `whip` and the `whipcode` branch distribution embed this same application.
 `whipcode` owns `~/.whipcode` and uses `WHIPCODE_NETWORK`, `WHIPCODE_LISTEN`,
@@ -1492,6 +2119,11 @@ server. The launch endpoint defines Local; saved profiles attach directly to
 additional existing daemons over separate browser connections. The shell does not start,
 restart, or reconfigure their listeners. Exact browser Origin configuration and
 a stable local Origin remain separate work; this feature does not relax allowlists.
+The local Vite development proxy validates loopback clients and exact dev
+Host/Origin before forwarding Local's HTTP/WebSocket API requests with the daemon
+origin. This is confined to development tooling; production and direct remote
+connections retain the daemon's normal checks. `apps/web/dev-proxy.ts` owns that
+boundary, with HTTP and upgrade regression coverage in `dev-proxy.test.mjs`.
 See [web setup](web-app.md#develop-against-an-existing-daemon) for exact origin and
 listener setup; building frontend assets alone cannot upgrade a running daemon.
 
@@ -1532,13 +2164,17 @@ Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
 ```sh
 npm ci
 npm run build                  # SDK artifacts used by the app
-# Proxies to the local daemon on 127.0.0.1:8080; its allowlist must include port 3000.
+# Attaches through the local dev proxy; no daemon allowlist change or restart.
 npm run dev:web
 ```
 
 The development app is on port 3000; Vite forwards `/api` HTTP and WebSocket
 requests to `http://127.0.0.1:8080` by default. Set `WHIP_WEB_DAEMON` when the
 daemon reports a different endpoint. Production keeps same-origin attachment.
+The proxy accepts only local requests from the exact dev origin, then rewrites
+the upstream origin for HTTP content and WebSockets. It does not start or
+reconfigure the daemon. Shared app/UI source edits use React Fast Refresh;
+SDK source edits still require `npm run build`.
 Use [web-app.md](web-app.md) for daemon
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a
@@ -1578,6 +2214,19 @@ restart, uncertain admission, multiple clients answering requests, history
 revision changes, large outputs, slow consumers, and StrictMode cleanup when
 touching those paths. Measure latency, retained data, subscriptions, and polling
 volume before optimizing. Never weaken daemon durability to improve a UI number.
+
+`WHIP_CHAT_MESSAGES_ONLY=1 node apps/web/scripts/chat-activity.mjs` checks real
+image uploads, referenced history, automatic inline rendering, failed transfers,
+reopening, long-history paging, narrow panes and delayed-image selection anchors
+in Chromium and Firefox. After `npm run build:desktop`, include Electron with
+`WHIP_WEB_BROWSERS=chromium,firefox,electron`. These fixtures use isolated runtimes.
+
+`WHIP_CHAT_COMPOSER_ONLY=1 node apps/web/scripts/chat-activity.mjs` isolates the
+composer image-preview checks (also included in the messages-only run): local
+loading, real uploads/admission, multiple and mixed files, removal and URL cleanup,
+preview keyboard focus, failure states, paste/drop, bounded 16-file layout,
+light/dark/narrow/large-text output, reduced motion, and composer reading-position
+regressions. It accepts the same browser selection and results-directory options.
 
 Automated viewport, Axe, and WebKit tests do not establish physical-mobile,
 VoiceOver, or actual Safari coverage. State the exact coverage and remaining

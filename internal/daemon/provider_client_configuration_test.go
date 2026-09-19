@@ -81,7 +81,7 @@ func TestProviderClientsCustomConnectionLifecycle(t *testing.T) {
 				t.Fatal("stale client overwrote the connection")
 			}
 			disconnected, err := api.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Revision: updated.Revision, Provider: read.Provider})
-			if err != nil || !disconnected.Disabled || disconnected.KeySource != "none" || disconnected.Available == nil || *disconnected.Available {
+			if err != nil || disconnected.Disabled || disconnected.KeySource != "none" || disconnected.Available == nil || *disconnected.Available {
 				t.Fatalf("disconnect retained credentials or readiness: %+v %v", disconnected, err)
 			}
 			after, err := api.ReadConfiguration(t.Context())

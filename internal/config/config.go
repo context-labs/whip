@@ -157,7 +157,7 @@ type Config struct {
 	CollapsePaste      *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
 	GoalMaxRounds      int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
 	RLM                RLMConfig           `json:"rlm,omitzero"`
-	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network/stall) before the first delta; 0 = llm.DefaultMaxAttempts, 1 = no retries. A stream that fails after its first delta is regenerated at most llm.DefaultRegenerations times regardless.
 	Providers          map[string]Provider `json:"providers"`
 	ProviderKeySources ProviderKeySources  `json:"providerKeySources,omitzero"`
 	DisabledProviders  []string            `json:"disabledProviders,omitempty"`
@@ -170,6 +170,10 @@ type Config struct {
 	// (claude-style .mcp.json, codex-style ~/.codex/config.toml). nil imports
 	// both sources, preserving the pre-gating behavior.
 	MCPImport *MCPImport `json:"mcpImport,omitempty"`
+	// BrandIcons lets the import screen ask DuckDuckGo's icon endpoint for the
+	// logo of an MCP server the app has no bundled mark for, by registrable
+	// domain. nil is on; false keeps every lookup on this machine.
+	BrandIcons *bool `json:"brandIcons,omitempty"`
 	// LSPServers is whip's own LSP server block (whip-native shape; see
 	// internal/lsp.FromConfigMap for the merge semantics). Entries extend or
 	// disable the built-in registry (gopls).
@@ -251,15 +255,28 @@ type LSPServer struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
-// MCPImport selects which claude/codex MCP server definitions whip imports.
-// A nil source entry (or nil Enabled) leaves that source on. Example:
+// MCPImport selects which imported MCP server definitions whip picks up.
+// Three sources: claude (the user's ~/.claude.json), codex (the user's
+// ~/.codex/config.toml) and project (the repository's .mcp.json in the
+// session cwd). A nil claude or codex entry (or nil Enabled) leaves that
+// source on: they are the user's own files. project is off unless enabled,
+// because a repository author wrote it and enabling it runs those programs
+// at session start. Example:
 //
 //	"mcpImport": {
-//	  "codex": { "enabled": true, "exclude": ["node_repl"] }
+//	  "codex": { "enabled": true, "exclude": ["node_repl"] },
+//	  "project": { "enabled": true }
 //	}
 type MCPImport struct {
-	Claude *MCPImportSource `json:"claude,omitempty"`
-	Codex  *MCPImportSource `json:"codex,omitempty"`
+	Claude  *MCPImportSource `json:"claude,omitempty"`
+	Codex   *MCPImportSource `json:"codex,omitempty"`
+	Project *MCPImportSource `json:"project,omitempty"`
+	// Opencode is the user's ~/.config/opencode files; on unless disabled,
+	// like the other user-owned sources.
+	Opencode *MCPImportSource `json:"opencode,omitempty"`
+	// Offered records that the import screen was shown on this host and
+	// answered (imported or skipped); the app does not offer again by itself.
+	Offered bool `json:"offered,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when
@@ -301,6 +318,10 @@ func Dir() (string, error) {
 	dir := buildinfo.Home(home)
 	return dir, os.MkdirAll(dir, 0o700)
 }
+
+// Path is the config file location (~/.whip/config.json, or under WHIP_HOME),
+// for surfaces that tell the person where a write went.
+func Path() (string, error) { return path() }
 
 func path() (string, error) {
 	dir, err := Dir()
@@ -349,7 +370,7 @@ func loadUnlocked() (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := parseJSONC(data, &cfg); err != nil {
+	if err := ParseJSONC(data, &cfg); err != nil {
 		logf("config.load", "PARSE FAILURE %s: %v (%d bytes)", p, err, len(data))
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
@@ -365,7 +386,7 @@ func loadUnlocked() (*Config, error) {
 		logf("config.load", "CLOBBERED/EMPTY config detected (%d bytes on disk), attempting recovery", len(data))
 		if bak, err := os.ReadFile(p + ".bak"); err == nil {
 			var restored Config
-			if parseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
+			if ParseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
 				logf("config.load", "restored from .bak (%s)", restored.fingerprint())
 				if len(restored.MCPServers) == 0 && len(cfg.MCPServers) > 0 {
 					restored.MCPServers = cfg.MCPServers // keep the user's servers
@@ -450,7 +471,7 @@ func (c *Config) saveUnlocked() error {
 	if len(c.Providers) == 0 && len(c.Models) == 0 {
 		if existing, err := os.ReadFile(p); err == nil {
 			var cur Config
-			if parseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
+			if ParseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
 				logf("config.save", "REFUSED empty overwrite of healthy config (disk had providers=%d models=%d)", len(cur.Providers), len(cur.Models))
 				return fmt.Errorf("refusing to overwrite %s: existing config has providers/models but the value being saved is empty", p)
 			}
@@ -463,7 +484,7 @@ func (c *Config) saveUnlocked() error {
 	// log the before/after fingerprint so a bad write is attributable
 	if existing, err := os.ReadFile(p); err == nil && len(existing) > 0 {
 		var cur Config
-		if parseJSONC(existing, &cur) == nil {
+		if ParseJSONC(existing, &cur) == nil {
 			logf("config.save", "before=(%s) after=(%s)", cur.fingerprint(), c.fingerprint())
 		} else {
 			logf("config.save", "before=(unparseable, %d bytes) after=(%s)", len(existing), c.fingerprint())
@@ -495,7 +516,7 @@ func marshalConfig(c *Config) ([]byte, error) {
 	header := "// whip configuration — JSONC: comments and trailing commas are allowed.\n" +
 		"// providers: declare each API endpoint once. models: route each model to one or\n" +
 		"// more providers (first is the default). defaultModel/defaultProvider pick the route.\n" +
-		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex imports, e.g.\n" +
+		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex/project imports, e.g.\n" +
 		"//   \"mcpImport\": { \"codex\": { \"enabled\": true, \"exclude\": [\"node_repl\"] } }\n"
 	out := append([]byte(header), body...)
 	return append(out, '\n'), nil

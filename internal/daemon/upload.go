@@ -23,10 +23,11 @@ type uploadState struct {
 }
 
 type uploadManager struct {
-	store *session.Store
-	dir   string
-	mu    sync.Mutex
-	live  map[uploadKey]*uploadState
+	store          *session.Store
+	dir            string
+	mu             sync.Mutex
+	live           map[uploadKey]*uploadState
+	browserContent map[uploadKey]browserUploadedContent
 }
 
 func newUploadManager(store *session.Store, dir string) *uploadManager {
@@ -126,15 +127,36 @@ func (m *uploadManager) finish(ctx context.Context, clientID, uploadID string) (
 	if err != nil {
 		return ContentHandle{}, err
 	}
-	return ContentHandle{
-		ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size,
-		MediaType: value.MediaType, Source: value.Source,
-	}, nil
+	handle := ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source}
+	if handle.MediaType == "image/jpeg" && handle.Size > 0 && handle.Size <= 8<<20 {
+		m.mu.Lock()
+		if m.browserContent == nil {
+			m.browserContent = make(map[uploadKey]browserUploadedContent)
+		}
+		if len(m.browserContent) >= 128 {
+			for key := range m.browserContent {
+				delete(m.browserContent, key)
+				break
+			}
+		}
+		agentID := state.begin.AgentID
+		if agentID == "" {
+			agentID = state.begin.RootID
+		}
+		m.browserContent[uploadKey{clientID, handle.ReferenceID}] = browserUploadedContent{rootID: state.begin.RootID, agentID: agentID, handle: handle}
+		m.mu.Unlock()
+	}
+	return handle, nil
 }
 
 func (m *uploadManager) abortClient(clientID string) {
 	m.mu.Lock()
 	var aborted []*uploadState
+	for key := range m.browserContent {
+		if clientID == "" || key.clientID == clientID {
+			delete(m.browserContent, key)
+		}
+	}
 	for key, state := range m.live {
 		if clientID == "" || key.clientID == clientID {
 			delete(m.live, key)
@@ -154,4 +176,18 @@ func validSHA256(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && hex.EncodeToString(decoded) == value
+}
+
+// Browser screenshots must have completed chunked upload on the exact holder
+// connection, rather than quoting some other client's authorized content.
+type browserUploadedContent struct {
+	rootID, agentID string
+	handle          ContentHandle
+}
+
+func (m *uploadManager) authorizeBrowserContent(clientID, rootID, agentID string, handle ContentHandle) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	uploaded, ok := m.browserContent[uploadKey{clientID, handle.ReferenceID}]
+	return ok && uploaded.rootID == rootID && uploaded.agentID == agentID && uploaded.handle == handle && handle.Size > 0 && handle.Size <= 8<<20 && handle.MediaType == "image/jpeg"
 }

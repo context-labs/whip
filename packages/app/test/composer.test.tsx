@@ -48,6 +48,7 @@ function fixture() {
   } as unknown as AppRuntime;
   const session = {
     rootId: 'root',
+    client: { clientId: 'composer-test' },
     command: vi.fn(() => ({})),
   } as unknown as Session;
   const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn']) => (
@@ -322,3 +323,24 @@ for (const outcome of ['cancelled', 'interrupted']) {
     expect(f.runtime.report).not.toHaveBeenCalled();
   });
 }
+
+
+it('switches from Send to Stop after accepting an active-turn draft', async () => {
+  const f = fixture();
+  const session = { ...f.session, cancelTurn: vi.fn(), agents: { cancelTurn: vi.fn() } } as unknown as Session;
+  render(<RuntimeContext.Provider value={f.runtime}><UIProvider><Composer session={session} agentId="a" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></RuntimeContext.Provider>);
+  expect(screen.queryByLabelText('Message delivery')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(f.session.command).toHaveBeenCalledWith('agent.submit', expect.objectContaining({ delivery: 'queued', text: 'same draft' }), expect.anything());
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
+  expect((screen.getByLabelText('Message this agent') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pause this turn' })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Message this agent'), { target: { value: 'Another message' } });
+  expect(screen.getByRole('button', { name: 'Queue message' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Message this agent'), { target: { value: '   ' } });
+  expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pause this turn' })).toBeTruthy();
+});

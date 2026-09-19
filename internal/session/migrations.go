@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 18
-	schemaIdentity       = "whip-recursive-runtime-v18"
+	currentSchemaVersion = 20
+	schemaIdentity       = "whip-recursive-runtime-v20"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -122,6 +122,7 @@ CREATE TABLE agent_messages (
 	status TEXT NOT NULL CHECK(status IN ('pending','delivered','done')),
 	available_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
 	delivered_at TEXT NOT NULL DEFAULT '', delivered_turn_id TEXT NOT NULL DEFAULT '', done_at TEXT NOT NULL DEFAULT '',
+	sender_span_id TEXT NOT NULL DEFAULT '', span_trace_id TEXT NOT NULL DEFAULT '',
 	CHECK(NOT(body_inline IS NOT NULL AND body_ref IS NOT NULL)),
 	FOREIGN KEY(root_id,sender_agent_id) REFERENCES agents(root_id,id),
 	FOREIGN KEY(root_id,recipient_agent_id) REFERENCES agents(root_id,id)
@@ -152,7 +153,10 @@ CREATE TABLE inbox (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL, seq INTEGER NOT NULL,
 	kind TEXT NOT NULL, status TEXT NOT NULL, payload_inline BLOB, payload_ref TEXT REFERENCES content_references(id),
 	retries INTEGER NOT NULL DEFAULT 0,
-	created_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id,seq),
+	origin TEXT NOT NULL DEFAULT '', command_client_id TEXT NOT NULL DEFAULT '', command_id TEXT NOT NULL DEFAULT '',
+	steer_turn_id TEXT NOT NULL DEFAULT '', delivery_seq INTEGER NOT NULL DEFAULT 0, preview BLOB NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL, parent_span_id TEXT NOT NULL DEFAULT '', span_trace_id TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(root_id,agent_id,seq),
 	CHECK(NOT(payload_inline IS NOT NULL AND payload_ref IS NOT NULL)),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );
@@ -202,10 +206,21 @@ CREATE TABLE model_calls (
 	tokens INTEGER NOT NULL DEFAULT 0 CHECK(tokens>=0), cost_micros INTEGER NOT NULL DEFAULT 0 CHECK(cost_micros>=0),
 	elapsed_millis INTEGER NOT NULL DEFAULT 0 CHECK(elapsed_millis>=0), exhausted INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+	cost_input_micros INTEGER NOT NULL DEFAULT 0, cost_cache_read_micros INTEGER NOT NULL DEFAULT 0, cost_output_micros INTEGER NOT NULL DEFAULT 0,
 	UNIQUE(root_id,agent_id,logical_id,attempt_number),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );
 CREATE INDEX model_calls_root_agent ON model_calls(root_id,agent_id,status);
+CREATE TABLE spans (
+	root_id TEXT NOT NULL REFERENCES sessions(id), id TEXT PRIMARY KEY, trace_id TEXT NOT NULL,
+	parent_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL, turn_id TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL CHECK(kind IN ('agent','llm','tool','host','wait')), name TEXT NOT NULL,
+	start_ns INTEGER NOT NULL CHECK(start_ns>0), end_ns INTEGER NOT NULL DEFAULT 0 CHECK(end_ns=0 OR end_ns>=start_ns),
+	status TEXT NOT NULL, attrs TEXT NOT NULL DEFAULT '{}', links TEXT NOT NULL DEFAULT '[]',
+	updated_seq INTEGER NOT NULL
+);
+CREATE INDEX spans_root_trace ON spans(root_id,trace_id,start_ns);
+CREATE INDEX spans_root_updated ON spans(root_id,updated_seq);
 CREATE TABLE leases (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,
 	operation_id TEXT NOT NULL, capability_id TEXT NOT NULL DEFAULT '', trace_id TEXT NOT NULL DEFAULT '',
@@ -314,7 +329,7 @@ CREATE TRIGGER session_catalog_insert AFTER INSERT ON sessions BEGIN UPDATE runt
 CREATE TRIGGER session_catalog_delete AFTER DELETE ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,archived,updated_at ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 
-`
+` + inboxSteerTrigger
 
 func migrate(ctx context.Context, db *sql.DB, path string) error {
 	conn, err := db.Conn(ctx)
@@ -406,7 +421,19 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 17, "whip-recursive-runtime-v17"
 	}
 	if version == 17 && identityErr == nil && identity == "whip-recursive-runtime-v17" {
-		return upgradeV17(ctx, conn)
+		if err := upgradeV17(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 18, "whip-recursive-runtime-v18"
+	}
+	if version == 18 && identityErr == nil && identity == "whip-recursive-runtime-v18" {
+		if err := upgradeV18(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 19, "whip-recursive-runtime-v19"
+	}
+	if version == 19 && identityErr == nil && identity == "whip-recursive-runtime-v19" {
+		return upgradeV19(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }

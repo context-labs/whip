@@ -206,3 +206,57 @@ Also settled: **the output contract with Loupe-driven confirmers (option B)**, a
 **no `check_anchors` tool** unless dry runs show more findings landing off
 the diff than before. Execution started the same day on Loupe's
 `feature/whip-sdk`.
+
+## Implementation record (September 12, 2026)
+
+Landed on `context-labs/loupe` branch `feature/whip-sdk` (local only), after
+the first migration's commits:
+
+| Step | Commit | Notes |
+|---|---|---|
+| 1 Vendor + typed tools | `92684e8` | `vendor/@whip` from `whip-rlm@6d16c869f` (protocol 6.6); zod 4.6; `pr_*` tools typed with inputs and outputs; derived schemas pinned. |
+| 2 Runtime handle + `session.run` | `0763246` | `RunProgress` over turn events; first runner tests via `@whip/sdk/testing`. |
+| 3 + 4 Output contracts + panel | `7755a70` | Landed together: they share the `output` plumbing. Reviewer, verifier, and confirmer contracts; Loupe-driven panel; `submit_*` tools, settle, nudge, children, and spawn hook deleted. Provider routing added in the docs commit. |
+| 5 Docs | `37bea3e`, `10d0988` | README, configuration, architecture, guide. |
+
+`task check` green at every step; dry runs against `context-labs/loupe#15`
+through the installed desktop daemon (`8e577056e`) after steps 1, 2, and 4,
+plus a live probe of two confirmers on a fabricated suspicion (one refuted
+with correct evidence, one abstained on a provider error).
+
+### Deviations
+
+- **`outputOf` fallback.** When the turn cap fires after a failed output
+  check, the daemon's `finalAnswer` path returns the final text without
+  running `CheckFinal`, so the turn succeeds with no `output`. Loupe parses
+  the final message the way the daemon would (one JSON value, fence
+  tolerated) and otherwise falls back to the one-shot review.
+- **Provider routing.** A model on the whip block's panel (`kimi-k3`) is
+  routed to the daemon's default provider when `provider` is empty, and the
+  desktop daemon's default is `openai-codex`, which does not advertise it.
+  Every session Loupe opens now passes the whip block's provider name.
+- **`files.read` hint.** One prompt line tells the model that `files.read`
+  returns a `{handle, preview, size}` object for large files; two of four
+  cells were lost to that in one run.
+- **Steps 3 and 4 in one commit**, since both rest on the same output
+  plumbing and the verifier alone would not have been dry-run testable.
+
+### Whip follow-ups this surfaced (no code written)
+
+1. **Turn cap skips the output contract.** `Agent.finalAnswer` returns the
+   model's content without `CheckFinal`; a correction round that pushes the
+   loop to the cap yields a succeeded turn with no output. It should run the
+   check, or the cap's final answer should count as the correction.
+2. **Empty final answers under the cap.** One capped final call returned no
+   content (33 completion tokens, no text); likely a tool call attempted
+   with tools disabled. Worth a guard.
+3. **Child turn events carry no error.** `child` turn events expose `kind`
+   and `status` only; the payload's `error` would explain child failures.
+   Moot for Loupe now that confirmers are root sessions.
+4. **Model resolution with an empty provider.** `session.create` with
+   `model` set and `provider` empty uses the default provider even when only
+   another configured provider advertises the model.
+5. **`kimi-k3` on inference-net.** A one-turn request failed with `403 Total
+   token size (1050258) exceeds maximum supported size (1048576)`; the
+   request budget looks tied to the 1M context rather than the prompt.
+6. **`files.read` result ergonomics**, still.

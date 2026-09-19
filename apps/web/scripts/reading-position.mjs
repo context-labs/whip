@@ -61,7 +61,7 @@ try {
         await page.setViewportSize({ width, height: 844 });
         await frame();
       }
-      await conversation.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+      await conversation.evaluate(element => { element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })); element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       await page.getByRole('button', { name: 'Latest', exact: true }).waitFor();
       const before = await stableAnchor();
       const requestsBefore = requests.length;
@@ -79,7 +79,7 @@ try {
       await eventually(() => requests.slice(followingRequests).some(item => item.method === 'root.snapshot' && replies.has(item.id)), { description: 'followed turn snapshot' });
       await stableAnchor();
       await eventually(async () => conversation.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'follow new output at the bottom' });
-      await conversation.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+      await conversation.evaluate(element => { element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })); element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       const beforePage = await stableAnchor();
       const pageRequests = requests.length;
       // Activate the actual control without Playwright scrolling it to the top

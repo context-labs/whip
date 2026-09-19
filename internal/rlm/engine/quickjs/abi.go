@@ -117,9 +117,16 @@ func (v *runtime) text(ctx context.Context, h uint64, byteLimit int) string {
 }
 
 func (v *runtime) evalRaw(ctx context.Context, source string, flags uint64) uint64 {
+	return v.evalNamed(ctx, "<rlm-javascript>", source, flags)
+}
+
+// evalNamed evaluates source under the given file name, which QuickJS records
+// in error stacks as "at <name>:LINE:COL". Cells run as <cell> so the guest
+// can tell the model's own frames from the bootstrap's.
+func (v *runtime) evalNamed(ctx context.Context, unit, source string, flags uint64) uint64 {
 	p := v.put(ctx, source)
 	defer v.free(ctx, p)
-	name := v.put(ctx, "<rlm-javascript>")
+	name := v.put(ctx, unit)
 	defer v.free(ctx, name)
 	return v.valueCall(ctx, "qjs_eval", p, uint64(len(source)), name, flags)
 }

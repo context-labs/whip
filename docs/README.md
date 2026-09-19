@@ -115,14 +115,38 @@ in `~/.inf/config.json` by the `inf` CLI.
 
 ## MCP
 
-whip connects to MCP servers and exposes them through `mcp.list_servers`,
-`mcp.list_tools`, and `mcp.call` inside Starlark. Three config styles all work — whip reads your
-existing setup:
+whip connects to MCP servers and exposes them through `mcp.search`,
+`mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, and `mcp.call` inside
+Starlark. Five sources feed one merged
+set; on a name conflict the earlier source in this list wins:
 
-- **claude-style**: a `.mcp.json` in the project root (`{"mcpServers": {...}}`)
-- **codex-style**: `[mcp_servers.*]` tables in `~/.codex/config.toml`
-- **whip-native**: an `"mcp"` block in `~/.whip/config.json` (wins on
-  name conflicts):
+- **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only
+  trusted source: its servers skip per-call consent.
+- **project**: a `.mcp.json` in the session's working directory
+  (`{"mcpServers": {...}}`). Repository-authored, so it is **off until you
+  enable it** with `"mcpImport": {"project": {"enabled": true}}` or
+  `/mcp import project on`. Enabling a source runs its servers' programs at
+  session start; tool consent is not a process sandbox.
+- **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
+- **claude**: `mcpServers` in `~/.claude.json` (on by default).
+- **opencode**: the `mcp` block in `~/.config/opencode/{config,opencode}.json[c]`
+  (on by default; `local` entries become stdio, `remote` become HTTP,
+  `{env:NAME}` placeholders become `${NAME}` references, `{file:…}` stays as
+  written, and an entry with `oauth` imports disabled with a "needs a
+  sign-in" note because whip has no browser sign-in for MCP servers).
+
+Each import source takes `enabled`, `only` and `exclude`. Servers a source
+gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
+copies imported servers into the native block, where they become trusted. The
+web and desktop app offer the same import as a screen: once per host on New
+session when other agents have servers configured there, and any time from
+Settings › Agents & execution › MCP servers. Tick what you want and
+Import writes it into the native block; Skip sets `mcpImport.offered` so the
+offer does not come back on its own. Each row shows the vendor's logo: the app
+bundles marks for the common MCP vendors, and the daemon looks the rest up on
+DuckDuckGo by the server's domain, once, caching under `~/.whip/icons`. Set
+`"brandIcons": false` (or turn off "Server logos" in that Settings group) to
+keep every lookup on the host; unresolved rows show a monogram.
 
 ```json
 {
@@ -141,14 +165,18 @@ Servers connect in the background at startup and lazily on first use — a
 slow or broken server never blocks the loop (calls fail fast with an
 actionable message, and dropped sessions auto-reconnect with backoff).
 `/mcp` shows live status; `/mcp <name> reconnect|enable|disable` manages
-servers without restarting. Server instructions teach the model how to use
+servers for the current session without restarting (host configuration is
+unchanged; `/mcp import <source> on|off` is the host-level switch). Server instructions teach the model how to use
 each server's tools automatically. CLI: `whip mcp list|add|remove|import`
-(`import [--dry-run]` copies imported servers into whip's own config), and
+(`import [--dry-run]` copies imported servers into whip's own config, where
+they become trusted like hand-written entries), and
 `whip mcp test <name>` to doctor one server (status, timing, tool names,
 stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
 other harnesses through a daemon-owned root; the stdio adapter never opens
-SQLite or invokes tool handlers directly. Codex configs with `http_headers` and
+SQLite or invokes tool handlers directly. The bridge cannot obtain new
+consent: saved rules still apply, but an outer client's approval of a call is
+not forwarded as whip consent. Codex configs with `http_headers` and
 `bearer_token_env_var` import correctly (the env var becomes an
 `Authorization: Bearer $VAR` header reference, resolved in the daemon's
 environment at connect), and codex's `[mcp_servers.X.tools.*]` per-tool

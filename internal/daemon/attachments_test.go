@@ -213,7 +213,7 @@ type attachmentRunner struct {
 	inputs chan SubmitPayload
 }
 
-func (r *attachmentRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+func (r *attachmentRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
 	r.inputs <- SubmitPayload{Text: text, Parts: parts}
 	return r.Turn(ctx, text, true, started, accepted)
 }

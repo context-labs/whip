@@ -30,6 +30,10 @@ type AgentAdmission struct {
 	Prompt       RuntimePayload
 	Budgets      []BudgetLimit
 	Capabilities []CapabilityDelegation
+	// ParentSpanID and SpanTraceID name the agents.spawn host call, so the
+	// child's first turn parents under it in the trace.
+	ParentSpanID string
+	SpanTraceID  string
 }
 
 type AgentRelatives struct {
@@ -174,6 +178,7 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 	if len(admission.Prompt.Data) > 0 {
 		if _, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
 			RootID: admission.RootID, AgentID: admission.ChildAgentID, Kind: "submit", Payload: admission.Prompt,
+			ParentSpanID: admission.ParentSpanID, SpanTraceID: admission.SpanTraceID,
 		}, prompt, "agent.prompt.queued", actorEvent{AgentID: admission.ChildAgentID, Status: "queued"}); err != nil {
 			return 0, err
 		}
@@ -307,6 +312,13 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 		if err := interrupt(query, stamp, rootID); err != nil {
 			return 0, err
 		}
+	}
+	subtreeAgents, err := subtreeAgentIDsTx(ctx, tx, rootID, targetAgentID)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.interruptOpenSpansTx(ctx, tx, rootID, subtreeAgents, stamp); err != nil {
+		return 0, err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return 0, err
@@ -473,4 +485,22 @@ func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID strin
 
 func isTerminalAgentStatus(status string) bool {
 	return status == "failed" || status == "stopped" || status == "cancelled" || status == "interrupted" || status == "deleted" || status == "succeeded"
+}
+
+// subtreeAgentIDsTx lists an agent and every descendant.
+func subtreeAgentIDsTx(ctx context.Context, tx *sql.Tx, rootID, targetAgentID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, subtreeCTE+`SELECT id FROM subtree`, rootID, targetAgentID, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

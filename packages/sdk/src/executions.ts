@@ -1,7 +1,8 @@
-import type { ContentHandle, RootSnapshot } from '@whip/protocol';
+import type { ContentHandle, RootSnapshot, StreamEvent } from '@whip/protocol';
 import type { DeepReadonly, HistoryView, SessionViewSnapshot } from './state.js';
 
 export interface ExecutionHostCall {
+  readonly display?: NonNullable<StreamEvent['display']>;
   readonly id: string;
   readonly invocationId?: string;
   readonly status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unknown';
@@ -12,6 +13,7 @@ export interface ExecutionHostCall {
 }
 
 export interface ExecutionCell {
+  readonly partId?: string;
   readonly kind: 'cell';
   readonly id: string;
   readonly callId: string;
@@ -43,6 +45,7 @@ export interface ExecutionCell {
   /** This retained observation could not be safely associated with initial history. */
   readonly historyUnmatched?: boolean;
   readonly body?: ContentHandle;
+  readonly codeBody?: ContentHandle;
 }
 
 export interface ExecutionRestart {
@@ -227,36 +230,58 @@ function reference(value: DeepReadonly<ContentHandle> | null | undefined): Conte
 type RecordedRow = ExecutionRow & { readonly resultSeq?: number };
 type RecordedCell = ExecutionCell & { readonly resultSeq?: number };
 
+function operationDisplay(value: unknown): NonNullable<StreamEvent['display']> {
+  const fields = record(value) ?? {};
+  return Object.fromEntries(Object.entries({ target: 4096, command: 512, query: 512, child_id: 256, label: 160 })
+    .flatMap(([name, limit]) => typeof fields[name] === 'string' && (!['target', 'child_id'].includes(name) || encoder.encode(fields[name]).length <= limit) ? [[name, excerpt(text(fields[name]), limit)]] : []));
+}
+
 function historyRows(rootId: string, agentId: string, history?: DeepReadonly<HistoryView>): RecordedRow[] {
   const rows: RecordedRow[] = [];
   const pending = new Map<string, number>();
   for (const item of history?.messages ?? []) {
-    const message = item.message;
-    if (!message) continue;
-    for (const [index, call] of (message.tool_calls ?? []).entries()) {
+    const presentation = item.message?.presentation ?? item.presentation;
+    const parts = presentation?.version === 1 ? presentation.parts ?? [] : [];
+    const resultPart = parts.find(part => part.kind === 'result' && part.call_id);
+    const message: typeof item.message = item.message ?? (resultPart ? { role: 'tool', tool_call_id: resultPart.call_id, name: resultPart.tool_name, content: '' } : undefined);
+    const calls = message?.tool_calls ?? parts.filter(part => part.kind === 'tool' && part.call_id).map(part => ({ id: part.call_id!, function: { name: part.tool_name ?? '', arguments: '' } }));
+    for (const [index, call] of calls.entries()) {
       if (call.function.name !== 'rlm_exec') continue;
-      const code = executionCode(call.function.arguments);
+      const part = parts.find(part => part.kind === 'tool' && part.call_id === call.id);
+      const id = part ? key(rootId, agentId, history!.revision, 'part', part.id) : key(rootId, agentId, history!.revision, 'history', item.seq, index);
+      const hosts: ExecutionHostCall[] = (part?.hosts ?? []).slice(-MAX_HOSTS).map(host => ({
+        id: key(id, host.invocation_id), invocationId: host.invocation_id, name: excerpt(host.name, 1024),
+        status: ['completed', 'failed', 'cancelled', 'interrupted'].includes(host.status) ? host.status as ExecutionHostCall['status'] : 'unknown',
+        summary: excerpt(host.summary ?? '', 2048), duration: excerpt(host.duration ?? '', 128),
+        ...(host.error ? { error: excerpt(host.error, 2048) } : {}), ...(host.display ? { display: operationDisplay(host.display) } : {}),
+      }));
       pending.set(call.id, rows.length);
-      rows.push({ kind: 'cell', id: key(rootId, agentId, history!.revision, 'history', item.seq, index), callId: call.id, agentId,
-        seq: item.seq, code, output: '', status: 'unknown', hosts: [],
-        ...(item.body ? { body: reference(item.body), truncated: true } : {}),
-        ...(call.function.arguments.length > FIELD_BYTES ? { truncated: true } : {}),
+      rows.push({ kind: 'cell', id, callId: call.id, agentId,
+        ...(part ? { partId: part.id, turnId: presentation!.turn_id } : {}),
+        seq: item.seq, code: executionCode(call.function.arguments), output: '', status: 'unknown', hosts,
+        ...(item.body ? { codeBody: reference(item.body), truncated: true } : {}),
+        ...(call.function.arguments.length > FIELD_BYTES || presentation?.omitted || part?.omitted ? { truncated: true } : {}),
       });
     }
+    if (!message) continue;
     if (message.role !== 'tool' || !message.tool_call_id) continue;
-    const index = pending.get(message.tool_call_id);
-    const prior = index === undefined ? undefined : rows[index];
+    let index = pending.get(message.tool_call_id);
+    let prior = index === undefined ? undefined : rows[index];
+    const unmatched = prior?.kind === 'cell' && prior.turnId && presentation?.turn_id && prior.turnId !== presentation.turn_id;
+    if (unmatched) { index = undefined; prior = undefined; }
     if (prior?.kind !== 'cell' && message.name !== 'rlm_exec') continue;
     const decoded = result(typeof message.content === 'string' ? message.content : '');
     const { restart, hasResult: _hasResult, ...fields } = decoded;
+    if (!item.message && resultPart && ['completed', 'failed', 'cancelled', 'interrupted'].includes(resultPart.status ?? '')) fields.status = resultPart.status as ExecutionCell['status'];
     const cell: RecordedCell = {
       kind: 'cell', id: key(rootId, agentId, history!.revision, 'history-result', item.seq), callId: message.tool_call_id,
       agentId, seq: item.seq, code: '', hosts: [], ...(prior?.kind === 'cell' ? prior : {}), ...fields, resultSeq: item.seq,
+      ...(unmatched ? { historyUnmatched: true } : {}),
       ...(item.body ? { body: reference(item.body), truncated: true } : {}),
     };
     if (index !== undefined) rows[index] = cell;
     else rows.push(cell);
-    pending.delete(message.tool_call_id);
+    if (!unmatched) pending.delete(message.tool_call_id);
     if (restart) rows.push({ kind: 'restart', id: `${cell.id}:restart`, agentId, seq: cell.seq, text: restart });
   }
   return rows;
@@ -293,13 +318,16 @@ export function observeExecution(
           ...(payload.error ? { error: excerpt(text(payload.error)) } : {}) };
       }
     }
+  } else if (event.kind === 'stream.discard') {
+    return { ...evidence, cursor, rows: rows.filter(row => !(row.kind === 'cell' && row.agentId === agentId && row.turnId === turnId && row.status === 'writing')) };
   } else if (event.kind.startsWith('stream.')) {
     const callId = text(payload.id);
+    const partId = text(payload.part_id);
     if (!callId) return { ...evidence, cursor };
     let index = -1;
     const invocationId = event.kind.startsWith('stream.cell.host') ? text(payload.invocation_id) : '';
     if (invocationId) index = rows.findIndex(row => row.kind === 'cell' && row.agentId === agentId && row.callId === callId
-      && (!turnId || !row.turnId || row.turnId === turnId) && row.hosts.some(host => host.id === key(row.id, invocationId)));
+      && (!turnId || !row.turnId || row.turnId === turnId) && (!partId || !row.partId || row.partId === partId) && row.hosts.some(host => host.id === key(row.id, invocationId)));
     const knownInvocation = index >= 0;
     // Once its start has been evicted, an invocation's owner is unknowable.
     // A provider can reuse the tool ID, even within the same turn.
@@ -308,7 +336,7 @@ export function observeExecution(
       if (index >= 0) break;
       const row = rows[candidate]!;
       if (row.kind === 'cell' && row.agentId === agentId && row.callId === callId
-        && (!turnId || !row.turnId || row.turnId === turnId)) { index = candidate; break; }
+        && (!turnId || !row.turnId || row.turnId === turnId) && (!partId || !row.partId || row.partId === partId)) { index = candidate; break; }
     }
     let prior = rows[index];
     // A reconnect can lose the next cell's tool prefix. Reused provider IDs do
@@ -320,8 +348,8 @@ export function observeExecution(
     const hostStart = event.kind === 'stream.cell.host.started' && invocationId && turnId && turnId === activeTurns[agentId];
     if (!prior && !hostStart && (payload.name !== 'rlm_exec' || !['stream.tool.call', 'stream.tool.started', 'stream.tool.completed'].includes(event.kind))) return { ...evidence, cursor };
     if (payload.name && payload.name !== 'rlm_exec' && !event.kind.startsWith('stream.cell.host')) return { ...evidence, cursor };
-    let cell: ObservedRow & ExecutionCell = prior?.kind === 'cell' ? { ...prior } : {
-      kind: 'cell', id: key(evidence.rootId, agentId, evidence.revision, 'event', event.seq), callId, agentId,
+    let cell: ObservedRow & ExecutionCell = prior?.kind === 'cell' ? { ...prior, ...(partId ? { partId } : {}) } : {
+      kind: 'cell', id: key(evidence.rootId, agentId, evidence.revision, partId ? 'part' : 'event', partId || event.seq), callId, agentId, ...(partId ? { partId } : {}),
       eventSeq: event.seq, afterSeq, turnId, historyUnknown: !hasHistoryBoundary(history[agentId]), code: '', output: '', status: 'unknown', hosts: [],
     };
     switch (event.kind) {
@@ -351,6 +379,7 @@ export function observeExecution(
         if (started && (cell.closed || index >= 0)) break;
         const host: ExecutionHostCall = { id, ...(invocationId ? { invocationId } : {}), name: excerpt(text(payload.name), 1024),
           status: started ? 'running' : payload.host_status === 'cancelled' ? 'cancelled' : payload.result || payload.host_status === 'failed' ? 'failed' : payload.truncated ? 'unknown' : 'completed',
+          ...(payload.display ? { display: operationDisplay(payload.display) } : hosts[index]?.display ? { display: hosts[index]!.display } : {}),
           summary: excerpt(text(payload.args), 2048), duration: started ? '' : excerpt(text(payload.text), 128),
           ...(payload.result ? { error: excerpt(text(payload.result), 2048) } : {}) };
         if (index >= 0) hosts[index] = host;
@@ -413,6 +442,8 @@ export function reconcileExecutions(evidence: ExecutionEvidence, history: DeepRe
   // so an agent's first history read cannot prove which already-observed call
   // it contains. Establish a boundary and join subsequent commits only.
   const rows = evidence.rows.map(row => {
+    const exact = row.kind === 'cell' && row.partId ? recorded.get(row.agentId)?.find(cell => cell.partId === row.partId && cell.turnId === row.turnId) : undefined;
+    if (exact) { used.add(exact.id); return { ...row, seq: exact.seq, recordedId: exact.id, recordedResultSeq: exact.resultSeq, historyUnknown: false, historyUnmatched: undefined }; }
     if (row.historyUnknown) {
       const page = history[row.agentId];
       return hasHistoryBoundary(page) ? { ...row, afterSeq: page!.throughSeq, historyUnknown: false,
@@ -420,7 +451,8 @@ export function reconcileExecutions(evidence: ExecutionEvidence, history: DeepRe
     }
     if (row.kind !== 'cell' || row.historyUnmatched) return row;
     const cells = recorded.get(row.agentId) ?? [];
-    const match = cells.find(cell => !used.has(cell.id) && cell.callId === row.callId && (row.recordedId
+    const match = cells.find(cell => !used.has(cell.id) && cell.callId === row.callId
+      && (!row.partId || !cell.partId || row.partId === cell.partId) && (!row.turnId || !cell.turnId || row.turnId === cell.turnId) && (row.recordedId
       ? cell.id === row.recordedId || (row.recordedResultSeq !== undefined && cell.resultSeq === row.recordedResultSeq)
       : (cell.seq ?? 0) > row.afterSeq));
     if (!match) return row;
@@ -478,7 +510,7 @@ export function executionRows(snapshot: DeepReadonly<SessionViewSnapshot>, agent
     const live = recorded.get(row.id);
     if (!live) return row;
     used.add(live.id);
-    return { ...live, ...row, id: live.id, code: row.code || live.code, hosts: live.hosts,
+    return { ...live, ...row, id: live.id, code: row.code || live.code, hosts: row.hosts.length ? row.hosts : live.hosts,
       observedStartedAt: live.observedStartedAt, observedEndedAt: live.observedEndedAt,
       ...(row.status === 'unknown' ? { status: live.status, output: row.output || live.output, value: row.value ?? live.value, error: row.error ?? live.error, steps: row.steps ?? live.steps } : {}),
       ...(live.truncated || row.truncated ? { truncated: true } : {}) };
@@ -492,5 +524,5 @@ export function executionRows(snapshot: DeepReadonly<SessionViewSnapshot>, agent
     ? { ...row, executionEngine: row.executionEngine ?? engine,
       language: row.language ?? language, hosts: Object.freeze(row.hosts.map(host => Object.freeze(host))),
       ...(row.presentationSeqs ? { presentationSeqs: Object.freeze([...row.presentationSeqs]) } : {}),
-      ...(row.body ? { body: Object.freeze(row.body) } : {}) } : row)));
+      ...(row.body ? { body: Object.freeze(row.body) } : {}), ...(row.codeBody ? { codeBody: Object.freeze(row.codeBody) } : {}) } : row)));
 }

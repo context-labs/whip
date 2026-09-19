@@ -48,18 +48,20 @@ type SpawnRequest struct {
 	Provider     string           `json:"provider"`
 	Effort       string           `json:"effort"`
 	// MCPTools is the raw mcp_tools narrowing, passed through unchanged.
-	MCPTools json.RawMessage `json:"mcp_tools,omitempty"`
+	MCPTools           json.RawMessage `json:"mcp_tools,omitempty"`
+	BrowserAttachments []string        `json:"browser_attachments,omitempty"`
 }
 
 // ResolvedChild is what a spawn request resolves to before narrowing is
 // enforced: the named child's defaults applied under the request.
 type ResolvedChild struct {
-	Definition   string           `json:"definition"`
-	Modules      []string         `json:"modules"`
-	Capabilities []string         `json:"capabilities"`
-	Tools        []string         `json:"tools"`
-	Budgets      map[string]int64 `json:"budgets"`
-	Report       string           `json:"report"`
+	BrowserAttachments []string         `json:"browser_attachments,omitempty"`
+	Definition         string           `json:"definition"`
+	Modules            []string         `json:"modules"`
+	Capabilities       []string         `json:"capabilities"`
+	Tools              []string         `json:"tools"`
+	Budgets            map[string]int64 `json:"budgets"`
+	Report             string           `json:"report"`
 }
 
 // SpawnPreview is the before_spawn payload: the request and its resolution.

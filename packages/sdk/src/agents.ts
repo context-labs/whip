@@ -227,7 +227,9 @@ export function defineAgent<O extends Schema | undefined = undefined>(input: Age
     capabilities: list(input.capabilities),
     model: model(input.model),
     compaction: { model: input.compaction?.model ?? '', provider: input.compaction?.provider ?? '', threshold: input.compaction?.threshold ?? 0 },
-    mcp: { servers: list(input.mcp?.servers) },
+    // The daemon distinguishes null (every host server) from [] (no servers);
+    // an explicit empty allowlist must not widen to everything.
+    mcp: { servers: input.mcp?.servers === undefined ? null : [...input.mcp.servers] },
     tools: tools.length > 0 ? tools : null,
     output: contract(input.output, `agent ${input.id} output`),
     children,

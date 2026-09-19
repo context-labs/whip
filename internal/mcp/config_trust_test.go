@@ -51,7 +51,7 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	if attached.Trusted || attached.Origin != "attachment" || attached.Source != "client attachment" {
 		t.Fatalf("attachment acquired trust: %+v", attached)
 	}
-	merged := Merge(map[string]ServerConfig{"native": native}, map[string]ServerConfig{"native": attached}, nil, nil)
+	merged := Merge(map[string]ServerConfig{"native": attached}, map[string]ServerConfig{"native": native})
 	if !merged["native"].Trusted || merged["native"].Origin != "whip" {
 		t.Fatal("attachment shadowed rediscovered native config")
 	}
@@ -72,19 +72,25 @@ func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 	CodexPath = func() string { return codex }
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "missing-global.json") }
 	t.Cleanup(func() { CodexPath, ClaudeGlobalPath = oldCodex, oldClaude })
+	on := true
 	native := FromConfigMap(map[string]config.MCPServer{"shared": {Command: []string{"native"}}})
-	merged := LoadMergedFiltered(dir, native, ImportPolicyFrom(nil))
+	merged := LoadMergedFiltered(dir, native, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}))
 	if merged.Sources["shared"] != "whip" || !merged.Merged["shared"].Trusted || merged.Merged["shared"].Source != whipConfigPath() || merged.Merged["shared"].Command[0] != "native" {
 		t.Fatalf("winning native provenance overwritten: %+v", merged)
 	}
 	if merged.Merged["project"].Trusted || merged.Merged["project"].Origin != "claude" || merged.Merged["project"].Source != project {
 		t.Fatalf("import source lost: %+v", merged.Merged["project"])
 	}
-	// A filtered higher-precedence import must not leave a ghost blocked row
-	// or falsely label the lower-precedence server that actually remains.
-	filtered := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Codex: &config.MCPImportSource{Exclude: []string{"shared"}}}))
+	// A filtered import must not leave a ghost blocked row or falsely label
+	// the server from another source that actually remains, in either
+	// precedence direction.
+	filtered := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Codex: &config.MCPImportSource{Exclude: []string{"shared"}}, Project: &config.MCPImportSource{Enabled: &on}}))
 	if _, ghost := filtered.Blocked["shared"]; ghost || filtered.Sources["shared"] != ".mcp.json" || filtered.Merged["shared"].Source != project {
 		t.Fatalf("blocked import shadowed live source: %+v", filtered)
+	}
+	filtered = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on, Exclude: []string{"shared"}}}))
+	if _, ghost := filtered.Blocked["shared"]; ghost || filtered.Sources["shared"] != "codex" || filtered.Merged["shared"].Source != codex {
+		t.Fatalf("blocked project import shadowed the codex server: %+v", filtered)
 	}
 }
 

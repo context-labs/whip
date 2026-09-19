@@ -62,6 +62,12 @@
         "boolean"
       ]
     },
+    "brand_icons": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
     "revision": {
       "type": "string"
     },

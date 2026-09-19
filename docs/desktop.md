@@ -87,6 +87,15 @@ their own environment. Reusing an already running local daemon does not update
 its environment or restart it. After changing shell keys, use the existing
 explicit daemon restart workflow when appropriate for active work.
 
+Each local connection attempt reads the shell environment once and shares it
+between backend synchronization and attachment. When the verified executable
+and running daemon already match, the successful probe is reused. A backend
+update or daemon start is followed by a fresh readiness check. Window readiness
+does not trigger duplicate synchronization. Results are not cached across
+attempts: reconnect and diagnostics reread the environment, and an explicit
+restart shares a newly read environment throughout that operation. Remote host
+restoration proceeds in the background without holding the startup splash.
+
 **Choose executable** validates an existing installation. **Install whipcode**
 defaults to `~/.local/bin/whipcode`, verifies the bundled payload, and copies
 its exact bytes there atomically. It does not overwrite an existing backend.
@@ -136,6 +145,15 @@ A changed daemon identity requires explicit confirmation before adopting it;
 old drafts, tabs and command recovery remain scoped to the old runtime. Unknown
 deep-link hosts are never created automatically.
 
+Add server → SSH lists literal aliases from this Mac’s `~/.ssh/config`, with
+explicit HostName/User/Port hints. Include files are read in lexical order, with
+bounds of 64 files/Include patterns, eight nested levels, 1 MiB total input and
+256 profiles. Wildcard/negated aliases and recursive Include globs are not offered;
+conditional Match blocks are not evaluated. Truncation is visible, and manual entry
+remains available. Discovery never invokes SSH or executes Match/ProxyCommand,
+and is deferred until the SSH dialog is opened. OpenSSH resolves the selected
+alias normally at connection time, including defaults and conditional options.
+
 SSH host verification and authentication use shared in-app prompts. Secrets are
 ephemeral, bounded and never saved in profiles or passed as process arguments.
 The canonical local whipcode executable supervises the SSH process group and closes it when the main
@@ -154,6 +172,105 @@ open; they start off, suppress the initial/reconnect baseline and show no prompt
 body. Completion notifications are not implemented because the current metadata
 does not provide a durable completion event. Fully quitting ends observation.
 An unchanged permission count cannot identify a replacement pending request.
+
+## Browser tabs (experimental)
+
+Browser tabs are enabled by default in packaged and development builds. Set
+`WHIP_DESKTOP_BROWSER_TABS=0` in the app's launch environment to disable them
+(restart required). Disabled launches expose neither Browser bridges nor Browser
+IPC handlers; saved descriptors are retained as unavailable metadata. This switch
+controls availability, not agent permission or SSH preview approval.
+
+Browser tabs embed native web pages in the existing split workspace, rather than
+putting websites in the application renderer. The address bar, back/forward,
+reload/stop, find, zoom and tab movement use the shared UI; Electron main owns
+isolated page profiles, navigation policy and page lifetime. Moving a tab keeps
+the same page. Duplicate/reopen creates a new identity without inheriting agent
+control. Closing honours `beforeunload`; a cancelled close keeps the descriptor.
+The web-only application retains Browser descriptors as unavailable metadata.
+
+An open conversation advertises an inert, exact Desktop destination even with
+zero Browser tabs. The agent can request `browser.open`; create/control still
+passes through the existing durable permission policy before a native tab exists.
+Multiple Desktop windows serving the same conversation require an explicit choice,
+never a newest/focused-window guess. Approved pages enter the originating pane in
+the background.
+
+Sharing an existing human page remains an explicit **Offer to conversation**
+action: choose the connected execution host and conversation. `browser.list_tabs()`
+discovers only root-offered pages, the caller's created pages and its own live
+attachments. It grants neither control nor preview networking. No tab inventory
+is injected into agent prompts.
+
+Open/attach and preview-port expansion use **Allow once** or **Deny** in prompt
+mode, with no remembered wildcard rule; automatic permission mode is unchanged.
+Approval grants scoped attachment control, not one individual click.
+Detach/revoke/disconnect ends that control; human pages remain open. Reconnection
+may advertise inert availability but never restores old grants or replays a
+create. Explicit page offers require reselection. Older conversations retain
+their original Browser grants; start a fresh conversation for new operations,
+never silently upgrade stored authority.
+
+SSH previews use **saved SSH connections only**. Their isolation identity combines
+saved host, verified remote runtime, live SSH generation and project metadata.
+The stable `cwd:<absolute project path>` key is an isolation label, not filesystem
+permission. Localhost URLs stay localhost URLs in the page: a private authenticated
+proxy routes only explicitly approved literal `127.0.0.1` or `::1` ports through
+the same authenticated SSH master. There is no Mac-local or direct fallback on
+failure, and IPv4 approval does not imply IPv6 approval. URL/Tailscale-style
+connections do not provide preview environments.
+
+Network access belongs to the tab's preview environment, independently of agent
+control. Expanding a project's port policy requires explicit approval and
+invalidates incompatible controllers. Master loss revokes control and makes the
+page unavailable; restore/reconnect metadata is not renewed consent. The last
+page closes the environment's routes and private proxy. Initial standalone human
+preview admission uses a parented native confirmation sheet owned by Electron
+main, separate from SSH authentication prompts. Cancel is the default; approval
+never mints an agent grant.
+
+This feature is still under integrated/packaged acceptance, not a broad-release
+claim. See the [implementation evidence](../.ai-docs/plans/browser-tabs/implementation.md)
+for tested seams and remaining gates. Browser guest screenshots alone do not
+prove compositor or overlay behavior; scripted transports do not prove the full
+SDK/preload/native path.
+
+### Design Mode
+
+Use the **Design Mode** action to the right of a Browser tab's address field, or
+press **Cmd+Shift+D** while that Browser pane is active, to toggle element selection
+and describe a change. The shortcut works from the page, address/toolbar, and Design
+composer. It leaves other panes and security dialogs alone; held-key repeats and
+extra modifiers do not toggle it. Hover shows an element outline; select
+several elements with Shift/Cmd/Ctrl-click to collect numbered, color-matched chips. The floating composer
+anchors near a single element and docks lower-right for multiple selections. Remove
+individual chips, choose an open conversation/child recipient, write the instruction,
+and send without replacing an existing chat draft. A unique explicit conversation
+association supplies the default; focus alone does not choose the destination.
+
+**Evidence** shows bounded DOM evidence and the default viewport screenshot.
+Turn off Screenshot for metadata-only messages. Evidence includes role/name, visible
+text, selected attributes, a selector hint, computed layout/typography styles and
+geometry; it is not a complete DOM dump or a guaranteed source-file mapping. Input
+values, hidden/editable text and arbitrary framework props are not collected. Page
+URL credentials, query and fragment are removed. Screenshots still contain visible
+page content, which can include sensitive information: inspect them before sending.
+Image messages require a vision-capable model; a rejection retains the draft.
+
+This is inspection-to-chat, **not** drawing, drag/reorder, or direct CSS editing.
+It works in the desktop Browser for ordinary/local pages and existing SSH previews
+without adding network or agent-control grants. Cross-origin frame interiors and
+closed shadow content are not promised: frame/host selection or explicit unavailable
+feedback is preferable to selecting the wrong element. DevTools or active agent
+inspection can make Design Mode busy; it never steals their debugger. Navigation
+invalidates live selections. Selection context uses normal text/image attachments
+and survives accepted-message replay; live DOM handles do not survive restart.
+
+The overlay is a trusted native surface with a dedicated narrow preload, not code
+receiving app permissions inside the website. Native compositor and production
+capture checks are separate from web renderer tests. See the
+[Design Mode implementation plan and validation](../.ai-docs/plans/browser-design-mode/README.md)
+for measured coverage and remaining hardware IME/accessibility/release gates.
 
 ## Terminal tabs
 
@@ -207,14 +324,50 @@ node node_modules/electron/install.js
 npm run dev:desktop
 ```
 
-Development starts the one Vite server at `http://127.0.0.1:3001`, watches
-main/preload and restarts their window on changes. The development URL is ignored
-by a packaged app. The fixture home and user data are in `apps/desktop/.dev`, not
-the normal whipcode home. Its canonical executable is `.dev/bin/whipcode`, outside
-the disposable staging tree. Closing development leaves that fixture daemon
-running. Go/Swift are built once per invocation. Before restarting development
-with changed native code, stop the previous fixture; the dev script refuses to
-replace a live backend. After its work has finished:
+For UI development against an already-running daemon, use attach mode:
+
+```sh
+# Use the main daemon and the executable selected by the installed Whip app.
+npm run dev:desktop -- --attach
+
+# Explicitly attach to an isolated development daemon instead.
+npm run dev:desktop -- --attach --home "$PWD/apps/desktop/.dev/home" --executable "$PWD/apps/desktop/.dev/bin/whipcode"
+```
+
+Attach mode builds the SDK and watches the Electron main/preload code, while Vite
+serves the shared renderer with hot reload. It does not build Go, Swift, or the
+embedded production renderer. Its shell output is in `.dev/attach-app`; GUI
+settings are in `.dev/attach/<target>/user-data`, separate from the installed app
+and managed development. The executable and home can also be supplied together
+through `WHIP_DESKTOP_EXECUTABLE` and `WHIPCODE_HOME`; flags take precedence.
+With no target override, `--attach` uses `~/.whipcode` and reads the executable
+selection from `~/Library/Application Support/Whip/native-local-runtime.json`.
+It never modifies that file or adopts the installed app’s update ownership.
+Missing or invalid selection settings require explicit target flags; there is
+no fallback to the isolated development daemon.
+
+Attachment checks the executable's distribution and uses the SDK handshake to
+validate the running daemon's protocol major and required response shape. Minor
+versions add optional fields/capabilities and need not match; features negotiate
+normally. Different build IDs or binary hashes are allowed; an incompatible, stopped, missing, or unhealthy daemon is reported
+without changing it. Attach mode never installs, synchronizes, starts, repairs,
+or restarts the backend, including on reconnect or from desktop management
+controls. Previously saved installation choices/update approvals cannot change
+its explicit target. Update the daemon separately when backend changes are needed.
+Packaged apps reject attach mode and retain their existing payload integrity and
+managed-update checks.
+
+Both development modes start one Vite server at `http://127.0.0.1:3001`; pass
+`--port 3002` to use another loopback port. Main/preload edits restart only Electron.
+Closing development leaves the daemon running. The development URL is ignored by
+a packaged app.
+
+Without `--attach`, development builds and manages the isolated fixture in
+`apps/desktop/.dev`. Its canonical executable is `.dev/bin/whipcode`, outside the
+disposable staging tree. Go/Swift are built once per invocation. The script refuses
+to replace a live backend when rebuilt bytes differ (including embedded renderer
+changes). Use attach mode to keep working on the UI; to replace the backend,
+stop the fixture separately after its work has finished:
 
 ```sh
 WHIPCODE_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.dev/bin/whipcode daemon stop

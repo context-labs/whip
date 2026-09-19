@@ -122,10 +122,10 @@ func (s *Store) ClaimSteers(ctx context.Context, rootID, agentID, turnID string)
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
-		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND i.kind IN ('steer','steer.parts') ORDER BY i.seq LIMIT ?`,
-		InlineValueLimit+1, rootID, agentID, MaxInboxBatch)
+		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND (i.kind IN ('steer','steer.parts') OR i.steer_turn_id=?) ORDER BY i.seq LIMIT ?`,
+		InlineValueLimit+1, rootID, agentID, turnID, MaxInboxBatch)
 	if err != nil {
 		return nil, err
 	}
@@ -141,10 +141,19 @@ func (s *Store) ClaimSteers(ctx context.Context, rootID, agentID, turnID string)
 				return nil, err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running' WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, items[i].Seq); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running',steer_turn_id='' WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, items[i].Seq); err != nil {
 			return nil, err
 		}
 		items[i].Status = "running"
+		eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "inbox.running", actorEvent{AgentID: agentID, InboxSeq: items[i].Seq, TurnID: turnID, Status: "running"}, stamp)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE inbox SET delivery_seq=? WHERE root_id=? AND agent_id=? AND seq=?`, eventSeq, rootID, agentID, items[i].Seq); err != nil {
+			return nil, err
+		}
+		items[i].DeliverySeq = eventSeq
+		items[i].SteerTurnID = ""
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

@@ -4,6 +4,11 @@ export interface CompositionAttachment {
   readonly id: string;
   readonly name: string;
   readonly size: number;
+  readonly mediaType?: string;
+  /** Local image source, owned by the draft rather than any mounted view. */
+  readonly previewUrl?: string;
+  /** Selected locally; upload waits until Send creates a session. */
+  readonly staged?: boolean;
   readonly value?: InputAttachment;
   readonly error?: string;
 }
@@ -35,6 +40,26 @@ const empty: Composition = Object.freeze({
   sending: false,
 });
 const maxBytes = 20 * 1024 * 1024;
+
+function imagePreview(file: File): string | undefined {
+  if (!file.type.startsWith('image/')) return;
+  try {
+    return URL.createObjectURL(file);
+  } catch {
+    // A preview failure must not prevent the original file from being uploaded.
+    return undefined;
+  }
+}
+
+/** Canonical recipient scope, optionally isolated for an independent authoring surface. */
+export function compositionKey(runtimeId: string, rootId: string, agentId: string, surfaceId?: string): string {
+  const recipient = `${runtimeId}:${rootId}:${agentId}`;
+  if (surfaceId === undefined) return recipient;
+  if (!surfaceId || surfaceId.length > 128) throw new Error('Invalid composition surface');
+  const key = `${recipient}:surface:${encodeURIComponent(surfaceId)}`;
+  if (key.length > 512) throw new Error('Composition scope is too long');
+  return key;
+}
 
 /** Window-memory composition state. Uploads belong to this store, not a view. */
 export class CompositionStore {
@@ -84,6 +109,10 @@ export class CompositionStore {
   private update(key: string, state: Composition) {
     const entry = this.entries.get(key);
     if (!entry) return;
+    for (const item of entry.state.attachments) {
+      if (item.previewUrl && !state.attachments.some(next => next.previewUrl === item.previewUrl))
+        URL.revokeObjectURL(item.previewUrl);
+    }
     entry.state = Object.freeze(state);
     if (!state.attachments.length && !state.sending) this.entries.delete(key);
     let attachmentCount = 0;
@@ -101,15 +130,47 @@ export class CompositionStore {
     runtimeId: string,
     agentId: string,
     files: readonly File[],
+    surfaceId?: string,
   ): Promise<void> {
     if (
-      key !== `${runtimeId}:${session.rootId}:${agentId}` ||
+      key !== compositionKey(runtimeId, session.rootId, agentId, surfaceId) ||
       session.client.getSnapshot().info?.runtime_id !== runtimeId ||
       session.client.getSnapshot().state !== 'connected'
     )
       throw new Error(
         'Attachments must belong to the connected host and selected recipient',
       );
+    return this.enqueue(key, files, session, runtimeId, agentId);
+  }
+  stage(key: string, files: readonly File[]): void {
+    if (!key.startsWith('new:')) throw new Error('A new-session draft is required');
+    void this.enqueue(key, files);
+  }
+  /** Transfer local files and their previews once, then upload in the real root scope. */
+  adopt(key: string, session: Session, runtimeId: string): Promise<void> {
+    const destination = compositionKey(runtimeId, session.rootId, session.rootId);
+    if (!key.startsWith('new:') || this.entries.has(destination))
+      throw new Error('Attachments require a new session destination');
+    const entry = this.entries.get(key);
+    if (!entry) return Promise.resolve();
+    const jobs = [...this.jobs.values()].filter(job => job.key === key);
+    this.entries.delete(key);
+    this.entries.set(destination, entry);
+    entry.submission = undefined;
+    for (const job of jobs) {
+      job.key = destination;
+      job.session = session;
+      job.runtimeId = runtimeId;
+      job.agentId = session.rootId;
+    }
+    this.update(destination, {
+      sending: false,
+      attachments: Object.freeze(entry.state.attachments.map(item => Object.freeze({ ...item, staged: false }))),
+    });
+    void this.drain();
+    return Promise.all(jobs.map(job => job.done)).then(() => {});
+  }
+  private enqueue(key: string, files: readonly File[], session?: Session, runtimeId = '', agentId = ''): Promise<void> {
     if (!files.length) return Promise.resolve();
     const prior = this.get(key);
     if (prior.sending)
@@ -162,6 +223,9 @@ export class CompositionStore {
             id: job.id,
             name: job.file!.name,
             size: job.file!.size,
+            mediaType: job.file!.type,
+            previewUrl: imagePreview(job.file!),
+            ...(!session ? { staged: true } : {}),
           }),
         ),
       ]),
@@ -173,14 +237,17 @@ export class CompositionStore {
     if (this.draining) return;
     this.draining = true;
     try {
-      while (this.jobs.size && !this.disposed) {
-        const job = this.jobs.values().next().value!;
+      while (!this.disposed) {
+        const job = [...this.jobs.values()].find(job => job.session);
+        if (!job) break;
         const session = job.session;
         const file = job.file;
         job.file = undefined;
         try {
           job.abort.signal.throwIfAborted();
           if (!file || !session) continue;
+          if (session.client.getSnapshot().info?.runtime_id !== job.runtimeId || session.client.getSnapshot().state !== 'connected')
+            throw new Error('Reconnect to the attachment’s execution host and select the file again.');
           const kind = file.type.startsWith('image/') ? 'image' : 'text';
           if (kind === 'text' && file.size > 256 * 1024)
             throw new Error('Text attachments are limited to 256 KiB.');
@@ -323,11 +390,12 @@ export class CompositionStore {
       this.update(key, {
         sending: false,
         attachments: Object.freeze(
-          entry.state.attachments.map(({ id, name, size }) =>
+          entry.state.attachments.map(({ id, name, size, mediaType }) =>
             Object.freeze({
               id,
               name,
               size,
+              mediaType,
               error:
                 'Attachment unavailable after changing hosts. Remove it and select the file again.',
             }),

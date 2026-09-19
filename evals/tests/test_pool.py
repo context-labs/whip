@@ -31,7 +31,30 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(len(results), 8)
             self.assertTrue(all(r['phase_seconds']['queue'] >= 0 for r in results.values()))
 
-    def test_cleanup_failure_halts_new_dispatch(self):
+    def test_one_failed_trial_with_unknown_billing_does_not_cancel_pool(self):
+        cancelled = threading.Event()
+        collected = {}
+        def worker(trial, stop):
+            self.assertFalse(stop.is_set())
+            return dict(started=True, cleanup=dict(complete=True),
+                        execution_status='agent_error' if trial['id'] == '0' else 'completed',
+                        success=trial['id'] != '0', evidence_complete=True,
+                        accounting_complete=trial['id'] != '0',
+                        cost_usd=None if trial['id'] == '0' else '1.000000',
+                        known_cost_usd='1.000000',
+                        unknown_cost_calls=1 if trial['id'] == '0' else 0)
+        results = run_pool(self.trials(6), dict(cpus=4, memory_mb=16, storage_mb=40), 2,
+                           worker, cancelled=cancelled,
+                           on_result=lambda trial, result: collected.update({trial['id']: result}))
+        self.assertFalse(cancelled.is_set())
+        self.assertEqual(set(results), {str(i) for i in range(6)})
+        self.assertEqual(set(collected), set(results))
+        self.assertTrue(all(r['started'] for r in results.values()))
+        self.assertEqual(sum(r['success'] for r in results.values()), 5)
+        self.assertIsNone(results['0']['cost_usd'])
+        self.assertEqual(results['0']['unknown_cost_calls'], 1)
+
+    def test_unproven_cleanup_keeps_its_resources_reserved(self):
         started = []
         def worker(trial, cancelled):
             started.append(trial['id'])
@@ -39,7 +62,8 @@ class PoolTests(unittest.TestCase):
         results = run_pool(self.trials(3), dict(cpus=2, memory_mb=8, storage_mb=20), 32, worker)
         self.assertEqual(started, ['0'])
         self.assertFalse(results['1']['started'])
-        self.assertTrue(results['1']['cancelled'])
+        self.assertEqual(results['1']['error_code'], 'dispatch_stopped')
+        self.assertFalse(results['1']['cancelled'])  # nobody cancelled; the capacity never came back
 
     def test_callback_exception_cancels_active_workers_before_shutdown(self):
         event = threading.Event()
@@ -67,3 +91,15 @@ class PoolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_pool(self.trials(1), dict(cpus=1, memory_mb=8, storage_mb=20), 32,
                      lambda *_: self.fail('worker must not start'))
+
+
+class InterruptTests(unittest.TestCase):
+    def test_interrupt_cancels_workers_only_when_the_caller_says_so(self):
+        trials = [{"id": "t1", "task_id": "x", "resources": {"cpus": 1}}]
+        def worker(trial, cancelled):
+            raise KeyboardInterrupt
+        for cancel_on_interrupt in (True, False):
+            cancelled = threading.Event()
+            with self.assertRaises(KeyboardInterrupt):
+                run_pool(trials, {"cpus": 1}, 1, worker, cancelled=cancelled, cancel_on_interrupt=cancel_on_interrupt)
+            self.assertEqual(cancelled.is_set(), cancel_on_interrupt)

@@ -157,7 +157,7 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.ExecContext(t.Context(), `DROP TRIGGER session_engine_immutable;
+	if _, err := store.db.ExecContext(t.Context(), dropTraceSchema+`DROP TRIGGER session_engine_immutable;
  DROP TABLE agent_checkpoints;
  DROP TABLE definitions;
  ALTER TABLE agents DROP COLUMN definition;
@@ -209,5 +209,64 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 	defer store.Close()
 	if got := savedOutcome(t, store, root, "legacy:child"); got.EventSeq != outcome.EventSeq {
 		t.Fatal("reopen changed outcome")
+	}
+}
+
+func TestTurnOutcomeCountsModelCallsAndCompactions(t *testing.T) {
+	store, root, _ := newSwarmFixture(t)
+	child := NewAgentID()
+	admitTestChild(t, store, root, root, child)
+	queueOutcomeTurn(t, store, root, child, "long-turn")
+	emit := func(kind, purpose string) {
+		t.Helper()
+		tx, err := store.db.BeginTx(t.Context(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.insertActorEventTx(t.Context(), tx, root, kind, actorEvent{
+			AgentID: child, Status: "running", ModelCall: &ModelCallEvent{ID: kind + purpose, Purpose: purpose},
+		}, now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		emit("model.call.started", "turn")
+		emit("model.call.settled", "turn")
+	}
+	emit("model.call.started", "compaction")
+	emit("model.call.settled", "compaction")
+	outcome := savedOutcome(t, store, root, child)
+	if outcome == nil || outcome.Status != "running" || outcome.ModelCalls != 3 || outcome.Compactions != 1 || outcome.LastActivityAt == "" {
+		t.Fatalf("running outcome=%+v", outcome)
+	}
+	snapshot, err := store.SnapshotRoot(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range snapshot.Agents {
+		if agent.ID == child && (agent.LastTurn == nil || agent.LastTurn.ModelCalls != 3 || agent.LastTurn.Compactions != 1) {
+			t.Fatalf("snapshot agent=%+v", agent)
+		}
+	}
+	// The finished outcome keeps the counters for the record.
+	if err := store.FinishAgentTurn(t.Context(), root, child, AgentTurnCommit{TurnID: "long-turn", Status: "succeeded"}); err != nil {
+		t.Fatal(err)
+	}
+	outcome = savedOutcome(t, store, root, child)
+	if outcome == nil || outcome.Status != "succeeded" || outcome.ModelCalls != 3 || outcome.Compactions != 1 {
+		t.Fatalf("finished outcome=%+v", outcome)
+	}
+	// Model calls outside a running turn leave the record alone.
+	emit("model.call.started", "turn")
+	if outcome = savedOutcome(t, store, root, child); outcome.ModelCalls != 3 {
+		t.Fatalf("idle call counted: %+v", outcome)
+	}
+	// A new turn starts its counters from zero.
+	queueOutcomeTurn(t, store, root, child, "next-turn")
+	if outcome = savedOutcome(t, store, root, child); outcome.ModelCalls != 0 || outcome.Compactions != 0 || outcome.LastActivityAt != "" {
+		t.Fatalf("new turn should reset counters: %+v", outcome)
 	}
 }

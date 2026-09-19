@@ -132,7 +132,7 @@ it('cancels unresolved host discovery immediately and releases a late native att
   controller.abort();
   await expect(pending).rejects.toThrow();
   expect(f.bridge.releaseConnection).toHaveBeenCalledOnce();
-  expect(f.listeners.size).toBe(1); // The platform's update observer remains until application disposal.
+  expect(f.listeners.size).toBe(2); // The platform's update and prompt observers remains until application disposal.
   platform.dispose?.();
   expect(f.listeners.size).toBe(0);
   finish();
@@ -242,4 +242,35 @@ it('does not let a stale initial OS response overwrite a newer preference event'
   resolve(false); await Promise.resolve();
   expect(platform.systemContrast!.getSnapshot()).toBe(true);
   platform.dispose?.();
+});
+
+it('discovers SSH profiles only on request and preserves old-bridge manual fallback', async () => {
+  const legacy = createDesktopPlatform(fixture().api, vi.fn());
+  expect(legacy.listSSHProfiles).toBeUndefined();
+  legacy.dispose?.();
+  const listSSHProfiles = vi.fn(async () => ({ profiles: [{ alias: 'build-box', hostname: 'build.internal' }], truncated: false }));
+  const platform = createDesktopPlatform({ ...fixture().api, listSSHProfiles }, vi.fn());
+  expect(listSSHProfiles).not.toHaveBeenCalled();
+  expect(await platform.listSSHProfiles!()).toEqual({ profiles: [{ alias: 'build-box', hostname: 'build.internal' }], truncated: false });
+  expect(listSSHProfiles).toHaveBeenCalledWith();
+  platform.dispose?.();
+});
+
+
+it('associates early SSH prompts with their profile and rejects prompts from a retired attempt', async () => {
+  const f = fixture();
+  const answerPrompt = vi.fn().mockResolvedValue(undefined);
+  const platform = createDesktopPlatform({ ...f.api, answerPrompt }, vi.fn());
+  let attemptId = '';
+  const prompt = () => ({ id: 'password', attemptId, title: 'Authenticate', message: 'Password', fields: [{ label: 'Password', secret: true }], confirmLabel: 'Continue' });
+  f.bridge.prepareConnection.mockImplementationOnce(async id => { attemptId = id; f.emit({ kind: 'prompt', prompt: prompt() }); });
+  const resolved = await platform.resolveConnection!({ id: 'gpu', label: 'GPU', target: { kind: 'ssh', host: 'gpu' } }, { signal: new AbortController().signal, onProgress() {} });
+  expect(platform.hostPrompts?.forHost('gpu')?.prompt.attemptId).toBe(attemptId);
+  resolved.dispose();
+  expect(platform.hostPrompts?.forHost('gpu')).toBeNull();
+  f.emit({ kind: 'prompt', prompt: prompt() });
+  expect(platform.hostPrompts?.getSnapshot()).toBeNull();
+  expect(answerPrompt).toHaveBeenCalledExactlyOnceWith('password', null);
+  platform.dispose?.();
+  expect(f.listeners.size).toBe(0);
 });

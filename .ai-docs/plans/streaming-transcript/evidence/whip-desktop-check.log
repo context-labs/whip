@@ -1,0 +1,12 @@
+
+> whip-clients@0.0.0 check:desktop
+> npm run build && tsc -p apps/desktop/tsconfig.json --noEmit
+
+
+> whip-clients@0.0.0 build
+> npm run build -w @whip/sdk
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+

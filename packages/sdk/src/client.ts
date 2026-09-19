@@ -5,12 +5,14 @@ import {
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
   type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
   type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams,
+  type BrowserInventoryRequest, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderRevoked,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
-import { Host, Permissions, Providers, Configuration } from './services.js';
+import { Host, Permissions, Providers, Configuration, MCPImport } from './services.js';
 import { Agents } from './agents.js';
 import { Terminals } from './terminals.js';
+import { BrowserProviders } from './browser.js';
 import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
@@ -20,6 +22,9 @@ import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from 
 export type SdkEvent = RootEvent;
 /** Notifications the daemon addresses to one connection: executor leases and terminal attachments. */
 export interface Notifications {
+  'browser.inventory': BrowserInventoryRequest;
+  'browser.command': BrowserCommand; 'browser.command.cancel': BrowserCommandCancel;
+  'browser.provider.revoked': BrowserProviderRevoked;
   'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams;
   'hook.invoke': HookInvokeParams; 'hook.cancel': ToolCancelParams;
   'terminal.output': TerminalOutputParams; 'terminal.exited': TerminalExitedParams; 'terminal.detached': TerminalDetachedParams;
@@ -42,6 +47,8 @@ export interface ClientOptions {
   /** Refuse attachment to another installation before exposing connected state. */
   expectedRuntimeId?: string;
   buildId?: string;
+  /** Advertise native Browser provider support; selection remains explicit per root. */
+  browserProvider?: boolean;
   reconnect?: boolean;
   queryTimeoutMs?: number;
   connectTimeoutMs?: number;
@@ -68,10 +75,12 @@ export class WhipClient {
   readonly sessions: Sessions;
   readonly providers: Providers;
   readonly configuration: Configuration;
+  readonly mcpImport: MCPImport;
   readonly permissions: Permissions;
   readonly host: Host;
   readonly agents: Agents;
   readonly terminals: Terminals;
+  readonly browser: BrowserProviders;
   readonly events = {
     subscribe: async (rootId: string, cursor: string, options: SubscriptionOptions = {}): Promise<Subscription> => {
       this.requireConnected();
@@ -125,10 +134,12 @@ export class WhipClient {
     this.sessions = new Sessions(this);
     this.providers = new Providers(this);
     this.configuration = new Configuration(this);
+    this.mcpImport = new MCPImport(this);
     this.permissions = new Permissions(this);
     this.host = new Host(this);
     this.agents = new Agents(this);
     this.terminals = new Terminals(this);
+    this.browser = new BrowserProviders(this);
   }
   getSnapshot = (): ConnectionSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
@@ -175,7 +186,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines'],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');
@@ -343,6 +354,15 @@ export class WhipClient {
           assertValid('RPCError', envelope.error, 'response');
           pending.reject(new RpcError(envelope.error));
         } else {
+          // Older compatible hosts predate MCP import/logo settings. Supply only
+          // absent fields for features they do not advertise; malformed values
+          // and hosts claiming those features still use strict validation.
+          if (rpcOperations[pending.method].result_type === 'RuntimeConfiguration' && object(envelope.result)) {
+            if (!Object.hasOwn(envelope.result, 'mcp_import_offered') && !this.supports('rpc', 'mcp.import.candidates'))
+              envelope.result.mcp_import_offered = true;
+            if (!Object.hasOwn(envelope.result, 'brand_icons') && !this.supports('rpc', 'mcp.brand.icons'))
+              envelope.result.brand_icons = false;
+          }
           assertValid(rpcOperations[pending.method].result_type, envelope.result, 'response');
           pending.resolve(frozen(envelope.result));
         }

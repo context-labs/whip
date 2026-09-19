@@ -36,3 +36,4 @@ export function validateTheme(input: unknown): ThemeDefinition {
 
 export { themeCatalog, themeIds, type ThemeDefinition } from './generated/theme-catalog.ts';
 export { contrastRatio, readableColor, adaptThemeForWeb } from './theme-contrast.ts';
+export { validateDisplayPreferences, type DisplayPreferences } from './appearance-data.ts';

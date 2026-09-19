@@ -4,7 +4,7 @@ import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
-import { Button, Combobox, Field, Input, Popover, Select, Tooltip, type Styled } from '@whip/ui';
+import { Button, Combobox, Field, Input, Menu, Popover, Select, Skeleton, Tooltip, type Styled } from '@whip/ui';
 import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface } from '@whip/ui/tokens.stylex';
@@ -43,6 +43,16 @@ export function modelEfforts(models: Map<string, { reasoning_efforts?: null | st
 
 export function effortLabel(level: string): string {
   return effortLabels[level] ?? level;
+}
+
+/** A draft choice; no running session or host defaults are changed. */
+export function DraftEffortPicker({ value, levels, disabled, onChange }: {
+  value: string; levels: readonly string[]; disabled: boolean; onChange(value: string): void;
+}) {
+  return <Menu trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={disabled} xstyle={styles.trigger}>
+    {effortLabel(value)}<ChevronDown size={14} />
+  </Button>} items={levels.map(level => ({ id: level, label: effortLabel(level), disabled,
+    icon: level === value ? <Check size={14} /> : undefined, onSelect: () => onChange(level) }))} />;
 }
 
 /** Effort menu: only levels the selected model supports; applies immediately. */
@@ -108,9 +118,10 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
 }
 
 /** The same catalog picker can edit a session or a settings draft. */
-export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, xstyle }: {
+export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, onSessionOptions, xstyle }: {
   catalog?: CatalogResult; loading?: boolean; error?: string; model: string; provider: string; disabled?: boolean;
   onChange(model: string, provider: string): void | Promise<unknown>; onRetry?(): void; label?: string; settings?: boolean;
+  onSessionOptions?(): void;
 } & Styled) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -176,6 +187,10 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
         <Link to="/settings" search={{ section: 'providers' }} {...stylex.props(styles.manage)} onClick={() => setOpen(false)}>
           <SlidersHorizontal size={14} /> Manage models
         </Link>
+        {onSessionOptions && <Button variant="ghost" xstyle={styles.manage} disabled={pending}
+          onClick={() => { setOpen(false); onSessionOptions(); }}>
+          <SlidersHorizontal size={14} /> Session options
+        </Button>}
       </div>}
     </div>}
   </Popover>;
@@ -193,6 +208,11 @@ export function SessionModelPicker({ agentId, ...props }: ModelProps & Pick<Insp
     <ModelPicker {...props} />
     <EffortPicker {...props} />
   </>;
+}
+
+/** Holds the mode/model/effort footprint while a session or provider inventory is still opening. */
+export function PickerSkeletons({ count = 3 }: { count?: number }) {
+  return <>{[128, 108, 72].slice(-count).map(width => <Skeleton key={width} data-picker-skeleton xstyle={styles.skeleton} style={{ width }} />)}</>;
 }
 
 /** Shared by the session inspector; the composer uses ModelPicker/EffortPicker. */
@@ -230,6 +250,7 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
 
 const styles = stylex.create({
   trigger: { minWidth: 0, maxWidth: 220, flexShrink: 1, paddingInline: 6, gap: 6 },
+  skeleton: { alignSelf: 'stretch', borderRadius: 6, flexShrink: 0 },
   chevron: { flexShrink: 0, marginInlineStart: 'auto' },
   childModel: { color: surface.secondaryText, fontSize: typography.size12, paddingInline: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   popup: { padding: 4, maxHeight: 'min(320px, var(--available-height))', overflow: 'auto' },
@@ -248,7 +269,7 @@ const styles = stylex.create({
   optionActive: { backgroundColor: colors.hover },
   check: { color: surface.secondaryText, flexShrink: 0 },
   footer: { flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },
-  manage: { display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: typography.size13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
+  manage: { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', width: '100%', fontWeight: 400, gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: typography.size13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
   card: { width: 232, maxWidth: 'var(--available-width)', maxHeight: 'var(--available-height)', overflow: 'auto', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: typography.size12, color: colors.foreground, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
   cardRow: { display: 'flex', flexShrink: 0, justifyContent: 'space-between', gap: 10, minWidth: 0 },
   cardLabel: { color: surface.secondaryText, flexShrink: 0, fontSize: typography.size11 },

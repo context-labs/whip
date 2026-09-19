@@ -225,7 +225,7 @@ func TestRecursiveHostMCPDiscoveryReportsCurrentAuthority(t *testing.T) {
 		t.Fatalf("servers=%+v", servers)
 	}
 	listed := hostBehaviorCall(t, host, "mcp", "list_tools", map[string]any{"server": "local"}).([]map[string]any)
-	if len(listed) != 4 {
+	if len(listed) != 5 { // mutate, mutate.other, echo, image, large
 		t.Fatalf("discovery lost tools: %+v", listed)
 	}
 	for _, tool := range listed {
@@ -237,6 +237,36 @@ func TestRecursiveHostMCPDiscoveryReportsCurrentAuthority(t *testing.T) {
 	if instructions["server"] != "local" || instructions["instructions"].(map[string]any)["output"] != "read instructions before calling tools" {
 		t.Fatalf("instructions=%+v", instructions)
 	}
+	// Listings are light: schemas come from describe or on request.
+	for _, tool := range listed {
+		if _, has := tool["input_schema"]; has {
+			t.Fatalf("list_tools carried a schema by default: %+v", tool)
+		}
+	}
+	window := hostBehaviorCall(t, host, "mcp", "list_tools", map[string]any{"server": "local", "offset": float64(1), "limit": float64(2), "schemas": true}).([]map[string]any)
+	if len(window) != 2 || window[0]["name"] != "image" || window[1]["name"] != "large" || window[0]["input_schema"] == nil {
+		t.Fatalf("window=%+v", window)
+	}
+	found := hostBehaviorCall(t, host, "mcp", "search", map[string]any{"query": "mutate"}).([]map[string]any)
+	if len(found) != 2 || found[0]["name"] != "mutate" || found[1]["name"] != "mutate.other" || found[0]["server"] != "local" || found[0]["authorized"] != true {
+		t.Fatalf("search=%+v", found)
+	}
+	if _, has := found[0]["input_schema"]; has {
+		t.Fatal("search results must not carry schemas")
+	}
+	described := hostBehaviorCall(t, host, "mcp", "describe", map[string]any{"server": "local", "tool": "echo"}).(map[string]any)
+	if described["server"] != "local" || described["name"] != "echo" || described["input_schema"] == nil || described["authorized"] != true || described["generation"] == "" {
+		t.Fatalf("describe=%+v", described)
+	}
+	if _, err := host.Call(t.Context(), "mcp", "describe", map[string]any{"server": "local", "tool": "eco"}); err == nil || !strings.Contains(err.Error(), "echo") {
+		t.Fatalf("describe of a near miss must suggest the name: %v", err)
+	}
+	if _, err := host.Call(t.Context(), "mcp", "search", map[string]any{"query": " "}); err == nil {
+		t.Fatal("blank search accepted")
+	}
+	if _, err := host.Call(t.Context(), "mcp", "search", map[string]any{"query": "echo", "server": "missing"}); err == nil {
+		t.Fatal("search on an unknown server accepted")
+	}
 	if _, err := root.RevokeCapability(t.Context(), root.AgentID(), runtime.rootNode.authority.MCP.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -244,6 +274,11 @@ func TestRecursiveHostMCPDiscoveryReportsCurrentAuthority(t *testing.T) {
 	for _, tool := range listed {
 		if tool["authorized"] != false {
 			t.Fatalf("revoked capability advertised as authorized: %+v", tool)
+		}
+	}
+	for _, match := range hostBehaviorCall(t, host, "mcp", "search", map[string]any{"query": "mutate"}).([]map[string]any) {
+		if match["authorized"] != false {
+			t.Fatalf("revoked capability advertised as authorized in search: %+v", match)
 		}
 	}
 	for _, operation := range []string{"list_tools", "instructions"} {

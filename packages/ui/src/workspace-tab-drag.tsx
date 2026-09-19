@@ -1,3 +1,4 @@
+import { useNativeSurfacePresence } from './native-surfaces';
 import * as stylex from '@stylexjs/stylex';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -38,21 +39,25 @@ export function tabDrop(strip: HTMLElement, viewId: string, point: Point): TabDr
     rect: { left, top: rect.top + 4, width: 3, height: rect.height - 8 } };
 }
 
-type Drag = {
-  id: string; source: HTMLElement; strip: HTMLElement; rect: TabRect; offset: Point; point: Point;
+export type WorkspaceDragSource = { kind: 'view' | 'external'; data?: unknown };
+export type WorkspaceDragCallbacks = {
+  locate(id: string, point: Point, source: WorkspaceDragSource): TabDrop | null;
+  onDrop(drop: WorkspaceDrop, source: WorkspaceDragSource): string | void;
+  onPreview?(target: TabDrop | null): void;
+};
+
+type Drag = WorkspaceDragSource & {
+  id: string; source: HTMLElement; strip: HTMLElement | null; rect: TabRect; offset: Point; point: Point;
   face: ReactNode; direction: 'rtl' | 'ltr'; manager: DragDropManager; target: TabDrop | null;
 };
 
 /** One visual-only drag path for standalone tabs and the split workspace. */
-export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
-  locate(id: string, point: Point): TabDrop | null;
-  onDrop(drop: WorkspaceDrop): void;
-  onPreview?(target: TabDrop | null): void;
-}) {
+export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: WorkspaceDragCallbacks) {
   const callbacks = useRef({ locate, onDrop, onPreview });
   callbacks.current = { locate, onDrop, onPreview };
   const active = useRef<Drag | null>(null);
   const [presentation, setPresentation] = useState<Drag | null>(null);
+  const visible = useNativeSurfacePresence(presentation !== null);
   const overlay = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
   const offsets = useRef(new Map<HTMLElement, { x: number; animation?: Animation }>());
@@ -114,20 +119,20 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
     const drag = active.current, element = overlay.current;
     if (!drag) return;
     if (!drag.source.isConnected) { drag.manager.actions.stop({ canceled: true }); return; }
-    const target = callbacks.current.locate(drag.id, drag.point);
+    const target = callbacks.current.locate(drag.id, drag.point, drag);
     const previous = drag.target;
     showGap(drag, target);
     drag.target = target;
     if (JSON.stringify(previous?.drop) !== JSON.stringify(target?.drop)
       || JSON.stringify(previous?.rect) !== JSON.stringify(target?.rect)) callbacks.current.onPreview?.(target);
     if (element) {
-      const bounds = drag.strip.getBoundingClientRect();
-      const inside = drag.point.y >= bounds.top && drag.point.y <= bounds.bottom;
+      const bounds = (drag.strip ?? drag.source).getBoundingClientRect();
+      const inside = drag.kind === 'view' && drag.point.y >= bounds.top && drag.point.y <= bounds.bottom;
       const left = drag.point.x - drag.offset.x;
       // Outside the source row, release the vertical constraint continuously.
       const beyond = drag.point.y < bounds.top ? drag.point.y - bounds.top : drag.point.y > bounds.bottom ? drag.point.y - bounds.bottom : 0;
       const releasedTop = drag.point.y - drag.offset.y;
-      const blend = Math.min(1, Math.abs(beyond) / 16);
+      const blend = drag.kind === 'external' ? 1 : Math.min(1, Math.abs(beyond) / 16);
       const top = drag.rect.top + (releasedTop - drag.rect.top) * blend;
       const zoom = element.getBoundingClientRect().width / element.offsetWidth || 1;
       element.style.transform = `translate(${left / zoom}px, ${(inside ? tabRect(drag.source).top : top) / zoom}px)`;
@@ -144,15 +149,15 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
     if (!drag) return;
     cancelAnimationFrame(frame.current);
     // Re-evaluate at release, including any final auto-scroll or product limit change.
-    const target = canceled ? null : callbacks.current.locate(drag.id, drag.point);
+    const target = canceled || !drag.source.isConnected ? null : callbacks.current.locate(drag.id, drag.point, drag);
     active.current = null;
     clickTimer.current = setTimeout(() => clickCleanup.current?.(), 400);
     resetOffsets(); callbacks.current.onPreview?.(null);
-    drag.source.setAttribute('data-tab-settling', ''); hidden.current = drag.source;
-    if (target) callbacks.current.onDrop(target.drop);
+    if (drag.kind === 'view') { drag.source.setAttribute('data-tab-settling', ''); hidden.current = drag.source; }
+    const destinationId = target ? callbacks.current.onDrop(target.drop, drag) : undefined;
     finishFrame.current = requestAnimationFrame(() => {
       const element = overlay.current;
-      const destination = [...drag.source.ownerDocument.querySelectorAll<HTMLElement>('[data-workspace-tab]')].find(tab => tab.dataset.workspaceTab === drag.id);
+      const destination = [...drag.source.ownerDocument.querySelectorAll<HTMLElement>('[data-workspace-tab]')].find(tab => tab.dataset.workspaceTab === (drag.kind === 'external' ? destinationId : drag.id));
       releaseHidden();
       if (!element || !destination) { setPresentation(null); return; }
       destination.setAttribute('data-tab-settling', ''); hidden.current = destination;
@@ -172,13 +177,16 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
   const handlers: Partial<DragDropEventHandlers> = {
     onDragStart(event, manager) {
       const source = event.operation.source;
-      if (!isSortable(source) || !(source.element instanceof HTMLElement)) return;
-      manager.dragOperation.shape = source.sortable.refreshShape() ?? null;
+      if (!source || !(source.element instanceof HTMLElement) || (!isSortable(source) && !source.data.external)) return;
+      if (isSortable(source)) manager.dragOperation.shape = source.sortable.refreshShape() ?? null;
       cancelAnimationFrame(finishFrame.current); settling.current?.cancel(); settling.current = null; releaseHidden();
-      const rect = source.element.getBoundingClientRect();
+      const external = source.data.external === true;
+      const bounds = source.element.getBoundingClientRect();
+      const zoom = bounds.width / source.element.offsetWidth || 1;
+      const rect = external ? { left: bounds.left, top: bounds.top, width: 200 * zoom, height: 42 * zoom } : bounds;
       const initial = event.operation.position.initial;
-      const drag: Drag = { id: String(source.id), source: source.element, strip: source.element.parentElement!, rect,
-        offset: { x: initial.x - rect.left, y: initial.y - rect.top }, point: event.nativeEvent instanceof PointerEvent ? { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY } : event.operation.position.current,
+      const drag: Drag = { id: String(source.id), source: source.element, strip: external ? null : source.element.parentElement!, rect, kind: external ? 'external' : 'view', data: source.data.payload,
+        offset: { x: external ? Math.min(initial.x - rect.left, rect.width / 2) : initial.x - rect.left, y: external ? rect.height / 2 : initial.y - rect.top }, point: event.nativeEvent instanceof PointerEvent ? { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY } : event.operation.position.current,
         face: source.data.tabFace as ReactNode, direction: getComputedStyle(source.element).direction === 'rtl' ? 'rtl' : 'ltr', manager, target: null };
       manager.dragOperation.position.current = drag.point;
       active.current = drag; setPresentation(drag);
@@ -219,9 +227,9 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
     const zoom = element.getBoundingClientRect().width / element.offsetWidth || 1;
     element.style.width = `${presentation.rect.width / zoom}px`; element.style.height = `${presentation.rect.height / zoom}px`;
     element.style.transform = `translate(${(presentation.point.x - presentation.offset.x) / zoom}px, ${presentation.rect.top / zoom}px)`;
-  }, [presentation]);
+  }, [presentation, visible]);
 
-  return { handlers, preview: presentation && createPortal(
+  return { handlers, visible, external: presentation?.kind === 'external', preview: visible && presentation && createPortal(
     <div ref={overlay} dir={presentation.direction} aria-hidden="true" inert data-workspace-drag-preview={presentation.id} {...stylex.props(styles.item, styles.preview)}
       style={{ width: presentation.rect.width, height: presentation.rect.height }}>{presentation.face}</div>, presentation.source.ownerDocument.body),
   };

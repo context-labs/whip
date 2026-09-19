@@ -1,0 +1,41 @@
+
+> whip-clients@0.0.0 test:mobile
+> npm run test -w @whip/mobile
+
+
+> @whip/mobile@0.1.0 test
+> jest --runInBand
+
+(node:93777) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS src/runtime/runtime.test.ts
+PASS src/components/requests.test.tsx
+PASS src/runtime/storage.native.test.ts
+PASS src/features/session-screen.test.tsx
+PASS src/features/server-screen.test.tsx
+PASS src/theme/preferences.test.ts
+PASS src/components/session-menu.test.tsx
+PASS src/features/session-route.test.tsx
+PASS src/components/markdown.test.tsx
+PASS src/components/conversation.test.tsx
+PASS src/components/paged-text.test.tsx
+PASS src/runtime/storage.test.ts
+PASS src/runtime/workspace.test.ts
+PASS src/runtime/connection-test.test.ts
+PASS src/features/workspace-index.test.tsx
+PASS src/runtime/decisions.test.ts
+PASS src/runtime/polyfills.test.ts
+PASS src/features/creation.test.ts
+PASS src/runtime/read-lane.test.ts
+PASS src/runtime/diagnostics.test.ts
+PASS src/features/saved-drafts.test.ts
+PASS src/runtime/address.test.ts
+PASS src/runtime/wait-ready.test.ts
+PASS src/features/session-settings.test.ts
+PASS src/features/reading.test.ts
+
+Test Suites: 25 passed, 25 total
+Tests:       160 passed, 160 total
+Snapshots:   0 total
+Time:        10.294 s, estimated 18 s
+Ran all test suites.

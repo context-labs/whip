@@ -58,6 +58,10 @@ test('tools land in the document and handlers stay local', () => {
   assert.equal(agent.handlers.get('lookup_ticket'), lookup);
   assert.deepEqual(agent.document.children.helper, { instructions: null, modules: ['context'], capabilities: null, tools: ['lookup_ticket'], model: { model: '', provider: '', effort: '' }, budgets: {}, report: 'message', output: null });
   assert.throws(() => defineAgent({ id: 'dup', modules: ['context'], tools: [lookup, lookup] }), /declared twice/);
+  // null means every host MCP server; [] means none. The empty allowlist must survive.
+  assert.equal(defineAgent({ id: 'all-mcp', modules: ['context'] }).document.mcp.servers, null);
+  assert.deepEqual(defineAgent({ id: 'no-mcp', modules: ['context'], mcp: { servers: [] } }).document.mcp.servers, []);
+  assert.deepEqual(defineAgent({ id: 'some-mcp', modules: ['context'], mcp: { servers: ['docs'] } }).document.mcp.servers, ['docs']);
   assert.throws(() => defineAgent({ id: 'none', modules: [] }), /at least one host module/);
   assert.throws(() => tool({ name: 'bad', description: 'd', input: [] as unknown as Record<string, unknown>, execute: () => 1 }), /Standard JSON Schema or a JSON Schema object/);
   assert.throws(() => tool({ name: 'list', description: 'd', input: { type: 'array' }, execute: () => 1 }), /must describe an object/);

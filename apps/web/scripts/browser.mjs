@@ -276,9 +276,8 @@ try {
       await page.locator('input[type=file]').setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: png });
       await page.getByText('tiny.png · Ready', { exact: true }).waitFor();
       await send(page, 'Inspect the tiny image.');
-      await page.getByRole('button', { name: 'View image attachment', exact: true }).first().click();
-      await eventually(async () => page.getByAltText('Attached image', { exact: true }).first().evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'explicit PNG attachment preview decodes' });
-      checks.push('real text and image uploads reach history with explicit bounded PNG preview');
+      await eventually(async () => page.getByAltText('Attached image', { exact: true }).first().evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'inline PNG attachment preview decodes' });
+      checks.push('real text and image uploads reach history with automatic inline PNG preview');
 
 
       progress('two-client permission resolution');

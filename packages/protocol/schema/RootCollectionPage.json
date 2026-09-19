@@ -111,6 +111,15 @@
                           "source"
                         ],
                         "additionalProperties": false
+                      },
+                      "model_calls": {
+                        "type": "integer"
+                      },
+                      "compactions": {
+                        "type": "integer"
+                      },
+                      "last_activity_at": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -197,6 +206,160 @@
                   "object"
                 ],
                 "properties": {
+                  "delivery_seq": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "origin": {
+                    "type": "string"
+                  },
+                  "command_client_id": {
+                    "type": "string"
+                  },
+                  "command_id": {
+                    "type": "string"
+                  },
+                  "steer_turn_id": {
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "design_context": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "context_attachment_id": {
+                            "type": "string"
+                          },
+                          "screenshot_attachment_id": {
+                            "type": "string"
+                          },
+                          "elements": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "selector": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "label"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "element_count": {
+                            "type": "integer"
+                          },
+                          "page_url": {
+                            "type": "string"
+                          },
+                          "page_title": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "context_attachment_id",
+                          "elements",
+                          "element_count"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      },
+                      "attachments": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "content": {
+                              "type": "object",
+                              "properties": {
+                                "inline": true,
+                                "text": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                },
+                                "binary": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "contentEncoding": "base64"
+                                },
+                                "reference_id": {
+                                  "type": "string"
+                                },
+                                "digest": {
+                                  "type": "string"
+                                },
+                                "size": {
+                                  "type": "string",
+                                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                                  "format": "int64"
+                                },
+                                "media_type": {
+                                  "type": "string"
+                                },
+                                "source": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "reference_id",
+                                "digest",
+                                "size",
+                                "media_type",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "content"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "attachment_count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
                   "root_id": {
                     "type": "string"
                   },
@@ -483,6 +646,103 @@
                   "mcp_all": {
                     "type": "boolean"
                   },
+                  "browser": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "provider_id": {
+                        "type": "string"
+                      },
+                      "provider_epoch": {
+                        "type": "string"
+                      },
+                      "tab_id": {
+                        "type": "string"
+                      },
+                      "tab_generation": {
+                        "type": "string"
+                      },
+                      "profile_id": {
+                        "type": "string"
+                      },
+                      "attachment_id": {
+                        "type": "string"
+                      },
+                      "attachment_generation": {
+                        "type": "string"
+                      },
+                      "rights": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "preview": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "host_id": {
+                            "type": "string"
+                          },
+                          "host_identity": {
+                            "type": "string"
+                          },
+                          "connection_generation": {
+                            "type": "string"
+                          },
+                          "environment_id": {
+                            "type": "string"
+                          },
+                          "loopback": {
+                            "type": "string"
+                          },
+                          "ports": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "required": [
+                          "host_id",
+                          "host_identity",
+                          "connection_generation",
+                          "environment_id",
+                          "loopback",
+                          "ports"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "provider_id",
+                      "provider_epoch",
+                      "tab_id",
+                      "tab_generation",
+                      "profile_id",
+                      "rights"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "browser_issuer_id": {
+                    "type": "string"
+                  },
+                  "browser_issuer_generation": {
+                    "type": "integer"
+                  },
+                  "browser_delegation_only": {
+                    "type": "boolean"
+                  },
                   "generation": {
                     "type": "string",
                     "pattern": "^-?(0|[1-9][0-9]*)$",
@@ -745,6 +1005,15 @@
                               "source"
                             ],
                             "additionalProperties": false
+                          },
+                          "model_calls": {
+                            "type": "integer"
+                          },
+                          "compactions": {
+                            "type": "integer"
+                          },
+                          "last_activity_at": {
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -840,6 +1109,160 @@
                       "object"
                     ],
                     "properties": {
+                      "delivery_seq": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "origin": {
+                        "type": "string"
+                      },
+                      "command_client_id": {
+                        "type": "string"
+                      },
+                      "command_id": {
+                        "type": "string"
+                      },
+                      "steer_turn_id": {
+                        "type": "string"
+                      },
+                      "preview": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "design_context": {
+                            "type": [
+                              "null",
+                              "object"
+                            ],
+                            "properties": {
+                              "context_attachment_id": {
+                                "type": "string"
+                              },
+                              "screenshot_attachment_id": {
+                                "type": "string"
+                              },
+                              "elements": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "selector": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "label"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "element_count": {
+                                "type": "integer"
+                              },
+                              "page_url": {
+                                "type": "string"
+                              },
+                              "page_title": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "context_attachment_id",
+                              "elements",
+                              "element_count"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          },
+                          "attachments": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "content": {
+                                  "type": "object",
+                                  "properties": {
+                                    "inline": true,
+                                    "text": {
+                                      "type": [
+                                        "null",
+                                        "string"
+                                      ]
+                                    },
+                                    "binary": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
+                                      "contentEncoding": "base64"
+                                    },
+                                    "reference_id": {
+                                      "type": "string"
+                                    },
+                                    "digest": {
+                                      "type": "string"
+                                    },
+                                    "size": {
+                                      "type": "string",
+                                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                                      "format": "int64"
+                                    },
+                                    "media_type": {
+                                      "type": "string"
+                                    },
+                                    "source": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "reference_id",
+                                    "digest",
+                                    "size",
+                                    "media_type",
+                                    "source"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "content"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "attachment_count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
                       "root_id": {
                         "type": "string"
                       },
@@ -1151,6 +1574,103 @@
                         }
                       },
                       "mcp_all": {
+                        "type": "boolean"
+                      },
+                      "browser": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "provider_id": {
+                            "type": "string"
+                          },
+                          "provider_epoch": {
+                            "type": "string"
+                          },
+                          "tab_id": {
+                            "type": "string"
+                          },
+                          "tab_generation": {
+                            "type": "string"
+                          },
+                          "profile_id": {
+                            "type": "string"
+                          },
+                          "attachment_id": {
+                            "type": "string"
+                          },
+                          "attachment_generation": {
+                            "type": "string"
+                          },
+                          "rights": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "preview": {
+                            "type": [
+                              "null",
+                              "object"
+                            ],
+                            "properties": {
+                              "host_id": {
+                                "type": "string"
+                              },
+                              "host_identity": {
+                                "type": "string"
+                              },
+                              "connection_generation": {
+                                "type": "string"
+                              },
+                              "environment_id": {
+                                "type": "string"
+                              },
+                              "loopback": {
+                                "type": "string"
+                              },
+                              "ports": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "integer"
+                                }
+                              }
+                            },
+                            "required": [
+                              "host_id",
+                              "host_identity",
+                              "connection_generation",
+                              "environment_id",
+                              "loopback",
+                              "ports"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "provider_id",
+                          "provider_epoch",
+                          "tab_id",
+                          "tab_generation",
+                          "profile_id",
+                          "rights"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "browser_issuer_id": {
+                        "type": "string"
+                      },
+                      "browser_issuer_generation": {
+                        "type": "integer"
+                      },
+                      "browser_delegation_only": {
                         "type": "boolean"
                       },
                       "generation": {

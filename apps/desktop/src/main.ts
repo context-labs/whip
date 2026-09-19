@@ -6,27 +6,44 @@ import path from 'node:path';
 import { validateProfile, type ConnectionProfile } from '@whip/app/platform';
 import { unixSocket } from '@whip/sdk/node';
 import type { DesktopEvent, HostPrompt } from '@whip/app/desktop-bridge';
-import { createAssetHandler, desktopScheme, desktopURL, isDesktopURL, type RendererManifest } from './assets';
+import { createAssetHandler, desktopScheme, desktopURL, isApplicationURL, type RendererManifest } from './assets';
 import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';
 import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
+import { BrowserManager } from './browser-manager';
+import { BrowserControl } from './browser-control';
+import { BrowserPreviewAuthority } from './browser-preview-authority';
+import { BrowserHumanPreview } from './browser-human-preview';
+import { nativeHumanPreviewConfirmation } from './browser-human-confirmation';
+import { browserPreviewLease } from './browser-preview';
+import { installBrowserIPC } from './browser-ipc';
+import { BrowserDesignController } from './browser-design';
+import { installBrowserDesignIPC } from './browser-design-ipc';
+import { browserTabsArgument, browserTabsEnabled } from './browser-feature';
 import { ProjectEditors, validateOpenProject, verifyProjectRuntime } from './project-open';
 import { SSHConnection } from './ssh';
+import { listSSHProfiles } from './ssh-profiles';
 import { DesktopUpdates, readDesktopConfig } from './updates';
 import { sessionLinkPath } from './links';
+import { attachDevelopment } from './development';
 import { attachStartupProbe } from './startup-probe';
+
+const enableBrowserTabs = browserTabsEnabled(process.env.WHIP_DESKTOP_BROWSER_TABS);
 
 protocol.registerSchemesAsPrivileged([{ scheme: desktopScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+const attachOnly = attachDevelopment(app.isPackaged);
 // Fixtures must opt in explicitly; never silently attach dev scripts to ~/.whipcode.
 if (!app.isPackaged || process.env.WHIP_DESKTOP_FIXTURE) {
-  if (!process.env.WHIP_DESKTOP_FIXTURE || !process.env.WHIPCODE_HOME || !process.env.WHIP_DESKTOP_USER_DATA || !process.env.WHIP_DESKTOP_EXECUTABLE)
+  if ((!attachOnly && !process.env.WHIP_DESKTOP_FIXTURE) || !process.env.WHIPCODE_HOME || !process.env.WHIP_DESKTOP_USER_DATA || !process.env.WHIP_DESKTOP_EXECUTABLE)
     throw new Error('Development requires isolated WHIPCODE_HOME, WHIP_DESKTOP_USER_DATA and WHIP_DESKTOP_EXECUTABLE paths');
   if (!path.isAbsolute(process.env.WHIPCODE_HOME) || !path.isAbsolute(process.env.WHIP_DESKTOP_USER_DATA) || !path.isAbsolute(process.env.WHIP_DESKTOP_EXECUTABLE))
     throw new Error('Fixture data paths must be absolute');
   app.setPath('userData', process.env.WHIP_DESKTOP_USER_DATA);
 }
 app.setName(__APP_NAME__);
+// Preview sessions must not bypass their fixed HTTP proxy with QUIC/WebTransport.
+app.commandLine.appendSwitch('disable-quic');
 let pendingSessionPath: string | undefined;
 let openSession: ((path: string) => void) | undefined;
 app.on('open-url', (event, url) => {
@@ -53,26 +70,31 @@ async function start() {
       throw new Error('The development renderer must use an exact loopback HTTP origin');
     developmentOrigin = url.origin;
   }
-  const rendererURL = (value: string) => {
-    if (isDesktopURL(value)) return true;
-    try { const url = new URL(value); return !!developmentOrigin && url.origin === developmentOrigin && !url.username && !url.password; }
-    catch { return false; }
-  };
+  const rendererURL = (value: string) => isApplicationURL(value, developmentOrigin);
   const root = app.getAppPath();
-  const renderer = JSON.parse(await readFile(path.join(root, 'renderer-manifest.json'), 'utf8')) as RendererManifest;
-  const manifest = await readRuntimeManifest(path.join(root, 'runtime-manifest.json'));
-  const config = readDesktopConfig(JSON.parse(await readFile(path.join(root, 'desktop-config.json'), 'utf8')));
-  if (manifest.rendererDigest !== renderer.digest) throw new Error('The renderer and runtime belong to different builds');
-  const source = app.isPackaged ? path.join(process.resourcesPath, '..', 'Helpers') : path.join(root, '..', 'native');
-  const localRuntime = new LocalRuntime({ source, manifest,
-    settingsFile: path.join(app.getPath('userData'), 'native-local-runtime.json'),
-    confirmUpdate: async detail => (await dialog.showMessageBox(window, { type: 'warning',
-      message: 'Restart and update the local Whip backend?', detail,
-      buttons: ['Later', 'Restart and update'], defaultId: 0, cancelId: 0 })).response === 1,
-    defaultExecutable: process.env.WHIP_DESKTOP_FIXTURE ? process.env.WHIP_DESKTOP_EXECUTABLE : undefined });
+  const settingsFile = path.join(app.getPath('userData'), 'native-local-runtime.json');
+  let renderer: RendererManifest | undefined;
+  let localRuntime: LocalRuntime;
+  let config;
+  if (attachOnly) {
+    localRuntime = new LocalRuntime({ mode: 'attach', settingsFile,
+      defaultExecutable: process.env.WHIP_DESKTOP_EXECUTABLE! });
+    config = readDesktopConfig({ channel: 'stable' });
+  } else {
+    renderer = JSON.parse(await readFile(path.join(root, 'renderer-manifest.json'), 'utf8')) as RendererManifest;
+    const manifest = await readRuntimeManifest(path.join(root, 'runtime-manifest.json'));
+    config = readDesktopConfig(JSON.parse(await readFile(path.join(root, 'desktop-config.json'), 'utf8')));
+    if (manifest.rendererDigest !== renderer.digest) throw new Error('The renderer and runtime belong to different builds');
+    const source = app.isPackaged ? path.join(process.resourcesPath, '..', 'Helpers') : path.join(root, '..', 'native');
+    localRuntime = new LocalRuntime({ source, manifest, settingsFile,
+      confirmUpdate: async detail => (await dialog.showMessageBox(window, { type: 'warning',
+        message: 'Restart and update the local Whip backend?', detail,
+        buttons: ['Later', 'Restart and update'], defaultId: 0, cancelId: 0 })).response === 1,
+      defaultExecutable: process.env.WHIP_DESKTOP_FIXTURE ? process.env.WHIP_DESKTOP_EXECUTABLE : undefined });
+    protocol.handle(desktopScheme, createAssetHandler(path.join(root, 'renderer'), renderer));
+  }
   let runtimeLifetime = new AbortController();
   const cancelRuntimeActions = () => { runtimeLifetime.abort(); runtimeLifetime = new AbortController(); };
-  protocol.handle(desktopScheme, createAssetHandler(path.join(root, 'renderer'), renderer));
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, respond) => respond(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.setDevicePermissionHandler(() => false);
@@ -91,9 +113,9 @@ async function start() {
   const window = new BrowserWindow({ width: 1200, height: 800, minWidth: 800, minHeight: 600, ...bounds,
     show: false, backgroundColor: '#111111', title: 'Whip',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 18 } } : {}),
-    webPreferences: { preload: path.join(root, 'preload.cjs'), sandbox: true, contextIsolation: true,
+    webPreferences: { preload: path.join(root, 'preload.cjs'), additionalArguments: enableBrowserTabs ? [browserTabsArgument] : [], sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, webviewTag: false, spellcheck: true } });
-  await attachStartupProbe(window, { userData: app.getPath('userData'), rendererDigest: renderer.digest, quit: () => app.quit() });
+  if (renderer) await attachStartupProbe(window, { userData: app.getPath('userData'), rendererDigest: renderer.digest, quit: () => app.quit() });
   const emit = (event: DesktopEvent) => { if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:event', event); };
   const transports = new DesktopTransports(emit);
   const native = new NativeEffects(window, emit);
@@ -126,6 +148,35 @@ async function start() {
     if (window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
         !rendererURL(event.senderFrame.url)) throw new Error('Untrusted desktop request');
   };
+  let browserControl: BrowserControl | undefined;
+  let browserDesign: BrowserDesignController | undefined;
+  const previews = new BrowserPreviewAuthority(app.getPath('userData'), id => connections.get(id),
+    (id, reason) => browserControl?.invalidateEnvironment(id, reason),
+    id => browsers.invalidateEnvironment(id, 'Preview connection ended'));
+  const browsers = new BrowserManager(window, event => {
+    browserControl?.observe(event);
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:browser:event', event);
+  }, { environment: (id, tabId) => browserPreviewLease(previews.environments, id, tabId),
+    invalidateControl: (id, reason) => { browserControl?.invalidate(id, reason); browserDesign?.invalidate(id, reason); },
+    presentDesign: (id, bounds) => browserDesign?.present(id, bounds) });
+  if (enableBrowserTabs) browserDesign = new BrowserDesignController(window, browsers, {
+    url: new URL('/design.html', developmentOrigin ?? desktopURL).href,
+    preload: path.join(root, 'browser-design-preload.cjs'),
+    emit: event => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:browser-design:event', event);
+    },
+  });
+  browserControl = new BrowserControl(browsers, event => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:browser-agent:event', event);
+  }, { prepare: selection => previews.prepare(selection), preview: (selection, scope) => previews.ensure(selection, scope),
+    expand: (selection, scope, port) => previews.expand(selection, scope, port), previewState: id => previews.offered(id) });
+  const humanPreviews = new BrowserHumanPreview(browsers, previews, browserControl,
+    nativeHumanPreviewConfirmation(window, (parent, options) => dialog.showMessageBox(parent, options)));
+  const disposeBrowserIPC = enableBrowserTabs ? installBrowserIPC(window, browsers, trusted, browserControl, previews, humanPreviews) : () => {};
+  const disposeBrowserDesignIPC = browserDesign ? installBrowserDesignIPC(window, browserDesign, trusted) : () => {};
+  window.once('closed', () => { browserDesign?.dispose(); disposeBrowserDesignIPC(); });
+  window.once('closed', () => humanPreviews.dispose());
+  window.once('closed', disposeBrowserIPC);
   const handle = (name: string, action: (...args: any[]) => unknown) => {
     ipcMain.handle(`whip:${name}`, (event, ...args: unknown[]) => { trusted(event); return action(...args); });
   };
@@ -136,6 +187,11 @@ async function start() {
     });
   };
   let runtimeActionPending = false;
+  let readingSSHProfiles: ReturnType<typeof listSSHProfiles> | undefined;
+  handle('listSSHProfiles', (...args: unknown[]) => {
+    if (args.length) throw new Error('SSH profile discovery does not accept arguments.');
+    return readingSSHProfiles ??= listSSHProfiles().finally(() => { readingSSHProfiles = undefined; });
+  });
   handle('getSystemContrast', (...args: unknown[]) => {
     if (args.length) throw new Error('System appearance does not accept arguments.');
     return nativeTheme.shouldUseHighContrastColors;
@@ -247,20 +303,12 @@ async function start() {
   handle('checkForUpdates', () => updates.check());
   handle('installUpdate', () => updates.install());
   let rendererReady = false;
-  let checkedLocalUpdate = false;
   openSession = path => {
     window.show(); window.focus();
     if (rendererReady) emit({ kind: 'navigate', path }); else pendingSessionPath = path;
   };
   listen('ready', () => {
     rendererReady = true; updates.ready(); if (!window.isVisible()) window.show();
-    if (!checkedLocalUpdate) {
-      checkedLocalUpdate = true;
-      const signal = runtimeLifetime.signal;
-      void localRuntime.synchronize(signal).catch(error => {
-        if (!signal.aborted && !(error instanceof Error && error.name === 'AbortError')) dialog.showErrorBox('Local backend update needs attention', error instanceof Error ? error.message : 'Connect This Mac to retry the update.');
-      });
-    }
     if (pendingSessionPath) { const path = pendingSessionPath; pendingSessionPath = undefined; openSession?.(path); }
   });
   let quitApproved = false;
@@ -318,7 +366,7 @@ async function start() {
     if (!quitting) void localRuntime.approveUpdate(undefined, runtimeLifetime.signal).catch(() => {});
   });
   app.on('before-quit', event => { if (!quitApproved) { event.preventDefault(); void requestClose('quit'); } });
-  app.on('will-quit', () => { runtimeLifetime.abort(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
+  app.on('will-quit', () => { runtimeLifetime.abort(); browserDesign?.dispose(); disposeBrowserDesignIPC(); humanPreviews.dispose(); browserControl?.dispose(); browsers.dispose(); void previews.dispose(); disposeBrowserIPC(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
   app.on('second-instance', () => { window.show(); window.focus(); });
   app.on('activate', () => { window.show(); window.focus(); });
   window.on('close', event => {

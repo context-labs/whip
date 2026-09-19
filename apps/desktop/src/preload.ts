@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { browserPreload, browserAgentPreload } from './browser-preload';
+import { browserTabsArgument } from './browser-feature';
 import type { DesktopBridge, DesktopEvent } from '@whip/app/desktop-bridge';
 
 // No ipcRenderer, Electron event, filesystem path authority, or generic invoke
@@ -6,6 +8,7 @@ import type { DesktopBridge, DesktopEvent } from '@whip/app/desktop-bridge';
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke(`whip:${method}`, ...args);
 const send = (method: string, ...args: unknown[]) => ipcRenderer.send(`whip:${method}`, ...args);
 const bridge: DesktopBridge = {
+  ...(process.argv.includes(browserTabsArgument) ? { browser: browserPreload(ipcRenderer), browserAgent: browserAgentPreload(ipcRenderer) } : {}),
   version: 2, appVersion: __APP_VERSION__, connectionKinds: ['local', 'url', 'ssh'],
   getSystemContrast: () => invoke('getSystemContrast'),
   // Keep in sync with the BrowserWindow hiddenInset setup in main.ts.
@@ -28,6 +31,7 @@ const bridge: DesktopBridge = {
   copy: text => invoke('copy', text),
   openExternal: url => invoke('openExternal', url),
   pickDirectory: () => invoke('pickDirectory'),
+  listSSHProfiles: () => invoke('listSSHProfiles'),
   listProjectEditors: () => invoke('listProjectEditors'),
   openProject: (request, urlSource) => invoke('openProject', request, urlSource),
   testLocalRuntime: () => invoke('testLocalRuntime'),

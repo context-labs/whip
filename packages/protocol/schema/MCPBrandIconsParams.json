@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "keys": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/MCPBrandIconsParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPBrandIconsParams",
+  "required": [
+    "keys"
+  ],
+  "additionalProperties": false
+}

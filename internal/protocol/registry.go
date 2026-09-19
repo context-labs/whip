@@ -52,6 +52,31 @@ type SubscriptionFailure struct {
 	Error          *RPCError `json:"error"`
 }
 
+// TracePageParams reads a root's spans written after a cursor. TraceID narrows
+// to one trace; RootsOnly lists the turn spans that start traces.
+type TracePageParams struct {
+	RootID    string `json:"root_id"`
+	TraceID   string `json:"trace_id,omitempty"`
+	AfterSeq  int64  `json:"after_seq,omitempty,string"`
+	Limit     int    `json:"limit,omitempty"`
+	RootsOnly bool   `json:"roots_only,omitempty"`
+}
+
+// TraceExportParams renders a session's spans as OTLP/JSON. An empty TraceID
+// exports every trace of the session.
+type TraceExportParams struct {
+	RootID  string `json:"root_id"`
+	TraceID string `json:"trace_id,omitempty"`
+}
+
+// TraceExportResult hands back the export as a root-scoped content reference
+// read through content.read, with the counts it contains.
+type TraceExportResult struct {
+	Content ContentHandle `json:"content"`
+	Spans   int           `json:"spans"`
+	Traces  int           `json:"traces"`
+}
+
 type HistoryPageParams struct {
 	RootID     string `json:"root_id"`
 	AgentID    string `json:"agent_id"`
@@ -104,6 +129,11 @@ var rpcOperations = []Operation{
 	rpc[DefinitionRegisterParams, DefinitionRegisterResult]("definitions.register", Ephemeral, "host-runtime", false),
 	rpc[DefinitionParams, DefinitionRecord]("definitions.get", Query, "host-runtime", false),
 	rpc[Empty, DefinitionList]("definitions.list", Query, "host-runtime", false),
+	rpc[BrowserProviderBindParams, BrowserProviderBindResult]("browser.provider.bind", Ephemeral, "browser-provider", false),
+	rpc[BrowserProviderUnbindParams, Accepted]("browser.provider.unbind", Ephemeral, "browser-provider", false),
+	rpc[BrowserInventoryResultParams, Accepted]("browser.inventory.result", Ephemeral, "browser-provider", false),
+	rpc[BrowserCommandResultParams, Accepted]("browser.command.result", Ephemeral, "browser-provider", false),
+	rpc[BrowserProviderEventParams, Accepted]("browser.provider.event", Ephemeral, "browser-provider", false),
 	rpc[ExecutorBindParams, ExecutorBindResult]("executor.bind", Ephemeral, "host-runtime", false),
 	rpc[ExecutorPendingParams, ExecutorPendingResult]("executor.pending", Query, "executor-lease", false),
 	rpc[ToolResultParams, Accepted]("tool.result", Ephemeral, "executor-lease", false),
@@ -116,6 +146,8 @@ var rpcOperations = []Operation{
 	rpc[ReplayParams, ReplayResult]("events.replay", Query, "root-association", false),
 	rpc[SnapshotParams, session.RootSnapshot]("root.snapshot", Query, "root-association", false),
 	rpc[HistoryPageParams, session.BoundedTranscriptPage]("history.page", Query, "root-agent-association", false),
+	rpc[TracePageParams, session.SpanPage]("trace.page", Query, "root-association", false),
+	rpc[TraceExportParams, TraceExportResult]("trace.export", Query, "root-association", false),
 	rpc[ProviderValidateParams, ProviderValidateResult]("provider.validate", Ephemeral, "host-configuration", true),
 	rpc[UploadBeginParams, Accepted]("upload.begin", Ephemeral, "content-grant", false),
 	rpc[UploadChunkParams, Accepted]("upload.chunk", Ephemeral, "connection-upload", false),
@@ -123,6 +155,9 @@ var rpcOperations = []Operation{
 	rpc[PermissionDecisionParams, PermissionDecisionResult]("permission.decide", Ephemeral, "trusted-client-decision", false),
 	rpc[Empty, RuntimeConfiguration]("config.get", Query, "none", false),
 	rpc[ConfigurationUpdate, RuntimeConfiguration]("config.update", Ephemeral, "configuration-revision", false),
+	rpc[MCPImportCandidatesParams, MCPImportCandidatesResult]("mcp.import.candidates", Query, "host-configuration", false),
+	rpc[MCPImportApplyParams, MCPImportApplyResult]("mcp.import.apply", Ephemeral, "host-configuration", false),
+	rpc[MCPBrandIconsParams, MCPBrandIconsResult]("mcp.brand.icons", Query, "host-configuration", false),
 	rpc[ProviderKeySetup, RuntimeConfiguration]("provider.key.set", Ephemeral, "configuration-revision", true),
 	rpc[ProviderLoginBeginParams, ProviderLoginStatus]("provider.login.begin", Ephemeral, "host-configuration", false),
 	rpc[ProviderLoginParams, ProviderLoginStatus]("provider.login.status", Query, "none", false),
@@ -171,15 +206,19 @@ func Lookup(name string) (Operation, bool) {
 
 func Events() map[string]reflect.Type {
 	return map[string]reflect.Type{
-		"event":               reflect.TypeFor[EventNotification](),
-		"subscription.failed": reflect.TypeFor[SubscriptionFailure](),
-		"tool.invoke":         reflect.TypeFor[ToolInvokeParams](),
-		"tool.cancel":         reflect.TypeFor[ToolCancelParams](),
-		"hook.invoke":         reflect.TypeFor[HookInvokeParams](),
-		"hook.cancel":         reflect.TypeFor[ToolCancelParams](),
-		"terminal.output":     reflect.TypeFor[TerminalOutputParams](),
-		"terminal.exited":     reflect.TypeFor[TerminalExitedParams](),
-		"terminal.detached":   reflect.TypeFor[TerminalDetachedParams](),
+		"event":                    reflect.TypeFor[EventNotification](),
+		"subscription.failed":      reflect.TypeFor[SubscriptionFailure](),
+		"browser.provider.revoked": reflect.TypeFor[BrowserProviderRevoked](),
+		"browser.inventory":        reflect.TypeFor[BrowserInventoryRequest](),
+		"browser.command":          reflect.TypeFor[BrowserCommand](),
+		"browser.command.cancel":   reflect.TypeFor[BrowserCommandCancel](),
+		"tool.invoke":              reflect.TypeFor[ToolInvokeParams](),
+		"tool.cancel":              reflect.TypeFor[ToolCancelParams](),
+		"hook.invoke":              reflect.TypeFor[HookInvokeParams](),
+		"hook.cancel":              reflect.TypeFor[ToolCancelParams](),
+		"terminal.output":          reflect.TypeFor[TerminalOutputParams](),
+		"terminal.exited":          reflect.TypeFor[TerminalExitedParams](),
+		"terminal.detached":        reflect.TypeFor[TerminalDetachedParams](),
 	}
 }
 

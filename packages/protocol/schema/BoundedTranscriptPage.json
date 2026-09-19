@@ -23,6 +23,189 @@
       "items": {
         "type": "object",
         "properties": {
+          "presentation": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "design_context": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "context_attachment_id": {
+                    "type": "string"
+                  },
+                  "screenshot_attachment_id": {
+                    "type": "string"
+                  },
+                  "elements": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "selector": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "element_count": {
+                    "type": "integer"
+                  },
+                  "page_url": {
+                    "type": "string"
+                  },
+                  "page_title": {
+                    "type": "string"
+                  },
+                  "context_part_index": {
+                    "type": "integer"
+                  },
+                  "screenshot_part_index": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  }
+                },
+                "required": [
+                  "context_attachment_id",
+                  "elements",
+                  "element_count",
+                  "context_part_index"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "integer"
+              },
+              "turn_id": {
+                "type": "string"
+              },
+              "parts": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "integer"
+                    },
+                    "end": {
+                      "type": "integer"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "tool_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "call_id": {
+                      "type": "string"
+                    },
+                    "hosts": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "invocation_id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "summary": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "duration": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string"
+                          },
+                          "display": {
+                            "type": [
+                              "null",
+                              "object"
+                            ],
+                            "properties": {
+                              "target": {
+                                "type": "string"
+                              },
+                              "command": {
+                                "type": "string"
+                              },
+                              "query": {
+                                "type": "string"
+                              },
+                              "child_id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "invocation_id",
+                          "name",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "omitted": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "omitted": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version"
+            ],
+            "additionalProperties": false
+          },
           "role": {
             "type": "string"
           },
@@ -44,6 +227,189 @@
               "object"
             ],
             "properties": {
+              "presentation": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "design_context": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "context_attachment_id": {
+                        "type": "string"
+                      },
+                      "screenshot_attachment_id": {
+                        "type": "string"
+                      },
+                      "elements": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "selector": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "element_count": {
+                        "type": "integer"
+                      },
+                      "page_url": {
+                        "type": "string"
+                      },
+                      "page_title": {
+                        "type": "string"
+                      },
+                      "context_part_index": {
+                        "type": "integer"
+                      },
+                      "screenshot_part_index": {
+                        "type": [
+                          "null",
+                          "integer"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "context_attachment_id",
+                      "elements",
+                      "element_count",
+                      "context_part_index"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "version": {
+                    "type": "integer"
+                  },
+                  "turn_id": {
+                    "type": "string"
+                  },
+                  "parts": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "integer"
+                        },
+                        "end": {
+                          "type": "integer"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "tool_name": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "call_id": {
+                          "type": "string"
+                        },
+                        "hosts": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "invocation_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "summary": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "duration": {
+                                "type": "string"
+                              },
+                              "error": {
+                                "type": "string"
+                              },
+                              "display": {
+                                "type": [
+                                  "null",
+                                  "object"
+                                ],
+                                "properties": {
+                                  "target": {
+                                    "type": "string"
+                                  },
+                                  "command": {
+                                    "type": "string"
+                                  },
+                                  "query": {
+                                    "type": "string"
+                                  },
+                                  "child_id": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "invocation_id",
+                              "name",
+                              "status"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "omitted": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "omitted": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "version"
+                ],
+                "additionalProperties": false
+              },
               "role": {
                 "type": "string"
               },
@@ -215,6 +581,9 @@
                 "type": "string"
               },
               "rewound_from": {
+                "type": "string"
+              },
+              "call_id": {
                 "type": "string"
               }
             },

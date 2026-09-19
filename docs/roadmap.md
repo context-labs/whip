@@ -68,6 +68,17 @@ direct-tool and RLM agents.
   budget pressure, and repeated worker crashes.
 - [ ] Expand Linux/macOS race and restart coverage for recursive trees and MCP
   reconnection.
+- [x] Repair the MCP contracts and make the MCP surfaces honest: one selection
+  step for the definition's server list, additive untrusted attach, a separate
+  project import source, import as the trust path, origin-bound credentials,
+  complete paged discovery, chained reconnects, visible source errors, and
+  structured/binary results kept. See the
+  [MCP contracts plan](../.ai-docs/plans/mcp-contracts/PLAN.md).
+- [x] MCP progressive discovery for the model: `mcp.search` across servers,
+  `mcp.describe` for one schema, windowed schema-free `list_tools`, all over
+  the daemon's cached catalogs
+  ([MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
+- [ ] MCP tool browser in the web and TUI over the same daemon search.
 
 The original runtime plan and implementation learnings live in
 [`docs/plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md`](plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md).
@@ -118,6 +129,13 @@ in
   Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [x] React web implementation with separate UI/app/web source packages, TanStack
   application primitives, Base UI controls and extracted StyleX styles.
+- [x] MCP import screen in the web and desktop app: the servers other agents
+  configured on a host (Codex, Claude, OpenCode, project file) offered once on
+  New session and from Settings, ticked servers written as native trusted
+  entries, no probing before import. See the
+  [MCP import onboarding plan](../.ai-docs/plans/mcp-import-onboarding/README.md).
+- [x] Shared web/desktop startup splash with Whip's wordmark, HALO animations,
+  reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.
@@ -149,6 +167,21 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [ ] Browser Design Mode acceptance: multi-element selection, trusted floating
+  composer and scoped context-to-chat pass automated app/renderer/native checks;
+  manual IME/accessibility and packaged local/SSH checks remain before broad release.
+  See the [plan and validation](../.ai-docs/plans/browser-design-mode/README.md).
+- [ ] Experimental desktop Browser rollout: human workspace tabs, explicit
+  conversation/agent access and saved-SSH previews are implemented. Browser tabs
+  are **enabled by default**; `WHIP_DESKTOP_BROWSER_TABS=0` disables them at launch.
+  Default availability does not complete the remaining release gates. See the
+  [behavior → implementation → tests map](features.md#experimental-desktop-browser-tabs)
+  and [implementation ledger](../.ai-docs/plans/browser-tabs/implementation.md).
+  Completion requires the remaining [Phase 7 gates](../.ai-docs/plans/browser-tabs/README.md):
+  shipping-security packaged local/SSH and overlay/focus acceptance, security and
+  dependency review, supported-macOS/VoiceOver/IME/manual checks, performance and
+  lifecycle budgets, and disabled/old-client/rollback validation. Passing unit or
+  development-native fixtures does not complete this rollout milestone.
 - [ ] Desktop publishing CI: explicit desktop releases, CI signing/notarization,
   verified downloads and update feeds, clean-machine installation and actual
   update acceptance. See the

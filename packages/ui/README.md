@@ -289,6 +289,8 @@ separate acceptance work.
 Dialog accepts an optional `header` slot for controls such as a search input; its
 `title` remains the accessible dialog name. `initialFocus` and `finalFocus`
 forward Base UI focus destinations. Default titled dialogs are unchanged.
+`headerXstyle` and `bodyXstyle` let composed dialogs adjust section spacing and
+flex sizing while retaining the shared title, close control and focus behavior.
 
 Text inputs, textareas, combobox inputs, and number inputs indicate focus by
 changing their one-pixel border to `surface.secondaryText`. They do not add an
@@ -372,3 +374,8 @@ SettingsRow already renders the visible title.
 decorative three-dot status mark. Supply adjacent readable text and own any live
 region in the consumer. Motion begins after one second, stops while the document
 is hidden, and follows OS reduced motion. It owns no progress or execution state.
+
+`RadioGroup` accepts `variant="cards"` for a single-selection list with an optional
+leading `icon`, description, and trailing status on each option. It retains Base UI
+keyboard and focus behavior. `Collapsible` accepts `disabled` and `xstyle` for
+busy form disclosures and full-width triggers.

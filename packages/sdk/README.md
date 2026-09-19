@@ -67,6 +67,65 @@ node examples/client/node.mjs /path/to/daemon.sock /host/project 'Review the cha
 node examples/client/node.mjs http://127.0.0.1:8080 /host/project 'Review the changes'
 ```
 
+## Experimental native Browser provider
+
+A trusted desktop host can advertise `browserProvider: true` when constructing
+its `WhipClient`. Advertising support is not authority. A v2 offer with
+`availability: true`, `offered_tabs: []` and `offered_preview_hosts: []` registers
+an inert create destination for an exact open conversation/host/window/pane via
+`client.browser.select(offer, bridge, options)`. It neither selects a controller
+nor grants page/network authority. The daemon promotes an unambiguous candidate
+only after the existing create permission policy admits the operation.
+Human-page offers still require explicit user selection and exact resources.
+The offer uses generated `BrowserProviderBindParams`; both ends negotiate
+`desktop-browser-v2` for availability/discovery, while explicit v1 offers remain
+supported without discovery. `BrowserProviderBridge` is structural;
+the SDK never imports Electron or app UI code.
+
+```ts
+// Run in response to the user's explicit selection, not on connect/focus.
+const selection = await client.browser.select(offer, nativeBridge, {
+  connectionId: selectedSSHProfileId, // omit for non-SSH providers
+  projectId: selectedProjectKey,     // inert identity, not a path grant
+  onError: showProviderUnavailable,
+});
+// User release removes this exact provider epoch; human tabs stay open.
+await selection.release();
+```
+
+The optional native `inventory(request)` adapter services bounded `browser.inventory`
+notifications only after native acknowledgement and only for the current provider.
+It returns current metadata for the exact requested tab generations via
+`browser.inventory.result`; it never dispatches a control command or enables a
+preview route. A late metadata response to a cancelled request is not replayed
+and cannot invalidate an independent control association. The daemon authorizes
+`browser.list_tabs()` and attaches only the calling agent's handles to results.
+No discovery inventory is injected into model prompts.
+
+The SDK bounds broker binding and native acknowledgement by one selection
+deadline (`timeoutMs`, default 30 seconds). Abort, disconnect or revocation rejects
+a pending selection; a late acknowledgement releases only its old epoch. It
+waits for acknowledgement before dispatching commands or observations, matches
+root/provider/command/attachment identity, and drops duplicate commands and stale
+results, forwards cancellation and ordered observations, and uploads screenshot
+bytes through the same connection's root/agent-scoped chunk RPCs—even for
+WebSocket providers. HTTP upload would lose exact-holder provenance. Commands are
+never replayed after an uncertain native delivery. Native admission events remain
+app-owned; the SDK forwards provider observations only. The observation queue is
+bounded to 64 events and 2 MiB, with ten-second RPC acknowledgements. Overflow or
+a sequence/authority error visibly releases the provider rather than silently
+dropping live observations. Only a structured `browser_event_stale` broker error
+retires that exact attachment's queue without disturbing unrelated attachments.
+
+`selection.active` is an observation, not a durable grant. Exact-epoch revocation
+calls `onError` and releases native authority. Observe the client's connection
+state as well: transport loss releases all its native selections, and reconnect
+never rebinds them. Public `release()` also sends exact-holder
+`browser.provider.unbind`; it cannot unbind a replacement epoch. Selection is
+in-memory only and should be disposed with its app owner. Generated protocol
+methods remain available through `client.call`, but arbitrary page control must
+never be exposed on the human-tab API or to a website guest.
+
 ## Three operation lifetimes
 
 `client.call(method, params)` exposes every generated RPC. Runtime conveniences
@@ -120,6 +179,12 @@ reports host capabilities, limits, persistent runtime ID and generation. Build
 equality is irrelevant. New work is rejected while disconnected; the application
 keeps drafts. Queries fail on disconnect; callers decide whether to query again.
 Accepted work remains daemon-owned.
+
+Hosts predating MCP import and logo lookup can omit the associated configuration
+fields. The SDK supplies `mcp_import_offered: true` and `brand_icons: false` only
+when the host does not advertise those operations, preventing unsupported import
+offers or external lookups. Present values and all other response fields still
+undergo normal validation.
 
 Lost acknowledgements produce `DeliveryUncertainError`, never a guessed failure.
 `command.result()` reconciles by status after reconnect. If status definitively
@@ -219,6 +284,24 @@ and paginated collections. Stale state remains visible during recovery. Root and
 child presentation remains separate from committed transcript entries. Inspecting
 a child never adds its transcript to another agent's model context.
 
+`snapshot.history[agentId].gaps` describes missing raw records between retained
+sections as inclusive `fromSeq`/`toSeq` ranges with `pending`, `loading`, `paused`
+or `error` status. Offloaded message bodies are present records, not gaps.
+`throughSeq` is the known end; `nextSeq`/`hasMore` still describe older paging.
+The view repairs pending gaps after resuming its stream, sharing reads per agent
+and limiting an automatic pass to four 128-record / 256-KiB pages. Failed or
+paused gaps remain explicit until requested or reconnected; render their controls
+without treating them as a disconnected session.
+
+Use `await view.loadHistoryGap(agentId, gap.toSeq)` to retry/continue one page.
+The upper bound stays stable as the beginning fills. Explicit reads retain the
+requested page within the existing 512-record / 8-MiB bounds. If navigation evicts
+newer history, `history.latestMissing` is true: call `await view.loadLatest(agentId)`
+before jumping to the newest content. Keep gap state scoped to agent and revision;
+never concatenate response prose or activity groups across an unresolved gap.
+All recovery uses the existing root subscription and `history.page`, with no
+implicit body reads or child transcript subscriptions.
+
 Pass the displayed revision to `session.history.clear(revision)` just as with
 rewind, so another client's destructive edit causes a conflict instead of an
 unconditional clear. Transcript message `content` is a string or a content-part
@@ -279,6 +362,32 @@ from compatible older hosts mean unknown, not success. Keep all agent/session
 IDs opaque: new IDs use 20 lowercase base32 characters, while legacy IDs and
 existing links remain valid. Hierarchy comes from `root_id` and `parent_id`.
 
+Queue controls act on an already accepted input; they do not submit a new prompt:
+
+```ts
+if (client.supports('runtime', 'inbox.steer') && client.supports('runtime', 'inbox.remove')) {
+  await session.inbox.steer(agentId, inboxSeq, expectedTurnId).result();
+  // Or remove it while still waiting; this never cancels a running turn.
+  await session.inbox.remove(agentId, inboxSeq).result();
+}
+```
+
+The result distinguishes `steering`, `removed`, `already_started`,
+`already_removed`, and `turn_ended`. Admission alone is not mutation success.
+Steering preserves the original prompt, attachments, command identity and inbox
+sequence; it delivers at the expected turn's next safe boundary. If that turn
+ends first, the entry keeps its ordinary queue position. Direct `session.steer`
+remains supported. Root input commands removed while queued settle as cancelled
+with failure kind `queue_removed`; completed child admission commands stay complete.
+
+`inboxItems(view.getSnapshot(), agentId)` from `@whip/sdk/state` returns scoped
+rows with freshness and additional-page availability. Optional inbox metadata
+includes client origin/correlation, bounded text/attachment preview, pending
+steer target and delivery sequence. Snapshot omissions retain bounded unverified
+evidence; do not enable controls on stale rows or infer removal from absence.
+Use `view.loadCollection('inbox')` and `{ more: true }` for explicit paging.
+All retained evidence shares the existing session byte budget and subscription.
+
 Supplemental execution evidence is capped at 256 entries per root, 128 host calls
 per cell and 1 MiB **inside** the view's payload budget. Truncation is explicit.
 History revisions and root changes invalidate incompatible observations. When
@@ -288,6 +397,16 @@ transcripts recover code/results; host traces and restart details observed befor
 the client attached may be unavailable. This API does not add a subscription,
 fetch all history or load every child's transcript. Use `loadOlder(agentId)` and
 scoped content reads explicitly when needed.
+
+`await view.loadTrace()` reads durable span pages for the root, including inactive
+persisted conversations, independently of root snapshot/history refreshes.
+Concurrent callers share the pending read. Each call loads at most eight pages;
+`state.trace.hasMore` indicates explicit continuation. `loading` settles on
+completion, error, page-budget exhaustion or disconnect; retry resumes at the
+last durable page cursor. Call again on reconnect to catch up on missed span
+events. Empty successful reads set `loaded` without fabricating spans for
+conversations that predate tracing. Live span events share the root subscription
+and do not advance the durable page cursor.
 
 For scripts, `await client.events.subscribe(rootId, cursor)` gives a single
 bounded async iterator. Install a view or read a snapshot to obtain a cursor.

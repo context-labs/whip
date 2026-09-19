@@ -44,12 +44,13 @@ function fixture() {
   const connection = { state: 'connected', info: { runtime_id: 'host' } };
   const snapshot = {
     status: 'live',
+    collections: {},
     root: { root_id: 'root', meta: {}, history_revision: '1', active_turns: {}, presentation: [], inbox: [] },
     history: { root: { revision: '1', throughSeq: 1, nextSeq: 1, hasMore: false, loading: false, truncated: false, messages: [{ seq: 1, message: { role: 'user', content: 'Hello' } }] } },
   };
   const view = {
     subscribe: () => () => {}, getSnapshot: () => snapshot,
-    session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection }, history: { clear: vi.fn(), rewind: vi.fn() }, fork: vi.fn() },
+    session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection, supports: () => false }, history: { clear: vi.fn(), rewind: vi.fn() }, fork: vi.fn() },
   } as unknown as SessionView;
   const run = vi.spyOn(runtime, 'run');
   render(<RuntimeContext.Provider value={runtime}><UIProvider><SessionContent kind="chat" view={view} expectedRuntimeId="host" agentId="root" panel="agents" /></UIProvider></RuntimeContext.Provider>);

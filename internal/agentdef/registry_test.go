@@ -61,7 +61,7 @@ func TestOperationsMapCapabilitiesInCanonicalOrder(t *testing.T) {
 		t.Fatalf("junior operations = %v %v %v", files, shell, mcp)
 	}
 	files, shell, mcp = Operations([]string{"browser", "shell", "read", "read"})
-	if !slices.Equal(files, []string{"read"}) || !slices.Equal(shell, []string{"bash", "shell_start", "browser_exec", "workspace_process"}) || mcp {
+	if !slices.Equal(files, []string{"read"}) || !slices.Equal(shell, []string{"bash", "shell_start", "browser_exec", "workspace_process", "browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port"}) || mcp {
 		t.Fatalf("mixed operations = %v %v %v", files, shell, mcp)
 	}
 	files, shell, mcp = Operations(nil)

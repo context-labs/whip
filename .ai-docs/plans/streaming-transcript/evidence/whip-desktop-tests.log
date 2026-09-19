@@ -1,0 +1,250 @@
+
+> whip-clients@0.0.0 test:desktop
+> node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/release-candidate.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test
+
+✔ accepts only the exact desktop origin, without credentials or alternate ports (291.326042ms)
+✔ serves exact artifact bytes, asset MIME/cache headers and the shared CSP (144.596875ms)
+✔ supports SPA deep navigation while missing assets and API paths return 404 (49.318167ms)
+✔ rejects traversal, hidden files, invalid encodings and filesystem separators (57.540917ms)
+✔ allows only GET/HEAD and preserves security headers on errors (42.771583ms)
+✔ refuses changed, missing and symlinked allowlisted files (95.851542ms)
+✔ refuses allowlisted assets reached through a symlinked parent directory (42.373042ms)
+✔ refuses a symlink replacing the renderer directory itself (20.561959ms)
+✔ fails closed for invalid manifest metadata and oversized file claims (41.122416ms)
+✔ session links select only the configured release channel and preserve shared routing (1.160959ms)
+✔ native save commits exact ordered bytes only after completion and removes its temporary file (132.772166ms)
+✔ native disposal invalidates an unresolved save dialog (19.181417ms)
+✔ native disposal closes and removes a save file whose open resolves after disposal (24.674ms)
+✔ native disposal waits for an in-flight write and revokes permission to finalize it (43.251875ms)
+✔ native disposal cancels a pending final flush before it can replace the selected file (27.845125ms)
+✔ native disposal revokes every save before waiting for the first pending operation (11.874875ms)
+✔ native notification throttling is per session and bounds ownership without close callbacks (10.185417ms)
+✔ native effects reject privileged external schemes and malformed notification routes (0.460583ms)
+✔ native project verification rejects a replacement runtime before opening any views or submitting work (13.602666ms)
+✔ launcher environment preserves OS authentication without leaking provider keys or remote routing hooks (0.121708ms)
+✔ accepts fixed applications and bounded literal paths, rejecting command and alias injection (0.412334ms)
+✔ remote profiles require explicit alias configuration when settings cannot be faithfully reused (0.205833ms)
+✔ editor URLs encode full paths without shell parsing or query/fragment ambiguity (0.281459ms)
+✔ discovers fixed installed bundles and opens local paths with literal argument arrays (209.955542ms)
+✔ remote folders are never checked or opened locally and Finder is unavailable for every remote transport (35.371792ms)
+✔ missing local folders, applications, failed launches, Finder errors, and cancelled operations are actionable (78.6105ms)
+✔ /bin/zsh recovers only supported keys from interactive login startup (216.1035ms)
+✔ /bin/bash recovers only supported keys from interactive login startup (82.289958ms)
+✔ invalid recovered OpenAI endpoint overrides cannot expose their key as a canonical preset key (1016.51025ms)
+✔ shell recovery is bounded, abortable, and falls back without exposing shell output (3589.61ms)
+✔ generated provider names are unique shell identifiers (0.325041ms)
+✔ test is read-only for missing installations and does not silently use packaged bytes (154.527ms)
+✔ explicit install publishes verified canonical bytes; test never starts a daemon (1539.044833ms)
+✔ first-run default installation uses the selected missing path and waits for normal connection to start (855.341958ms)
+✔ a fresh user gets a writable per-user default without discovering a different machine installation (616.458417ms)
+✔ first-run default installation preserves incompatible and explicitly managed installations (517.347875ms)
+✔ first-run default installation keeps a saved missing path instead of selecting a different executable (1048.617166ms)
+✔ desktop connects through the installed binary and reuses its running daemon (807.211417ms)
+✔ saved selection wins over PATH changes and missing saved binaries do not fall back (802.265917ms)
+✔ explicit choice validates distribution and persists without starting work (1053.928792ms)
+✔ cancelling selection before settings publication preserves the previous executable (819.610125ms)
+✔ refuses corrupt payloads and existing different installations without overwriting (776.176458ms)
+✔ refuses a verified payload whose executable build identity differs from its manifest (367.4085ms)
+✔ installation permission failures offer bounded recovery instructions without raw filesystem details (357.477584ms)
+✔ exclusive publication leaves a concurrently installed executable intact (370.478ms)
+✔ cancelled copies remove temporary files without creating an installation (379.045041ms)
+✔ existing unhealthy owners require explicit restart; stale unowned sockets recover (1683.763292ms)
+✔ startup port conflicts are actionable and do not expose raw subprocess output (892.139125ms)
+✔ rejects non-executable and symlinked package payloads (50.451292ms)
+✔ manifest validation checks distribution, build identity and file inventory (30.833542ms)
+✔ bounds subprocess output and stops timed out or cancelled children (228.29775ms)
+✔ validates daemon socket and process metadata before transport attachment (0.24175ms)
+✔ one desktop update approval synchronizes the canonical backend and is consumed after readiness (1377.056334ms)
+✔ manual app replacement defers running work then applies on explicit retry (1813.70975ms)
+✔ synchronization rejects external replacement and never adopts a chosen external executable (1182.226666ms)
+✔ manual restart approval survives a failed handoff and future update approval survives a no-op sync (1544.603667ms)
+✔ startup synchronization waits for an overlapping local connection (995.532334ms)
+✔ running startup reads the shell and verifies the daemon once; reconnect and restart refresh the environment (1533.345458ms)
+✔ stopped startup shares its environment but rechecks readiness after starting (1122.929875ms)
+✔ connection preparation preserves update approval and probes the replacement before attaching (1073.379375ms)
+✔ failed and cancelled attempts release the runtime for a fresh retry (1324.884667ms)
+✔ discovers literal aliases and explicit metadata without evaluating Match exec or wildcards (98.478375ms)
+✔ reads quoted Includes and globs in lexical order, with SSH-relative paths (131.920917ms)
+✔ missing config is empty; malformed and cyclic config remain errors (73.542167ms)
+✔ bounds configuration bytes and profiles, explicitly reporting truncation (77.730125ms)
+✔ retains include context but omits conditional and token-expanded hints (23.616791ms)
+✔ bounds Include fan-out and nesting without silently claiming a complete list (603.979458ms)
+✔ quotes remote paths as one literal shell argument without executing metacharacters (229.928375ms)
+✔ passes SSH identity paths literally and enforces noninteractive forwarding controls (34.358ms)
+✔ rejects cancelled and malformed remote setup before launching SSH (2.449042ms)
+✔ preserves Unicode in an authentication request split inside a UTF-8 character (980.5525ms)
+﹣ real SSH forwards an isolated Unix socket, quotes remote paths and preserves remote work on disposal (0.128709ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH preserves the remote Unix path when status output splits a UTF-8 character (0.050041ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH asks before trusting a generated unknown host and decrypting its fixture key (0.042292ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH host-trust cancellation never authenticates or saves the generated host key (0.036042ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH prompt cancellation ends establishment rather than asking for the passphrase again (0.028208ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH cancellation dismisses pending authentication and removes its local resources (0.036209ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ a local forwarding socket does not prove the server allows the remote Unix destination (0.037583ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH recovers a lost owned master without restarting healthy remote work (0.034ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+﹣ real SSH stops automatic reconnect when a lost master needs authentication again (0.024875ms) # Set WHIP_DESKTOP_SSH_TEST_EXECUTABLE to a built Whip helper
+✔ forwards ordered UTF-8 frames over the real SDK Unix transport and acknowledges sent bytes (43.497542ms)
+✔ closes on out-of-order acknowledgements without acknowledging another connection (17.557125ms)
+✔ bounds unacknowledged frame count, including zero-byte frames (15.616833ms)
+✔ bounds unacknowledged receive bytes independently of frame count (191.868ms)
+✔ refuses oversized fragmented input before it forms a complete frame (7.862292ms)
+✔ rejects newline injection, wrong sequences and oversized UTF-8 outbound frames (20.889292ms)
+✔ releases only transports owned by the selected connection (17.059417ms)
+✔ bounds the outbound queue when the Unix peer stops consuming data (25.978584ms)
+✔ cancels pending and connected transports exactly once without exhausting handles (148.6485ms)
+✔ an obsolete pending open cannot close or adopt a reused transport handle (5.01925ms)
+✔ validates handles before admitting native transport state (15.759584ms)
+✔ supports independent native hosts and retains a bounded reconnect allowance (12.524625ms)
+✔ Forge release names authorize the exact version and reject malformed or cross-channel names (1.754833ms)
+✔ updater accepts only bounded HTTPS release feeds without embedded credentials (0.336875ms)
+✔ updater deduplicates active checks, permits retry after failure, and replays a downloaded update (7.01675ms)
+✔ updater does not install before download or while the close handshake is unresolved (0.343625ms)
+✔ updater ignores an unsolicited quit event and rolls back approval on synchronous install failure (0.243125ms)
+✔ updater revokes quit approval when installation fails asynchronously (0.305416ms)
+✔ updater disposal removes its native listeners without removing unrelated subscribers (48.315625ms)
+ℹ tests 99
+ℹ suites 0
+ℹ pass 90
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 9
+ℹ todo 0
+ℹ duration_ms 25576.268958
+✔ extracts the exact application and relative framework links, preserving executable bits (992.985083ms)
+▶ full bundle digest detects changed, missing, and additional main/preload/Electron bytes
+  ✔ changed (103.852791ms)
+  ✔ missing (24.697458ms)
+  ✔ extra (219.119ms)
+✔ full bundle digest detects changed, missing, and additional main/preload/Electron bytes (348.406792ms)
+▶ rejects traversal, absolute paths, foreign apps, duplicate names and special device entries
+  ✔ ../outside (39.498041ms)
+  ✔ /Whip.app/main (81.513583ms)
+  ✔ Whip.app/../outside (122.523416ms)
+  ✔ Whip.app/back\slash (34.625042ms)
+  ✔ Other.app/main (9.204375ms)
+  ✔ Whip.app/main (27.23825ms)
+  ✔ Whip.app/device (10.130625ms)
+✔ rejects traversal, absolute paths, foreign apps, duplicate names and special device entries (327.474875ms)
+▶ never writes through escaping symlinks or a symlink used as an archive parent
+  ✔ Whip.app/link (18.3575ms)
+  ✔ Whip.app/link (16.3225ms)
+  ✔ Whip.app/link,Whip.app/link/keep.txt (32.463833ms)
+  ✔ Whip.app/link,Whip.app/link (24.142292ms)
+  ✔ Whip.app/A/link,Whip.app/chain (44.037875ms)
+✔ never writes through escaping symlinks or a symlink used as an archive parent (137.281375ms)
+▶ rejects truncated entries and declared sizes beyond extraction bounds
+  ✔ 7 (12.355708ms)
+  ✔ 1073741825 (8.093792ms)
+✔ rejects truncated entries and declared sizes beyond extraction bounds (20.96375ms)
+✔ bundle digest rejects directory aliases, escaping links and dangling framework links (22.354333ms)
+✔ distribution refuses missing or stale before-make evidence before removing prior output (187.508458ms)
+✔ a substituted DMG application is rejected and its private volume is detached on failure (14199.152458ms)
+GitHub release v1.2.3: verified 2 immutable assets.
+GitHub release v1.2.3: verified 2 immutable assets.
+✔ identical GitHub reruns verify every asset and preserve all existing release metadata (3071.65275ms)
+GitHub release v1.2.3: verified 10 immutable assets.
+GitHub release v1.2.3: verified 10 immutable assets.
+✔ uploads only missing artifacts and a retry verifies the previously uploaded bytes (7711.672042ms)
+✔ different existing bytes fail before any missing asset is uploaded (590.246458ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+▶ creates an absent release with the existing notes behavior and safely accepts a create race
+  ✔ created (1612.140709ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+  ✔ create-race (1304.492208ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+  ✔ create-delayed (4617.16975ms)
+✔ creates an absent release with the existing notes behavior and safely accepts a create race (7534.753917ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+▶ upload races accept identical bytes, including CLI conflicts, and reject a different winner
+  ✔ upload-race-identical (717.750416ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+  ✔ upload-race-cli (706.197458ms)
+  ✔ upload-race-changed (539.171459ms)
+✔ upload races accept identical bytes, including CLI conflicts, and reject a different winner (1963.89175ms)
+▶ authentication and network errors never become release absence or successful upload races
+  ✔ repo-auth (809.167583ms)
+  ✔ release-auth (343.387ms)
+  ✔ release-network (391.959333ms)
+  ✔ list-auth (523.805541ms)
+  ✔ download-auth (597.447042ms)
+  ✔ create-auth (425.378708ms)
+  ✔ upload-auth (479.953375ms)
+  ✔ upload-network (435.08175ms)
+✔ authentication and network errors never become release absence or successful upload races (4007.523125ms)
+▶ bounds streamed downloads and rejects truncation or asset replacement after verification
+  ✔ overlong (454.19175ms)
+  ✔ truncated (620.357ms)
+  ✔ replace-after-read (636.645917ms)
+✔ bounds streamed downloads and rejects truncation or asset replacement after verification (1711.691708ms)
+▶ invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access
+  ✔ label (3.662209ms)
+  ✔ space (2.964ms)
+  ✔ duplicate (5.273833ms)
+  ✔ symlink (8.896833ms)
+  ✔ oversized (4.864875ms)
+✔ invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access (26.290333ms)
+GitHub release desktop-v1.2.3-beta.1: verified 2 immutable assets.
+GitHub release desktop-v1.2.3-beta.1: verified 2 immutable assets.
+GitHub release desktop-v1.2.3-beta.1: verified 2 immutable assets.
+✔ desktop release stages privately, then promotes the verified draft without rebuilding or uploading (2085.636334ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+✔ promotion refuses missing assets and failed promotion leaves a complete retryable draft (1374.727083ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+✔ standalone stable CLI promotion remains latest while desktop never replaces it (1294.395541ms)
+✔ merges authoritative history even when the maker candidate has stale or foreign prior entries (3.56375ms)
+✔ rerunning a release preserves original metadata and refuses URL changes or downgrades (1.334958ms)
+✔ rejects malformed feed versions, foreign paths, duplicate current candidates and missing current history (0.593458ms)
+✔ history retention keeps the latest 100 versions in semantic version order (0.702167ms)
+Published verified Whip 1.2.0; update feed promoted last.
+✔ publishes immutable verified assets first, then conditionally promotes the authoritative ETag (2064.242916ms)
+Published verified Whip 1.2.0; update feed promoted last.
+▶ a first feed uses if-none-match and never overwrites an intervening first publisher
+  ✔ no race (932.735708ms)
+  ✔ promote (1019.460167ms)
+✔ a first feed uses if-none-match and never overwrites an intervening first publisher (1952.731583ms)
+▶ a concurrent feed change during GET or promotion cannot drop the other release
+  ✔ get (582.909ms)
+  ✔ promote (1822.37175ms)
+✔ a concurrent feed change during GET or promotion cannot drop the other release (2405.853792ms)
+Published verified Whip 1.2.0; update feed promoted last.
+Published verified Whip 1.2.0; update feed promoted last.
+✔ changed local artifacts stop publication before any writes and identical release reruns remain safe (1995.416125ms)
+▶ old or mismatched archive evidence cannot authorize publication
+  ✔ missing archive proof (777.350834ms)
+  ✔ different app tree (538.139625ms)
+  ✔ different renderer (375.493459ms)
+  ✔ unsigned archive (419.468209ms)
+✔ old or mismatched archive evidence cannot authorize publication (2111.585709ms)
+Staged verified Whip 1.2.0; live update feed unchanged.
+Published verified Whip 1.2.0; update feed promoted last.
+✔ staging leaves the live feed unchanged and promotion only writes the feed (825.2195ms)
+✔ promotion cannot advertise objects that have not been staged (480.139209ms)
+✔ R2 rejects foreign endpoints and requires explicit scoped credentials before storage access (20.932583ms)
+Verified desktop-v1.2.3-beta.1 from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: 11 final artifacts
+Verified desktop-v1.2.3-beta.1 from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: 11 final artifacts
+Verified desktop-v1.2.3-beta.1 from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: 11 final artifacts
+✔ release candidate binds desktop and Linux bytes to the same source and version (1359.741791ms)
+✔ candidate cannot promote a different source, version, dirty or unsigned desktop (738.688667ms)
+✔ candidate refuses missing or changed signed assets before manifest assembly (61.893416ms)
+✔ candidate refuses missing acceptance artifacts and failed or mismatched startup evidence (860.634ms)
+✔ backend signing requires hardened runtime and exactly the executable-memory entitlement (0.597958ms)
+✔ candidate rejects incomplete or mismatched runtime execution evidence (914.235709ms)
+✔ candidate refuses signed evidence that omits an archive digest (253.103333ms)
+✔ a clean renderer artifact is accepted only for its exact commit and dependency lockfile (1444.986583ms)
+▶ a clean producer cannot authorize a dirty CLI or desktop consumer checkout
+  ✔ tracked native source (1085.728542ms)
+  ✔ untracked source (855.115125ms)
+✔ a clean producer cannot authorize a dirty CLI or desktop consumer checkout (1941.388542ms)
+✔ development artifacts remain usable while release rejects dirty producer provenance (1171.805292ms)
+✔ local source metadata builds without Git but cannot authorize a release (1759.067625ms)
+✔ invalid or partial local metadata cannot silently replace Git provenance (1305.886833ms)
+ℹ tests 92
+ℹ suites 0
+ℹ pass 92
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 31584.842583
+(node:47747) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Startup probe self-test passed

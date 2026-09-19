@@ -65,6 +65,8 @@ export type TurnEvent = TurnEventBase & (
   | PermissionEvent
   | { readonly type: 'child'; readonly childId: string; readonly kind: string; readonly status: string }
   | { readonly type: 'notice'; readonly text: string }
+  /** The provider stream failed after output; the client discarded `discarded` streamed characters and is regenerating the message. */
+  | { readonly type: 'discard'; readonly discarded: number }
   | { readonly type: 'usage'; readonly usage: TurnUsage }
   | { readonly type: 'end'; readonly status: TurnStatus; readonly error?: string }
   | { readonly type: 'raw'; readonly event: SdkEvent }
@@ -225,6 +227,9 @@ export class Turn<Output = unknown> implements AsyncIterable<TurnEvent> {
       case 'question.pending': return questionEvent(this.session, base, payload);
       case 'permission.pending': return permissionEvent(this.session, base, payload);
       case 'stream.notice': return { ...base, type: 'notice', text: text(payload.text) };
+      case 'stream.discard':
+        if (isRoot) this.accumulated = '';
+        return { ...base, type: 'discard', discarded: Number(text(payload.text)) || 0 };
       case 'stream.usage': {
         if (!object(payload.usage)) return { ...base, type: 'raw', event };
         const usage = payload.usage as unknown as TurnUsage;

@@ -82,6 +82,8 @@ tasks:
       - npm run check -w @whip/ui
       - npm run test -w @whip/ui
       - node --test scripts/pack-web.test.mjs
+      - node --test apps/web/scripts/stylex-dev.test.mjs
+      - node --test apps/web/scripts/dev-proxy.test.mjs
 
   benchmark:
     desc: "Benchmark startup: binary boot (--version) and configuration/provider resolution (-bench)"

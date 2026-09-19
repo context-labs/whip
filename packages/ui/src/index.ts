@@ -1,4 +1,6 @@
 export * from './actions';
+export { NativeSurfaceProvider, useNativeOverlay, useNativeSurfacePresence } from './native-surfaces';
+export type { NativeSurfaceHold, AcquireNativeSurfaceHold } from './native-surfaces';
 export {ActivityIndicator} from './activity-indicator';
 export * from './forms';
 export * from './overlays';

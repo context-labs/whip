@@ -230,26 +230,41 @@ func toInt(v any) (int, bool) {
 	return 0, false
 }
 
-// parseTOMLTables splits a TOML document into table name → key/value pairs.
-// Keys inside [table.sub] sections land under the full dotted table name;
-// top-level keys land under "".
+// parseTOMLTables splits the [mcp_servers...] tables of a TOML document into
+// table name → key/value pairs. Everything else in the file — top-level keys,
+// [[array]] tables, other features' sections — is skipped wholesale, so a
+// construct this reader does not understand elsewhere in codex's config cannot
+// take MCP discovery down with it. Malformed content inside an mcp_servers
+// table still errors loudly rather than parsing wrong.
 func parseTOMLTables(doc string) (map[string]map[string]any, error) {
-	tables := map[string]map[string]any{"": {}}
+	tables := map[string]map[string]any{}
 	current := ""
+	skip := true // top-level keys are not ours
 	for lineno, raw := range strings.Split(doc, "\n") {
 		line := strings.TrimSpace(stripTOMLComment(raw))
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "[") {
-			if !strings.HasSuffix(line, "]") || strings.HasPrefix(line, "[[") {
+			array := strings.HasPrefix(line, "[[")
+			name := strings.Trim(line, "[]")
+			name = unquoteTOMLTableName(strings.TrimSpace(name))
+			ours := name == "mcp_servers" || strings.HasPrefix(name, "mcp_servers.")
+			if !ours {
+				skip = true // another feature's section: not ours to parse
+				continue
+			}
+			if array || !strings.HasSuffix(line, "]") {
 				return nil, fmt.Errorf("codex config: line %d: unsupported table header %q", lineno+1, raw)
 			}
-			current = strings.TrimSpace(line[1 : len(line)-1])
-			current = unquoteTOMLTableName(current)
+			skip = false
+			current = name
 			if _, ok := tables[current]; !ok {
 				tables[current] = map[string]any{}
 			}
+			continue
+		}
+		if skip {
 			continue
 		}
 		k, v, ok := strings.Cut(line, "=")

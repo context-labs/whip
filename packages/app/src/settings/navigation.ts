@@ -1,7 +1,7 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../runtime';
 import { isSessionTab, selectedSessionTab, validateSessionSearch, type SessionSearch } from '../session-tabs';
-import { draftDestination, tabDestination } from '../session-tab-routing';
+import { draftDestination, browserDestination, terminalDestination, tabDestination } from '../session-tab-routing';
 
 export const settingsCategories = [
   { id: 'general', label: 'General', description: 'Keyboard shortcuts and attention on this device.' },
@@ -9,7 +9,6 @@ export const settingsCategories = [
   { id: 'providers', label: 'Providers & models', description: 'Connect providers and choose defaults for this execution host.' },
   { id: 'execution', label: 'Agents & execution', description: 'Configure how agents run on this execution host.' },
   { id: 'connections', label: 'Servers', description: 'Manage the computers where Whip runs.' },
-  { id: 'recovery', label: 'Recovery', description: 'Recover saved drafts and check uncertain commands.' },
   { id: 'about', label: 'About & updates', description: 'Application information and available updates.' },
 ] as const;
 export type SettingsSection = (typeof settingsCategories)[number]['id'];
@@ -19,6 +18,8 @@ export function isSettingsSection(value: unknown): value is SettingsSection {
 export interface SettingsSearch { section?: SettingsSection; host?: string; setting?: string }
 export interface SettingEntry { id: string; section: SettingsSection; label: string; keywords: string; desktopOnly?: boolean }
 export const settingEntries: readonly SettingEntry[] = [
+  { id: 'browserRecovery', section: 'general', label: 'Saved Browser addresses', keywords: 'browser tabs recovery restore upgrade downgrade' },
+  { id: 'browserForget', section: 'general', label: 'Forget closed Browser addresses', keywords: 'browser history privacy data clear' },
   { id: 'commandShortcut', section: 'general', label: 'Open commands', keywords: 'keyboard shortcut command palette' },
   { id: 'composerShortcut', section: 'general', label: 'Focus message composer', keywords: 'keyboard shortcut message' },
   { id: 'attentionAnnouncements', section: 'general', label: 'Attention announcements', keywords: 'accessibility screen reader voiceover' },
@@ -43,10 +44,10 @@ export const settingEntries: readonly SettingEntry[] = [
   { id: 'max_retries', section: 'execution', label: 'Maximum retries', keywords: 'agent errors execution' },
   { id: 'import_claude', section: 'execution', label: 'Import Claude configuration', keywords: 'integration' },
   { id: 'import_codex', section: 'execution', label: 'Import Codex configuration', keywords: 'integration' },
+  { id: 'mcp_import', section: 'execution', label: 'Servers from other agents', keywords: 'mcp import codex claude opencode integration' },
+  { id: 'mcp_logos', section: 'execution', label: 'MCP server logos', keywords: 'icons brand duckduckgo privacy lookup' },
   { id: 'agents', section: 'execution', label: 'Custom agents', keywords: 'agent definition persona rules modules capabilities register new' },
   { id: 'hosts', section: 'connections', label: 'Servers', keywords: 'execution hosts connections server remote ssh url tailscale test connection' },
-  { id: 'drafts', section: 'recovery', label: 'Saved drafts', keywords: 'storage device offline discard' },
-  { id: 'commands', section: 'recovery', label: 'Command recovery', keywords: 'uncertain status forget retry' },
   { id: 'updates', section: 'about', label: 'Application updates', keywords: 'version install restart release', desktopOnly: true },
 ];
 export function searchSettings(query: string, nativeNotifications: boolean, updates: boolean): readonly SettingEntry[] {
@@ -90,12 +91,14 @@ export function bindSettingsNavigation(runtime: AppRuntime, router: AnyRouter) {
     if (toLocation.pathname !== '/settings' || !fromLocation || fromLocation.pathname === '/settings') return;
     const match = /^\/h\/([^/]+)\/s\/([^/]+)\/?$/.exec(fromLocation.pathname);
     const draftId = draftDestination(fromLocation.pathname);
-    if (!match && !draftId && fromLocation.pathname !== '/') return;
+    const browserId = browserDestination(fromLocation.pathname);
+    const terminal = terminalDestination(fromLocation.pathname);
+    if (!match && !draftId && !browserId && !terminal && fromLocation.pathname !== '/') return;
     try {
       const active = typeof document === 'undefined' ? undefined : document.activeElement;
       runtime.rememberSettingsReturn({
         ...(match ? { runtimeId: decodeURIComponent(match[1]!), rootId: decodeURIComponent(match[2]!) } : {}),
-        viewId: draftId ?? (match ? fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id : undefined),
+        viewId: draftId ?? browserId ?? (match || terminal ? fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id : undefined),
         search: fromLocation.search, focusId: active?.id || undefined,
       });
     } catch (error) { runtime.report(error); }

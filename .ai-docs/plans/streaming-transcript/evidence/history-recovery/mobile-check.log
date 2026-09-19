@@ -1,0 +1,16 @@
+
+> whip-clients@0.0.0 check:mobile
+> npm run build && npm run check -w @whip/mobile
+
+
+> whip-clients@0.0.0 build
+> npm run build -w @whip/sdk
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @whip/mobile@0.1.0 check
+> tsc --noEmit
+
