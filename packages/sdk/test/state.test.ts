@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RootSnapshot, SpanPage, StreamEvent } from '@whip/protocol';
+import type { BoundedTranscriptPage, RootSnapshot, SpanPage, StreamEvent } from '@whip/protocol';
 import type { CallOptions, SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
 import { createSessionListView, createSessionView, executionRows, inboxItems } from '../src/state.js';
@@ -60,7 +60,7 @@ class Host {
   commands = new Set<(outcome: { command_id: string; status: string }) => void>();
   calls: { method: string; params: Record<string, unknown> }[] = [];
   connection = { state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection-1' } };
-  history?: (params: Record<string, unknown>) => Promise<unknown>;
+  history?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
   trace?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
   beforeAck?: (stream: Stream) => void;
   catalogRevision = '1';
@@ -79,7 +79,7 @@ class Host {
     this.calls.push({ method, params });
     if (method === 'root.snapshot') return structuredClone(this.root);
     if (method === 'trace.page') return this.trace?.(params, options);
-    if (method === 'history.page') return this.history?.(params) ?? {
+    if (method === 'history.page') return this.history?.(params, options) ?? {
       history_revision: this.root.history_revision, through_seq: 1, next_seq: 1, has_more: false,
       messages: [{ seq: 1, message: { role: 'user', content: 'child' } }],
     };
@@ -1466,4 +1466,313 @@ test('runtime replacement cancels old trace evidence and refuses new trace reads
   assert.equal(view.getSnapshot().trace!.error, undefined);
   assert.deepEqual(view.getSnapshot().trace!.spans, {});
   await assert.rejects(view.loadTrace(), /runtime changed/);
+});
+
+function warmupHost() {
+  const host = new Host();
+  const messages = Array.from({ length: 320 }, (_, index) => ({ seq: index + 1, message: { role: 'user', content: `Record ${index + 1}` } }));
+  host.root.messages = messages.slice(-64).map(item => item.message);
+  host.root.message_seqs = messages.slice(-64).map(item => item.seq);
+  host.root.omitted = { messages: true };
+  const page = (first = 129, last = 256): BoundedTranscriptPage => ({
+    history_revision: host.root.history_revision, through_seq: 320, next_seq: first, has_more: first > 1,
+    messages: messages.slice(first - 1, last),
+  });
+  host.history = async () => page();
+  const calls = () => host.calls.filter(call => call.method === 'history.page');
+  return { host, page, calls };
+}
+
+function pendingHistoryPage() {
+  let resolve!: (page: BoundedTranscriptPage) => void;
+  const promise = new Promise<BoundedTranscriptPage>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('initial history warm-up is opt-in, bounded, nonblocking and shared with older readers', async t => {
+  const { host, page, calls } = warmupHost();
+  const pending = pendingHistoryPage();
+  host.history = () => pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(view.getSnapshot().history.root!.messages.length, 64);
+  assert.equal(view.getSnapshot().history.root!.loading, true);
+  const older = view.loadOlder();
+  assert.equal(calls().length, 1);
+  assert.deepEqual(calls()[0]!.params, {
+    root_id: 'root', agent_id: 'root', recent: true, through_seq: 320, before_seq: 257, revision: '1', limit: 128, max_bytes: 256 * 1024,
+  });
+  pending.resolve(page());
+  await older;
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+  assert.equal(view.getSnapshot().history.root!.messages[0]!.seq, 129);
+  assert.equal(view.getSnapshot().history.root!.hasMore, true);
+  await view.start();
+  await view.refresh();
+  const unsubscribe = view.subscribe(() => {}); unsubscribe();
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.deepEqual(Object.keys(view.getSnapshot().history), ['root']);
+});
+
+for (const enabled of [undefined, false]) test(`SDK initial history warm-up default remains off (${enabled})`, async t => {
+  const { host, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: enabled });
+  t.after(() => view.dispose());
+  await view.start();
+  await view.refresh();
+  assert.equal(calls().length, 0);
+  assert.equal(view.getSnapshot().history.root!.messages.length, 64);
+});
+
+test('initial history warm-up survives an offline first start but is not repeated on reconnect', async t => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(calls().length, 0);
+  host.notify('connected');
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  host.notify('reconnecting'); host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  await view.refresh();
+  assert.equal(calls().length, 1);
+});
+
+test('a user older read on first live publication consumes the shared warm-up opportunity', async t => {
+  const { host, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  let requested = false;
+  let older: Promise<void> | undefined;
+  view.subscribe(() => {
+    if (!requested && view.getSnapshot().status === 'live') {
+      requested = true;
+      older = view.loadOlder();
+    }
+  });
+  await view.start();
+  await older;
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+});
+
+test('exhausted first-live history spends the opportunity rather than warming on a later revision', async t => {
+  const { host, calls } = warmupHost();
+  const long = host.root;
+  host.root = snapshot();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  host.root = { ...long, history_revision: '2' };
+  await view.refresh();
+  assert.equal(calls().length, 0);
+});
+
+for (const transition of ['refresh', 'revision', 'disconnect', 'dispose', 'runtime']) test(`initial history warm-up ignores late results after ${transition}`, async t => {
+  const { host, page, calls } = warmupHost();
+  const pending = pendingHistoryPage();
+  let signal: AbortSignal | undefined;
+  host.history = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  const result = page();
+  if (transition === 'refresh') await view.refresh();
+  if (transition === 'revision') { host.root.history_revision = '2'; await view.refresh(); }
+  if (transition === 'disconnect') host.notify('reconnecting');
+  if (transition === 'dispose') await view.dispose();
+  if (transition === 'runtime') host.notify('connected', 'replacement');
+  assert.equal(signal?.aborted, true);
+  pending.resolve(result);
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.messages[0]!.seq, 257);
+  if (transition === 'disconnect') { host.notify('connected'); await until(() => view.getSnapshot().status === 'live'); }
+  assert.equal(calls().length, 1);
+});
+
+test('missing recent recovery finishes before the single older warm-up page', async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.before_seq ? page(65, 192) : pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.before_seq, undefined);
+  pending.resolve(page(193, 320));
+  await until(() => view.getSnapshot().history.root?.messages[0]?.seq === 65);
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 193);
+  await view.refresh();
+  assert.equal(calls().length, 2);
+});
+
+test('initial warm-up repairs an interior gap before extending the older boundary', async t => {
+  const { host, page, calls } = warmupHost();
+  const last = host.root.messages!.at(-1)!;
+  host.root.messages = [host.root.messages![0]!, last];
+  host.root.message_seqs = [257, 320];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.after_seq ? pending.promise : page();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.after_seq, 257);
+  pending.resolve({ ...page(258, 319), through_seq: 319, next_seq: 319, has_more: false });
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 257);
+  assert.equal(view.getSnapshot().history.root!.gaps?.length, 0);
+});
+
+for (const failure of ['network', 'cursor', 'revision']) test(`initial warm-up ${failure} failure does not loop and remains manually retryable`, async t => {
+  const { host, page, calls } = warmupHost();
+  host.history = async () => {
+    if (failure === 'network') throw new Error('offline history');
+    return { ...page(), ...(failure === 'cursor' ? { next_seq: 257 } : { history_revision: 'old' }) };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await pause();
+  assert.equal(view.getSnapshot().status, 'live');
+  if (failure !== 'revision') assert.ok(view.getSnapshot().history.root?.error);
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  host.history = async () => page();
+  await view.loadOlder();
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+  assert.equal(calls().length, 2);
+});
+
+test('failed recent recovery suppresses speculative older warm-up', async t => {
+  const { host, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  host.history = async () => { throw new Error('recent unavailable'); };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await pause();
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.before_seq, undefined);
+});
+
+test('initial warm-up obeys retention bounds and Latest can recover an evicted suffix', async t => {
+  const { host, page, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true, maxMessages: 128, maxBytes: 32 * 1024 });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.messages.length === 128);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+  assert.ok(view.getSnapshot().retainedBytes <= 32 * 1024);
+  host.history = async () => page(193, 320);
+  await view.loadLatest();
+  assert.equal(view.getSnapshot().history.root!.messages.at(-1)!.seq, 320);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.equal(calls().length, 2);
+});
+
+test('an older read queued behind recent recovery replaces rather than adds to warm-up', async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.before_seq ? page(65, 192) : pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  // Once recent rows are published, ask for the older page before repair resumes.
+  let older: Promise<void> | undefined;
+  view.subscribe(() => {
+    if (!older && view.getSnapshot().history.root?.messages[0]?.seq === 193) older = view.loadOlder();
+  });
+  pending.resolve(page(193, 320));
+  await until(() => view.getSnapshot().history.root?.messages[0]?.seq === 65);
+  await older;
+  await view.refresh();
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 193);
+});
+
+for (const outcome of ['error', 'paused']) test(`initial warm-up does not bypass an ${outcome} interior gap`, async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = [host.root.messages![0]!, host.root.messages!.at(-1)!];
+  host.root.message_seqs = [257, 320];
+  host.history = async params => {
+    if (outcome === 'error') throw new Error('gap unavailable');
+    const seq = Number(params.after_seq) + 1;
+    return { ...page(seq, seq), through_seq: 319, next_seq: seq, has_more: true };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.gaps?.[0]?.status === outcome);
+  assert.equal(calls().length, outcome === 'error' ? 1 : 4);
+  assert.ok(calls().every(call => call.params.before_seq === undefined));
+  await view.refresh();
+  assert.equal(calls().length, outcome === 'error' ? 1 : 4);
+});
+
+test('an offline-first view retains its opportunity after a failed initial synchronization', async t => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const call = host.call.bind(host);
+  let fail = true;
+  host.call = async (method, params, options) => {
+    if (method === 'root.snapshot' && fail) { fail = false; throw new Error('snapshot unavailable'); }
+    return call(method, params, options);
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'error');
+  assert.equal(calls().length, 0);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  await view.refresh();
+  assert.equal(calls().length, 1);
+});
+
+test('disposing an offline-first view prevents any later warm-up', async () => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  await view.start();
+  await view.dispose();
+  host.notify('connected');
+  await view.refresh();
+  assert.equal(view.getSnapshot().status, 'closed');
+  assert.equal(calls().length, 0);
+  assert.equal(host.calls.length, 0);
+});
+
+test('initial warm-up retains a zero-based root beginning and does not reopen its exhausted boundary', async t => {
+  const host = new Host();
+  const messages = Array.from({ length: 4 }, (_, seq) => ({ seq, message: { role: 'user', content: `Record ${seq}` } }));
+  host.root.messages = messages.slice(2).map(item => item.message);
+  host.root.message_seqs = [2, 3];
+  host.root.omitted = { messages: true };
+  host.history = async params => {
+    assert.equal(params.before_seq, 2);
+    return { history_revision: '1', through_seq: 3, next_seq: 0, has_more: false, messages: messages.slice(0, 2) };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.messages.length === 4);
+  assert.equal(view.getSnapshot().history.root!.nextSeq, 0);
+  assert.equal(view.getSnapshot().history.root!.hasMore, false);
+  await view.refresh();
+  await view.loadOlder();
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [0, 1, 2, 3]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
 });

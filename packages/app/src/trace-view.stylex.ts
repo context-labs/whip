@@ -1,5 +1,5 @@
 import * as stylex from '@stylexjs/stylex';
-import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
+import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 
 export const TREE_WIDTH = 320;
 export const DETAILS_WIDTH = 360;
@@ -13,22 +13,22 @@ export const styles = stylex.create({
   totalValue: { fontFamily: typography.mono, fontSize: typography.size12 },
   toggles: { display: 'inline-flex', gap: 2 },
   notice: { fontSize: typography.size12, lineHeight: 1.5, color: surface.secondaryText, padding: '8px 16px', margin: 0 },
-  body: { display: 'flex', flex: 1, minHeight: 0, minWidth: 0 },
-  list: { flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', position: 'relative', outline: 'none' },
-  columns: { display: 'flex', position: 'sticky', top: 0, zIndex: 1, height: 26, backgroundColor: colors.background, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, fontSize: typography.size10, letterSpacing: '0.06em', textTransform: 'uppercase', color: surface.secondaryText },
+  body: { position: 'relative', display: 'flex', flex: 1, minHeight: 0, minWidth: 0 },
+  list: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', position: 'relative', outline: 'none' },
+  columns: { display: 'flex', flexShrink: 0, position: 'sticky', top: 0, zIndex: 1, height: 26, backgroundColor: colors.background, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, fontSize: typography.size10, letterSpacing: '0.06em', textTransform: 'uppercase', color: surface.secondaryText },
   columnLabel: { display: 'flex', alignItems: 'center', paddingInline: 12, flexShrink: 0, borderRightWidth: 1, borderRightStyle: 'solid', borderRightColor: surface.quietBorder },
   axis: { position: 'relative', flex: 1, minWidth: 0, overflow: 'hidden' },
   tick: { position: 'absolute', top: 0, bottom: 0, borderLeftWidth: 1, borderLeftStyle: 'solid', borderLeftColor: surface.quietBorder, paddingLeft: 4, fontFamily: typography.mono, fontSize: typography.size10, textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', pointerEvents: 'none' },
-  rows: { position: 'relative', width: '100%' },
+  rows: { position: 'relative', width: '100%', flexGrow: 1, flexShrink: 0 },
   row: { position: 'absolute', left: 0, right: 0, display: 'flex', alignItems: 'stretch', cursor: 'default', outline: 'none', ':hover': { backgroundColor: `color-mix(in srgb, ${colors.primary} 5%, transparent)` } },
   rowSelected: { backgroundColor: `color-mix(in srgb, ${colors.primary} 12%, transparent)` },
-  tree: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, minWidth: 0, paddingRight: 8, borderRightWidth: 1, borderRightStyle: 'solid', borderRightColor: surface.quietBorder, fontSize: typography.size12, overflow: 'hidden' },
+  tree: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, minWidth: 0, paddingRight: 8, fontSize: typography.size11, overflow: 'hidden' },
   toggle: { width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: surface.secondaryText, background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0 },
   toggleSpacer: { width: 16, flexShrink: 0 },
   dot: { width: 7, height: 7, borderRadius: '50%', flexShrink: 0 },
-  label: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: typography.mono, fontSize: typography.size12 },
+  label: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: typography.mono, fontSize: typography.size11 },
   labelMuted: { color: surface.secondaryText },
-  duration: { marginLeft: 'auto', color: surface.secondaryText, fontFamily: typography.mono, fontSize: typography.size11, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
+  duration: { marginLeft: 'auto', color: surface.secondaryText, fontFamily: typography.mono, fontSize: typography.size10, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
   lane: { position: 'relative', flex: 1, minWidth: 0, overflow: 'hidden' },
   bar: { position: 'absolute', top: 6, height: 15, borderRadius: 3, display: 'flex', alignItems: 'center', overflow: 'hidden', paddingInline: 4, fontFamily: typography.mono, fontSize: typography.size10, color: colors.background, whiteSpace: 'nowrap' },
   barRunning: { opacity: 0.8 },
@@ -37,7 +37,7 @@ export const styles = stylex.create({
   llm: { backgroundColor: colors.accent },
   tool: { backgroundColor: colors.info },
   wait: { backgroundColor: colors.warning },
-  details: { width: DETAILS_WIDTH, flexShrink: 0, minHeight: 0, overflow: 'auto', borderLeftWidth: 1, borderLeftStyle: 'solid', borderLeftColor: surface.quietBorder, padding: 12, display: 'flex', flexDirection: 'column', gap: 12, fontSize: typography.size12 },
+  details: { minWidth: 0, flexShrink: 0, minHeight: 0, overflow: 'auto', borderLeftWidth: 1, borderLeftStyle: 'solid', borderLeftColor: surface.quietBorder, padding: 12, display: 'flex', flexDirection: 'column', gap: 12, fontSize: typography.size12 },
   detailsHeader: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
   detailsTitle: { fontFamily: typography.mono, fontSize: typography.size13, fontWeight: 550, minWidth: 0, overflowWrap: 'anywhere' },
   stats: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 },
@@ -48,5 +48,4 @@ export const styles = stylex.create({
   sectionLabel: { color: surface.secondaryText, fontSize: typography.size10, letterSpacing: '0.06em', textTransform: 'uppercase' },
   code: { borderWidth: 0, borderStyle: 'none', borderRadius: 6 },
   empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 180, padding: 24, textAlign: 'center', gap: 8, color: surface.secondaryText, fontSize: typography.size13 },
-  hint: { color: surface.secondaryText, fontSize: typography.size11, paddingInline: 12, paddingBlock: 4, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, display: { default: 'block', [scale.touch]: 'none' } },
 });

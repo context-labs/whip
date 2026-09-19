@@ -285,9 +285,10 @@ export function SessionContent({
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
             search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
         } : undefined}
-        onRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
-        onTrace={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace'); }}
-        onDetails={() => setPanel('agents')} onPrepare={actions.prepare}
+        onChat={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'chat', true); }}
+        onRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl', true); }}
+        onTrace={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace', true); }}
+        detailsOpen={!!panel && focused} onDetails={() => setPanel(panel ? undefined : 'agents')} onPrepare={actions.prepare}
         actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
         activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}
           connected={connected} onDetails={() => setPanel('agents')} />} />
@@ -315,6 +316,7 @@ export function SessionContent({
           onOpenRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
+          historyCursor={history?.nextSeq}
           historyReady={!!history && !history.loading}
           canLoadOlder={connected}
           loadingHistory={history?.loading}

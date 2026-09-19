@@ -104,7 +104,7 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
       } else {
         await expect(control).toContainText("Couldn't load messages");
         const readsBeforeSwitch = requests.length;
-        await page.getByRole('button', { name: 'Open REPL', exact: true }).click();
+        await page.getByRole('button', { name: 'REPL', exact: true }).click();
         const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
         await expect(notebook.locator('[data-history-gap]')).toContainText("Couldn't load messages");
         await page.goBack(); await findGap();

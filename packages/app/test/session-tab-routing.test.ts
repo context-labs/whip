@@ -108,6 +108,54 @@ describe('tab route authority', () => {
     expect(f.tabs.workspace().tabs[0]).toMatchObject({ id: 'root', kind: 'chat' });
     expect(f.runtime.reportWorkspace).toHaveBeenLastCalledWith(new Error('Navigation failed'));
   });
+  it('switches the source tab in place at capacity, preserving its pane, agent and inspector', async () => {
+    const f = fixture('/h/mac/s/root');
+    const location = { agent: 'child', panel: 'context' as const };
+    f.tabs.visit('mac', 'root', location);
+    f.tabs.openRelated('root', 'repl');
+    f.tabs.openRelated('root', 'trace');
+    f.tabs.split('root', 'right');
+    while (f.tabs.workspace().tabs.length < 32) f.tabs.open('mac', `filler-${f.tabs.workspace().tabs.length}`);
+    f.route('/h/mac/s/root', location, 'root');
+    const dispose = f.start();
+    const original = f.tabs.workspace();
+    for (const kind of ['repl', 'trace', 'chat'] as const) {
+      const before = f.tabs.workspace();
+      const result = await openSessionView(f.runtime, f.router.navigate, 'root', kind, true);
+      expect(result).toMatchObject({ id: 'root', kind, location });
+      expect(f.tabs.workspace()).toEqual(before); // Commit only when the route resolves.
+      const search = { ...location, ...(kind !== 'chat' ? { view: kind } : {}) };
+      expect(f.router.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ search, state: { whipViewId: 'root' } }));
+      f.route('/h/mac/s/root', search, 'root');
+      expect(selectedSessionTab(f.tabs.workspace())).toMatchObject({ id: 'root', kind, location });
+      expect(f.tabs.workspace().focusedPaneId).toBe(original.focusedPaneId);
+      expect(f.tabs.workspace().tabs.map(tab => tab.id)).toEqual(original.tabs.map(tab => tab.id));
+      expect(f.tabs.workspace().tabs.filter(tab => tab.id !== 'root')).toEqual(original.tabs.filter(tab => tab.id !== 'root'));
+    }
+    // Back/Forward change the mode of the same tab, not the selected tab identity.
+    f.route('/h/mac/s/root', { ...location, view: 'trace' }, 'root');
+    expect(selectedSessionTab(f.tabs.workspace())).toMatchObject({ id: 'root', kind: 'trace' });
+    f.route('/h/mac/s/root', location, 'root');
+    expect(selectedSessionTab(f.tabs.workspace())).toMatchObject({ id: 'root', kind: 'chat' });
+    expect(f.tabs.workspace().tabs).toHaveLength(32);
+    expect(f.runtime.reportWorkspace).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('does not mutate tabs when an in-place navigation fails or its source is invalid', async () => {
+    const f = fixture();
+    f.tabs.visit('mac', 'root', { agent: 'child' });
+    const draft = f.tabs.openNew();
+    const before = f.tabs.workspace();
+    await openSessionView(f.runtime, f.router.navigate, 'missing', 'repl', true);
+    await openSessionView(f.runtime, f.router.navigate, draft.id, 'trace', true);
+    expect(f.router.navigate).not.toHaveBeenCalled();
+    f.router.navigate.mockRejectedValueOnce(new Error('Navigation failed'));
+    await openSessionView(f.runtime, f.router.navigate, 'root', 'repl', true);
+    expect(f.tabs.workspace()).toEqual(before);
+    expect(f.runtime.reportWorkspace).toHaveBeenLastCalledWith(new Error('Navigation failed'));
+  });
+
   it('restores bare-home immediately even before connection and preserves child/inspector', () => {
     const f = fixture(); f.tabs.visit('mac', 'root', { agent: 'child', panel: 'execution' }); const dispose = f.start();
     f.connect();

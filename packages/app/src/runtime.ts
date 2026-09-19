@@ -580,7 +580,7 @@ export class AppRuntime {
         throw new Error(
           'Four session views are already open. Close a view before opening another.',
         );
-      lease = { client, runtimeId, view: createSessionView(client.session(rootId)), users: 0 };
+      lease = { client, runtimeId, view: createSessionView(client.session(rootId), { initialHistoryWarmup: true }), users: 0 };
       this.views.set(key, lease);
       // Snapshot and history failures belong to the view's scoped error state.
       void lease.view.start().catch(() => {});

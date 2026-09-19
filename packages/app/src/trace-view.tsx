@@ -8,7 +8,8 @@ import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from './error-feedback';
 import { ContentRead } from './details/shared';
 import { useTranscriptMotion } from './transcript-motion';
-import { styles, TREE_WIDTH } from './trace-view.stylex';
+import { TraceResizeHandle } from './trace-resize-handle';
+import { styles, TREE_WIDTH, DETAILS_WIDTH } from './trace-view.stylex';
 import {
   buildSpanTree, fitView, flattenRows, formatDuration, formatTick, isSpanInFlight, niceTicks, panBy, rollup, ROW_HEIGHT,
   spanCategory, spanDisplayName, spanEndMs, spanZoomView, timelineDomain, traceTotals, xForTime, zoomAt, MIN_BAR_PX, LABEL_MIN_WIDTH,
@@ -84,25 +85,41 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   const selected = rows.find(row => row.span.id === selectedId) ?? undefined;
   const totals = useMemo(() => traceTotals(spans), [spans]);
   const [panes, setPanes] = useState({ tree: true, timeline: true, details: false });
+  const hasSpans = spans.length > 0;
+  const showDetails = panes.details && hasSpans;
+  const bodyRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [laneWidth, setLaneWidth] = useState(600);
+  const [widths, setWidths] = useState({ tree: TREE_WIDTH, details: DETAILS_WIDTH });
+  const [measured, setMeasured] = useState({ body: 1000, list: 1000 });
+  // Keep all visible panes reachable when the workspace becomes narrow.
+  const mainMin = (panes.tree ? 160 : 0) + (panes.timeline ? 120 : 0) || 120;
+  const shrink = Math.min(1, measured.body / (mainMin + (showDetails ? 200 : 0)));
+  const detailsMin = 200 * shrink;
+  const detailsMax = Math.max(detailsMin, measured.body - mainMin * shrink);
+  const detailsWidth = showDetails ? Math.max(detailsMin, Math.min(widths.details, detailsMax)) : 0;
+  const treeMin = 160 * shrink;
+  const treeMax = Math.max(treeMin, measured.body - detailsWidth - 120 * shrink);
+  const treeWidth = panes.timeline ? Math.max(treeMin, Math.min(widths.tree, treeMax)) : measured.list;
+  const laneWidth = Math.max(1, measured.list - (panes.tree ? treeWidth : 0) - 1);
   useLayoutEffect(() => {
-    const element = listRef.current;
-    if (!element) return;
-    const measure = () => setLaneWidth(Math.max(120, element.clientWidth - (panes.tree ? TREE_WIDTH : 0) - 1));
+    const measure = () => setMeasured(current => ({
+      body: bodyRef.current?.clientWidth || current.body,
+      list: listRef.current?.clientWidth || current.list,
+    }));
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    if (bodyRef.current) observer.observe(bodyRef.current);
+    if (listRef.current) observer.observe(listRef.current);
     return () => observer.disconnect();
-  }, [panes.tree]);
+  }, [hasSpans]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => listRef.current, estimateSize: () => ROW_HEIGHT, overscan: 12, getItemKey: index => rows[index]!.span.id });
   const rel = (ms: number) => ms - domain.startMs;
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (!panes.timeline) return;
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault();
-      const lane = (event.currentTarget.getBoundingClientRect().left + (panes.tree ? TREE_WIDTH : 0));
+      const lane = (event.currentTarget.getBoundingClientRect().left + (panes.tree ? treeWidth : 0));
       const anchor = timeline.t0 + ((event.clientX - lane) / laneWidth) * (timeline.t1 - timeline.t0);
       setZoom(zoomAt(timeline, Math.exp(event.deltaY * 0.0022), anchor, domain.dur));
     } else if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
@@ -139,10 +156,10 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
     {evidence?.truncated && <p role="status" {...stylex.props(styles.notice)}>Older traces were dropped to keep this view within its memory limit. Export the session for the complete trace.</p>}
     {evidence?.hasMore && !evidence.error && <Button variant="ghost" disabled={!connected || evidence.loading} onClick={() => void view.loadTrace().catch(() => {})}>{evidence.loading ? 'Loading trace…' : 'Load more spans'}</Button>}
     {evidence?.error && <ErrorNotice type="session" owner={`${viewId}:trace`} error={evidence.error} action={<Button variant="ghost" onClick={() => void view.loadTrace().catch(() => {})}>Retry</Button>} />}
-    <div {...stylex.props(styles.body)}>
+    <div ref={bodyRef} {...stylex.props(styles.body)}>
       {spans.length ? <div ref={listRef} role="tree" aria-label="Trace spans" tabIndex={0} {...stylex.props(styles.list)} onWheel={onWheel}>
         <div {...stylex.props(styles.columns)}>
-          {panes.tree && <span {...stylex.props(styles.columnLabel)} style={{ width: TREE_WIDTH }}>Execution</span>}
+          {panes.tree && <span {...stylex.props(styles.columnLabel)} style={{ width: panes.timeline ? treeWidth : '100%' }}>Execution</span>}
           {panes.timeline && <div {...stylex.props(styles.axis)} aria-hidden="true">
             {niceTicks(timeline, laneWidth).map(tick => <span key={tick} {...stylex.props(styles.tick)} style={{ left: xForTime(tick, timeline, laneWidth) }}>{formatTick(tick)}</span>)}
           </div>}
@@ -162,7 +179,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
               {...stylex.props(styles.row, span.id === selectedId && styles.rowSelected)} style={{ top: item.start, height: ROW_HEIGHT }}
               onClick={() => { setSelectedId(span.id); setPanes(current => current.details ? current : { ...current, details: true }); }}
               onDoubleClick={() => setZoom(spanZoomView(rel(span.startMs), rel(spanEndMs(span, now)), domain.dur))}>
-              {panes.tree && <div {...stylex.props(styles.tree)} style={{ width: TREE_WIDTH, paddingLeft: 8 + node.depth * 14 }}>
+              {panes.tree && <div {...stylex.props(styles.tree)} style={{ width: panes.timeline ? treeWidth : '100%', paddingLeft: 8 + node.depth * 14 }}>
                 {node.children.length ? <button type="button" {...stylex.props(styles.toggle)} aria-label={collapsed.has(span.id) ? 'Expand' : 'Collapse'} onClick={event => {
                   event.stopPropagation();
                   setCollapsed(current => { const next = new Set(current); if (next.has(span.id)) next.delete(span.id); else next.add(span.id); return next; });
@@ -183,9 +200,10 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
         <strong>{loading ? 'Loading trace…' : !evidence?.loaded || evidence.error ? 'Trace unavailable' : 'No recorded spans'}</strong>
         <span>{loading ? 'Reading the session’s recorded spans.' : evidence?.error ? 'Recorded spans could not be loaded. Retry to read them.' : !evidence?.loaded ? connected ? 'Recorded spans have not been loaded.' : 'Reconnect to read the recorded spans.' : 'This conversation has no recorded span data. Older conversations may predate tracing; historical timings are not reconstructed.'}</span>
       </div>}
-      {panes.details && spans.length > 0 && <SpanDetails view={view} node={selected} domainStartMs={domain.startMs} now={now} agents={state.root?.agents} />}
+      {hasSpans && panes.tree && panes.timeline && <TraceResizeHandle label="Resize tree and timeline" width={treeWidth} min={treeMin} max={treeMax} defaultWidth={TREE_WIDTH} onResize={tree => setWidths(current => ({ ...current, tree }))} />}
+      {showDetails && <TraceResizeHandle label="Resize details" width={detailsWidth} min={detailsMin} max={detailsMax} defaultWidth={DETAILS_WIDTH} reverse onResize={details => setWidths(current => ({ ...current, details }))} />}
+      {showDetails && <SpanDetails width={detailsWidth} view={view} node={selected} domainStartMs={domain.startMs} now={now} agents={state.root?.agents} />}
     </div>
-    {spans.length > 0 && panes.timeline && <p {...stylex.props(styles.hint)}>Click a row to inspect it · ⌘ or Ctrl + scroll to zoom · horizontal scroll to pan · double-click a span to zoom to it</p>}
   </div>;
 }
 
@@ -193,10 +211,10 @@ function Total({ label, value }: { label: string; value: string }) {
   return <span {...stylex.props(styles.total)}><span {...stylex.props(styles.totalLabel)}>{label}</span><span {...stylex.props(styles.totalValue)}>{value}</span></span>;
 }
 
-function SpanDetails({ view, node, domainStartMs, now, agents }: { view: SessionView; node?: TraceNode; domainStartMs: number; now: number; agents?: DeepReadonly<RootSnapshot['agents']> }) {
+function SpanDetails({ width, view, node, domainStartMs, now, agents }: { width: number; view: SessionView; node?: TraceNode; domainStartMs: number; now: number; agents?: DeepReadonly<RootSnapshot['agents']> }) {
   const [raw, setRaw] = useState(false);
   const sums = useMemo(() => node?.span.kind === 'agent' ? rollup(node) : undefined, [node]);
-  if (!node) return <aside aria-label="Span details" {...stylex.props(styles.details)}><span {...stylex.props(styles.sectionLabel)}>Details</span><p {...stylex.props(styles.notice)}>Select a span to inspect it.</p></aside>;
+  if (!node) return <aside style={{ width }} aria-label="Span details" {...stylex.props(styles.details)}><span {...stylex.props(styles.sectionLabel)}>Details</span><p {...stylex.props(styles.notice)}>Select a span to inspect it.</p></aside>;
   const span = node.span;
   const group = span.kind === 'agent';
   const open = isSpanInFlight(span);
@@ -225,7 +243,7 @@ function SpanDetails({ view, node, domainStartMs, now, agents }: { view: Session
   ];
   const bodies: [string, string][] = ([['input', 'input'], ['output', 'output'], ['error', 'error']] as const)
     .flatMap(([label, key]) => text(attrs[key]) ? [[label, text(attrs[key])] as [string, string]] : []);
-  return <aside aria-label="Span details" {...stylex.props(styles.details)}>
+  return <aside style={{ width }} aria-label="Span details" {...stylex.props(styles.details)}>
     <div {...stylex.props(styles.detailsHeader)}>
       <span aria-hidden="true" {...stylex.props(styles.dot, styles[spanCategory(span)])} />
       <span {...stylex.props(styles.detailsTitle)}>{spanDisplayName(span)}</span>

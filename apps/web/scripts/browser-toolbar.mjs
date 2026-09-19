@@ -42,7 +42,27 @@ try {
           assert.equal(bounds.x, 0);
           assert.equal(bounds.width, width, 'Divider must span the entire browser pane');
           assert.ok(input.width >= 50, 'Address must remain usable in narrow panes');
-          const session = await page.getByRole('banner', { name: 'Session information' }).boundingBox();
+          const topBar = page.getByRole('banner', { name: 'Session information' });
+          const switcher = topBar.getByRole('group', { name: 'Session view' });
+          for (const name of ['Chat', 'REPL', 'Trace', 'Chat']) {
+            await switcher.getByRole('button', { name, exact: true }).click();
+            await expect(switcher.getByRole('button', { pressed: true })).toHaveCount(1);
+            await expect(switcher.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true');
+          }
+          if (width > 600) {
+            await topBar.getByRole('button', { name: 'Session details', exact: true }).click();
+            await expect(topBar.getByRole('button', { name: 'Hide session details' })).toHaveAttribute('aria-expanded', 'true');
+            await topBar.getByRole('button', { name: 'Hide session details' }).click();
+          }
+          const session = await topBar.boundingBox();
+          const buttons = await switcher.getByRole('button').all();
+          for (const button of buttons) {
+            const box = await button.boundingBox();
+            assert.ok(box.x >= session.x && box.x + box.width <= session.x + session.width, 'View controls must fit narrow panes');
+            assert.ok(box.y >= session.y && box.y + box.height <= session.y + session.height);
+          }
+          const menu = await topBar.getByRole('button', { name: 'Session actions' }).boundingBox();
+          assert.ok(menu.x + menu.width <= session.x + session.width, 'Actions must not overflow');
           const sessionAction = await page.getByRole('button', { name: 'Session actions', exact: true }).boundingBox();
           assert.equal(bounds.height, session.height, 'Browser and session headers must have the same height');
           assert.equal(bounds.height, 37, 'Desktop toolbar must remain a compact single row, including its divider');
@@ -125,7 +145,8 @@ try {
         const bounds = await toolbar.boundingBox();
         const session = await page.getByRole('banner', { name: 'Session information' }).boundingBox();
         assert.equal(bounds.height, session.height, 'Touch headers must stay aligned too');
-        for (const button of await toolbar.getByRole('button').all()) {
+        const sessionViews = page.getByRole('group', { name: 'Session view' });
+        for (const button of [...await toolbar.getByRole('button').all(), ...await sessionViews.getByRole('button').all()]) {
           const box = await button.boundingBox();
           assert.ok(box.width >= 44 && box.height >= 44, 'Touch actions must retain 44px targets');
         }

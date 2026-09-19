@@ -607,6 +607,7 @@ export function Timeline({
   historyAction,
   bookmarkKey,
   historyRevision,
+  historyCursor,
   historyReady = true,
   canLoadOlder = true,
   loadingHistory = false,
@@ -632,6 +633,7 @@ export function Timeline({
   bookmarkKey?: string;
   historyRevision?: string;
   historyReady?: boolean;
+  historyCursor?: number;
   canLoadOlder?: boolean;
   loadingHistory?: boolean;
   connected?: boolean;
@@ -788,7 +790,7 @@ export function Timeline({
   }
   return <MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
     <ReadingList rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} loadLatest={loadLatest} latestMissing={latestMissing} chatFollow
-      bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
+      bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyCursor={historyCursor} historyReady={historyReady}
       canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
       label="Conversation" earlierLabel="Load earlier messages" footer={footer}
       renderRow={row => {

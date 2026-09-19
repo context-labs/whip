@@ -61,6 +61,7 @@ export const styles = stylex.create({
   tabList: {display: 'flex', gap: 4, borderBottom: `1px solid ${surface.quietBorder}`, overflowX: 'auto', paddingBottom: 4},
   tab: {backgroundColor: 'transparent', borderColor: 'transparent', color: surface.secondaryText},
   tabActive: {backgroundColor: colors.hover, color: colors.foreground},
+  toggleActive: {borderColor: surface.controlBorder},
   disclosure: {paddingInline: 4, marginInlineStart: -4, justifyContent: 'flex-start'},
   disclosureIcon: {flexShrink: 0},
   disclosureOpen: {transform: 'rotate(90deg)'},

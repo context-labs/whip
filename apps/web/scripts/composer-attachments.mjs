@@ -77,7 +77,7 @@ export async function checkComposerAttachments({ page, directory, name }) {
   await page.keyboard.press('Escape'); await expect(preview).toBeFocused();
   assert.equal(await page.evaluate(() => window.composerPreviewURLs.size), 3);
   const sources = await strip.locator('img').evaluateAll(images => images.map(img => img.src));
-  await page.getByRole('button', { name: 'Open REPL', exact: true }).click();
+  await page.getByRole('button', { name: 'REPL', exact: true }).click();
   await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
   await page.goBack();
   await expect(strip.getByRole('button', { name: /^Preview image-/ })).toHaveCount(3);

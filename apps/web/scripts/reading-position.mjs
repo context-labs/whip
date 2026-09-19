@@ -51,7 +51,8 @@ try {
       const created = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
       const rootId = created.result.root_id;
       session = client.session(rootId);
-      for (let index = 0; index < 21; index++) await submit(`Earlier short message ${index}`);
+      // Leave one older page after the initial snapshot plus one-page warm-up.
+      for (let index = 0; index < 100; index++) await submit(`Earlier short message ${index}`);
       for (let index = 0; index < 28; index++) await submit(`Message ${index}\n\n${'A readable paragraph for scrolling. '.repeat(18)}`);
       const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
       await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${rootId}`);

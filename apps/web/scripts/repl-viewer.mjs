@@ -56,7 +56,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const chat = id => panel(id).getByRole('region', { name: 'Conversation', exact: true });
   const notebook = id => panel(id).getByRole('region', { name: 'REPL executions', exact: true });
   const ready = async (id, mode) => {
-    await (mode === 'repl' ? notebook(id) : panel(id).getByLabel('Message WHIP', { exact: true })).waitFor();
+    await (mode === 'repl' ? notebook(id) : mode === 'trace' ? panel(id).locator('[data-session-view="trace"]') : panel(id).getByLabel('Message WHIP', { exact: true })).waitFor();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /claude-code|light|dark/);
   };
   const action = async (id, label) => {
@@ -167,12 +167,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await action(repl, 'Open chat'); await ready(root, 'chat');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
     await sameAnchor(chat(root), chatAnchor);
-    await panel(root).getByRole('button', { name: 'Open REPL', exact: true }).click();
-    const toolbarRepl = leaves((await workspace()).layout)[0].selected;
-    assert.notEqual(toolbarRepl, repl, 'Toolbar opening must create a fresh view even with an existing REPL');
-    assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, toolbarRepl, repl]);
-    await ready(toolbarRepl, 'repl');
-    await tab(toolbarRepl).press('Delete');
+    for (const [label, kind] of [['REPL', 'repl'], ['Trace', 'trace'], ['Chat', 'chat']]) {
+      await panel(root).getByRole('button', { name: label, exact: true }).click();
+      await ready(root, kind);
+      assert.equal(leaves((await workspace()).layout)[0].selected, root, 'Top-bar switching must keep the current tab');
+      assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, repl]);
+      assert.equal(allTabs(await workspace()).find(tab => tab.id === repl).kind, 'repl', 'Other tabs must not change');
+    }
+    assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
+    await sameAnchor(chat(root), chatAnchor);
     await tab(repl).click(); await ready(repl, 'repl'); await sameAnchor(notebook(repl), replAnchor);
     checks.push('three-dot menu opens an adjacent REPL; nearest chat, draft and independent reading anchors restore');
 

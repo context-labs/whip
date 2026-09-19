@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import { useState } from 'react';
+import userEvent from '@testing-library/user-event';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { SessionViewSnapshot } from '@whip/sdk/state';
 import { SessionTopBar } from '../src/session-top-bar';
@@ -10,21 +12,23 @@ it('keeps full host/path identity accessible and opens scoped actions', () => {
   render(<ThemeProvider><UIProvider><SessionTopBar host="Remote" cwd="/workspace/whip" agentName="reviewer" kind="chat"
     onRepl={onRepl} onAgents={onAgents} onDetails={onDetails} /></UIProvider></ThemeProvider>);
   expect(screen.getByLabelText('Remote / /workspace/whip')).toBeDefined();
-  fireEvent.click(screen.getByRole('button', { name: 'Open REPL' }));
+  fireEvent.click(screen.getByRole('button', { name: 'REPL' }));
   fireEvent.click(screen.getByRole('button', { name: 'Agent: reviewer' }));
   fireEvent.click(screen.getByRole('button', { name: 'Session details' }));
   expect(onRepl).toHaveBeenCalledOnce(); expect(onAgents).toHaveBeenCalledOnce(); expect(onDetails).toHaveBeenCalledOnce();
 });
 
 it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action definitions for %s', async kind => {
-  const onRepl = vi.fn(), onTrace = vi.fn(), onDetails = vi.fn(), onRoot = vi.fn(), onRename = vi.fn();
+  const onChat = vi.fn(), onRepl = vi.fn(), onTrace = vi.fn(), onDetails = vi.fn(), onRoot = vi.fn(), onRename = vi.fn();
   render(<ThemeProvider><UIProvider><SessionTopBar host="Local" cwd="/work/whip" agentName="reviewer" kind={kind}
-    onRepl={onRepl} onTrace={onTrace} onDetails={onDetails} onRoot={onRoot}
+    onChat={onChat} onRepl={onRepl} onTrace={onTrace} onDetails={onDetails} onRoot={onRoot}
     actions={[{ id: 'rename', label: 'Rename session', onSelect: onRename }]} /></UIProvider></ThemeProvider>);
   expect(screen.getAllByRole('banner', { name: 'Session information' })).toHaveLength(1);
+  expect(within(screen.getByRole('group', { name: 'Session view' })).getAllByRole('button', { pressed: true })).toHaveLength(1);
   const controls = [
-    { label: 'Open REPL', enabled: kind !== 'repl', callback: onRepl },
-    { label: 'Open trace', enabled: kind !== 'trace', callback: onTrace },
+    { label: 'Chat', enabled: kind !== 'chat', callback: onChat },
+    { label: 'REPL', enabled: kind !== 'repl', callback: onRepl },
+    { label: 'Trace', enabled: kind !== 'trace', callback: onTrace },
     { label: 'Session details', enabled: true, callback: onDetails },
   ];
   for (const control of controls) {
@@ -32,7 +36,10 @@ it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action de
       fireEvent.click(screen.getByRole('button', { name: control.label }));
       expect(control.callback).toHaveBeenCalledOnce();
     } else {
-      expect(screen.queryByRole('button', { name: control.label })).toBeNull();
+      const selected = screen.getByRole('button', { name: control.label, pressed: true });
+      fireEvent.click(selected);
+      expect(selected.getAttribute('aria-pressed')).toBe('true');
+      expect(control.callback).not.toHaveBeenCalled();
     }
   }
   for (const control of controls) {
@@ -52,6 +59,34 @@ it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action de
   fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename session' }));
   expect(onRename).toHaveBeenCalledOnce();
+});
+
+it('switches views with the keyboard, keeps exactly one selected, and toggles details independently', async () => {
+  function Harness() {
+    const [kind, setKind] = useState<'chat' | 'repl' | 'trace'>('chat');
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    return <ThemeProvider><UIProvider><SessionTopBar host="Local" kind={kind}
+      onChat={() => setKind('chat')} onRepl={() => setKind('repl')} onTrace={() => setKind('trace')}
+      detailsOpen={detailsOpen} onDetails={() => setDetailsOpen(open => !open)} /></UIProvider></ThemeProvider>;
+  }
+  render(<Harness />);
+  const user = userEvent.setup();
+  const group = within(screen.getByRole('group', { name: 'Session view' }));
+  group.getByRole('button', { name: 'Chat' }).focus();
+  await user.keyboard('{ArrowRight}');
+  expect(document.activeElement).toBe(group.getByRole('button', { name: 'REPL' }));
+  await user.keyboard('{Enter}');
+  expect(group.getByRole('button', { name: 'REPL', pressed: true })).toBeDefined();
+  await user.keyboard('{ArrowRight} ');
+  expect(group.getByRole('button', { name: 'Trace', pressed: true })).toBeDefined();
+  await user.click(group.getByRole('button', { name: 'Chat' }));
+  await user.click(group.getByRole('button', { name: 'Chat' }));
+  expect(group.getAllByRole('button', { pressed: true })).toHaveLength(1);
+  expect(group.getByRole('button', { name: 'Chat', pressed: true })).toBeDefined();
+  await user.click(screen.getByRole('button', { name: 'Session details', expanded: false }));
+  await user.click(screen.getByRole('button', { name: 'Hide session details', expanded: true }));
+  expect(screen.getByRole('button', { name: 'Session details', expanded: false })).toBeDefined();
+  expect(group.getByRole('button', { name: 'Chat', pressed: true })).toBeDefined();
 });
 
 it('keeps the shared identity bar while a session is opening', () => {
@@ -83,6 +118,6 @@ it('preserves the activity motion control and hides session-only controls for Ne
   expect(screen.getByRole('button', { name: 'Use system motion setting' })).toBeDefined();
   view.rerender(<ThemeProvider><UIProvider><SessionTopBar host="Choose a host" kind="new" /></UIProvider></ThemeProvider>);
   expect(screen.getByText('Not started')).toBeDefined();
-  expect(screen.queryByRole('button', { name: 'Open REPL' })).toBeNull();
+  expect(screen.queryByRole('group', { name: 'Session view' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Session actions' })).toBeNull();
 });

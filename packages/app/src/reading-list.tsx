@@ -35,7 +35,7 @@ const styles = stylex.create({
 
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
 export function ReadingList<Row extends { id: string; seq?: number }>({
-  rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyReady = true,
+  rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyCursor, historyReady = true,
   label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false, chatFollow = false,
 }: {
   rows: readonly Row[];
@@ -45,6 +45,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   latestMissing?: boolean;
   bookmarkKey?: string;
   historyRevision?: string;
+  historyCursor?: number;
   historyReady?: boolean;
   label: string;
   earlierLabel: string;
@@ -77,6 +78,15 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const [loadingLatest, setLoadingLatest] = useState(false);
   const latestIntent = useRef(0);
   const loadingRef = useRef(false);
+  const prefetch = useRef<{ pages: number; cursor?: number } | undefined>(undefined);
+  const prefetchFrame = useRef(0);
+  const upwardGesture = useRef(false);
+  const cancelPrefetch = () => {
+    prefetch.current = undefined;
+    upwardGesture.current = false;
+    cancelAnimationFrame(prefetchFrame.current);
+  };
+  const continuePrefetch = useRef(() => {});
   const [pinned, setPinned] = useState<string[]>([]);
   const [positionNotice, setPositionNotice] = useState('');
   const appliedRevision = useRef<string | undefined>(undefined);
@@ -196,41 +206,97 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     restoring.current = false;
     insertionAnchor.current = undefined;
   };
-  const userScroll = (direction: 'up' | 'down' | 'drag') => {
+  const userScroll = (direction: 'up' | 'down' | 'drag', target?: EventTarget | null) => {
+    if (chatFollow && direction === 'up') {
+      // A code/details scroller owns input until it can chain to the transcript.
+      for (let node = target instanceof Element ? target : null; node && node !== viewport.current; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (/auto|scroll/.test(style.overflowY) && (node.scrollTop > 0 || /contain|none/.test(style.overscrollBehaviorY))) return;
+      }
+    }
     protectedAnchor.current = undefined;
     virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     stopRestore();
     latestIntent.current++;
     programmatic.current = undefined;
     if (!chatFollow) return;
+    if (direction === 'down') cancelPrefetch();
+    // Coalesced input belongs to the current episode, not another page budget.
+    if (!prefetch.current) upwardGesture.current = direction !== 'down';
     cancelJump();
     intent.current = direction;
     lastOffset.current = viewport.current?.scrollTop ?? 0;
     const root = viewport.current;
     setFollowing(direction === 'down' && !!root && root.scrollHeight - root.scrollTop - root.clientHeight <= 2);
+    // At the hard boundary wheel/touch/keyboard input may produce no scroll event.
+    if (direction === 'up' && root && root.scrollTop <= 0) maybeAutoLoad(root);
   };
   const canReadHistory = hasMore && canLoadOlder && historyReady && !loadingHistory;
-  const loadEarlier = async () => {
-    if (!canReadHistory || loadingRef.current || restoring.current) return;
+  const nearTop = (root: HTMLDivElement) =>
+    root.scrollTop < (chatFollow ? Math.min(2400, Math.max(800, 2 * root.clientHeight)) : 256);
+  const loadEarlier = async (continuation = false) => {
+    if (chatFollow && prefetch.current && !continuation) return;
+    if (!canReadHistory || loadingRef.current || restoring.current || (chatFollow && document.hidden)) return;
+    const episode = chatFollow ? (prefetch.current ??= { pages: 0 }) : undefined;
+    if (episode) { episode.pages++; episode.cursor = historyCursor; upwardGesture.current = false; }
     loadingRef.current = true;
     setLoading(true);
+    let succeeded = false;
     try {
       await loadOlder();
+      succeeded = true;
     } catch {
       // Session history state owns the failure; this control only ends its wait.
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
+    if (!episode || prefetch.current !== episode) return;
+    if (!succeeded) { cancelPrefetch(); return; }
+    // Let React publish the cursor/rows, then let prepend anchoring and deferred
+    // measurements settle. Only an existing episode can reach this bounded wait.
+    const started = performance.now();
+    let frames = 0;
+    let stable = 0;
+    let geometry = '';
+    const settle = () => {
+      if (prefetch.current !== episode) return;
+      const root = viewport.current;
+      if (!root || document.hidden || ++frames > 32) { cancelPrefetch(); return; }
+      const next = `${root.scrollTop}:${root.scrollHeight}:${root.clientHeight}`;
+      stable = !restoring.current && next === geometry ? stable + 1 : 0;
+      geometry = next;
+      // Timeline coalesces live projections at 30Hz, independent of display Hz.
+      if (performance.now() - started >= 50 && stable >= 2) continuePrefetch.current();
+      else prefetchFrame.current = requestAnimationFrame(settle);
+    };
+    prefetchFrame.current = requestAnimationFrame(settle);
   };
-  const nearTop = (root: HTMLDivElement) => root.scrollTop < 256;
-  // Auto-loading is user-driven only: explicit scrolls near the top fetch the
-  // next page. Bookmark restoration and follow-the-tail layout passes never
-  // page on their own; prepended rows cannot retrigger while the user holds
-  // position because scrollTop stays beyond the threshold.
+  continuePrefetch.current = () => {
+    const episode = prefetch.current;
+    const root = viewport.current;
+    if (!episode || !root) return;
+    // Raw cursors, not visible rows/height, prove progress through filtered pages.
+    if (episode.pages >= 3 || !canReadHistory || !nearTop(root) ||
+      episode.cursor === undefined || historyCursor === undefined || historyCursor >= episode.cursor) {
+      cancelPrefetch(); return;
+    }
+    void loadEarlier(true);
+  };
   const maybeAutoLoad = (root: HTMLDivElement) => {
-    if (nearTop(root)) void loadEarlier();
+    if (!nearTop(root) || (chatFollow && (!upwardGesture.current || prefetch.current))) return;
+    if (chatFollow) upwardGesture.current = false;
+    void loadEarlier();
   };
+  useLayoutEffect(() => {
+    if (!canLoadOlder || (!historyReady && !loadingHistory)) cancelPrefetch();
+  }, [canLoadOlder, historyReady, loadingHistory]);
+  useLayoutEffect(() => () => cancelPrefetch(), [bookmarkKey, historyRevision, chatFollow]);
+  useEffect(() => {
+    const hide = () => { if (document.hidden) cancelPrefetch(); };
+    document.addEventListener('visibilitychange', hide);
+    return () => document.removeEventListener('visibilitychange', hide);
+  }, []);
   useLayoutEffect(() => {
     if (
       !bookmarkKey ||
@@ -362,11 +428,12 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     return () => { observer.disconnect(); document.removeEventListener('visibilitychange', visible); };
   }, [chatFollow]);
   useEffect(() => {
-    const update = () => {
+    const update = (event: Event) => {
       const root = viewport.current;
       if (!root) return;
+      if (chatFollow && event.type === 'focusin' && root.contains(document.activeElement) && document.activeElement?.closest('[data-reading-id]')) cancelPrefetch();
       const selection = document.getSelection();
-      if (chatFollow && selection && !selection.isCollapsed && (root.contains(selection.anchorNode) || root.contains(selection.focusNode))) { latestIntent.current++; cancelJump(); intent.current = undefined; setFollowing(false); }
+      if (chatFollow && selection && !selection.isCollapsed && (root.contains(selection.anchorNode) || root.contains(selection.focusNode))) { cancelPrefetch(); latestIntent.current++; cancelJump(); intent.current = undefined; setFollowing(false); }
       const nodes = [
         selection?.anchorNode,
         selection?.focusNode,
@@ -411,11 +478,12 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         role="region"
         tabIndex={0}
         aria-label={label}
-        onWheel={event => { if (event.deltaY) userScroll(event.deltaY < 0 ? 'up' : 'down'); }}
-        onTouchStart={event => { touchY.current = event.touches[0]?.clientY; }}
+        onWheel={event => { if (!event.ctrlKey && !event.defaultPrevented && event.deltaY) userScroll(event.deltaY < 0 ? 'up' : 'down', event.target); }}
+        onTouchStart={event => { touchY.current = !event.defaultPrevented && event.touches.length === 1 ? event.touches[0]?.clientY : undefined; }}
         onTouchMove={event => {
+          if (event.defaultPrevented || event.touches.length !== 1) { touchY.current = undefined; return; }
           const y = event.touches[0]?.clientY;
-          if (y !== undefined && touchY.current !== undefined && y !== touchY.current) userScroll(y > touchY.current ? 'up' : 'down');
+          if (y !== undefined && touchY.current !== undefined && y !== touchY.current) userScroll(y > touchY.current ? 'up' : 'down', event.target);
           touchY.current = y;
         }}
         onPointerDown={event => {
@@ -426,11 +494,11 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         onKeyDown={event => {
           if (event.defaultPrevented || (event.target as Element).closest('input, textarea, select, [contenteditable="true"]')) return;
           if (event.key === ' ' && (event.target as Element).closest('button, a, [role="button"]')) return;
-          if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) userScroll('up');
+          if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) userScroll('up', event.target);
           else if (['ArrowDown', 'PageDown', 'End', ' '].includes(event.key)) userScroll('down');
         }}
         onScrollEnd={() => {
-          if (!pressed.current || intent.current !== 'drag') intent.current = undefined;
+          if (!pressed.current || intent.current !== 'drag') { intent.current = undefined; upwardGesture.current = false; }
           if (jumping.current) { jumping.current = false; setFollowing(true); pinBottom(); }
         }}
         onScroll={event => {
@@ -446,6 +514,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           else if (intent.current && !jumping.current) {
             // An upward gesture stays detached even a pixel from the bottom.
             setFollowing(end && (intent.current === 'down' || (intent.current === 'drag' && offset > lastOffset.current)));
+            if (intent.current === 'drag' && offset > lastOffset.current) cancelPrefetch();
             if (intent.current === 'up' || (intent.current === 'drag' && offset < lastOffset.current)) maybeAutoLoad(target);
           }
           lastOffset.current = offset;
@@ -503,6 +572,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           loading={loadingLatest}
           disabled={loadingLatest || (latestMissing && !canLoadOlder)}
           onClick={() => { void (async () => {
+            cancelPrefetch();
             stopRestore();
             const request = ++latestIntent.current;
             if (latestMissing && loadLatest) {

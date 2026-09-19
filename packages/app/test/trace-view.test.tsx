@@ -333,3 +333,73 @@ it('offers bounded historical paging continuation without allowing duplicate or 
   mounted.rerender(f.app());
   expect(screen.queryByRole('button', { name: 'Load more spans' })).toBeNull();
 });
+
+it('resizes the shared tree column and details with keyboard, bounds, reset and pane toggles', () => {
+  render(fixture().app());
+  const tree = screen.getByRole('separator', { name: 'Resize tree and timeline' });
+  fireEvent.keyDown(tree, { key: 'ArrowRight' });
+  expect(tree.getAttribute('aria-valuenow')).toBe('328');
+  expect(screen.getByText('Execution').style.width).toBe('328px');
+  for (const row of screen.getAllByRole('treeitem')) expect((row.firstElementChild as HTMLElement).style.width).toBe('328px');
+  fireEvent.keyDown(tree, { key: 'Home' });
+  expect(tree.getAttribute('aria-valuenow')).toBe('160');
+  fireEvent.keyDown(tree, { key: 'ArrowLeft' });
+  expect(tree.getAttribute('aria-valuenow')).toBe('160');
+  fireEvent.doubleClick(tree);
+  expect(tree.getAttribute('aria-valuenow')).toBe('320');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  const details = screen.getByRole('separator', { name: 'Resize details' });
+  fireEvent.keyDown(details, { key: 'ArrowLeft' });
+  expect(screen.getByRole('complementary', { name: 'Span details' }).style.width).toBe('368px');
+  fireEvent.keyDown(details, { key: 'End' });
+  expect(details.getAttribute('aria-valuenow')).toBe(details.getAttribute('aria-valuemax'));
+  expect(tree.getAttribute('aria-valuenow')).toBe('160');
+  fireEvent.doubleClick(details);
+  expect(details.getAttribute('aria-valuenow')).toBe('360');
+  expect(tree.getAttribute('aria-valuenow')).toBe('320');
+  fireEvent.keyDown(details, { key: 'ArrowLeft' });
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.queryByRole('separator', { name: 'Resize details' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.getByRole('separator', { name: 'Resize details' }).getAttribute('aria-valuenow')).toBe('368');
+  fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+  expect(screen.queryByRole('separator', { name: 'Resize tree and timeline' })).toBeNull();
+  expect(screen.getByText('Execution').style.width).toBe('100%');
+  fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+  expect(screen.getByRole('separator', { name: 'Resize tree and timeline' }).getAttribute('aria-valuenow')).toBe('320');
+});
+
+it('drags dividers with pointer capture and restores the starting width on cancellation', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent);
+  render(fixture().app());
+  const tree = screen.getByRole('separator', { name: 'Resize tree and timeline' });
+  tree.setPointerCapture = vi.fn(); tree.hasPointerCapture = () => true; tree.releasePointerCapture = vi.fn();
+  // Native pointer focus must remain available; forced focus shows the keyboard outline during drag.
+  expect(fireEvent.pointerDown(tree, { button: 0, clientX: 320 })).toBe(true);
+  fireEvent.pointerMove(tree, { clientX: 420 });
+  expect(tree.getAttribute('aria-valuenow')).toBe('420');
+  fireEvent.pointerCancel(tree);
+  expect(tree.getAttribute('aria-valuenow')).toBe('320');
+  fireEvent.pointerDown(tree, { button: 0, clientX: 320 });
+  fireEvent.pointerMove(tree, { clientX: 400 });
+  fireEvent.pointerUp(tree);
+  fireEvent.pointerMove(tree, { clientX: 450 });
+  expect(tree.getAttribute('aria-valuenow')).toBe('400');
+  expect(tree.releasePointerCapture).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  const details = screen.getByRole('separator', { name: 'Resize details' });
+  details.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(details, { button: 0, clientX: 640 });
+  fireEvent.pointerMove(details, { clientX: 600 });
+  expect(details.getAttribute('aria-valuenow')).toBe('400');
+  fireEvent.lostPointerCapture(details);
+  fireEvent.pointerMove(details, { clientX: 550 });
+  expect(details.getAttribute('aria-valuenow')).toBe('400');
+});
+
+it('has no resize handles without span data', () => {
+  render(fixture({ spans: {}, loaded: true }).app());
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.queryByRole('separator')).toBeNull();
+});

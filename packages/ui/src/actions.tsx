@@ -33,8 +33,8 @@ export function Spinner({label = 'Loading', size = 14}: {label?: string; size?: 
   return <LoaderCircle {...stylex.props(spinnerStyles.spin)} width={size} height={size} aria-label={label} role="img" />;
 }
 export function ButtonGroup({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) { return <div role="group" {...mergeProps(stylex.props(styles.inline, xstyle), props)}/>; }
-export function ToggleGroup({value, onValueChange, items, label}: {value: string[]; onValueChange: (value: string[]) => void; items: {value: string; label: ReactNode}[]; label: string}) {
-  return <BaseToggleGroup value={value} onValueChange={onValueChange} aria-label={label} {...stylex.props(styles.inline)}>{items.map(item => <BaseToggle key={item.value} value={item.value} className={state => stylex.props(styles.control, styles.button, state.pressed && styles.tabActive).className}>{item.label}</BaseToggle>)}</BaseToggleGroup>;
+export function ToggleGroup({value, onValueChange, items, label, size = 'md', xstyle}: Styled & {value: string[]; onValueChange: (value: string[]) => void; items: {value: string; label: ReactNode; disabled?: boolean}[]; label: string; size?: 'sm' | 'md'}) {
+  return <BaseToggleGroup value={value} onValueChange={onValueChange} aria-label={label} {...stylex.props(styles.inline, xstyle)}>{items.map(item => <BaseToggle key={item.value} value={item.value} disabled={item.disabled} className={state => stylex.props(styles.control, styles.button, size === 'sm' && styles.small, state.pressed && styles.tabActive, state.pressed && styles.toggleActive).className}>{item.label}</BaseToggle>)}</BaseToggleGroup>;
 }
 export function Link({xstyle, ...props}: ComponentPropsWithRef<'a'> & Styled) {return <a {...mergeProps(stylex.props(styles.link, xstyle), props)}/>;}
 export function Kbd({children, xstyle}: {children: ReactNode} & Styled) {return <kbd {...stylex.props(styles.kbd, xstyle)}>{children}</kbd>;}

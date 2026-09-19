@@ -268,7 +268,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     ]}/>}
     items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
       render: <Link {...tabDestination(tab)} />,
-      status: icon(tab), metadata: <>{[viewSuffix(tab.kind).replace(' · ', ''), hosts.length > 1 ? hostName(tab) : ''].filter(Boolean).join(' · ')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
+      status: icon(tab), metadata: <>{viewSuffix(tab.kind).replace(' · ', '')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
       menu: <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={13}/></IconButton>} items={actions(tab)} />,
       wrap: (element: ReactElement) => <ContextMenu items={actions(tab)}>{element}</ContextMenu>,
     }))}/>;
@@ -303,8 +303,9 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
           content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
             <SessionTopBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!views.errors.has(workspaceRootKey(tab))}
               activity={<span role="status">{views.errors.has(workspaceRootKey(tab)) ? 'Session unavailable' : 'Loading session…'}</span>}
-              onRepl={() => { void openSessionView(runtime, navigate, tab.id, 'repl'); }}
-              onTrace={() => { void openSessionView(runtime, navigate, tab.id, 'trace'); }} />
+              onChat={() => { void openSessionView(runtime, navigate, tab.id, 'chat', true); }}
+              onRepl={() => { void openSessionView(runtime, navigate, tab.id, 'repl', true); }}
+              onTrace={() => { void openSessionView(runtime, navigate, tab.id, 'trace', true); }} />
             {views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}
           </> };
       })}/>

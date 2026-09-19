@@ -75,6 +75,8 @@ export function inboxItems(state: DeepReadonly<SessionViewSnapshot>, agentId: st
 export interface SessionViewOptions {
   maxBytes?: number;
   maxMessages?: number;
+  /** Warm at most one older root page after the first live snapshot; off by default. */
+  initialHistoryWarmup?: boolean;
   /** Notification batching only; every event is processed in order. */
   notificationIntervalMs?: number;
 }
@@ -128,6 +130,7 @@ export class SessionView {
   private refreshAgain = false;
   private epoch = 0;
   private started = false;
+  private initialHistoryWarmup: boolean;
   private runtimeID?: string;
   private lastConnectionID?: string;
   private streamConnectionID?: string;
@@ -143,6 +146,7 @@ export class SessionView {
     this.maxBytes = positive(options.maxBytes ?? 8 * 1024 * 1024, 'maxBytes');
     this.maxMessages = positive(options.maxMessages ?? 512, 'maxMessages');
     this.notificationInterval = positive(options.notificationIntervalMs ?? 16, 'notificationIntervalMs');
+    this.initialHistoryWarmup = options.initialHistoryWarmup ?? false;
     this.opened.add(session.rootId);
   }
 
@@ -600,6 +604,21 @@ export class SessionView {
     const repair = { epoch, promise };
     this.repair = repair;
     try { await promise; } finally { if (this.repair === repair) this.repair = undefined; }
+    if (epoch === this.epoch) void this.warmInitialHistory();
+  }
+
+  private async warmInitialHistory(): Promise<void> {
+    if (!this.initialHistoryWarmup || this.current.status !== 'live') return;
+    const epoch = this.epoch;
+    const agentId = this.session.rootId;
+    // Let a user read or recent recovery finish before deciding whether to extend.
+    const existing = this.historyRequests.get(agentId);
+    if (existing) await existing.promise.catch(() => {});
+    if (epoch !== this.epoch || this.lifetime.signal.aborted || this.current.status !== 'live' || !this.initialHistoryWarmup) return;
+    this.initialHistoryWarmup = false;
+    const history = this.current.history[agentId];
+    if (!history?.messages.length || !history.hasMore || history.error || history.latestMissing || history.gaps?.length) return;
+    await this.readHistory(agentId, true).catch(() => { /* History retains the explicit retry. */ });
   }
 
   private setGap(agentId: string, toSeq: number, patch: Partial<HistoryGap>): void {
@@ -621,6 +640,8 @@ export class SessionView {
       return this.readHistory(agentId, older, repair);
     }
     if (this.lifetime.signal.aborted || this.session.client.getSnapshot().state !== 'connected') return;
+    // An explicit older read also spends the shared view's one warm-up page.
+    if (older && agentId === this.session.rootId) this.initialHistoryWarmup = false;
     const controller = new AbortController();
     const request = { epoch: this.epoch, key, controller, promise: this.fetchHistory(agentId, older, controller.signal, repair) };
     this.historyRequests.set(agentId, request);

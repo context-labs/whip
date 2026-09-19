@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
 import { createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as stylex from '@stylexjs/stylex';
@@ -31,9 +32,13 @@ const runtime = {
 } as unknown as AppRuntime;
 const queries = new QueryClient();
 function Fixture() {
+  const [kind, setKind] = useState<'chat' | 'repl' | 'trace'>('chat');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   return <RuntimeContext.Provider value={runtime}><QueryClientProvider client={queries}><ThemeProvider storage={localStorage}><UIProvider>
     <div {...stylex.props(styles.shell)}>
-      <SessionTopBar host="This Mac" cwd="/workspace/whip" kind="chat" activity="Idle" onRepl={() => {}} onTrace={() => {}} onDetails={() => {}}/>
+      <SessionTopBar host="This Mac" cwd="/workspace/whip" agentName="Root" onAgents={() => {}} kind={kind} activity="Idle"
+        onChat={() => setKind('chat')} onRepl={() => setKind('repl')} onTrace={() => setKind('trace')}
+        detailsOpen={detailsOpen} onDetails={() => setDetailsOpen(open => !open)}/>
       <main {...stylex.props(styles.page)}><BrowserView tab={tab} attachmentControls={<BrowserProviderControls tabId={tab.id}/>}/></main>
     </div>
   </UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider>;

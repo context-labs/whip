@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
-import { Button, IconButton, Menu, Tooltip, type MenuItem } from '@whip/ui';
-import { ChartGantt, ChevronDown, Code2, MoreHorizontal, PanelRight } from 'lucide-react';
+import { Button, IconButton, Menu, ToggleGroup, Tooltip, type MenuItem } from '@whip/ui';
+import { ChevronDown, MoreHorizontal, PanelRight } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
 /** Shared top bar for chat, REPL, trace/span views, and their opening states. */
-export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onRepl, onTrace, onDetails, actions = [], onPrepare, pending = false }: {
+export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, onRoot, onChat, onRepl, onTrace, onDetails, detailsOpen = false, actions = [], onPrepare, pending = false }: {
   host: string;
   cwd?: string;
   agentName?: string;
@@ -13,9 +13,11 @@ export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, 
   activity?: ReactNode;
   onAgents?(): void;
   onRoot?(): void;
+  onChat?(): void;
   onRepl?(): void;
   onTrace?(): void;
   onDetails?(): void;
+  detailsOpen?: boolean;
   actions?: readonly MenuItem[];
   onPrepare?(open: boolean): void;
   /** Opening: the directory is not known yet, so no “unavailable” copy. */
@@ -24,13 +26,15 @@ export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, 
   const missingProject = kind === 'new' ? 'Choose a project' : pending ? '' : 'Directory unavailable';
   const project = cwd?.split(/[\\/]/).filter(Boolean).at(-1) || cwd || missingProject;
   const identity = [host, cwd || missingProject].filter(Boolean).join(' / ');
-  const controls = kind === 'new' ? [] : [
-    { id: 'repl', label: 'Open REPL', description: 'Open REPL in a new tab', icon: Code2, onSelect: kind !== 'repl' ? onRepl : undefined },
-    { id: 'trace', label: 'Open trace', description: 'Open trace in a new tab', icon: ChartGantt, onSelect: kind !== 'trace' ? onTrace : undefined },
-    { id: 'details', label: 'Session details', description: 'Session details', icon: PanelRight, onSelect: onDetails },
-  ].filter(control => control.onSelect);
+  const views = [
+    { value: 'chat', label: 'Chat', onSelect: onChat },
+    { value: 'repl', label: 'REPL', onSelect: onRepl },
+    { value: 'trace', label: 'Trace', onSelect: onTrace },
+  ];
+  const detailsLabel = detailsOpen ? 'Hide session details' : 'Session details';
   const menu: MenuItem[] = kind === 'new' ? [] : [
-    ...controls.map(({ id, label, onSelect }) => ({ id, label, onSelect })),
+    ...views.filter(view => view.value !== kind && view.onSelect).map(({ value, label, onSelect }) => ({ id: value, label, onSelect })),
+    ...(onDetails ? [{ id: 'details', label: detailsLabel, onSelect: onDetails }] : []),
     ...(onRoot ? [{ id: 'root', label: 'Root conversation', onSelect: onRoot }] : []),
     ...actions,
   ];
@@ -47,11 +51,14 @@ export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, 
         </Button> : <span aria-label={`Agent: ${agentName}`} {...stylex.props(styles.truncate, styles.agent)}>{agentName}</span>}</>}
       <div {...stylex.props(styles.activity)}>{activity ?? (kind === 'new' ? <span>Not started</span> : null)}</div>
       <div {...stylex.props(styles.actions)}>
-        {kind === 'repl' && <span {...stylex.props(styles.mode)}><Code2 size={14} />REPL</span>}
-        {kind === 'trace' && <span {...stylex.props(styles.mode)}><ChartGantt size={14} />Trace</span>}
-        {controls.map(control => <span key={control.id} {...stylex.props(styles.secondaryAction)}><Tooltip label={control.description}>
-          <IconButton variant="ghost" size="sm" label={control.label} onClick={control.onSelect}><control.icon size={16} /></IconButton>
-        </Tooltip></span>)}
+        {kind !== 'new' && <ToggleGroup label="Session view" size="sm" value={[kind]}
+          items={views.map(view => ({ value: view.value, label: view.label, disabled: view.value !== kind && !view.onSelect }))}
+          onValueChange={([next]) => { if (next && next !== kind) views.find(view => view.value === next)?.onSelect?.(); }}
+          xstyle={styles.views} />}
+        {kind !== 'new' && onDetails && <span {...stylex.props(styles.secondaryAction)}>
+          <IconButton variant="ghost" size="sm" label={detailsLabel} aria-expanded={detailsOpen}
+            xstyle={detailsOpen && styles.detailsActive} onClick={onDetails}><PanelRight size={16} /></IconButton>
+        </span>}
         {!!menu.length && <Menu onOpenChange={onPrepare} trigger={<IconButton variant="ghost" size="sm" label="Session actions"><MoreHorizontal size={16} /></IconButton>} items={menu} />}
       </div>
     </div>
@@ -66,8 +73,9 @@ const styles = stylex.create({
   separator: { flexShrink: 0 },
   agent: { minWidth: 0, maxWidth: '28%', flexShrink: 1, paddingInline: scale.space1, fontSize: typography.size12 },
   truncate: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
-  activity: { display: 'flex', alignItems: 'center', flex: { default: '1 1 0', '@container (max-width: 600px)': '0 0 auto' }, marginInlineStart: 'auto', minWidth: 0, justifyContent: 'flex-end', paddingInline: scale.space1 },
+  activity: { display: 'flex', alignItems: 'center', flex: { default: '1 1 0', '@container (max-width: 600px)': '0 0 auto' }, marginInlineStart: 'auto', minWidth: 0, justifyContent: 'flex-end', paddingInline: scale.space2 },
   actions: { display: 'flex', alignItems: 'center', flexShrink: 0, gap: scale.space1 },
   secondaryAction: { display: { default: 'inline-flex', '@container (max-width: 600px)': 'none' } },
-  mode: { display: 'inline-flex', alignItems: 'center', gap: scale.space1, fontSize: typography.size11 },
+  views: { gap: scale.space1, marginInlineEnd: scale.space1 },
+  detailsActive: { backgroundColor: colors.hover, borderColor: surface.quietBorder },
 });

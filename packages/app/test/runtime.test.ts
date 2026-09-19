@@ -93,6 +93,11 @@ describe('application observation ownership', () => {
     const first = app.acquireView('runtime', 'root'); first.release();
     const second = app.acquireView('runtime', 'root');
     expect(second.view).toBe(first.view);
+    const split = app.acquireView('runtime', 'root');
+    expect(split.view).toBe(first.view);
+    expect(mocks.createView).toHaveBeenCalledExactlyOnceWith({ rootId: 'root' }, { initialHistoryWarmup: true });
+    expect(first.view.start).toHaveBeenCalledTimes(1);
+    split.release();
     vi.advanceTimersByTime(30_001);
     expect(first.view.dispose).not.toHaveBeenCalled();
     second.release(); second.release();

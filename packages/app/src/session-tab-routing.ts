@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -70,10 +70,15 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
   } catch (error) { runtime.reportWorkspace(error); }
 }
 
-/** Explicit view opening creates an adjacent REPL; URL observation only selects it. */
-export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: SessionViewKind) {
+/** Explicit opening creates an adjacent view; top-bar navigation changes the source tab in place. */
+export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: SessionViewKind, inPlace = false) {
   try {
-    const tab = runtime.tabs.openRelated(sourceId, kind);
+    const source = inPlace
+      ? runtime.tabs.workspace().tabs.find(tab => tab.id === sourceId)
+      : runtime.tabs.openRelated(sourceId, kind);
+    if (!source || !isSessionTab(source)) throw new Error('This session view is no longer open');
+    // The route binding commits the mode only after navigation, keeping the tab ID and location.
+    const tab = { ...source, kind };
     await navigate(tabDestination(tab));
     requestAnimationFrame(() => {
       if (selectedSessionTab(runtime.tabs.workspace())?.id === tab.id)

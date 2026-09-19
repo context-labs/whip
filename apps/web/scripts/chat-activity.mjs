@@ -442,7 +442,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       })).toBe(true);
     }
     await screenshot('settled-follow-up');
-    await page.getByRole('button', { name: 'Open REPL', exact: true }).click();
+    await page.getByRole('button', { name: 'REPL', exact: true }).click();
     await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
     await expect(notebook).toContainText('Review complete.');
     await page.goBack();

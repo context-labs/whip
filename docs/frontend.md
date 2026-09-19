@@ -2,7 +2,7 @@
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
 It explains the current design, why it exists, and how to extend it. Updated on
-2026-09-17 for intent-controlled transcript following and immediate inline activity.
+2026-09-18 for bounded initial history warm-up and earlier chat scroll prefetch.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -919,15 +919,38 @@ never reconstructed historical timing.
 
 `ReadingList` shares TanStack Virtual, selection pinning, follow/Latest behavior,
 near-top scroll pagination and bounded anchor restoration between chat and REPL.
-Both modes use SDK-owned history and loading state. Scrolling within 256 px of
-the top requests one bounded older page when connected and history is ready;
-pending reads and bookmark restoration suppress automatic paging. The explicit
-older-history button also supports REPL pages with too few cells to scroll.
+Both modes use SDK-owned history and loading state. Chat prefetches on upward
+user input within two viewport heights of the top (clamped to 800–2,400 px),
+including upward input at the top when the offset cannot change. Nested scroll
+surfaces retain ownership until their input can chain to the transcript; zoom,
+pinch and already-prevented input do not authorize paging. After a page
+and its anchor restoration settle, that user-authorized episode may continue
+while the reader remains inside the buffer, up to three pages total. Raw history
+cursor progress, not rendered row count, determines progress. Requests remain
+shared per agent; changed reading intent, errors, exhaustion and lifecycle
+invalidation stop continuation. Programmatic compensation can finish an existing
+episode but never initiates a new one. REPL retains its 256 px, one-page-per-scroll
+policy. Pending reads and bookmark restoration suppress new automatic paging. The
+explicit older-history button remains available, including pages too short to scroll.
 Its measured space remains after exhaustion so the final prepend does not move
 the reader; the exhausted control is hidden, disabled, and excluded from accessibility.
 Transcript pages can contain no execution cells, so cell count does not determine
 exhaustion. The SDK keeps the older cursor and availability consistent with the
 retained history across refreshes, revision changes and cache eviction.
+
+Desktop/web `AppRuntime` enables `SessionViewOptions.initialHistoryWarmup` for
+shared root views. Once live and after recent-history/gap recovery, a fresh view
+may warm one older page without delaying snapshot interactivity. A user root
+older-read consumes the same opportunity. With a full snapshot this retains up
+to 192 initial raw records (64 plus a 128-record page), subject to existing byte
+limits; these are not visible message or turn counts. The opportunity is shared
+across mounted consumers and is not renewed by ordinary refreshes or remounts.
+Unresolved recovery suppresses speculation. Unopened children are not warmed;
+SDK defaults, native mobile and daemon snapshot limits are unchanged. Each page
+remains capped at 128 records / 256 KiB, within the existing 512-message-per-agent
+and 8 MiB-per-view retention limits. No viewport-fill or background retry loop
+is permitted.
+
 `SessionView` also tracks interior gaps in raw transcript sequence coverage.
 A snapshot boundary is not proof that every record before it is loaded. After
 resuming event consumption, the SDK automatically repairs pending gaps for the
@@ -1001,7 +1024,10 @@ loaded spans and are flagged when the evidence is truncated; cost only counts
 spans whose price Whip knew.
 
 The tree and waterfall are two columns of one virtualized row list at 28 px, so
-they never scroll apart. The detail pane shows Overview (duration, start and end
+they never scroll apart. Full-height dividers resize the tree/timeline split and
+the details pane with pointer drag or arrow keys; double-click restores the
+default width. The timeline fills the remaining space. Widths stay local to the
+mounted view, survive pane toggles, and clamp to the available workspace. The detail pane shows Overview (duration, start and end
 offsets, cost rolled up for agent spans, tokens, model, children, agent, status)
 and Raw (the span JSON), with the bounded input/output/error excerpts the daemon
 kept in span attrs, and a Read action for the bodies it interned instead of
@@ -1756,8 +1782,16 @@ pinned header only after scrolling, with a reduced-motion-aware opacity transiti
 Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
 agent, current activity and scoped actions. Chat, REPL and trace/span views use
 this same component, including loading and unavailable states. It owns the
-view-specific control visibility and a single action list for both toolbar buttons
-and the narrow-pane overflow menu; callers provide identity, activity and callbacks
+fixed-position Chat / REPL / Trace single-selection view controls and a separate
+Details toggle. The compact shared `ToggleGroup` uses arrow-key focus and
+Enter/Space activation; selecting the current view cannot deselect it. Top-bar
+navigation switches the current tab's view in place, preserving its ID, pane,
+selected agent and inspector state; it never opens or selects another tab.
+The route binding commits the mode after navigation and restores it on Back/Forward.
+Explicit tab-menu opening still creates a fresh REPL/Trace. View identity, reading positions and inspector state
+remain owned by the workspace. Details reflects the inspector's open state,
+independently of the selected view. The overflow menu uses the same callbacks;
+callers provide identity, activity and callbacks
 rather than assembling their own top bars. Full host/path identity is available
 on focus through a tooltip. Agent selection opens the existing paginated inspector;
 child views can return to Root. REPL keeps only language, loaded-cell count and
@@ -1766,7 +1800,7 @@ history help in its local toolbar. New Chat shows its chosen host/project and
 identity chrome; detailed errors remain in their existing notices.
 
 Narrow panes shorten the identity trail, keep an accessible activity indicator,
-and move secondary actions into the menu. The bar shares existing session action
+and move Details into the menu while retaining the three view controls. The bar shares existing session action
 and inspector owners; it adds no subscriptions, context audits or polling. Models
 and permissions stay beside the composer, along with child activity and requests.
 Session details also opens from the tab menu or command palette.

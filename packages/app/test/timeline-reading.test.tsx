@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import { Timeline, type TimelineRow } from '../src/timeline';
 import { ReadingPositions } from '../src/reading-positions';
+import { ReadingList } from '../src/reading-list';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
@@ -107,7 +108,7 @@ afterEach(() => {
 function fixture() {
   const readingPositions = new ReadingPositions();
   const loadOlder = vi.fn(async () => {});
-  const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false };
+  const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false, historyCursor: 1000 };
   const report = vi.fn();
   const runtime = {
     readingPositions,
@@ -195,8 +196,9 @@ it('content movement cannot re-enable following or load history without a user s
   const f = fixture();
   render(f.app());
   const root = screen.getByRole('region', { name: 'Conversation' });
+  root.scrollTop = 1000;
   fireEvent.wheel(root, { deltaY: -100 });
-  root.scrollTop = 300;
+  root.scrollTop = 900;
   fireEvent.scroll(root);
   fireEvent(root, new Event('scrollend'));
   root.scrollTop = 0;
@@ -329,7 +331,7 @@ it('loads on a near-top scroll, shares a pending read, and permits another after
   render(f.app());
   const root = screen.getByRole('region', { name: 'Conversation' });
   expect(f.loadOlder).not.toHaveBeenCalled();
-  root.scrollTop = 300;
+  root.scrollTop = 900;
   fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
   expect(f.loadOlder).not.toHaveBeenCalled();
@@ -341,6 +343,7 @@ it('loads on a near-top scroll, shares a pending read, and permits another after
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: /Load earlier messages$/ }).hasAttribute('disabled')).toBe(true);
   await act(async () => { resolve(); });
+  await act(async () => { vi.advanceTimersByTime(160); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
   fireEvent.wheel(root, { deltaY: -100 });
   fireEvent.scroll(root);
@@ -448,3 +451,276 @@ it('anchors visible focused content when a preceding stored message or image gro
   fireEvent.wheel(root, { deltaY: -20 });
   expect(harness.virtual?.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined();
 });
+
+it.each([[200, 800], [700, 1400], [1600, 2400]])(
+  'prefetches at the clamped viewport threshold for a %ipx pane', (height, threshold) => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(height);
+    const f = fixture();
+    render(f.app());
+    const root = screen.getByRole('region', { name: 'Conversation' });
+    root.scrollTop = threshold;
+    fireEvent.wheel(root, { deltaY: -1 });
+    fireEvent.scroll(root);
+    expect(f.loadOlder).not.toHaveBeenCalled();
+    root.scrollTop = threshold - 1;
+    fireEvent.scroll(root);
+    expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(['wheel', 'touch', 'keyboard'] as const)('loads from a top-edge %s gesture without a scroll event', input => {
+  const f = fixture();
+  render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  root.scrollTop = 0;
+  if (input === 'wheel') fireEvent.wheel(root, { deltaY: -1 });
+  if (input === 'keyboard') fireEvent.keyDown(root, { key: 'PageUp' });
+  if (input === 'touch') {
+    fireEvent.touchStart(root, { touches: [{ clientY: 20 }] });
+    fireEvent.touchMove(root, { touches: [{ clientY: 40 }] });
+  }
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+});
+
+function prefetchFixture() {
+  const f = fixture();
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  f.loadOlder.mockImplementation(() => new Promise<void>((done, fail) => { resolve = done; reject = fail; }));
+  const mounted = render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  root.scrollTo = vi.fn();
+  root.scrollTop = 0;
+  const start = () => fireEvent.wheel(root, { deltaY: -100 });
+  const finish = async (cursor = f.paging.historyCursor - 100, visibleRows = rows) => {
+    await act(async () => {
+      f.paging.historyCursor = cursor;
+      mounted.rerender(f.app(undefined, undefined, true, visibleRows));
+      resolve();
+    });
+  };
+  const settle = async () => { await act(async () => { vi.advanceTimersByTime(200); }); };
+  return { ...f, mounted, root, start, finish, settle, fail: () => reject(new Error('History failed')) };
+}
+
+it('continues cursor-only pages after settling, coalesces input, and caps an episode at three pages', async () => {
+  const f = prefetchFixture();
+  f.start();
+  for (let page = 1; page <= 3; page++) {
+    expect(f.loadOlder).toHaveBeenCalledTimes(page);
+    f.start(); // A gesture during the request must not reset its budget.
+    await f.finish(); // Tool-only/filtered records add no visible height.
+    f.start(); // Nor may a gesture during the layout wait reset it.
+    expect(f.loadOlder).toHaveBeenCalledTimes(page);
+    await f.settle();
+  }
+  expect(f.loadOlder).toHaveBeenCalledTimes(3);
+  fireEvent.scroll(f.root); // Remaining scroll events are not a new episode.
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(3);
+  f.start();
+  expect(f.loadOlder).toHaveBeenCalledTimes(4);
+});
+
+it('allows the stopped top-edge gesture to finish its already authorized episode', async () => {
+  const f = prefetchFixture();
+  f.start();
+  fireEvent(f.root, new Event('scrollend'));
+  await f.finish();
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(2);
+});
+
+it('waits for prepend anchor restoration and uses the resulting geometry', async () => {
+  const f = prefetchFixture();
+  f.root.scrollTop = 125;
+  f.start();
+  fireEvent.scroll(f.root);
+  const anchor = screen.getByText('Message 1').closest<HTMLElement>('[data-reading-id]')!;
+  const before = anchor.getBoundingClientRect().top;
+  const older: TimelineRow[] = Array.from({ length: 10 }, (_, i) => ({ id: `older-${i}`, role: 'assistant', text: `Older ${i}`, seq: i - 10 }));
+  await f.finish(undefined, [...older, ...rows]);
+  await act(async () => { vi.advanceTimersByTime(48); });
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  await f.settle();
+  expect(anchor.getBoundingClientRect().top).toBe(before);
+  expect(f.root.scrollTop).toBe(1125);
+  expect(f.loadOlder).toHaveBeenCalledTimes(1); // Now outside the 800px buffer.
+});
+
+it.each(['unchanged', 'backwards', 'exhausted', 'error'] as const)('stops continuation on %s history', async reason => {
+  const f = prefetchFixture();
+  f.start();
+  if (reason === 'error') await act(async () => { f.fail(); });
+  else {
+    if (reason === 'exhausted') f.paging.hasMore = false;
+    await f.finish(reason === 'unchanged' ? 1000 : reason === 'backwards' ? 1100 : 900);
+  }
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  if (reason === 'error') {
+    fireEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    expect(f.loadOlder).toHaveBeenCalledTimes(2);
+  }
+});
+
+it.each(['down', 'latest', 'selection', 'focus', 'disconnect', 'revision', 'not-ready', 'hidden', 'unmount'] as const)(
+  'cancels pending continuation after %s', async reason => {
+    const f = prefetchFixture();
+    f.start();
+    await f.finish();
+    if (reason === 'down') fireEvent.wheel(f.root, { deltaY: 1 });
+    if (reason === 'latest') fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+    if (reason === 'selection') {
+      const node = screen.getByText('Message 1').firstChild!;
+      vi.spyOn(document, 'getSelection').mockReturnValue({ isCollapsed: false, anchorNode: node, focusNode: node } as Selection);
+      fireEvent(document, new Event('selectionchange'));
+    }
+    if (reason === 'focus') act(() => screen.getByText('Message 1').closest<HTMLElement>('[data-reading-id]')!.focus());
+    if (reason === 'disconnect') { f.paging.canLoadOlder = false; f.mounted.rerender(f.app()); }
+    if (reason === 'revision') f.mounted.rerender(f.app(undefined, '2'));
+    if (reason === 'not-ready') f.mounted.rerender(f.app(undefined, undefined, false));
+    if (reason === 'hidden') {
+      vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      fireEvent(document, new Event('visibilitychange'));
+      vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+      fireEvent(document, new Event('visibilitychange'));
+    }
+    if (reason === 'unmount') f.mounted.unmount();
+    await f.settle();
+    expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('does not cancel its own episode when the SDK publishes a pending history read', async () => {
+  const f = prefetchFixture();
+  f.start();
+  f.paging.loadingHistory = true;
+  f.mounted.rerender(f.app(undefined, undefined, false));
+  f.paging.loadingHistory = false;
+  await f.finish();
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(2);
+});
+
+it('cancels an in-flight episode on downward intent, even if the user returns upward before it resolves', async () => {
+  const f = prefetchFixture();
+  f.start();
+  fireEvent.wheel(f.root, { deltaY: 1 });
+  f.start();
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  await f.finish();
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  f.start();
+  expect(f.loadOlder).toHaveBeenCalledTimes(2);
+});
+
+it('starts on an upward scrollbar drag and cancels continuation when the drag reverses', async () => {
+  const f = prefetchFixture();
+  f.root.scrollTop = 900;
+  fireEvent.pointerDown(f.root, { pointerType: 'mouse' });
+  f.root.scrollTop = 700;
+  fireEvent.scroll(f.root);
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  await f.finish();
+  f.root.scrollTop = 710;
+  fireEvent.scroll(f.root);
+  await f.settle();
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+});
+
+it('never starts an episode from resize, streaming, programmatic scroll, downward input or ordinary clicks', async () => {
+  const f = fixture();
+  const mounted = render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  root.scrollTop = 0;
+  fireEvent.scroll(root);
+  fireEvent(window, new Event('resize'));
+  fireEvent.pointerDown(screen.getByText('Message 1'));
+  fireEvent.click(screen.getByText('Message 1'));
+  fireEvent.keyDown(root, { key: 'Tab' });
+  fireEvent.wheel(root, { deltaY: 10 });
+  fireEvent.scroll(root);
+  mounted.rerender(f.app(undefined, undefined, true, [...rows, { id: 'tail', role: 'assistant', text: 'Streaming', live: true }]));
+  await act(async () => { vi.advanceTimersByTime(200); });
+  expect(f.loadOlder).not.toHaveBeenCalled();
+});
+
+it('keeps REPL at the original 256px scroll threshold with no top-edge gesture or continuation', async () => {
+  const f = fixture();
+  let cursor = 1000;
+  const app = () => <RuntimeContext.Provider value={f.runtime}><UIProvider>
+    <ReadingList rows={rows} hasMore loadOlder={f.loadOlder} historyCursor={cursor}
+      label="REPL" earlierLabel="Earlier" renderRow={row => <p>{row.text}</p>} />
+  </UIProvider></RuntimeContext.Provider>;
+  const mounted = render(app());
+  const root = screen.getByRole('region', { name: 'REPL' });
+  root.scrollTop = 0;
+  fireEvent.wheel(root, { deltaY: -1 });
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  root.scrollTop = 300;
+  fireEvent.scroll(root);
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  root.scrollTop = 255;
+  await act(async () => { fireEvent.scroll(root); });
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  cursor = 900;
+  mounted.rerender(app());
+  await act(async () => { vi.advanceTimersByTime(200); });
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+});
+
+it.each(['wheel', 'touch', 'keyboard'] as const)('does not prefetch for upward %s owned by a nested scroller', input => {
+  const f = fixture();
+  render(f.app(undefined, undefined, true, rows, <pre data-testid="nested-scroll" style={{ overflowY: 'auto', maxHeight: 100 }}><code>Nested output</code></pre>));
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  const nested = screen.getByTestId('nested-scroll');
+  const target = screen.getByText('Nested output');
+  root.scrollTop = 0;
+  nested.scrollTop = 50;
+  const up = () => {
+    if (input === 'wheel') fireEvent.wheel(target, { deltaY: -1 });
+    if (input === 'keyboard') fireEvent.keyDown(target, { key: 'PageUp' });
+    if (input === 'touch') {
+      fireEvent.touchStart(target, { touches: [{ clientY: 20 }] });
+      fireEvent.touchMove(target, { touches: [{ clientY: 40 }] });
+    }
+  };
+  up();
+  fireEvent.scroll(nested);
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  nested.scrollTop = 0;
+  up(); // At its boundary the nested surface can chain to the transcript.
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+});
+
+it.each(['ctrl-wheel', 'prevented-wheel', 'pinch', 'prevented-touch'] as const)(
+  'does not detach or page at the top for %s input', input => {
+    const f = fixture();
+    render(f.app());
+    const root = screen.getByRole('region', { name: 'Conversation' });
+    root.scrollTop = 0;
+    if (input === 'ctrl-wheel') fireEvent.wheel(root, { deltaY: -100, ctrlKey: true });
+    if (input === 'prevented-wheel') {
+      const event = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+      event.preventDefault();
+      fireEvent(root, event);
+    }
+    if (input === 'pinch') {
+      fireEvent.touchStart(root, { touches: [{ clientY: 20 }] });
+      fireEvent.touchMove(root, { touches: [{ clientY: 40 }, { clientY: 80 }] });
+      // Releasing one finger must not compare against the pre-pinch baseline.
+      fireEvent.touchMove(root, { touches: [{ clientY: 60 }] });
+    }
+    if (input === 'prevented-touch') {
+      fireEvent.touchStart(root, { touches: [{ clientY: 20 }] });
+      const event = new Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: [{ clientY: 40 }] });
+      event.preventDefault();
+      fireEvent(root, event);
+    }
+    expect(f.loadOlder).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
+  },
+);
