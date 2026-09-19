@@ -255,11 +255,28 @@ describe('production Browser shell integration without a daemon', () => {
     });
     return { start, stop: vi.fn(async () => {}), update: vi.fn(async () => {}), capture: vi.fn(), onEvent: () => () => {}, hold() { held = true; }, release: gate.resolve };
   }
+  it('uses one plus menu with New session first, creating an independent draft', async () => {
+    const app = application();
+    try {
+      const trigger = await screen.findByRole('button', { name: 'Pane 1 actions' });
+      expect(trigger.querySelector('.lucide-plus')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'New session tab' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'New Browser tab' })).toBeNull();
+      fireEvent.click(trigger);
+      const items = await screen.findAllByRole('menuitem');
+      expect(items[0].textContent).toBe('New session');
+      fireEvent.click(items[0]);
+      await waitFor(() => expect(app.runtime.tabs.workspace().tabs).toHaveLength(1));
+      expect(app.runtime.tabs.workspace().tabs[0].kind).toBe('new');
+    } finally { app.cleanup(); }
+  });
   it('toggles Design through the existing owner from browser/address focus, with exact nonrepeat modifiers and pending-start exclusion', async () => {
     const design = designPlatform(), app = application(true, design);
     const chord = { key: 'D', metaKey: true, shiftKey: true };
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Pane 1 actions' }));
+      expect((await screen.findAllByRole('menuitem'))[0].textContent).toBe('New session');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'New Browser tab' }));
       const address = await screen.findByRole('textbox', { name: 'Browser address' });
       await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
       for (const change of [{ metaKey: false }, { shiftKey: false }, { ctrlKey: true }, { altKey: true }, { repeat: true }, { isComposing: true }]) fireEvent.keyDown(address, { ...chord, ...change });
@@ -281,7 +298,9 @@ describe('production Browser shell integration without a daemon', () => {
   it('rejects inactive pane, native-surface modal holds and stale native shortcut identities', async () => {
     const design = designPlatform(), app = application(true, design);
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Pane 1 actions' }));
+      expect((await screen.findAllByRole('menuitem'))[0].textContent).toBe('New session');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'New Browser tab' }));
       const address = await screen.findByRole('textbox', { name: 'Browser address' });
       await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
       const event = { kind: 'shortcut' as const, shortcut: 'design-toggle' as const, ...app.runtime.browser.target('browser_created')! };
@@ -312,7 +331,9 @@ describe('production Browser shell integration without a daemon', () => {
     const design = designPlatform(), app = application(true, design), gate = deferred(), began = deferred();
     const restoreFocus = vi.spyOn(app.runtime.browser, 'restoreDesignFocus');
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Pane 1 actions' }));
+      expect((await screen.findAllByRole('menuitem'))[0].textContent).toBe('New session');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'New Browser tab' }));
       await screen.findByRole('textbox', { name: 'Browser address' });
       await waitFor(() => expect(app.runtime.browser.canToggleDesign('browser_created')).toBe(true));
       const target = app.runtime.browser.target('browser_created')!;
@@ -348,7 +369,9 @@ describe('production Browser shell integration without a daemon', () => {
   it('creates, routes and navigates a page without an execution host, preserving cancelled close', async () => {
     const app = application();
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Pane 1 actions' }));
+      expect((await screen.findAllByRole('menuitem'))[0].textContent).toBe('New session');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'New Browser tab' }));
       const address = await screen.findByRole('textbox', { name: 'Browser address' });
       await waitFor(() => expect(app.router.state.location.pathname).toBe('/browser/browser_created'));
       expect(app.runtime.tabs.workspace().tabs).toHaveLength(1);
@@ -379,7 +402,9 @@ describe('production Browser shell integration without a daemon', () => {
   it('waits for hide ACK before making settings interactive above a former native page', async () => {
     const app = application();
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'New Browser tab' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Pane 1 actions' }));
+      expect((await screen.findAllByRole('menuitem'))[0].textContent).toBe('New session');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'New Browser tab' }));
       await screen.findByRole('textbox', { name: 'Browser address' });
       const hidden = deferred();
       vi.mocked(app.platform.present).mockImplementation(async value => { if (value.blocked) await hidden.promise; });

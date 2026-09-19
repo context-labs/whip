@@ -71,7 +71,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await draft().fill('First independent unsent task.');
     await page.getByRole('button', { name: 'Permission approval mode', exact: true }).click();
     await page.getByRole('option', { name: /^Full Access/ }).click();
-    await page.getByRole('button', { name: 'New session tab', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'New session tab', exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'Pane 1 actions', exact: true }).click();
+    await expect(page.getByRole('menuitem').first()).toHaveText('New session');
+    await page.getByRole('menuitem', { name: 'New session', exact: true }).click();
     await ready(); const second = id(); assert.notEqual(first, second);
     await draft().fill('Second independent unsent task.');
     await tab(first).click(); await ready();
@@ -162,7 +165,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.reload();
     await page.getByRole('heading', { name: 'What do you want to work on?' }).waitFor();
     assert.equal(allTabs((await workspace()).workspace.layout).length, 0);
-    await page.getByRole('button', { name: 'New session tab', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'New session tab', exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'Pane 1 actions', exact: true }).click();
+    await expect(page.getByRole('menuitem').first()).toHaveText('New session');
+    await page.getByRole('menuitem', { name: 'New session', exact: true }).click();
     await ready();
     assert.equal(await draft().inputValue(), '');
     assert.equal(allTabs((await workspace()).workspace.layout).length, 1);

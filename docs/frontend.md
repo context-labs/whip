@@ -770,6 +770,10 @@ validate the expanded v3 metadata before marking a layout migrated. Original v1/
 storage is retained, with restored/dismissed identities recorded in v3. Failed
 writes visibly use memory, leaving original layouts recoverable on reload.
 
+Each desktop tab strip has one plus-button menu, with **New session** first,
+followed by the available terminal, Browser, and pane actions. The compact mobile
+bar retains its direct New session button.
+
 `SessionTabStrip` coordinates the workspace and renders one selected session view
 per visible pane. `ConversationRoute` handles admission/host status only. The
 workspace reconciler releases obsolete root leases **before** acquiring new roots;

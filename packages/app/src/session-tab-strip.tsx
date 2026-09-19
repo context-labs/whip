@@ -13,7 +13,7 @@ import { TerminalView } from './terminal-view';
 import { BrowserView } from './browser-view';
 import { BrowserProviderControls } from './browser-provider-controls';
 import { useWorkspaceViews, workspaceRootKey } from './workspace-views';
-import { ChevronDown, Circle, Globe, CircleHelp, MessageSquare, MessageSquareWarning, MoreHorizontal, Pencil, Plus, Columns2, SquareTerminal, X } from 'lucide-react';
+import { ChevronDown, Circle, Globe, CircleHelp, MessageSquare, MessageSquareWarning, MoreHorizontal, Pencil, Plus, SquareTerminal, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
@@ -152,7 +152,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       const replacement = selectedSessionTab(runtime.tabs.workspace());
       const target = replacement && document.getElementById(workspaceTabId(replacement.id));
       if (target) target.focus({ preventScroll: true });
-      else document.querySelector<HTMLButtonElement>('[aria-label^="Open sessions:"], [aria-label="New session tab"]')?.focus();
+      else document.querySelector<HTMLButtonElement>('[aria-label^="Open sessions:"], [aria-label="New session tab"], [aria-label^="Pane "][aria-label$=" actions"]')?.focus();
     });
   };
   const reopen = () => {
@@ -257,13 +257,15 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     windowDrag={inset && pane.id === panes[0]?.id} trafficLightInset={inset && sidebarHidden}
     leading={(!matched || pane.id === visiblePanes[0]?.id) ? utilities : undefined}
     value={matched ? pane.selected ?? null : null} onClose={id => close([id])} panelId={pane.selected ? workspacePanelId(pane.selected) : undefined}
-    onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<>{add}{runtime.platform.browser && <IconButton variant="ghost" label="New Browser tab" disabled={!runtime.tabs.canOpenBrowser()} onClick={() => { void openBrowserTab(runtime, navigate, { paneId: pane.id }); }}><Globe size={15}/></IconButton>}{matched && <Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Columns2 size={16} /></IconButton>} items={[
-      { id: 'terminal', label: 'New terminal', onSelect: () => newTerminal(pane) },
+    onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Plus size={17} /></IconButton>} items={[
+      { id: 'new-session', label: 'New session', onSelect: () => { openNewChat(runtime, navigate); } },
+      ...(matched ? [{ id: 'terminal', label: 'New terminal', onSelect: () => newTerminal(pane) }] : []),
       ...(runtime.platform.browser ? [{ id: 'browser', label: 'New Browser tab', disabled: !runtime.tabs.canOpenBrowser(), onSelect: () => { void openBrowserTab(runtime, navigate, { paneId: pane.id }); } }] : []),
-      { id: 'split-right', label: 'Split right', disabled: !pane.tabs.some(tab => tab.id === pane.selected && isSessionTab(tab)) || !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'right'); } },
+      ...(matched ? [{ id: 'split-right', label: 'Split right', disabled: !pane.tabs.some(tab => tab.id === pane.selected && isSessionTab(tab)) || !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'right'); } },
       { id: 'split-down', label: 'Split down', disabled: !pane.tabs.some(tab => tab.id === pane.selected && isSessionTab(tab)) || !canSplit(pane.id, 'bottom') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'bottom'); } },
       ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `focus-${p.id}`, label: `Focus pane ${panes.indexOf(p) + 1}`, onSelect: () => { if (p.selected) { go(p.selected); requestAnimationFrame(() => document.getElementById(workspacePanelId(p.selected!))?.focus()); } } })),
-    ]}/>}</>}
+      ] : []),
+    ]}/>}
     items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
       render: <Link {...tabDestination(tab)} />,
       status: icon(tab), metadata: <>{[viewSuffix(tab.kind).replace(' · ', ''), hosts.length > 1 ? hostName(tab) : ''].filter(Boolean).join(' · ')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
