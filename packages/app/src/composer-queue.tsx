@@ -16,6 +16,7 @@ import { InputAttachment } from './input-attachment';
 import { DesignInputAttachments } from './design-input-attachments';
 import { messagePresentation } from './conversation-rows';
 import { layout } from './styles';
+import { composerPanels } from './composer-panels.stylex';
 
 export const ComposerQueue = memo(function ComposerQueue({ rows, view, runtimeId, agentId, activeTurn, connected, hasMore }: {
   rows: readonly QueuedInputRow[]; view: SessionView; runtimeId: string; agentId: string;
@@ -72,8 +73,8 @@ export const ComposerQueue = memo(function ComposerQueue({ rows, view, runtimeId
     finally { setLoading(false); }
   }
   // Keep the status live region mounted, including after the final row leaves.
-  return <div ref={strip} data-composer-queue>
-    {!!rows.length && <div role="region" aria-label="Queued messages" {...stylex.props(styles.strip)}>
+  return <div ref={strip} data-composer-queue {...stylex.props((!!rows.length || hasMore || !!error) && composerPanels.surface)}>
+    {!!rows.length && <div role="region" aria-label="Queued messages">
       <ol ref={list} {...stylex.props(styles.list)}>
         {rows.length > 16 && <li aria-hidden {...stylex.props(styles.spacer(visible[0]?.start ?? 0))} />}
         {visible.map(cell => {
@@ -165,8 +166,7 @@ function QueueMessagePreview({ row, session, runtimeId, agentId, connected }: {
 
 
 const styles = stylex.create({
-  strip: { borderWidth: 1, borderStyle: 'solid', borderColor: colors.border, borderBottomWidth: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: colors.element, marginInline: 8, paddingTop: 4, paddingBottom: 12, marginBottom: -12 },
-  list: { listStyle: 'none', padding: 0, margin: 0, maxHeight: 'min(144px, 24dvh)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable' },
+  list: { listStyle: 'none', padding: 0, margin: 0, maxHeight: 'min(144px, 16dvh)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable' },
   item: { paddingInline: 8 },
   spacer: (height: number) => ({ height, padding: 0, margin: 0 }),
   row: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, minHeight: 44, color: surface.secondaryText },

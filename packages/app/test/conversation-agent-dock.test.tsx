@@ -23,7 +23,8 @@ vi.mock('../src/timeline', async importOriginal => ({
 }));
 // Test composition/recipient ownership with a stateful uncontrolled draft; real
 // composer/draft/upload preservation is additionally exercised in the browser.
-vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId }: ComponentProps<typeof import('../src/composer').Composer>) => <>
+vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId, agents, queue }: ComponentProps<typeof import('../src/composer').Composer>) => <>
+  {agents}{queue}
   <textarea aria-label={`Draft for ${agentId}`} defaultValue="" />
   <button onClick={onAccepted}>Accept send in {viewId}</button>
 </> }));

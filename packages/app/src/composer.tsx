@@ -78,6 +78,7 @@ export function Composer({
   modelControl,
   active = false,
   pending = false,
+  agents,
   queue,
   queueEnabled = false,
   dropTarget,
@@ -85,6 +86,7 @@ export function Composer({
 }: {
   onAccepted?(): void;
   dropTarget?: RefObject<HTMLElement | null>;
+  agents?: ReactNode;
   queue?: ReactNode;
   queueEnabled?: boolean;
   session: Session;
@@ -285,6 +287,7 @@ export function Composer({
           )}
         </>} />
       )}
+      {agents}
       {queue}
       <div {...stylex.props(styles.box)}>
         <ComposerAttachments attachments={attachments} owner={key}

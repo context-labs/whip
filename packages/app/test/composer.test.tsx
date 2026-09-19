@@ -390,3 +390,27 @@ it('switches from Send to Stop after accepting an active-turn draft', async () =
   expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Pause this turn' })).toBeTruthy();
 });
+
+it('stacks agent and queue slots below submission notices without remounting the draft', async () => {
+  const f = fixture();
+  const agents = <section aria-label="Test agents">Agents</section>;
+  const queue = <section aria-label="Test queue">Queue</section>;
+  const app = (showAgents = true, showQueue = true) => f.app('a', undefined, false, undefined, {
+    agents: showAgents ? agents : undefined, queue: showQueue ? queue : undefined,
+  });
+  const rendered = render(app());
+  const input = screen.getByLabelText('Message this agent') as HTMLTextAreaElement;
+  const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  before(screen.getByRole('region', { name: 'Test agents' }), screen.getByRole('region', { name: 'Test queue' }));
+  before(screen.getByRole('region', { name: 'Test queue' }), input);
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.reject(new Error('Submission unavailable')); });
+  before(screen.getByRole('alert'), screen.getByRole('region', { name: 'Test agents' }));
+  for (const [showAgents, showQueue] of [[true, false], [false, true], [false, false], [true, true]]) {
+    rendered.rerender(app(showAgents, showQueue));
+    expect(screen.queryAllByRole('region', { name: 'Test agents' })).toHaveLength(showAgents ? 1 : 0);
+    expect(screen.queryAllByRole('region', { name: 'Test queue' })).toHaveLength(showQueue ? 1 : 0);
+    expect(screen.getByLabelText('Message this agent')).toBe(input);
+    expect(input.value).toBe('same draft');
+  }
+});

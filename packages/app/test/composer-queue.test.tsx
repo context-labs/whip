@@ -103,6 +103,7 @@ it('retains the queue and draft when the action fails', async () => {
   render(f.app());
   fireEvent.click(screen.getByRole('button', { name: /^Steer queued/ }));
   await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Connection lost'));
+  expect(screen.getByRole('alert').closest('[data-composer-queue]')).toBeTruthy();
   expect(screen.getByRole('region', { name: 'Queued messages' })).toBeTruthy();
   expect((screen.getByLabelText('Current draft') as HTMLTextAreaElement).value).toBe('Do not overwrite this');
 });

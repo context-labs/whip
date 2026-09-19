@@ -8,6 +8,7 @@ import { chromium, firefox, _electron, expect } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 import { checkComposerReading } from './composer-reading.mjs';
+import { checkComposerPanels } from './composer-panels.mjs';
 
 // Production renderer and real queue commands/storage. Only the model is a
 // deterministic fixture, with gates before its production steer hook and commit.
@@ -51,6 +52,20 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
   const queue = page.getByRole('region', { name: 'Queued messages', exact: true });
   const row = label => queue.locator('[data-queue-row]').filter({ has: page.getByRole('button', { name: `Preview queued message: ${label}`, exact: true }) });
+  const form = input.locator('xpath=ancestor::form');
+  const dock = form.locator('[data-agent-dock]');
+  const disclosure = dock.getByRole('button', { name: /^Agents/ });
+  const stacked = async () => {
+    await expect.poll(() => form.evaluate(element => {
+      const bounds = element.querySelector('[data-whip-composer]').parentElement.getBoundingClientRect();
+      return bounds.bottom <= innerHeight && bounds.right <= innerWidth;
+    })).toBe(true);
+    const geometry = await checkComposerPanels(form);
+    assert.deepEqual(geometry.panels.map(panel => panel.kind), ['agents', 'queue']);
+    assert.ok(geometry.composer.bottom <= geometry.viewport, `Stack keeps the composer in view: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.composer.top - geometry.panels[0].top < geometry.viewport * 0.5, 'Combined panels stay below half the viewport');
+    return geometry;
+  };
   const screenshot = label => page.screenshot({ path: join(directory, `${name}-${label}.png`) });
   const send = async text => {
     await input.fill(text);
@@ -106,15 +121,22 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await screenshot('multiple-attachments'); await page.keyboard.press('Escape');
     checks.push('Enter and Send queue once; pending input is absent from transcript; full two-image preview resolves');
     await input.fill('Keep this unsent draft');
+    await stacked();
+    await screenshot('dark-collapsed-agents');
+    await disclosure.click();
+    await stacked();
     await screenshot('dark');
     await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'light' })));
     await page.reload(); await expect(queue.locator('[data-queue-row]')).toHaveCount(3);
     await expect(input).toHaveValue('Keep this unsent draft');
+    await disclosure.click();
+    await stacked();
     await screenshot('light');
     await page.emulateMedia({ contrast: 'more', reducedMotion: 'reduce' });
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 320, height: 700 });
     await page.evaluate(() => { document.documentElement.style.fontSize = '20px'; });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await stacked();
     await screenshot('narrow-large-contrast-reduced-motion');
     await writeFile(join(directory, `${name}-queue-accessibility.yml`), await queue.ariaSnapshot());
     await page.setViewportSize({ width: 1280, height: 900 }); await page.emulateMedia({ contrast: 'no-preference', reducedMotion: 'no-preference' });
@@ -168,6 +190,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect.poll(() => reading.evaluate(element => element.scrollTop)).toBeCloseTo(anchor, 0);
     await queue.locator('ol').evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(row('Queue window 24')).toBeVisible();
+    if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click();
+    await stacked();
+    const queueBounds = await queue.locator('ol').boundingBox();
+    const lastBounds = await row('Queue window 24').boundingBox();
+    assert.ok(lastBounds.y + lastBounds.height <= queueBounds.y + queueBounds.height + 1, 'Last queued row is fully visible');
+    assert.ok(await row('Queue window 24').evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.bottom - 2)?.closest('[data-queue-row]') === element;
+    }), 'Last queued row remains hit-testable above composer');
     await screenshot('virtual-queue-reading-history');
     for (const receipt of large) await session.inbox.remove(root, receipt.ingress_seq).result();
     await expect(queue).toHaveCount(0);
@@ -186,6 +217,25 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const controls = frames.filter(frame => frame.method === 'command.submit' && /^inbox\./.test(frame.params.operation));
     assert.equal(new Set(controls.map(frame => frame.params.command_id)).size, controls.length);
     await screenshot('settled');
+    const created = await client.submit('session.create', {
+      kind: 'agent', cwd: fixture.directory, model: 'model', provider: 'provider', permission_mode: 'prompt',
+    }).result();
+    assert.equal(created.status, 'succeeded');
+    const soloRoot = created.result.root_id, soloSession = client.session(soloRoot);
+    const soloWork = soloSession.submit({ text: 'hold:queue-solo' }); await soloWork.accepted();
+    await eventually(async () => (await soloSession.snapshot()).active_turns[soloRoot]);
+    const soloMessage = soloSession.submit({ text: 'This queue has no agents' }); await soloMessage.accepted();
+    await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${soloRoot}`);
+    await expect(queue).toBeVisible();
+    await expect(dock).toHaveCount(0);
+    assert.deepEqual((await checkComposerPanels(form)).panels.map(panel => panel.kind), ['queue']);
+    await screenshot('queue-only');
+    await soloSession.inbox.remove(soloRoot, (await soloMessage.accepted()).ingress_seq).result();
+    await fixture.release('queue-solo'); await soloWork.result();
+    await expect(queue).toHaveCount(0);
+    assert.equal((await checkComposerPanels(form)).panels.length, 0);
+    await screenshot('composer-only');
+    checks.push('agents and queue stack in collapsed/expanded dark/light and 320px large-type states; queue-only and composer-only leave no empty surface');
     reports.push({ name, checks, typing, effects, controls: controls.map(frame => ({ operation: frame.params.operation, params: frame.params.payload })), errors });
   } catch (error) {
     await screenshot('failure').catch(() => {});

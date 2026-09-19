@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
+import { checkComposerPanels } from './composer-panels.mjs';
 
 // Production renderer and existing stopped REPL children only. No provider runs,
 // fabricated agent events, or additional transcript subscriptions are needed.
@@ -27,29 +28,7 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   const readingChecks = [];
   const settle = () => page.waitForTimeout(250);
   const alignedRows = async () => {
-    const divider = dock.locator('[data-agent-dock-content]');
-    await expect(divider).toHaveCSS('border-top-width', '1px');
-    const border = await divider.boundingBox();
-    const composer = await form.evaluate(element => {
-      const bounds = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return { left: bounds.left + parseFloat(style.paddingLeft), right: bounds.right - parseFloat(style.paddingRight) };
-    });
-    assert.ok(Math.abs(border.x - composer.left) < 1, 'Divider starts at the composer edge');
-    assert.ok(Math.abs(border.x + border.width - composer.right) < 1, 'Divider ends at the composer edge');
-    const rows = dock.locator('[data-agent-dock-rows]');
-    if (await rows.count()) {
-      const viewport = await rows.boundingBox();
-      const dockBounds = await dock.boundingBox();
-      assert.ok(Math.abs(viewport.y + viewport.height - dockBounds.y - dockBounds.height) < 1,
-        'No empty strip clips rows at the bottom of the dock');
-      // Pending requests or the explicit narrow-pane fallback may sit between them.
-      if (await dock.evaluate(element => element.nextElementSibling?.tagName === 'FORM')) {
-        const composerBounds = await form.boundingBox();
-        assert.ok(Math.abs(viewport.y + viewport.height - composerBounds.y) < 1,
-          'Agent rows scroll all the way to the composer without a clipping gap');
-      }
-    }
+    await checkComposerPanels(form);
     await expect(disclosure).toHaveCSS('display', 'flex');
     await expect(disclosure.locator('span').last()).toHaveCSS('white-space', 'nowrap');
     const bounds = await dock.locator('[data-agent-dock-row]').evaluateAll(rows => rows.map(row => {
@@ -191,7 +170,7 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
   // Selection must not expand the disclosure implicitly.
   await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute('aria-current', 'true');
-  await expect(dock.locator('[data-agent-dock-content]')).toHaveCSS('border-top-width', '1px');
+  await expect(dock).toHaveCSS('border-top-width', '1px');
   await expect(dock.locator('.lucide-columns2')).toHaveCount(0);
   await expect(dock.getByRole('button', { name: 'All agents', exact: true })).toHaveCount(0);
   const rowColumns = await row.evaluate(element => {
@@ -296,6 +275,16 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
     await expect(row).toBeVisible();
     await bounded();
     await alignedRows();
+    const scroller = dock.locator('[data-agent-dock-rows]');
+    await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const lastRow = dock.locator('[data-agent-dock-row]').last();
+    await lastRow.focus();
+    assert.ok(await lastRow.evaluate(element => {
+      const row = element.getBoundingClientRect(), viewport = element.parentElement.getBoundingClientRect();
+      return row.top >= viewport.top - 1 && row.bottom <= viewport.bottom + 1
+        && document.elementFromPoint(row.left + row.width / 2, row.bottom - 2)?.closest('[data-agent-dock-row]') === element;
+    }), 'Last agent row remains fully visible and hit-testable above composer');
+    await expect(lastRow).toHaveCSS('outline-offset', '-2px');
     await screenshot(`${appearance.theme}-expanded`);
     assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
   }

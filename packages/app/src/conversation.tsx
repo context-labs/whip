@@ -393,9 +393,6 @@ export function SessionContent({
         </details>
       )}
 
-      {kind === 'chat' && <AgentDock key={`${expectedRuntimeId}:${session.rootId}:${agentId}`}
-        state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
-        openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
       {kind === 'chat' && childOpenError && <ErrorNotice type="action" owner={`${viewId ?? session.rootId}:open-child`}
         title="Could not open agent chat" error={childOpenError.message} tone="neutral" onDismiss={() => setChildOpenError(undefined)}
         action={runtime.tabs.canOpen() && <Button variant="ghost" onClick={() => openAgent(childOpenError.agentId, true)}>Open in tab</Button>} />}
@@ -412,6 +409,9 @@ export function SessionContent({
         dropTarget={dropTarget}
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}
+        agents={<AgentDock key={`agents:${expectedRuntimeId}:${session.rootId}:${agentId}`}
+          state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
+          openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
         queueEnabled={queueEnabled}
         queue={queueEnabled ? <ComposerQueue key={`${expectedRuntimeId}:${session.rootId}:${agentId}`} rows={queueRows} view={view} runtimeId={expectedRuntimeId} agentId={agentId} activeTurn={activeTurn} connected={connected} hasMore={inbox.hasMore} /> : undefined}
         agentId={agentId}

@@ -1478,9 +1478,12 @@ not duplicate live roster cards. Launch outcome stays distinct from subsequent
 child turns; failed/cancelled launches and expandable execution evidence remain
 available even without a child ID. Names may use existing snapshot metadata.
 
-`AgentDock` sits above pending human requests and the chat composer, outside the
-transcript scroller. It projects direct children of this pane's selected agent
-from the existing snapshot. It starts collapsed as a single-line disclosure with
+`AgentDock` occupies the composer's agents slot, immediately above the message
+queue (when present) and input surface, outside the transcript scroller. Pending
+human requests and submission notices sit above this stack, never between its
+overlapping surfaces. Composer alone owns the responsive horizontal gutters. The
+dock projects direct children of this pane's selected agent from the existing
+snapshot. It starts collapsed as a single-line disclosure with
 working, queued, not-started, attention-needed and finished counts. The heading
 uses the plain transcript disclosure treatment: no filled hover/pressed surface,
 with the shared keyboard-only focus indicator. Expanding it
@@ -1488,8 +1491,11 @@ reveals one row per available child in a height-bounded scroller: waiting/failed
 work first, then active/queued and not-started work, then settled children. Opening a child only
 highlights its row; it never promotes it out of its lifecycle group or expands
 the disclosure. Rows reuse the sidebar spinner for live running/queued work and
-quiet selected surfaces and a subtle top divider inset to the composer's visible
-edges, including narrow layouts. Like transcript activity rows,
+quiet selected rows. Agent and queue panels share an inset, rounded-top bordered
+surface, each tucking 12px of empty bottom padding behind the next surface. Queue
+recovery actions and errors remain inside its surface, above that padding. Agent
+and queue scrollers are capped at 20dvh/200px and 16dvh/144px respectively, bounding
+the combined stack on narrow/short screens. Like transcript activity rows,
 each unboxed row aligns the agent name on the left, state in the middle, and
 latest-turn model-call count and duration on the right (when known, including
 zero). Narrow panes place status/calls on a second line within the same agent row.

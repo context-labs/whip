@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, Circle, ShieldAlert } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { agentStatus } from './chat-activity';
+import { composerPanels } from './composer-panels.stylex';
 
 type Agent = DeepReadonly<NonNullable<RootSnapshot['agents']>[number]>;
 type Row = { agent: Agent; text: string; attention: boolean; running: boolean; finished: boolean };
@@ -117,7 +118,7 @@ function AgentDockRoster({ state, agentId, connected, onAgent, onAllAgents, open
     [rows.filter(row => !row.finished && !row.attention && !['Working', 'Queued', 'Not started'].includes(row.text)).length, 'other'],
   ] as const;
   const summary = ['Agents', ...(!connected ? ['Updates paused'] : partial ? ['Partial agent list'] : counts.filter(([count]) => count).map(([count, label]) => `${count} ${label}`))].join(' · ');
-  return <section aria-label="Session agents" data-agent-dock {...stylex.props(styles.dock)}>
+  return <section aria-label="Session agents" data-agent-dock {...stylex.props(composerPanels.surface, styles.dock)}>
     <div data-agent-dock-content {...stylex.props(styles.content)}>
       <button ref={heading} type="button" {...stylex.props(styles.header)} aria-expanded={expanded} aria-controls={contentId}
         title={summary} onBlur={() => setFocusFallback(false)} onClick={() => { setExpanded(!expanded); setHovered(undefined); }}>
@@ -159,12 +160,12 @@ function AgentDockRoster({ state, agentId, connected, onAgent, onAllAgents, open
 }
 
 const styles = stylex.create({
-  dock: { containerType: 'inline-size', width: '100%', maxWidth: 864, alignSelf: 'center', minWidth: 0, flexShrink: 0, paddingInline: { default: 24, [scale.phone]: 12 }, fontSize: typography.size12, color: surface.secondaryText },
-  content: { paddingTop: 4, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder },
+  dock: { containerType: 'inline-size', fontSize: typography.size12, color: surface.secondaryText },
+  content: { paddingInline: 4 },
   header: { backgroundColor: 'transparent', borderWidth: 0, borderRadius: scale.radiusControl, fontFamily: 'inherit', textAlign: 'start', cursor: 'pointer', outlineOffset: 2, paddingBlock: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, paddingInline: 8, fontSize: typography.size13, fontWeight: 400, color: surface.secondaryText },
   summary: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  rows: { display: 'flex', flexDirection: 'column', minWidth: 0, maxHeight: 'min(240px, 28dvh)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable' },
-  row: { display: 'grid', gridTemplateColumns: { default: '12px minmax(0, 1.4fr) minmax(0, 1fr) 7ch 8ch', '@container (max-width: 440px)': '12px minmax(0, 1fr) 8ch' }, alignItems: 'center', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, justifyContent: 'flex-start', paddingBlock: 4, paddingInline: 8, borderRadius: 6, textAlign: 'start', fontSize: typography.size13, fontWeight: 400, backgroundColor: { default: 'transparent', ':hover': colors.element } },
+  rows: { display: 'flex', flexDirection: 'column', minWidth: 0, maxHeight: 'min(200px, 20dvh)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable' },
+  row: { display: 'grid', gridTemplateColumns: { default: '12px minmax(0, 1.4fr) minmax(0, 1fr) 7ch 8ch', '@container (max-width: 440px)': '12px minmax(0, 1fr) 8ch' }, alignItems: 'center', width: '100%', minWidth: 0, height: 'auto', minHeight: { default: 32, '@media (pointer: coarse)': 44 }, gap: 8, justifyContent: 'flex-start', paddingBlock: 4, paddingInline: 8, borderRadius: 6, outlineOffset: -2, textAlign: 'start', fontSize: typography.size13, fontWeight: 400, backgroundColor: { default: 'transparent', ':hover': colors.hover } },
   selected: { backgroundColor: { default: colors.hover, ':hover': colors.hover } },
   name: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.foreground },
   status: { gridColumn: { '@container (max-width: 440px)': 2 }, gridRow: { '@container (max-width: 440px)': 2 }, minWidth: 0, fontSize: typography.size12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: surface.secondaryText },
