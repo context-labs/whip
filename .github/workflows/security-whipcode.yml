@@ -1,7 +1,7 @@
 name: security whipcode
 # Counterpart: security.yml. Keep shared validation changes synchronized.
 
-# Same dependency and CodeQL gates as stable whip, called by branch publishing.
+# Same dependency and CodeQL gates as stable whip, called for branch publishing and PR comparison.
 on:
   workflow_call:
 
@@ -35,7 +35,7 @@ jobs:
   # the signal, so we don't run it twice. CodeQL below is the independent SAST
   # pass and surfaces in the Security tab.
 
-  # Analyze this trusted branch commit; only this job may upload security results.
+  # Analyze the branch or PR merge commit; only this job may upload security results.
   codeql:
     runs-on: ubuntu-latest
     permissions:
