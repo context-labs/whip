@@ -1,6 +1,8 @@
 package session
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -8,6 +10,77 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestV20UpgradeRejectsUnsupportedSchemaWithoutMutation(t *testing.T) {
+	for _, schema := range []struct {
+		version  int
+		identity string
+	}{
+		{19, "whip-recursive-runtime-v19"},
+		{20, "foreign"},
+		{20, "whip-recursive-runtime-v21"},
+		{21, "foreign"},
+		{21, "whip-recursive-runtime-v20"},
+		{22, "whip-recursive-runtime-v22"},
+		{22, schemaIdentity},
+	} {
+		for _, upgrade := range []struct {
+			name string
+			run  func(context.Context, *sql.Conn) error
+		}{
+			{"direct", upgradeV20},
+			{"stale20", func(ctx context.Context, conn *sql.Conn) error {
+				return migrateExisting(ctx, conn, "unused.db", 20, "whip-recursive-runtime-v20", nil)
+			}},
+		} {
+			t.Run(fmt.Sprintf("%s/%d/%s", upgrade.name, schema.version, schema.identity), func(t *testing.T) {
+				store, _, _ := newSwarmFixture(t)
+				conn, err := store.db.Conn(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Close()
+				if schema.version == 20 {
+					if _, err := conn.ExecContext(t.Context(), `ALTER TABLE compactions DROP COLUMN pinned`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := conn.ExecContext(t.Context(), `UPDATE runtime_schema SET identity=?`, schema.identity); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := conn.ExecContext(t.Context(), fmt.Sprintf(`PRAGMA user_version=%d`, schema.version)); err != nil {
+					t.Fatal(err)
+				}
+				// A rejected source must not run timestamp normalization either.
+				if _, err := conn.ExecContext(t.Context(), `UPDATE sessions SET updated_at='2025-01-02T03:04:05Z'`); err != nil {
+					t.Fatal(err)
+				}
+				type databaseState struct {
+					version, schemaVersion, changes int
+					identity                        string
+				}
+				readState := func() databaseState {
+					t.Helper()
+					var state databaseState
+					err := conn.QueryRowContext(t.Context(), `SELECT user_version,schema_version,total_changes(),identity
+FROM pragma_user_version,pragma_schema_version,runtime_schema WHERE id=1`).Scan(
+						&state.version, &state.schemaVersion, &state.changes, &state.identity)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return state
+				}
+				before := readState()
+				if err := upgrade.run(t.Context(), conn); err == nil {
+					t.Error("accepted unsupported schema")
+				}
+				if after := readState(); after != before {
+					t.Fatalf("rejected upgrade changed database: before=%+v after=%+v", before, after)
+				}
+			})
+		}
+	}
+}
 
 func TestCompactionPinSurvivesReopenAndFork(t *testing.T) {
 	for _, pinned := range []bool{false, true} {

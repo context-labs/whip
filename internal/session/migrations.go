@@ -376,6 +376,12 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 
 	var identity string
 	identityErr := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity)
+	return migrateExisting(ctx, conn, path, version, identity, identityErr)
+}
+
+// migrateExisting dispatches from an opener's observed schema. Another opener
+// may have advanced the database before any upgrade acquires its write lock.
+func migrateExisting(ctx context.Context, conn *sql.Conn, path string, version int, identity string, identityErr error) error {
 	if version == currentSchemaVersion && identityErr == nil && identity == schemaIdentity {
 		return nil
 	}
