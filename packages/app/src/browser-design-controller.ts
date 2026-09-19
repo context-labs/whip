@@ -29,12 +29,12 @@ export class BrowserDesignController {
   }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  private publish(sync = true) {
+  private publish(sync = true, clearSelection?: Parameters<BrowserDesignPlatform['update']>[0]['clearSelection']) {
     this.snapshot = { state: this.state, draft: this.draft };
     for (const listener of this.listeners) listener();
     if (sync && this.state && this.state.status !== 'stopped') {
       const state = this.state, draft = this.draft;
-      void this.platform.update({ ...designLease(state), draft }).catch(error => {
+      void this.platform.update({ ...designLease(state), draft, ...(clearSelection ? { clearSelection } : {}) }).catch(error => {
         if (this.state?.designId !== state.designId || this.draft !== draft) return;
         this.draft = { ...this.draft, error: message(error) }; this.publish(false);
       });
@@ -138,7 +138,11 @@ export class BrowserDesignController {
       if (revision !== this.revision) return;
       ++this.revision;
       this.capture = undefined;
-      this.draft = { ...this.draft, prompt: '', promptReset: (this.draft.promptReset ?? 0) + 1, busy: false, uncertain: false, evidence: undefined, error: undefined }; this.publish();
+      this.evidenceOpen = false;
+      // Native owns selection: clear only the evidence that was actually admitted.
+      const clearSelection = this.state && sameDesignRevision(this.state, capture)
+        ? { documentRevision: capture.documentRevision, selectionRevision: capture.selectionRevision } : undefined;
+      this.draft = { ...this.draft, prompt: '', promptReset: (this.draft.promptReset ?? 0) + 1, busy: false, uncertain: false, evidence: undefined, error: undefined }; this.publish(true, clearSelection);
     };
     try {
       const result = await this.submit({ recipientId: frozen.recipientId, prompt: frozen.prompt, capture, delivery: frozen.delivery, current, accepted });

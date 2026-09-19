@@ -51,6 +51,7 @@ type clientActionPayload struct {
 	Text                string                         `json:"text,omitempty"`
 	Parts               []llm.ContentPart              `json:"parts,omitempty"`
 	Attachments         []protocol.InputAttachment     `json:"attachments,omitempty"`
+	DesignContext       *llm.DesignContextInput        `json:"design_context,omitempty"`
 	Command             string                         `json:"command,omitempty"`
 	Cut                 int                            `json:"cut,omitempty"`
 	ID                  string                         `json:"id,omitempty"`
@@ -740,7 +741,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		if err := decodeClientAction(payload, &action); err != nil {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 		}
-		output, actionErr := s.clientAgentSubmitInput(actorCtx, action.ID, SubmitPayload{Text: action.Text, Parts: action.Parts, Attachments: action.Attachments}, action.Delivery, admission)
+		output, actionErr := s.clientAgentSubmitInput(actorCtx, action.ID, SubmitPayload{Text: action.Text, Parts: action.Parts, Attachments: action.Attachments, DesignContext: action.DesignContext}, action.Delivery, admission)
 		return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
 	}
 	output, actionErr := s.applyClientCommand(actorCtx, operation, payload)
@@ -1722,6 +1723,9 @@ func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery stri
 
 func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string, admissions ...sessionstore.CommandAdmission) (string, error) {
 	input.Text = strings.TrimSpace(input.Text)
+	if _, err := designContextPresentation(input); err != nil {
+		return "", err
+	}
 	if id == "" || input.Text == "" && len(input.Parts) == 0 && len(input.Attachments) == 0 {
 		return "", errors.New("agent submission requires an agent and content")
 	}

@@ -672,7 +672,7 @@ See [desktop behavior](desktop.md#browser-tabs-experimental) and the
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
-| Design Mode (Cmd+Shift+D toggles in the active Browser pane, including native guest and floating composer focus) hover/multi-selection (hover-only 100ms ease-out outline motion, geometry-invalidation snapping, app/OS reduced motion) with a trusted floating composer, explicit conversation recipient, bounded text evidence plus optional viewport PNG; isolated drafts reuse ordinary upload/send/recovery. No direct visual editing or automatic browser grants. | [App UI/controller](../packages/app/src/browser-design.tsx), [isolated overlay](../packages/app/src/browser-design-overlay.tsx), [native inspection/capture](../apps/desktop/src/browser-design.ts), [shared submission](../packages/app/src/chat-submission.ts) | [Shortcut/focus scope tests](../packages/app/test/browser-workspace.test.tsx), [Controller/motion tests](../packages/app/test/browser-design.test.ts), [overlay interactions](../packages/app/test/browser-design-overlay.test.tsx), [real SDK/upload integration](../packages/app/test/browser-design-integration.test.tsx), [production renderer checks](../apps/web/scripts/browser-design.mjs), [production Electron fixture](../apps/desktop/scripts/browser-design-production.mjs), [native compositor spike](../apps/desktop/scripts/browser-design-native.mjs) |
+| Design Mode (Cmd+Shift+D toggles in the active Browser pane, including native guest and floating composer focus) hover/multi-selection (hover-only 100ms ease-out outline motion, geometry-invalidation snapping, app/OS reduced motion) with a trusted floating composer, explicit conversation recipient, bounded text evidence plus optional viewport PNG; isolated drafts reuse ordinary upload/send/recovery. Submitted evidence appears as a compact screenshot/element reference with on-demand captured details and raw context; persisted provenance keeps agent evidence out of authored transcript prose. No direct visual editing or automatic browser grants. | [App UI/controller](../packages/app/src/browser-design.tsx), [isolated overlay](../packages/app/src/browser-design-overlay.tsx), [native inspection/capture](../apps/desktop/src/browser-design.ts), [shared submission](../packages/app/src/chat-submission.ts) | [Shortcut/focus scope tests](../packages/app/test/browser-workspace.test.tsx), [Controller/motion tests](../packages/app/test/browser-design.test.ts), [overlay interactions](../packages/app/test/browser-design-overlay.test.tsx), [real SDK/upload integration](../packages/app/test/browser-design-integration.test.tsx), [compact transcript presentation](../packages/app/test/browser-design-message.test.tsx), [persisted evidence provenance](../internal/daemon/design_context_test.go), [production renderer checks](../apps/web/scripts/browser-design.mjs), [production Electron fixture](../apps/desktop/scripts/browser-design-production.mjs), [native compositor spike](../apps/desktop/scripts/browser-design-native.mjs) |
 | Human navigation, find/zoom, split-pane movement and metadata recovery without an execution daemon; web-only pages remain unavailable metadata. Native guests have no app preload, and interactive overlays wait for native hide ACK. | [Workspace coordinator](../packages/app/src/browser-workspace.ts), [native manager](../apps/desktop/src/browser-manager.ts), [shared overlay boundary](../packages/ui/src/native-surfaces.tsx) | [Workspace/UI regressions](../packages/app/test/browser-workspace.test.tsx), [actual renderer→preload→IPC restore seam](../apps/desktop/scripts/browser-workspace-native-renderer.ts), [native policy tests](../apps/desktop/tests/browser-policy.test.ts) |
 | Explicit host/conversation selection offers exact resources, not permission. Browser v1 open/attach/port expansion use durable Once-only approval; release or disconnect ends agent control without closing human pages, and reconnect never reselects automatically. Historical roots are not upgraded. | [Provider controls](../packages/app/src/browser-provider-controls.tsx), [SDK provider transport](../packages/sdk/src/browser.ts), [daemon Browser operations](../internal/tools/browser_desktop.go) | [Selection/UI tests](../packages/app/test/browser-provider.test.tsx), [SDK lifecycle tests](../packages/sdk/test/browser.test.ts), [daemon provider tests](../internal/daemon/browser_provider_test.go) |
 | Human SSH previews need no agent/root selection: choose a saved connected SSH host, verified runtime catalog project and literal-loopback URL, then confirm natively before routes commit. Network policy belongs to the project environment, separately from agent grants; no URL-host, Mac-local or direct fallback exists. | [Human preview controls](../packages/app/src/browser-preview-controls.tsx), [native confirmation/admission](../apps/desktop/src/browser-human-preview.ts), [environment lifecycle](../apps/desktop/src/preview-environments.ts) | [Preview UI/admission tests](../packages/app/test/browser-preview.test.tsx), [native human-preview tests](../apps/desktop/tests/browser-human-preview.test.ts), [selected-host SSH fixture](../apps/desktop/scripts/browser-preview-native-main.ts) |
@@ -770,6 +770,11 @@ activity branches reveal, and chat stays pinned to the growing tail until the
 reader scrolls up. Returning to the bottom or choosing **Latest** resumes following;
 only **Latest** animates scrolling. Reduced motion and hidden windows stop animation work. Native mobile's
 portable presentation remains unchanged.
+
+Chat scrollback softly fades at the top and above the composer using a
+theme-independent alpha mask in `packages/app/src/reading-list.tsx`. End padding
+keeps the newest content readable; composer and Latest controls stay unmasked.
+The effect is static and disabled for forced-colors and print.
 
 An inline activity line appears immediately on send, before the first response
 event. It bridges **Sending…** into a thinking caption or the actual tool/response
@@ -1002,7 +1007,9 @@ source colors, rendered surfaces, selection, reload and switching away.
 
 The saved-session sidebar follows the compact Claude/Paper hierarchy while using
 WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
-worktrees distinct, preserves pin/recency order, and offers New session, Search
+worktrees distinct, preserves pin/recency order, and shows seven sessions per folder
+by default. More reveals seven additional loaded sessions at a time; once all are
+visible, Less resets the folder to seven. It offers New session, Search
 sessions and Settings. Hosts have separate headings and connection status within
 one sidebar. Directory + preselects its source host and folder in the Local/Remote
 creation form; it does not create work until submitted. Search opens a centered
@@ -1013,7 +1020,10 @@ background-tab menus preserve remembered child/inspector locations.
 
 The sidebar has a 320 px default, keyboard/pointer resizing (256–420 px), a
 hide/show toggle, window-local layout and bounded host-specific collapse state.
-Mobile uses a contained Sheet with touch targets and a fixed footer. Virtualized
+The brand and New session remain pinned while Search, Settings, folders, sessions,
+and Servers scroll together. A faint border and soft shadow/fade appear below the
+header only when scrolled. Mobile uses the same layout in a contained Sheet with
+touch targets. Virtualized
 catalog updates preserve the visible reading anchor and never hydrate roots to
 obtain labels. See [frontend navigation](frontend.md#saved-session-navigation).
 

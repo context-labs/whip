@@ -43,7 +43,8 @@ import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type A
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
 import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
-import { InputAttachment } from './input-attachment';
+import { DesignInputAttachments } from './design-input-attachments';
+import { BrowserDesignAttachment } from './browser-design-attachment';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
 import {
   type InboxInput,
@@ -239,7 +240,7 @@ const styles = stylex.create({
   heading: {
     fontSize: typography.size18,
     fontWeight: 560,
-    color: markdown.heading,
+    color: 'inherit',
     marginBlock: '18px 10px',
   },
   code: {
@@ -446,7 +447,7 @@ function StoredMessageRow({ row, scope, connected, historyRevision, onProse, det
     queryFn: async ({ signal }) => {
       const value = await scope.client.content(body, scope).readJSON({ maxBytes: 64 << 20, signal });
       if (!value || typeof value !== 'object' || !('content' in value)) throw new Error('Stored message has no content.');
-      return messagePresentation(value.content);
+      return messagePresentation(value.content, row.role === 'user' && 'presentation' in value ? value.presentation : undefined);
     },
     enabled: connected,
     staleTime: Infinity,
@@ -499,6 +500,9 @@ export const MessageRow = memo(function MessageRow({
         <MessageDisclosure row={row} readBody={readBody}>{details}</MessageDisclosure>
       ) : user ? (
         <>
+          {content == null && !row.body && row.designEvidence && <BrowserDesignAttachment
+            context={{ ...row.designEvidence.context, elements: row.designEvidence.context.elements ?? [], url: row.designEvidence.context.page_url, title: row.designEvidence.context.page_title }} rawText={row.designEvidence.rawText}
+            screenshot={row.designEvidence.image && <ImageAttachment image={row.designEvidence.image} thumbnail label="Design screenshot"/>}/>}
           {content == null && !row.body && (!!row.images?.length || attachments) && <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
             {attachments}
             {row.images?.map((image, index, images) => <ImageAttachment key={index} image={image} thumbnail
@@ -801,10 +805,9 @@ export function Timeline({
             : source.body && messageScope && (source.role === 'user' || source.role === 'assistant')
               ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} historyAction={historyAction} />
               : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
-                  attachments={messageScope && source.inputAttachments?.map((file, index) => <InputAttachment key={`${file.content.reference_id}:${index}`}
+                  attachments={messageScope && !!source.inputAttachments?.length && <DesignInputAttachments files={source.inputAttachments} designContext={source.designContext}
                     client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId}
-                    runtimeId={messageScope.client.getSnapshot().info?.runtime_id ?? ''} connected={connected}
-                    file={file.content} image={file.kind === 'image'} name={file.name || `Attachment ${index + 1}`} />)}
+                    runtimeId={messageScope.client.getSnapshot().info?.runtime_id ?? ''} connected={connected}/>}
                   details={source.role === 'internal' && source.body && messageScope
                     ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} detailsOnly />
                     : undefined} />}

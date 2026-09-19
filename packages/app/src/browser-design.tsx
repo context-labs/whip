@@ -12,6 +12,7 @@ import { BrowserDesignController, type DesignSubmission } from './browser-design
 import { compositionKey } from './compositions';
 import { boundedDesignText } from './browser-design-geometry';
 import { submitChatInput } from './chat-submission';
+import { designContextSummary } from './browser-design-presentation';
 
 type Recipient = BrowserDesignRecipient & { runtimeId: string; rootId: string; agentId: string; hostId: string };
 /** Exact host/root/agent identity. A focused chat is never an implicit destination. */
@@ -60,6 +61,7 @@ async function submitDesign(runtime: AppRuntime, tabId: string, input: DesignSub
   if (snapshot.root_id !== recipient.rootId || (recipient.agentId !== recipient.rootId && !snapshot.agents?.some(agent => agent.id === recipient.agentId && !agent.terminal_cause))) throw new Error('This conversation recipient is no longer available. Choose another conversation.');
   const result = await submitChatInput({ runtime, session, runtimeId: recipient.runtimeId, agentId: recipient.agentId,
     compositionKey: key, connected: host.client.getSnapshot().state === 'connected', text: input.prompt, attachments,
+    designContext: designContextSummary(input.capture.text, attachments[0]!.value!.content.reference_id, attachments[1]?.value?.content.reference_id),
     delivery: input.delivery === 'queue' ? 'queued' : 'steer', activeTurn: snapshot.active_turns[recipient.agentId], onAccepted: input.accepted });
   if (result.status === 'completed') return { accepted: result.accepted };
   if (result.status === 'skipped') return { accepted: false, uncertain: !!result.delivery, error: 'The message was not sent. Check the destination connection and pending delivery.' };

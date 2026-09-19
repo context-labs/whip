@@ -62,7 +62,7 @@ export interface BrowserDesignCapture extends BrowserDesignRevision {
 export interface BrowserDesignPlatform {
   start(target: BrowserTarget): Promise<BrowserDesignState>;
   stop(lease: BrowserDesignLease): Promise<void>;
-  update(input: BrowserDesignLease & { draft: BrowserDesignDraft }): Promise<void>;
+  update(input: BrowserDesignLease & { draft: BrowserDesignDraft; clearSelection?: Pick<BrowserDesignRevision, 'documentRevision' | 'selectionRevision'> }): Promise<void>;
   capture(input: BrowserDesignRevision & { screenshot: boolean }): Promise<BrowserDesignCapture>;
   onEvent(listener: (event: BrowserDesignEvent) => void): () => void;
 }

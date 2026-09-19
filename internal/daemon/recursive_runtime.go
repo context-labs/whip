@@ -563,17 +563,17 @@ func (node *AgentSession) run() {
 	turnID := agentTurnID(node.id)
 	var items []sessionstore.InboxItem
 	started := false
-	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (string, []llm.ContentPart, error) {
+	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (llm.Message, error) {
 		start, err := node.root.StartAgentTurn(turnCtx, node.id, turnID)
 		if err != nil {
-			return "", nil, err
+			return llm.Message{}, err
 		}
 		started = true
 		items = start.Items
 		if len(items) == 0 {
-			return "", nil, nil
+			return llm.Message{}, nil
 		}
-		return node.root.decodeInboxInput(turnCtx, items[0])
+		return node.root.decodeInboxMessage(turnCtx, items[0])
 	})
 	if !started {
 		node.finishLiveTurn()

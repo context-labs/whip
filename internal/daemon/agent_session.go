@@ -22,8 +22,8 @@ func (session *AgentSession) Turn(ctx context.Context, input string, authored bo
 	return session.RunTurn(ctx, input, nil, authored, started, accepted, nil)
 }
 
-func (session *AgentSession) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
-	return session.RunTurn(ctx, input, parts, true, started, accepted, nil)
+func (session *AgentSession) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
+	return session.RunTurn(ctx, input, parts, true, started, accepted, nil, presentation...)
 }
 
 // RunTurn is the only model-backed execution path for roots and descendants.
@@ -32,7 +32,7 @@ func (session *AgentSession) TurnParts(ctx context.Context, input string, parts 
 // boundary, and everything the model saw is recorded in the turn journal so
 // the caller's commit marks it delivered. Callers retain separate durable
 // envelopes around its returned transcript.
-func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (string, []llm.ContentPart, error)) (string, error) {
+func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (llm.Message, error), presentations ...*llm.TranscriptPresentation) (string, error) {
 	session.mu.Lock()
 	session.turn = turnJournal{}
 	session.accountingStopped = nil
@@ -50,9 +50,13 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 		defer release()
 	}
+	var presentation *llm.TranscriptPresentation
+	if len(presentations) > 0 {
+		presentation = presentations[0]
+	}
 	if prepare != nil {
-		var err error
-		input, parts, err = prepare(ctx)
+		message, err := prepare(ctx)
+		input, parts, presentation = message.Content, message.Parts, message.Presentation
 		if err != nil {
 			return "", err
 		}
@@ -93,7 +97,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	session.mu.Unlock()
 	defer session.finishPresentation()
 	session.internPrompt(ctx)
-	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices, OnEphemeral: func(text string) { session.recordEphemeral(ctx, text) }}
+	events := agent.Events{InputPresentation: presentation, OnStart: started, EphemeralNotices: session.hookNotices, OnEphemeral: func(text string) { session.recordEphemeral(ctx, text) }}
 	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
 		check, err := session.outputContract(contract)
 		if err != nil {
@@ -323,7 +327,8 @@ func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]l
 	var out []llm.Message
 	var delivered []int64
 	for _, item := range items {
-		text, parts, err := session.root.decodeInboxInput(ctx, item)
+		message, err := session.root.decodeInboxMessage(ctx, item)
+		text, parts := message.Content, message.Parts
 		if err == nil {
 			err = session.validateImageInput(parts)
 		}
@@ -343,7 +348,7 @@ func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]l
 			continue
 		}
 		delivered = append(delivered, item.Seq)
-		out = append(out, llm.Message{Role: "user", Content: text, Parts: parts, Authored: true})
+		out = append(out, llm.Message{Role: "user", Content: text, Parts: parts, Authored: true, Presentation: message.Presentation})
 	}
 	session.mu.Lock()
 	session.turn.DeliveredInbox = append(session.turn.DeliveredInbox, delivered...)

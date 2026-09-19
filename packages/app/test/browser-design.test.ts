@@ -138,6 +138,8 @@ describe('design draft controller', () => {
     result.resolve({ accepted: false, uncertain: true }); await sending;
     await fixture.controller.intent({ kind: 'send' }); expect(submit).toHaveBeenCalledOnce();
     expect(fixture.controller.getSnapshot().draft).toMatchObject({ prompt: 'Make this clearer', uncertain: true, busy: false });
+    expect(vi.mocked(fixture.platform.update).mock.calls.every(([input]) => !input.clearSelection)).toBe(true);
+    expect(fixture.controller.getSnapshot().state?.elements).toEqual(state().elements);
   });
   it('late acceptance cannot erase a newer design prompt', async () => {
     const fixture = setup(); await start(fixture); await fixture.controller.intent({ kind: 'send' });
@@ -145,12 +147,26 @@ describe('design draft controller', () => {
     await fixture.controller.intent({ kind: 'prompt', value: 'A newer request' }); input.accepted();
     expect(fixture.controller.getSnapshot().draft.prompt).toBe('A newer request');
   });
-  it('acceptance clears only the matching prompt and releases busy state immediately', async () => {
+  it('acceptance clears the matching prompt and requests a revision-scoped selection reset without stopping Design Mode', async () => {
     const result = deferred<{ accepted: boolean }>(); const submit = vi.fn((_input: DesignSubmission) => result.promise);
     const fixture = setup(submit); await start(fixture); const sending = fixture.controller.intent({ kind: 'send' });
     await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce()); submit.mock.calls[0]![0].accepted();
-    expect(fixture.controller.getSnapshot().draft).toMatchObject({ prompt: '', busy: false });
+    expect(fixture.controller.getSnapshot().draft).toMatchObject({ prompt: '', busy: false, evidence: undefined });
+    expect(fixture.platform.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      clearSelection: { documentRevision: 1, selectionRevision: 1 },
+      draft: expect.objectContaining({ prompt: '', busy: false, promptReset: 1 }),
+    }));
+    fixture.emit({ kind: 'state', state: { ...state(), selectionRevision: 2, elements: [], hover: undefined } });
+    expect(fixture.controller.getSnapshot().state).toMatchObject({ status: 'active', elements: [] });
+    expect(fixture.platform.stop).not.toHaveBeenCalled();
     result.resolve({ accepted: true }); await sending;
+  });
+  it('late acceptance preserves a newer selection', async () => {
+    const fixture = setup(); await start(fixture); await fixture.controller.intent({ kind: 'send' });
+    fixture.emit({ kind: 'state', state: { ...state(), selectionRevision: 2 } });
+    fixture.submit.mock.calls[0]![0].accepted();
+    expect(vi.mocked(fixture.platform.update).mock.calls.every(([input]) => !input.clearSelection)).toBe(true);
+    expect(fixture.controller.getSnapshot().state).toMatchObject({ selectionRevision: 2, elements: state().elements });
   });
   it('blocks stale revisions before admission after asynchronous upload', async () => {
     const fixture = setup(); await start(fixture); await fixture.controller.intent({ kind: 'send' });

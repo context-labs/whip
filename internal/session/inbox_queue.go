@@ -14,10 +14,11 @@ import (
 // InboxPreview is display-only. The original payload remains the model input.
 // Previews are bounded before storage and count toward snapshot/page budgets.
 type InboxPreview struct {
-	Text            string            `json:"text"`
-	Truncated       bool              `json:"truncated,omitempty"`
-	Attachments     []InboxAttachment `json:"attachments,omitempty"`
-	AttachmentCount int               `json:"attachment_count,omitempty"`
+	DesignContext   *llm.DesignContextInput `json:"design_context,omitempty"`
+	Text            string                  `json:"text"`
+	Truncated       bool                    `json:"truncated,omitempty"`
+	Attachments     []InboxAttachment       `json:"attachments,omitempty"`
+	AttachmentCount int                     `json:"attachment_count,omitempty"`
 }
 
 type InboxAttachment struct {
@@ -41,12 +42,16 @@ func inboxPreviewJSON(item InboxEnqueue) []byte {
 	preview := InboxPreview{Text: string(item.Payload.Data)}
 	if strings.HasSuffix(item.Kind, ".parts") {
 		var body struct {
-			Text        string            `json:"text"`
-			Parts       []llm.ContentPart `json:"parts"`
-			Attachments []InboxAttachment `json:"attachments"`
+			DesignContext *llm.DesignContextInput `json:"design_context"`
+			Text          string                  `json:"text"`
+			Parts         []llm.ContentPart       `json:"parts"`
+			Attachments   []InboxAttachment       `json:"attachments"`
 		}
 		if json.Unmarshal(item.Payload.Data, &body) != nil {
 			return []byte(`{}`)
+		}
+		if body.DesignContext.Validate() == nil {
+			preview.DesignContext = body.DesignContext.Clone()
 		}
 		preview.Text = body.Text
 		preview.AttachmentCount = len(body.Attachments)
@@ -71,6 +76,7 @@ func inboxPreviewJSON(item InboxEnqueue) []byte {
 	// Unusual host-supplied metadata must not make the preview unbounded.
 	if len(body) > 16<<10 {
 		preview.Attachments = nil
+		preview.DesignContext = nil
 		preview.Truncated = true
 		body, _ = json.Marshal(preview)
 	}

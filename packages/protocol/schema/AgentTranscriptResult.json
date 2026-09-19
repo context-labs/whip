@@ -281,6 +281,66 @@
                   "object"
                 ],
                 "properties": {
+                  "design_context": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "context_attachment_id": {
+                        "type": "string"
+                      },
+                      "screenshot_attachment_id": {
+                        "type": "string"
+                      },
+                      "elements": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "selector": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "element_count": {
+                        "type": "integer"
+                      },
+                      "page_url": {
+                        "type": "string"
+                      },
+                      "page_title": {
+                        "type": "string"
+                      },
+                      "context_part_index": {
+                        "type": "integer"
+                      },
+                      "screenshot_part_index": {
+                        "type": [
+                          "null",
+                          "integer"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "context_attachment_id",
+                      "elements",
+                      "element_count",
+                      "context_part_index"
+                    ],
+                    "additionalProperties": false
+                  },
                   "version": {
                     "type": "integer"
                   },
@@ -425,6 +485,66 @@
                       "object"
                     ],
                     "properties": {
+                      "design_context": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "context_attachment_id": {
+                            "type": "string"
+                          },
+                          "screenshot_attachment_id": {
+                            "type": "string"
+                          },
+                          "elements": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "selector": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "label"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "element_count": {
+                            "type": "integer"
+                          },
+                          "page_url": {
+                            "type": "string"
+                          },
+                          "page_title": {
+                            "type": "string"
+                          },
+                          "context_part_index": {
+                            "type": "integer"
+                          },
+                          "screenshot_part_index": {
+                            "type": [
+                              "null",
+                              "integer"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "context_attachment_id",
+                          "elements",
+                          "element_count",
+                          "context_part_index"
+                        ],
+                        "additionalProperties": false
+                      },
                       "version": {
                         "type": "integer"
                       },
@@ -846,6 +966,56 @@
               "object"
             ],
             "properties": {
+              "design_context": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "context_attachment_id": {
+                    "type": "string"
+                  },
+                  "screenshot_attachment_id": {
+                    "type": "string"
+                  },
+                  "elements": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "selector": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "element_count": {
+                    "type": "integer"
+                  },
+                  "page_url": {
+                    "type": "string"
+                  },
+                  "page_title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "context_attachment_id",
+                  "elements",
+                  "element_count"
+                ],
+                "additionalProperties": false
+              },
               "text": {
                 "type": "string"
               },

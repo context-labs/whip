@@ -25,6 +25,7 @@ import {
   designBoolean,
   designDraft,
   designIntent,
+  designInteger,
   designLease,
   designLimits,
   designRevision,
@@ -350,9 +351,32 @@ export class BrowserDesignController {
       "generation",
       "designId",
       "draft",
+      "clearSelection",
     ]);
-    const a = this.current(designLease(input, ["draft"]));
+    const a = this.current(designLease(input, ["draft", "clearSelection"]));
+    const clear = input.clearSelection === undefined
+      ? undefined
+      : object(input.clearSelection, ["documentRevision", "selectionRevision"]);
+    const revision = clear
+      ? {
+          documentRevision: designInteger(clear.documentRevision),
+          selectionRevision: designInteger(clear.selectionRevision),
+        }
+      : undefined;
     a.draft = designDraft(input.draft);
+    // Late admission must never clear a newer page or selection.
+    if (
+      revision &&
+      revision.documentRevision === a.state.documentRevision &&
+      revision.selectionRevision === a.state.selectionRevision
+    ) {
+      ++a.sequence;
+      a.nodes = [];
+      a.hoverNode = undefined;
+      a.keyboardIndex = -1;
+      this.selected(a);
+      return;
+    }
     this.publish(a, false);
   }
   /** Called synchronously by BrowserManager.hide/present, before native hide acknowledgement. */

@@ -20,6 +20,8 @@ import (
 
 // Events receives streaming callbacks during a turn. All fields are optional.
 type Events struct {
+	// InputPresentation is persisted with the user input, never sent to providers.
+	InputPresentation *llm.TranscriptPresentation
 	// EphemeralSystem is included in every provider request for this turn but
 	// is never appended to the durable/displayed transcript.
 	EphemeralSystem string
@@ -491,7 +493,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	if ev.OnStart != nil {
 		ev.OnStart()
 	}
-	msg := llm.Message{Role: "user", Content: input, Parts: parts, Authored: authored}
+	msg := llm.Message{Role: "user", Content: input, Parts: parts, Authored: authored, Presentation: ev.InputPresentation}
 	if authored {
 		now := time.Now()
 		msg.SentAt = &now

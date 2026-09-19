@@ -12,6 +12,22 @@ import { MotionContext } from './transcript-motion';
 const styles = stylex.create({
   viewport: { flex: 1, overflowY: 'auto', minHeight: 0, overflowAnchor: 'none' },
   inner: { maxWidth: 840, marginInline: 'auto', paddingInline: { default: 32, [scale.phone]: 16 }, paddingBlock: 24 },
+  chatEdges: {
+    // Alpha-only masks blend into every theme without covering selection or intercepting input.
+    maskImage: {
+      default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px, black calc(100% - 40px), rgb(0 0 0 / 0.65) calc(100% - 16px), transparent)',
+      '@media (forced-colors: active)': 'none',
+      '@media print': 'none',
+    },
+    WebkitMaskImage: {
+      default: 'linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.65) 8px, black 20px, black calc(100% - 40px), rgb(0 0 0 / 0.65) calc(100% - 16px), transparent)',
+      '@media (forced-colors: active)': 'none',
+      '@media print': 'none',
+    },
+    scrollPaddingTop: 20,
+    scrollPaddingBottom: 40,
+  },
+  chatInset: { paddingBottom: 40 },
   jump: { position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', boxShadow: '0 2px 8px rgb(0 0 0 / 0.08)' },
   region: { flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0 },
   exhausted: { visibility: 'hidden' },
@@ -391,7 +407,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       )}
       <div
         ref={viewport}
-        {...stylex.props(styles.viewport)}
+        {...stylex.props(styles.viewport, chatFollow && styles.chatEdges)}
         role="region"
         tabIndex={0}
         aria-label={label}
@@ -436,7 +452,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
           savePosition.current();
         }}
       >
-        <div ref={content} {...stylex.props(styles.inner, contentStyle)}>
+        <div ref={content} {...stylex.props(styles.inner, chatFollow && styles.chatInset, contentStyle)}>
           {!rows.length && empty}
           <div style={{ height: total, position: 'relative' }}>
             {virtual.getVirtualItems().map((item) => (

@@ -54,6 +54,41 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     console.log(`${name}: completed workflow ${checks.length + 1}`);
     checks.push('Paper density, 320px default, exact directories/worktrees, labels and no extra root hydration');
 
+    const more = () => sidebar().getByRole('button', { name: `More sessions in ${paths[0]}`, exact: true });
+    await more().waitFor();
+    assert.equal(await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count(), 7);
+    assert.equal(await more().getAttribute('aria-expanded'), 'false');
+    await more().focus(); await page.keyboard.press('Enter');
+    await eventually(async () => await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count() === 14);
+    const header = sidebar().locator('[data-sidebar-header]');
+    const edge = sidebar().locator('[data-sidebar-scroll-edge]');
+    const headerBefore = await header.boundingBox();
+    const searchBefore = await sidebar().getByRole('button', { name: 'Search sessions', exact: true }).boundingBox();
+    assert.equal(await edge.evaluate(node => getComputedStyle(node).opacity), '0');
+    await saved().evaluate(node => { node.scrollTop = 80; });
+    await eventually(() => edge.evaluate(node => getComputedStyle(node).opacity === '1'));
+    assert.deepEqual(await header.boundingBox(), headerBefore, 'New session must remain pinned');
+    assert.ok((await sidebar().getByRole('button', { name: 'Search sessions', exact: true }).boundingBox()).y < searchBefore.y, 'Secondary navigation must scroll');
+    await saved().evaluate(node => { node.scrollTop = 0; });
+    await eventually(() => edge.evaluate(node => getComputedStyle(node).opacity === '0'));
+    checks.push('pinned New session, scrolling secondary navigation, and scroll-only header edge');
+    const less = sidebar().getByRole('button', { name: `Less sessions in ${paths[0]}`, exact: true });
+    assert.equal(await less.count(), 0, 'Less must not appear before all sessions are shown');
+    for (let batch = 0; batch < 20; batch++) {
+      await saved().evaluate(node => { node.scrollTop = node.scrollHeight; });
+      await more().or(less).waitFor();
+      if (await less.count()) break;
+      await more().click();
+    }
+    await less.waitFor();
+    assert.equal(await less.getAttribute('aria-expanded'), 'true');
+    await less.click();
+    await saved().evaluate(node => { node.scrollTop = 0; });
+    await more().waitFor();
+    assert.equal(await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count(), 7);
+    assert.equal(await sidebar().locator('[data-sidebar-session]').count(), 17);
+    checks.push('seven sessions per directory, keyboard More, and Less');
+
     const action = id => page.locator(`[data-sidebar-session="${id}"]`).getByRole('button');
     const caret = path => group(path).locator('[data-directory-caret]');
     const opacity = locator => locator.evaluate(node => getComputedStyle(node).opacity);
@@ -218,8 +253,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const sheet = page.getByRole('dialog', { name: 'WHIP', exact: true });
     assert.ok((await sheet.getByRole('button', { name: 'Search sessions', exact: true }).boundingBox()).height >= 44);
+    await sheet.getByRole('button', { name: 'Manage servers', exact: true }).scrollIntoViewIfNeeded();
     const geometry = await sheet.evaluate(node => { const list = node.querySelector('[aria-label="Saved sessions"]'); const host = node.querySelector('[aria-label="Manage servers"]'); return { height: list.clientHeight, hostBottom: host.getBoundingClientRect().bottom, viewport: innerHeight }; });
     assert.ok(geometry.height > 100 && geometry.hostBottom <= geometry.viewport, JSON.stringify(geometry));
+    await sheet.getByLabel('Saved sessions', { exact: true }).evaluate(node => { node.scrollTop = 0; });
     await sheet.getByRole('button', { name: 'Search sessions', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: 'Search sessions', exact: true });
     await input.fill('Session 139');

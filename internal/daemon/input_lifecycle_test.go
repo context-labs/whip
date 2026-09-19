@@ -192,7 +192,7 @@ type lifecyclePartsRunner struct {
 	parts []llm.ContentPart
 }
 
-func (r *lifecyclePartsRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+func (r *lifecyclePartsRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
 	r.parts = parts
 	return r.Turn(ctx, text, true, started, accepted)
 }

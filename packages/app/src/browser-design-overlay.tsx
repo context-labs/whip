@@ -76,6 +76,7 @@ export function BrowserDesignOverlay({ model, onIntent, bridgeError }: { model: 
     // Local authored text owns this renderer until an explicit admission reset.
     // Matching text is not an acknowledgement: A → AB → A can have older A echoes.
     if (!editingPrompt.current || promptReset.current !== (draft.promptReset ?? 0)) {
+      if (promptReset.current !== (draft.promptReset ?? 0)) setPreview(false);
       promptReset.current = draft.promptReset ?? 0;
       editingPrompt.current = false; setPrompt(draft.prompt); setSubmitting(false);
     }

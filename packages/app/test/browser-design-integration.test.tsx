@@ -93,7 +93,7 @@ async function fixture(associated: boolean | 'ambiguous' = false) {
     status: 'active', viewport: { width: 1000, height: 800 }, elements: [] };
   let draft: BrowserDesignDraft | undefined;
   const capture = vi.fn(async (input: { screenshot: boolean }) => ({ ...state, capturedAt: '2026-09-18T00:00:00Z',
-    text: JSON.stringify({ version: 1, untrusted: true, title: '页面', elements: state.elements }),
+    text: JSON.stringify({ schemaVersion: 1, untrusted: true, title: '页面', url: 'https://example.com/settings', elements: state.elements.map(element => ({ id: element.id, tag: 'button', name: element.label, selector: '#target' })) }),
     ...(input.screenshot ? { image: 'data:image/png;base64,iVBORw0KGgo=' } : {}),
   }));
   const design = {
@@ -155,6 +155,11 @@ it('sends two native selections through actual uploads and runtime command admis
   const command = f.server.commands()[0]!.params;
   expect(command).toMatchObject({ root_id: 'root', operation: 'agent.submit', payload: { id: 'child', text: 'Align these two controls — 改变', delivery: 'steer' } });
   expect(command.payload.attachments.map((item: any) => item.kind)).toEqual(['text', 'image']);
+  expect(command.payload.design_context).toMatchObject({
+    context_attachment_id: command.payload.attachments[0].content.reference_id,
+    screenshot_attachment_id: command.payload.attachments[1].content.reference_id,
+    element_count: 2, page_url: 'https://example.com/settings', page_title: '页面',
+  });
   expect(f.capture).toHaveBeenCalledOnce();
   const uploads = [...f.server.uploads.values()].slice(1);
   expect(uploads.map(item => [item.params.root_id, item.params.agent_id, item.params.media_type])).toEqual([['root', 'child', 'text/plain'], ['root', 'child', 'image/png']]);

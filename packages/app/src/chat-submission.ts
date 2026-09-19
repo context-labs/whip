@@ -1,3 +1,4 @@
+import type { SubmitPayload } from '@whip/protocol';
 import type { Session } from '@whip/sdk';
 import type { CompositionAttachment } from './compositions';
 import type { AppRuntime, CommandNotice } from './runtime';
@@ -12,6 +13,7 @@ export interface ChatSubmission {
   connected: boolean;
   text: string;
   attachments: readonly CompositionAttachment[];
+  designContext?: SubmitPayload['design_context'];
   delivery: 'queued' | 'steer';
   activeTurn?: string;
   /** Clear only this surface's matching text. Called on admission, not completion. */
@@ -26,7 +28,7 @@ export type ChatSubmissionResult =
 /** Shared chat admission path. Never reads or overwrites a destination's draft. */
 export async function submitChatInput({
   runtime, session, runtimeId, agentId, compositionKey: key, connected,
-  text, attachments, delivery, activeTurn, onAccepted,
+  text, attachments, designContext, delivery, activeTurn, onAccepted,
 }: ChatSubmission): Promise<ChatSubmissionResult> {
   const unresolved = runtime.getSnapshot().commands.find(command => command.draftKey === key && command.delivery);
   if (unresolved) return { status: 'skipped', delivery: unresolved.delivery };
@@ -44,6 +46,7 @@ export async function submitChatInput({
     if (!token) return { status: 'skipped' };
     const payload = {
       text,
+      ...(designContext ? { design_context: designContext } : {}),
       ...(attachments.length ? { attachments: attachments.map(item => item.value!) } : {}),
     };
     const sentIds = attachments.map(item => item.id);
@@ -52,7 +55,7 @@ export async function submitChatInput({
       text + (attachments.length ? `\n${attachments.length} attached files` : ''),
       !!activeTurn,
       undefined,
-      { text, attachment_count: attachments.length, attachments: attachments.map(item => ({ ...item.value!, content: { source: '', media_type: '', ...item.value!.content } })) },
+      { text, ...(designContext ? { design_context: designContext } : {}), attachment_count: attachments.length, attachments: attachments.map(item => ({ ...item.value!, content: { source: '', media_type: '', ...item.value!.content } })) },
     );
     const command = agentId !== session.rootId
       ? session.command('agent.submit', { id: agentId, ...payload, delivery }, { commandId: inputId })

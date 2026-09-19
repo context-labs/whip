@@ -30,7 +30,6 @@ const styles = stylex.create({
     maxWidth: 864,
     alignSelf: 'center',
     paddingInline: { default: 24, [scale.phone]: 12 },
-    paddingTop: 8,
     paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
   },
   box: {

@@ -1,4 +1,5 @@
 import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/sdk/state';
+import type { DesignContext } from './browser-design-presentation';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
 import { admittedText, inboxInputId, isChatInput, matchesInput, submittedInputId, type InboxInput, type SubmittedInput } from './input-presentation';
 
@@ -13,6 +14,8 @@ export interface TimelineRow {
   body?: NonNullable<HistoryView['messages'][number]['body']>;
   seq?: number;
   images?: ImagePart[];
+  designContext?: DeepReadonly<DesignContext> | null;
+  designEvidence?: { context: DeepReadonly<DesignContext>; rawText: string; image?: ImagePart };
   inputAttachments?: NonNullable<InboxInput['preview']>['attachments'];
   sentAt?: string;
   delivery?: string;
@@ -36,15 +39,30 @@ export interface ImagePart {
   height?: number;
 }
 /** Also used when inspecting a bounded raw message loaded from content storage. */
-export function messagePresentation(content: unknown): {
+export function messagePresentation(content: unknown, presentation?: unknown): {
   text: string;
   images: ImagePart[];
+  designEvidence?: TimelineRow['designEvidence'];
 } {
   if (typeof content === 'string') return { text: content, images: [] };
   const text: string[] = [];
   const images: ImagePart[] = [];
+  // Only daemon-recorded part indices can separate evidence from authored prose.
+  const metadata = presentation as { version?: number; design_context?: DesignContext & { context_part_index: number; screenshot_part_index?: number } } | undefined;
+  const design = metadata?.version === 1 ? metadata.design_context : undefined;
+  const contextPart = Array.isArray(content) && design && Number.isSafeInteger(design.context_part_index) ? content[design.context_part_index] : undefined;
+  const imagePart = Array.isArray(content) && design && Number.isSafeInteger(design.screenshot_part_index) ? content[design.screenshot_part_index!] : undefined;
+  const valid = design && Array.isArray(design.elements) && design.elements.length <= 8
+    && design.elements.every(element => typeof element?.label === 'string')
+    && Number.isSafeInteger(design.element_count) && design.element_count >= design.elements.length && design.element_count <= 1000
+    && contextPart?.type === 'text' && typeof contextPart.text === 'string'
+    && (design.screenshot_part_index === undefined || (design.screenshot_part_index !== design.context_part_index
+      && imagePart?.type === 'image_url' && typeof imagePart.image_url?.url === 'string'));
+  const designEvidence = valid ? { context: design, rawText: contextPart.text,
+    ...(imagePart ? { image: { url: imagePart.image_url.url, width: imagePart.w, height: imagePart.h } } : {}) } : undefined;
   if (Array.isArray(content))
-    for (const part of content) {
+    for (const [index, part] of content.entries()) {
+      if (designEvidence && (index === design!.context_part_index || index === design!.screenshot_part_index)) continue;
       if (!part || typeof part !== 'object') continue;
       if (part.type === 'text' && typeof part.text === 'string')
         text.push(part.text);
@@ -55,7 +73,7 @@ export function messagePresentation(content: unknown): {
         images.push({ url: part.image_url.url, width: part.w, height: part.h });
       else text.push(`[Unsupported content: ${String(part.type)}]`);
     }
-  return { text: text.join('\n\n'), images };
+  return { text: text.join('\n\n'), images, ...(designEvidence ? { designEvidence } : {}) };
 }
 type Presentation = DeepReadonly<RootSnapshot['presentation']>;
 
@@ -135,7 +153,7 @@ export function timelineRows(
       });
       continue;
     }
-    const parts = messagePresentation(message.content);
+    const parts = messagePresentation(message.content, sourceRole === 'user' ? metadata : undefined);
     const digest =
       message.role === 'user' &&
       !message.authored &&
@@ -168,6 +186,7 @@ export function timelineRows(
         role: digest ? 'mailbox' : role,
         text: parts.text,
         images: parts.images,
+        ...(parts.designEvidence ? { designEvidence: parts.designEvidence } : {}),
         sentAt: message.sent_at ?? entry.sent_at ?? undefined,
         ...(message.role === 'tool'
           ? { label: message.name || 'Tool output' }
@@ -312,6 +331,7 @@ export function conversationRows(
       role: 'user',
       text: (queueStrip ? local?.preview?.text : undefined) ?? local?.text ?? item.preview?.text ?? admittedText(item.kind, item.payload),
       inputAttachments: queueStrip ? item.preview?.attachments ?? local?.preview?.attachments : undefined,
+      designContext: queueStrip ? item.preview?.design_context ?? local?.preview?.design_context : undefined,
       eventSeq: queueStrip ? item.delivery_seq : undefined,
       memberIds: [`inbox:${item.agent_id}:${item.seq}`],
       sentAt: local?.sentAt,
@@ -325,7 +345,9 @@ export function conversationRows(
     inputs.push({
       id: queueStrip ? submittedInputId(input) : `input:${input.id}`,
       role: 'user',
-      text: input.text,
+      text: queueStrip ? input.preview?.text ?? input.text : input.text,
+      inputAttachments: queueStrip ? input.preview?.attachments : undefined,
+      designContext: queueStrip ? input.preview?.design_context : undefined,
       sentAt: input.sentAt,
       delivery:
         deliveries.get(input.id) ?? (input.accepted ? 'Queued' : 'Sending…'),

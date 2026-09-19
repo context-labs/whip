@@ -13,6 +13,7 @@ import { admittedText, type QueuedInputRow } from './input-presentation';
 import { ErrorNotice } from './error-feedback';
 import { ImageAttachment } from './timeline';
 import { InputAttachment } from './input-attachment';
+import { DesignInputAttachments } from './design-input-attachments';
 import { messagePresentation } from './conversation-rows';
 import { layout } from './styles';
 
@@ -133,6 +134,7 @@ function QueueMessagePreview({ row, session, runtimeId, agentId, connected }: {
   });
   let text = row.preview?.text ?? row.text;
   let attachments = row.preview?.attachments;
+  let designContext = row.preview?.design_context;
   let images = messagePresentation(undefined).images;
   let parseError: unknown;
   const raw = query.data ?? (body && !body.reference_id ? body.text : undefined);
@@ -140,6 +142,7 @@ function QueueMessagePreview({ row, session, runtimeId, agentId, connected }: {
     if (row.item?.kind.endsWith('.parts')) {
       try {
         const input = JSON.parse(raw) as SubmitPayload;
+        designContext = input.design_context;
         const parts = messagePresentation(input.parts);
         text = [input.text, parts.text].filter(Boolean).join('\n\n'); images = parts.images;
         attachments = input.attachments?.map(file => ({ ...file, content: { source: '', media_type: '', ...file.content } }));
@@ -154,8 +157,7 @@ function QueueMessagePreview({ row, session, runtimeId, agentId, connected }: {
     <div {...stylex.props(styles.body)}>{text}</div>
     {!raw && row.preview?.truncated && <p>Showing the available preview.</p>}
     <div {...stylex.props(styles.attachments)}>
-      {attachments?.map((file, index) => <InputAttachment key={`${file.content.reference_id}:${index}`} client={session.client} rootId={session.rootId} runtimeId={runtimeId} agentId={agentId}
-        file={file.content} name={file.name || `Attachment ${index + 1}`} image={file.kind === 'image'} connected={connected} />)}
+      <DesignInputAttachments files={attachments} designContext={designContext} client={session.client} rootId={session.rootId} runtimeId={runtimeId} agentId={agentId} connected={connected}/>
       {images.map((image, i) => <ImageAttachment key={i} image={image} thumbnail />)}
     </div>
   </div>;

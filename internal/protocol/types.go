@@ -135,9 +135,10 @@ type StreamEvent struct {
 }
 
 type SubmitPayload struct {
-	Text        string            `json:"text"`
-	Parts       []llm.ContentPart `json:"parts,omitempty"`
-	Attachments []InputAttachment `json:"attachments,omitempty"`
+	DesignContext *llm.DesignContextInput `json:"design_context,omitempty"`
+	Text          string                  `json:"text"`
+	Parts         []llm.ContentPart       `json:"parts,omitempty"`
+	Attachments   []InputAttachment       `json:"attachments,omitempty"`
 }
 
 // InputAttachment keeps uploaded bodies out of request frames and command

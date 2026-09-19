@@ -9,6 +9,19 @@ export interface AgentCancelParams {
 }
 
 export interface AgentInputParams {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
   id: string;
   text: string;
   delivery?: string;
@@ -153,6 +166,21 @@ export interface AgentTranscriptResult {
       | null
       | {
           presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             version: number;
             turn_id?: string;
             parts?:
@@ -193,6 +221,21 @@ export interface AgentTranscriptResult {
           seq: number;
           message?: null | {
             presentation?: null | {
+              design_context?: null | {
+                context_attachment_id: string;
+                screenshot_attachment_id?: string;
+                elements:
+                  | null
+                  | {
+                      label: string;
+                      selector?: string;
+                    }[];
+                element_count: number;
+                page_url?: string;
+                page_title?: string;
+                context_part_index: number;
+                screenshot_part_index?: null | number;
+              };
               version: number;
               turn_id?: string;
               parts?:
@@ -299,6 +342,19 @@ export interface AgentTranscriptResult {
         command_id?: string;
         steer_turn_id?: string;
         preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           text: string;
           truncated?: boolean;
           attachments?:
@@ -354,6 +410,21 @@ export interface BoundedTranscriptPage {
     | null
     | {
         presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
           version: number;
           turn_id?: string;
           parts?:
@@ -394,6 +465,21 @@ export interface BoundedTranscriptPage {
         seq: number;
         message?: null | {
           presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             version: number;
             turn_id?: string;
             parts?:
@@ -2500,6 +2586,19 @@ export interface RootCollectionPage {
           command_id?: string;
           steer_turn_id?: string;
           preview?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+            };
             text: string;
             truncated?: boolean;
             attachments?:
@@ -2689,6 +2788,19 @@ export interface RootCollectionPage {
               command_id?: string;
               steer_turn_id?: string;
               preview?: null | {
+                design_context?: null | {
+                  context_attachment_id: string;
+                  screenshot_attachment_id?: string;
+                  elements:
+                    | null
+                    | {
+                        label: string;
+                        selector?: string;
+                      }[];
+                  element_count: number;
+                  page_url?: string;
+                  page_title?: string;
+                };
                 text: string;
                 truncated?: boolean;
                 attachments?:
@@ -2910,6 +3022,21 @@ export interface RootSnapshot {
     | null
     | {
         presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
           version: number;
           turn_id?: string;
           parts?:
@@ -3055,6 +3182,19 @@ export interface RootSnapshot {
         command_id?: string;
         steer_turn_id?: string;
         preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           text: string;
           truncated?: boolean;
           attachments?:
@@ -3581,6 +3721,19 @@ export interface StreamEvent {
 }
 
 export interface SubmitPayload {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
   text: string;
   parts?:
     | null

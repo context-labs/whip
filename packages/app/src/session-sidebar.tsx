@@ -14,7 +14,7 @@ import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex
 import { layout } from './styles';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { sessionBusy, sessionNeedsInput } from './session-status';
-import { sidebarRows, setDirectoryCollapsed, type SidebarState } from './sidebar-state';
+import { sidebarRows, setDirectoryCollapsed, defaultDirectorySessionLimit, type SidebarState } from './sidebar-state';
 import { openNewChat, sessionDestination } from './session-tab-routing';
 import type { HostConnection } from './hosts';
 import { useSessionActions } from './session-actions';
@@ -36,14 +36,24 @@ export function SessionSidebar(props: SidebarProps) {
   const app = useAppState();
   const scroll = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = useState(false);
   return <>
-    <SidebarDestinations onNavigate={props.onNavigate} onSearch={props.onSearch} headerAction={props.headerAction} inset={props.inset} />
-    <div ref={scroll} aria-label="Saved sessions" {...stylex.props(layout.sessionList, styles.list)}>
-      <div ref={content} {...stylex.props(styles.hosts)}>
-        {app.hosts.map(host => <HostSection key={host.id} host={host} {...props} scroll={scroll} content={content} />)}
+    <div data-sidebar-header {...stylex.props(styles.header)}>
+      <SidebarHeader onNavigate={props.onNavigate} headerAction={props.headerAction} inset={props.inset} />
+      <span aria-hidden="true" data-sidebar-scroll-edge {...stylex.props(styles.scrollEdge, scrolled && styles.scrollEdgeVisible)} />
+    </div>
+    <div ref={scroll} aria-label="Saved sessions" onScroll={event => setScrolled(event.currentTarget.scrollTop > 0)} {...stylex.props(layout.sessionList, styles.list)}>
+      <div ref={content} {...stylex.props(styles.scrollContent)}>
+        <nav aria-label="Main navigation" {...stylex.props(styles.destinations)}>
+          <button onClick={props.onSearch} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
+          <Link id="whip-settings-link" to="/settings" search={{ section: "general" }} onClick={props.onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
+        </nav>
+        <div {...stylex.props(styles.hosts)}>
+          {app.hosts.map(host => <HostSection key={host.id} host={host} {...props} scroll={scroll} content={content} />)}
+        </div>
+        <SidebarFooter onConnect={props.onConnect} />
       </div>
     </div>
-    <SidebarFooter onConnect={props.onConnect} />
   </>;
 }
 type SidebarScroll = { scroll: RefObject<HTMLDivElement | null>; content: RefObject<HTMLDivElement | null> };
@@ -61,7 +71,7 @@ function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: 
     </>}
   </section>;
 }
-function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { onNavigate(): void; onSearch(): void; headerAction?: ReactNode; inset?: boolean; }) {
+function SidebarHeader({ onNavigate, headerAction, inset }: { onNavigate(): void; headerAction?: ReactNode; inset?: boolean; }) {
   const runtime = useRuntime();
   const navigate = useNavigate();
   // Inset window chrome (desktop): the brand row is an empty drag strip for
@@ -74,14 +84,12 @@ function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { on
       {inset ? <div {...stylex.props(styles.brandRowAction, layout.windowNoDrag)}>{headerAction}</div> : headerAction}
     </div>
     {inset && <div {...stylex.props(styles.wordmarkBelow)}>{wordmark}</div>}
-    <nav aria-label="Main navigation" {...stylex.props(styles.destinations)}>
+    <nav aria-label="Create session">
       <Link to="/" search={{ new: 1 }} preload={false} onClick={event => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
         if (openNewChat(runtime, navigate)) onNavigate();
       }} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
-      <button onClick={() => onSearch()} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
-      <Link id="whip-settings-link" to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
     </nav>
   </>;
 }
@@ -144,9 +152,14 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
   const location = useLocation();
   const selected = sessionDestination(location.pathname);
   const items = page?.items;
-  const [expandedDirectories, setExpandedDirectories] = useState<readonly string[]>([]);
-  const expandDirectory = (cwd: string) => setExpandedDirectories(previous => [...previous.filter(path => path !== cwd), cwd].slice(-64));
-  const rows = useMemo(() => sidebarRows(items ?? [], collapsed, expandedDirectories), [items, collapsed, expandedDirectories]);
+  const [directoryLimits, setDirectoryLimits] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const setDirectoryLimit = (cwd: string, limit: number) => setDirectoryLimits(previous => {
+    const next = new Map(previous);
+    next.delete(cwd);
+    if (limit > defaultDirectorySessionLimit) next.set(cwd, limit);
+    return new Map([...next].slice(-64));
+  });
+  const rows = useMemo(() => sidebarRows(items ?? [], collapsed, directoryLimits), [items, collapsed, directoryLimits]);
   const [touch, setTouch] = useState(() => window.matchMedia('(pointer: coarse), (max-width: 767px)').matches);
   useEffect(() => {
     const media = window.matchMedia('(pointer: coarse), (max-width: 767px)');
@@ -231,7 +244,11 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
     if (!session) return;
     if (collapsed.includes(session.cwd)) { onCollapse?.(session.cwd, false); return; }
     const index = rows.findIndex(row => row.kind === 'session' && row.session.id === id);
-    if (index < 0) { expandDirectory(session.cwd); return; }
+    if (index < 0) {
+      const position = items!.filter(item => item.cwd === session.cwd).findIndex(item => item.id === id);
+      setDirectoryLimit(session.cwd, Math.ceil((position + 1) / defaultDirectorySessionLimit) * defaultDirectorySessionLimit);
+      return;
+    }
     virtual.scrollToIndex(index, { align: 'auto' });
     pendingReveal.current = undefined;
     rememberAnchor();
@@ -243,15 +260,12 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
       {visibleRows.map(row => {
         const item = rows[row.index]!;
         if (item.kind === 'more') return <button key={item.key} type="button" data-sidebar-cwd={item.cwd}
-          aria-label={`${item.expanded ? 'Show fewer' : 'Show more'} sessions in ${item.cwd || 'Other sessions'}`} aria-expanded={item.expanded}
-          onClick={() => {
-            if (item.expanded) setExpandedDirectories(previous => previous.filter(path => path !== item.cwd));
-            else expandDirectory(item.cwd);
-          }}
+          aria-label={`${item.expanded ? 'Less' : 'More'} sessions in ${item.cwd || 'Other sessions'}`} aria-expanded={item.visibleCount > defaultDirectorySessionLimit}
+          onClick={() => setDirectoryLimit(item.cwd, item.expanded ? defaultDirectorySessionLimit : item.visibleCount + defaultDirectorySessionLimit)}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }}
           {...stylex.props(styles.destination, styles.moreButton)}>
           {item.expanded ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
-          {item.expanded ? 'Show less' : 'Show more'}
+          {item.expanded ? 'Less' : 'More'}
         </button>;
         if (item.kind === 'directory') return <div key={item.key} data-sidebar-directory={item.cwd} data-sidebar-cwd={item.cwd}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }} {...stylex.props(styles.group, directoryMarker)}>

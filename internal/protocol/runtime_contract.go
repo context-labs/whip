@@ -45,11 +45,12 @@ type AgentCancelParams struct {
 	TurnID string `json:"turn_id"`
 }
 type AgentInputParams struct {
-	ID          string            `json:"id"`
-	Text        string            `json:"text"`
-	Delivery    string            `json:"delivery,omitempty"`
-	Parts       []llm.ContentPart `json:"parts,omitempty"`
-	Attachments []InputAttachment `json:"attachments,omitempty"`
+	DesignContext *llm.DesignContextInput `json:"design_context,omitempty"`
+	ID            string                  `json:"id"`
+	Text          string                  `json:"text"`
+	Delivery      string                  `json:"delivery,omitempty"`
+	Parts         []llm.ContentPart       `json:"parts,omitempty"`
+	Attachments   []InputAttachment       `json:"attachments,omitempty"`
 }
 type QuestionAnswerParams struct {
 	ID string `json:"id"`

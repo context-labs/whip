@@ -97,8 +97,8 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
     <div {...stylex.props(styles.footer)}><span>Whip{runtime.platform.updates?.currentVersion ? ` · ${runtime.platform.updates.currentVersion}` : ''}</span></div>
   </>;
   return <div data-settings-layout {...stylex.props(styles.root)}>
-    <aside data-settings-navigation {...stylex.props(styles.sidebar)} aria-label="Settings navigation">
-      <div aria-hidden {...stylex.props(styles.titlebar, runtime.platform.chrome === 'inset' && layout.windowDrag)} />
+    <aside data-settings-navigation {...stylex.props(styles.sidebar, runtime.platform.chrome !== 'inset' && styles.webSidebar)} aria-label="Settings navigation">
+      {runtime.platform.chrome === 'inset' && <div aria-hidden {...stylex.props(styles.titlebar, layout.windowDrag)} />}
       <Button variant="ghost" onClick={back} xstyle={styles.back}><ArrowLeft size={16} />Back to workspace</Button>
       {sidebar}
     </aside>
@@ -108,7 +108,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
         <Button variant="ghost" onClick={back}><ArrowLeft size={16} />Back</Button>
         <Button variant="ghost" aria-expanded={navigation} onClick={() => setNavigation(true)}>{category.label}<ChevronDown size={15} /></Button>
       </header>
-      <div aria-hidden {...stylex.props(styles.mainTitlebar, runtime.platform.chrome === 'inset' && layout.windowDrag)} />
+      {runtime.platform.chrome === 'inset' && <div aria-hidden {...stylex.props(styles.mainTitlebar, layout.windowDrag)} />}
       <main ref={content} aria-labelledby="settings-title" {...stylex.props(styles.scroll)}>
         <div {...stylex.props(styles.content)}>
           <h1 id="settings-title" {...stylex.props(styles.heading)}>{category.label}</h1>
@@ -137,6 +137,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
 const styles = stylex.create({
   root: { display: 'flex', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' },
   sidebar: { width: 248, flexShrink: 0, display: { default: 'flex', [scale.phone]: 'none' }, flexDirection: 'column', gap: 12, paddingInline: 12, borderRightWidth: 1, borderRightStyle: 'solid', borderRightColor: surface.quietBorder, backgroundColor: surface.navigation },
+  webSidebar: { paddingTop: 12 },
   titlebar: { height: 34, flexShrink: 0, marginInline: -12 },
   mainTitlebar: { height: 34, flexShrink: 0, display: { default: 'block', [scale.phone]: 'none' } },
   back: { justifyContent: 'flex-start', alignSelf: 'stretch', width: '100%', color: surface.secondaryText, fontSize: typography.size12 },

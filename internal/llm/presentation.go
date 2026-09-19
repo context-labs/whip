@@ -9,10 +9,11 @@ import (
 // TranscriptPresentation is bounded, observational UI history. It never enters
 // a provider request. Text ranges refer to UTF-8 bytes in Message.Content.
 type TranscriptPresentation struct {
-	Version int                `json:"version"`
-	TurnID  string             `json:"turn_id,omitempty"`
-	Parts   []PresentationPart `json:"parts,omitempty"`
-	Omitted int                `json:"omitted,omitempty"`
+	DesignContext *DesignContextPresentation `json:"design_context,omitempty"`
+	Version       int                        `json:"version"`
+	TurnID        string                     `json:"turn_id,omitempty"`
+	Parts         []PresentationPart         `json:"parts,omitempty"`
+	Omitted       int                        `json:"omitted,omitempty"`
 }
 
 type PresentationPart struct {
@@ -65,6 +66,15 @@ func BoundPresentation(value *TranscriptPresentation, maxBytes int) *TranscriptP
 		return nil
 	}
 	copy := *value
+	if value.DesignContext != nil {
+		design := *value.DesignContext
+		design.DesignContextInput = *value.DesignContext.DesignContextInput.Clone()
+		if design.ScreenshotPartIndex != nil {
+			index := *design.ScreenshotPartIndex
+			design.ScreenshotPartIndex = &index
+		}
+		copy.DesignContext = &design
+	}
 	copy.Parts = slices.Clone(value.Parts)
 	for i := range copy.Parts {
 		copy.Parts[i].Hosts = slices.Clone(copy.Parts[i].Hosts)
@@ -99,7 +109,22 @@ func BoundPresentation(value *TranscriptPresentation, maxBytes int) *TranscriptP
 	}
 	for {
 		encoded, _ := json.Marshal(copy)
-		if len(encoded) <= maxBytes || len(copy.Parts) == 0 {
+		if len(encoded) <= maxBytes {
+			break
+		}
+		if design := copy.DesignContext; design != nil {
+			switch {
+			case len(design.Elements) > 0:
+				design.Elements = design.Elements[:len(design.Elements)-1]
+			case design.PageURL != "" || design.PageTitle != "":
+				design.PageURL, design.PageTitle = "", ""
+			default:
+				copy.DesignContext = nil
+			}
+			copy.Omitted++
+			continue
+		}
+		if len(copy.Parts) == 0 {
 			break
 		}
 		// Keep identities and operation outcomes before long reasoning previews.

@@ -203,6 +203,22 @@ describe('isolated design overlay interactions', () => {
     fireEvent.keyDown(picker, { key: 'Enter', shiftKey: true }); expect(onIntent).toHaveBeenLastCalledWith({ kind: 'pick-hover', additive: true });
     fireEvent.keyDown(picker, { key: 'ArrowUp' }); expect(onIntent).toHaveBeenLastCalledWith({ kind: 'ancestor' });
   });
+  it('returns to picking after admission and opens the next composer without the previous preview', () => {
+    const onIntent = vi.fn(); const view = render(<BrowserDesignOverlay model={model('Change')} onIntent={onIntent}/>);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByRole('region', { name: 'Design evidence' })).toBeTruthy();
+    const accepted = model(); accepted.draft.promptReset = 1;
+    accepted.state.elements = []; accepted.state.selectionRevision = 2;
+    view.rerender(<BrowserDesignOverlay model={accepted} onIntent={onIntent}/>);
+    expect(screen.queryByRole('form', { name: 'Describe a design change' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Design evidence' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Pick an element' }));
+    const next = model(); next.draft.promptReset = 1; next.state.selectionRevision = 3;
+    view.rerender(<BrowserDesignOverlay model={next} onIntent={onIntent}/>);
+    expect((screen.getByRole('textbox', { name: 'Describe the change' }) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByRole('region', { name: 'Design evidence' })).toBeNull();
+    expect(onIntent).not.toHaveBeenCalledWith({ kind: 'stop' });
+  });
   it('releases screenshot preview payload on close and Escape does not exit until preview closes', () => {
     const onIntent = vi.fn(); render(<BrowserDesignOverlay model={model('Change')} onIntent={onIntent}/>);
     fireEvent.click(screen.getByRole('button', { name: 'Preview' })); expect(onIntent).toHaveBeenLastCalledWith({ kind: 'capture' });

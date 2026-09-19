@@ -400,7 +400,7 @@ type sdkFixtureRunner struct {
 	boundaryJournal turnJournal
 }
 
-func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
 	// Echo the resolved model input so built SDK tests can distinguish an actual
 	// host attachment read from an opaque reference appended to the prompt.
 	data, err := json.Marshal(SubmitPayload{Text: input, Parts: parts})

@@ -265,6 +265,21 @@ PNG is included by default and can be excluded. Existing
 [`CompositionStore`](../packages/app/src/compositions.ts) surface-scoped keys retain
 normal upload quotas and cancellation; [`submitChatInput`](../packages/app/src/chat-submission.ts)
 is shared with normal chat. Design drafts do not overwrite the destination composer.
+Confirmed admission clears the matching draft, evidence preview, and native selection,
+closing the composer while leaving Design Mode active for another selection. The
+reset is document/selection-revision scoped so late admission cannot erase newer picks.
+
+Design submissions carry a bounded `design_context` presentation descriptor with exact
+uploaded attachment identities. The daemon persists it in inbox previews and authored
+message presentation, adding resolved content-part indices for history. The transcript
+uses those indices—not filenames or text matching—to group the screenshot and selected
+elements separately from authored prose. Full model evidence is unchanged. The shared
+[attachment UI](../packages/app/src/browser-design-attachment.tsx) offers captured page
+details and raw context on demand; pending/queued attachments load through the existing
+scoped content reader. Older messages without this provenance keep their ordinary,
+inspectable presentation. Page labels remain untrusted plain text and never retarget a
+live page when opened from history.
+
 Admission uncertainty uses existing command recovery, not a new command ID/retry.
 Live nodes are transient; accepted text/image attachments use normal transcript
 persistence. Navigation or stale nodes require reselection, never selector-based
@@ -1442,6 +1457,14 @@ is disabled: its pending target can keep reconciling after a user interruption.
 There is no streaming scroll animation loop. CSS `overflow-anchor: none` keeps
 browser anchoring from competing with virtual measurements.
 
+Chat's scrolling viewport has a static alpha mask: a short 20px fade at the top
+and a softer 40px fade toward the composer. The theme shows through without a
+colored overlay or pointer interception. Bottom content padding keeps the newest
+message and activity footer clear of the fade when pinned; scroll padding keeps
+keyboard-revealed content inside the readable area. Composer and Latest controls
+sit outside the mask. REPL/trace views are unaffected. Forced-colors and print
+turn the mask off; the fade itself adds no animation or scroll listeners.
+
 Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
 selection detach immediately, even within the old 70px proximity threshold.
 Ordinary row clicks, Tab and Enter do not detach. A downward user scroll reaching
@@ -1671,11 +1694,19 @@ session rows in one scroll area. Group within each host by exact `cwd`: worktree
 a distinguishing parent suffix, and full paths remain available in labels and
 titles. Groups follow their first catalog occurrence; sessions retain server
 pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
-existing page/cache limits. Sidebar labels never lease root views.
+existing page/cache limits. Each directory initially shows at most seven sessions;
+More reveals seven additional loaded sessions per click. Only once all loaded
+sessions in the directory are visible does Less replace More; Less resets to seven.
+Expansion is local to the mounted host list (up to 64 directory preferences);
+route navigation reveals an older selected session by expanding its directory.
+Sidebar labels never lease root views.
 
 New session, Search sessions and Settings are the top destinations; execution-host
-management stays in the footer. Host headings show connection status and collapse
-independently. Each pane's tab strip sits above a compact `SessionInfoBar`: host/project, selected
+management stays at the end of the scrollable content. The brand/window controls
+and New session remain pinned; Search, Settings, host sections, and Servers share
+one scroll area. A theme-derived hairline and 12 px soft fade appear below the
+pinned header only after scrolling, with a reduced-motion-aware opacity transition.
+Host headings show connection status and collapse independently. Each pane's tab strip sits above a compact `SessionInfoBar`: host/project, selected
 agent, current activity and scoped actions. Full host/path identity is available
 on focus through a tooltip. Agent selection opens the existing paginated inspector;
 child views can return to Root. REPL keeps only language, loaded-cell count and
@@ -1750,7 +1781,7 @@ most four hosts and 64 directories per host within 64 KiB; oldest preferences
 revert to expanded when evicted. Storage failure visibly falls back to memory.
 Catalog refresh preserves the visible anchor; explicit session navigation
 expands/reveals its loaded directory without polling undoing manual collapse.
-Below 768 px the existing Sheet contains a bounded list and footer, uses >=44 px
+Below 768 px the existing Sheet uses the same pinned header and bounded scroll area, uses >=44 px
 targets, and has no resize handle. Colors remain theme-derived.
 
 ### Conversation row actions

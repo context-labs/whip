@@ -59,13 +59,14 @@ func (s *Server) validateCommandAttachments(ctx context.Context, clientID string
 		return nil, nil //nolint:nilnil // no cached result and no attachment validation needed for this operation
 	}
 	var payload struct {
-		ID          string                     `json:"id"`
-		Attachments []protocol.InputAttachment `json:"attachments"`
+		ID            string                     `json:"id"`
+		DesignContext *llm.DesignContextInput    `json:"design_context"`
+		Attachments   []protocol.InputAttachment `json:"attachments"`
 	}
 	if err := json.Unmarshal(params.Payload, &payload); err != nil {
 		return nil, err
 	}
-	if len(payload.Attachments) == 0 {
+	if len(payload.Attachments) == 0 && payload.DesignContext == nil {
 		return nil, nil //nolint:nilnil // no cached result and no attachments to validate
 	}
 	// A matching retry observes accepted work even if its grant was subsequently
@@ -77,6 +78,9 @@ func (s *Server) validateCommandAttachments(ctx context.Context, clientID string
 		result, err := s.commandRecordResult(ctx, record, nil)
 		return &result, err
 	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if _, err := designContextPresentation(SubmitPayload{Attachments: payload.Attachments, DesignContext: payload.DesignContext}); err != nil {
 		return nil, err
 	}
 	agentID := root.meta.ID

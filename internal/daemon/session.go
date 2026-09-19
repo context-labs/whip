@@ -43,7 +43,7 @@ type Components struct {
 }
 
 type contentRunner interface {
-	TurnParts(context.Context, string, []llm.ContentPart, func(), func(string)) (string, error)
+	TurnParts(context.Context, string, []llm.ContentPart, func(), func(string), ...*llm.TranscriptPresentation) (string, error)
 }
 
 type Completion struct {
@@ -892,9 +892,11 @@ func (s *Session) dispatch() error {
 	return s.supervisor.launch(workerTurn, func(context.Context) workerCompletion {
 		var text string
 		var parts []llm.ContentPart
+		var presentation *llm.TranscriptPresentation
 		if input != nil {
 			var err error
-			text, parts, err = s.decodeInboxInput(turnCtx, *input)
+			message, decodeErr := s.decodeInboxMessage(turnCtx, *input)
+			text, parts, presentation, err = message.Content, message.Parts, message.Presentation, decodeErr
 			if err != nil {
 				return workerCompletion{sequence: current.seq, err: err}
 			}
@@ -913,7 +915,7 @@ func (s *Session) dispatch() error {
 		var output string
 		var err error
 		if len(parts) > 0 {
-			output, err = content.TurnParts(turnCtx, text, parts, started, accepted)
+			output, err = content.TurnParts(turnCtx, text, parts, started, accepted, presentation)
 		} else {
 			output, err = s.runner.Turn(turnCtx, text, authored, started, accepted)
 		}
@@ -957,18 +959,30 @@ func (s *Session) inboxInput(item sessionstore.InboxItem) (string, []llm.Content
 }
 
 func (s *Session) decodeInboxInput(ctx context.Context, item sessionstore.InboxItem) (string, []llm.ContentPart, error) {
+	message, err := s.decodeInboxMessage(ctx, item)
+	return message.Content, message.Parts, err
+}
+
+func (s *Session) decodeInboxMessage(ctx context.Context, item sessionstore.InboxItem) (llm.Message, error) {
 	data, err := s.store.ResolveInboxPayload(ctx, item)
 	if err != nil {
-		return "", nil, err
+		return llm.Message{}, err
 	}
+	message := llm.Message{Role: "user", Authored: true}
 	if item.Kind != "submit.parts" && item.Kind != "steer.parts" {
-		return string(data), nil, nil
+		message.Content = string(data)
+		return message, nil
 	}
 	var payload SubmitPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return "", nil, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
+		return llm.Message{}, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
 	}
-	return s.resolveAttachments(ctx, item.AgentID, payload)
+	message.Presentation, err = designContextPresentation(payload)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	message.Content, message.Parts, err = s.resolveAttachments(ctx, item.AgentID, payload)
+	return message, err
 }
 
 func (s *Session) completeTurn(completion workerCompletion) error {
