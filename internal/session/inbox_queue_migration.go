@@ -24,7 +24,9 @@ func upgradeV19(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return err
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity {
+	// A peer may have committed this step without reaching the latest schema.
+	if version == 20 && identity == "whip-recursive-runtime-v20" ||
+		version == currentSchemaVersion && identity == schemaIdentity {
 		return nil
 	}
 	if version != 19 || identity != "whip-recursive-runtime-v19" {

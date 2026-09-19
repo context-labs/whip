@@ -546,10 +546,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				a.retriedOverflow, a.compacted = true, true
 				before := append([]llm.Message(nil), a.Messages...)
 				took := len(before)
-				if ev.OnCompactStart != nil {
-					ev.OnCompactStart(took, EstimateTokens(before))
-				}
-				sum, cutoff, info, cerr := a.compact(ctx)
+				sum, cutoff, info, cerr := a.compactWithStart(ctx, ev.OnCompactStart)
 				if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
 					if errors.Is(cerr, errNoHistory) {
 						// The provider rejected the request and nothing is
@@ -862,10 +859,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	}
 	before := append([]llm.Message(nil), a.Messages...)
 	took := len(before)
-	if ev.OnCompactStart != nil {
-		ev.OnCompactStart(took, EstimateTokens(before))
-	}
-	sum, cutoff, info, err := a.compact(ctx)
+	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		if errors.Is(err, errNoHistory) {
 			// No summary call was made. Later rounds may add foldable
@@ -983,6 +977,10 @@ func compactTailStart(msgs []llm.Message, budget int) (start int, split bool) {
 // surface the compaction in the transcript. The caller records the summary
 // and cutoff as a compaction event so the raw log survives on disk.
 func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info CompactInfo, err error) {
+	return a.compactWithStart(ctx, nil)
+}
+
+func (a *Agent) compactWithStart(ctx context.Context, onStart func(took, estTokens int)) (summary string, cutoff int, info CompactInfo, err error) {
 	if len(a.Messages) <= 3 { // system + ≥1 user + tail: nothing to fold
 		return "", 0, CompactInfo{}, errNoHistory
 	}
@@ -1028,6 +1026,10 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	}
 	if len(history)-len(pinned) <= 0 {
 		return "", 0, CompactInfo{}, errNoHistory
+	}
+	// A start notice describes a real fold, never a no-history check.
+	if onStart != nil {
+		onStart(len(a.Messages), EstimateTokens(a.Messages))
 	}
 	summaryPrompt := buildSummaryPrompt(history, prior, a.ExecutionLanguage)
 	cli, mdl := a.CompactClient, a.CompactModel
@@ -1214,10 +1216,7 @@ func truncateField(s string, n int) string {
 // little history). It is safe to call while a turn is not in flight.
 func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 	before := append([]llm.Message(nil), a.Messages...)
-	if ev.OnCompactStart != nil {
-		ev.OnCompactStart(len(before), EstimateTokens(before))
-	}
-	sum, cutoff, info, err := a.compact(ctx)
+	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		return err
 	}

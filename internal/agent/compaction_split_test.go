@@ -205,9 +205,11 @@ func TestMaybeCompactNothingToFoldMakesNoModelCall(t *testing.T) {
 }
 
 func TestMaybeCompactRechecksHistoryAfterTurnGrows(t *testing.T) {
+	callbacks := make(chan string, 16)
 	var summaryCalls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		summaryCalls.Add(1)
+		callbacks <- "summary"
 		w.Write([]byte(`{"choices":[{"message":{"content":"folded older pair"}}]}`))
 	}))
 	defer srv.Close()
@@ -218,23 +220,46 @@ func TestMaybeCompactRechecksHistoryAfterTurnGrows(t *testing.T) {
 	if EstimateTokens(ag.Messages) < int(ag.threshold()*float64(ag.ContextLimit)) {
 		t.Fatal("fixture must exceed the proactive threshold before any history is foldable")
 	}
+	ev := Events{
+		OnCompactStart: func(took, est int) {
+			if took != len(ag.Messages) || est != EstimateTokens(ag.Messages) {
+				t.Errorf("start metadata: took=%d, est=%d", took, est)
+			}
+			callbacks <- "start"
+		},
+		OnCompact:    func(_, _ int) { callbacks <- "compact" },
+		OnCompacted:  func(_ string, _ int, _ CompactInfo) { callbacks <- "compacted" },
+		OnCompaction: func(_ string, _ int, _ []llm.Message, _ CompactInfo) { callbacks <- "compaction" },
+	}
 	// The only pair exceeds the tail budget and must remain, so no model
 	// call is useful yet, even though the context is over the threshold.
 	for range 2 {
-		if err := ag.maybeCompact(t.Context(), Events{}); err != nil {
+		if err := ag.maybeCompact(t.Context(), ev); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if calls := summaryCalls.Load(); calls != 0 {
 		t.Fatalf("no history to fold: summary calls=%d", calls)
 	}
+	if len(callbacks) != 0 {
+		t.Fatal("no-history checks must not emit compaction callbacks")
+	}
 	ag.Messages = toolPairs(ag.Messages, 1, 12000, "later")
 	before := EstimateTokens(ag.Messages)
-	if err := ag.maybeCompact(t.Context(), Events{}); err != nil {
+	if err := ag.maybeCompact(t.Context(), ev); err != nil {
 		t.Fatal(err)
 	}
 	if calls := summaryCalls.Load(); calls != 1 {
 		t.Fatalf("older pair must become foldable in the same turn: summary calls=%d", calls)
+	}
+	wantOrder := []string{"start", "summary", "compact", "compacted", "compaction"}
+	if len(callbacks) != len(wantOrder) {
+		t.Fatalf("callback count=%d, want %d", len(callbacks), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if got := <-callbacks; got != want {
+			t.Fatalf("callback %d=%s, want %s", i, got, want)
+		}
 	}
 	if EstimateTokens(ag.Messages) >= before {
 		t.Fatal("folding the older pair must shrink the context")

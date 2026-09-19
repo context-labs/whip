@@ -26,6 +26,7 @@ func upgradeV13(ctx context.Context, conn *sql.Conn) error {
 	}
 	// Another opener may have completed the migration while this one waited.
 	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == 20 && identity == "whip-recursive-runtime-v20" ||
 		version == currentSchemaVersion && identity == schemaIdentity {
 		return nil
 	}

@@ -463,6 +463,7 @@ func upgradeV10(ctx context.Context, conn *sql.Conn) error {
 		return fmt.Errorf("read upgrade identity: %w", err)
 	}
 	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == 20 && identity == "whip-recursive-runtime-v20" ||
 		version == currentSchemaVersion && identity == schemaIdentity ||
 		version == 13 && identity == "whip-recursive-runtime-v13" ||
 		version == 12 && identity == "whip-recursive-runtime-v12" ||
@@ -501,6 +502,7 @@ func upgradeV12(ctx context.Context, conn *sql.Conn) error {
 		return err
 	}
 	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == 20 && identity == "whip-recursive-runtime-v20" ||
 		version == currentSchemaVersion && identity == schemaIdentity ||
 		version == 13 && identity == "whip-recursive-runtime-v13" {
 		return nil
