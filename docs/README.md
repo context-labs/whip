@@ -121,6 +121,26 @@ existing setup:
 }
 ```
 
+A worked example — You.com's remote server gives the loop a web-search tool
+(the `you-web` skill in `.agents/skills/` teaches the model when to reach for
+it; `/mcp` shows the server once it connects):
+
+```json
+{
+  "mcp": {
+    "you": {
+      "url": "https://api.you.com/mcp",
+      "headers": { "Authorization": "Bearer $YDC_API_KEY" }
+    }
+  }
+}
+```
+
+`YDC_API_KEY` stays a reference — it resolves at connection time and never
+lands resolved in `~/.whip/config.json`. No key yet? The keyless profile
+(`"url": "https://api.you.com/mcp?profile=free"`) gets you basic `you-search`
+with no auth at all. The same config shape works in a project `.mcp.json`.
+
 `/context-doctor` audits what a fresh session injects (skills, MCP tool schemas,
 server instructions, built-in tool schemas) with per-source token estimates —
 useful when arriving from a heavier harness.
