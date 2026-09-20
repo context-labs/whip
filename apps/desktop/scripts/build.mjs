@@ -88,7 +88,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   await dependencyNotices(path.join(native, 'whipcode'), licenses, version);
   await cp(path.join(repositoryRoot, 'apps/web/dist'), path.join(appDirectory, 'renderer'), { recursive: true });
   await verifyRenderer(path.join(appDirectory, 'renderer'), renderer);
-  await build({ absWorkingDir: desktop, entryPoints: { main: 'src/main.ts', preload: 'src/preload.ts' },
+  await build({ absWorkingDir: desktop, entryPoints: { main: 'src/main.ts', preload: 'src/preload.ts', 'browser-design-preload': 'src/browser-design-preload.ts' },
     outdir: appDirectory, outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs',
     target: 'node24', external: ['electron'], sourcemap: false, minify: true,
     define: { __APP_VERSION__: JSON.stringify(version), __APP_NAME__: JSON.stringify(appName) } });

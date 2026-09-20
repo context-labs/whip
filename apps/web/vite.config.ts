@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import stylex from '@stylexjs/unplugin';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
+import { daemonProxy } from './dev-proxy';
 
 export default defineConfig({
   plugins: [
@@ -21,6 +22,20 @@ export default defineConfig({
       },
     },
     tanstackRouter({ target: 'react', routesDirectory: '../../packages/app/src/routes', generatedRouteTree: '../../packages/app/src/routeTree.gen.ts', autoCodeSplitting: true }),
+    {
+      name: 'whip-stylex-dev-constants',
+      apply: 'serve',
+      enforce: 'pre',
+      configureServer(server) {
+        const tokens = `/@fs/${fileURLToPath(new URL('../../packages/ui/src/tokens.stylex.ts', import.meta.url))}`;
+        server.middlewares.use((request, _response, next) => {
+          if (!request.url?.startsWith('/virtual:stylex.css')) return next();
+          // StyleX collects partial module graphs during startup. Resolve defineConsts
+          // before Lightning CSS sees unresolved var(...) media-query selectors.
+          void server.transformRequest(tokens).then(() => next(), next);
+        });
+      },
+    },
     stylex.vite({
       useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false,
       unstable_moduleResolution: { type: 'commonJS', rootDir: fileURLToPath(new URL('../../', import.meta.url)) },
@@ -31,7 +46,15 @@ export default defineConfig({
   optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector'] },
   server: {
     strictPort: true,
-    proxy: { '/api': { target: process.env.WHIP_WEB_DAEMON || 'http://127.0.0.1:8080', ws: true, changeOrigin: true } },
+    proxy: { '/api/': daemonProxy() },
   },
-  build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
+  build: {
+    target: 'es2022', sourcemap: false, assetsInlineLimit: 0,
+    rolldownOptions: {
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        design: fileURLToPath(new URL('./design.html', import.meta.url)),
+      },
+    },
+  },
 });

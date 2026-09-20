@@ -11,6 +11,25 @@ describe('directory navigation projection', () => {
     expect(rows[1]?.kind === 'session' && rows[1].session).toBe(items[0]);
     expect(sidebarRows([...items, session('next page', '/repo/main')]).map(row => row.key).slice(0, 4)).toEqual(['directory:/repo/main', 'session:pinned', 'session:older', 'session:next page']);
   });
+  it('limits each directory to seven sessions and expands only the requested directory', () => {
+    const a = Array.from({ length: 17 }, (_, index) => session(`a${index}`, '/a', index === 0));
+    const b = Array.from({ length: 8 }, (_, index) => session(`b${index}`, '/b'));
+    const items = [...a, ...b];
+    const visible = (limit = 7, collapsed: string[] = []) => sidebarRows(items, collapsed, new Map([['/a', limit]]));
+    expect(visible().filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a.slice(0, 7), ...b.slice(0, 7)].map(item => item.id));
+    expect(visible().filter(row => row.kind === 'more')).toEqual([
+      { key: 'more:/a', kind: 'more', cwd: '/a', expanded: false, visibleCount: 7 },
+      { key: 'more:/b', kind: 'more', cwd: '/b', expanded: false, visibleCount: 7 },
+    ]);
+    expect(visible(14).filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a.slice(0, 14), ...b.slice(0, 7)].map(item => item.id));
+    expect(visible(14).find(row => row.key === 'more:/a')).toMatchObject({ expanded: false, visibleCount: 14 });
+    expect(visible(21).filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a, ...b.slice(0, 7)].map(item => item.id));
+    expect(visible(21).find(row => row.key === 'more:/a')).toMatchObject({ expanded: true, visibleCount: 17 });
+    expect(visible(7).filter(row => row.kind === 'session')).toHaveLength(14);
+    expect(visible(21, ['/a']).some(row => row.key === 'more:/a')).toBe(false);
+    expect(sidebarRows(a.slice(0, 7)).some(row => row.kind === 'more')).toBe(false);
+    expect(sidebarRows([...items, session('next-page', '/a')], [], new Map([['/a', 21]])).some(row => row.key === 'session:next-page')).toBe(true);
+  });
   it('keeps a root-level duplicate name readable', () => {
     expect(sidebarRows([session('a', '/foo'), session('b', '/repo/foo')]).filter(row => row.kind === 'directory').map(row => row.label)).toEqual(['foo · /foo', 'foo · repo']);
   });

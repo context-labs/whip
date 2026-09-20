@@ -4,9 +4,12 @@ name: release whipcode
 on:
   push:
     branches: [whip-rlm]
+  pull_request:
+    branches: [whip-rlm]
 
 concurrency:
-  group: whipcode-publishing
+  # PR scans must never queue behind or supersede branch publication.
+  group: ${{ github.event_name == 'pull_request' && format('whipcode-pr-{0}', github.event.pull_request.number) || 'whipcode-publishing' }}
   cancel-in-progress: false
 
 permissions:
@@ -29,7 +32,9 @@ jobs:
     uses: ./.github/workflows/ci-whipcode.yml
 
   security:
-    needs: metadata
+    # Keep this caller/job/category identity on PRs so CodeQL can compare with
+    # the branch baseline. Publishing jobs still require branch-only metadata.
+    if: github.repository == 'context-labs/whip'
     permissions:
       contents: read
       security-events: write

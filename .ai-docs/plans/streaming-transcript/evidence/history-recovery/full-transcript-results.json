@@ -1,0 +1,79 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "ae9465dc750d1e63abd80e969227ef60114d49aedb858338d8f648c186cdba82",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "old unplaced executions stay in REPL after later replies",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "ae9465dc750d1e63abd80e969227ef60114d49aedb858338d8f648c186cdba82",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "old unplaced executions stay in REPL after later replies",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "ae9465dc750d1e63abd80e969227ef60114d49aedb858338d8f648c186cdba82",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "old unplaced executions stay in REPL after later replies",
+      "accessibility tree",
+      "bounded production history",
+      "staged main/preload",
+      "400% native zoom"
+    ]
+  }
+]

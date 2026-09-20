@@ -380,18 +380,29 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err := idle.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bufio.NewReader(idle).ReadByte(); err == nil {
-		t.Fatal("uninitialized connection survived its deadline")
+	if _, err := bufio.NewReader(idle).ReadByte(); !errors.Is(err, io.EOF) {
+		t.Fatalf("uninitialized connection was not closed by the server: %v", err)
 	}
 	_ = idle.Close()
 
-	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
-	if err != nil {
-		t.Fatal(err)
+	// EOF precedes the server goroutine releasing its connection slot.
+	// Retry admission until teardown completes instead of racing that release.
+	var client *Client
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+		if dialErr != nil {
+			t.Fatal(dialErr)
+		}
+		client, err = NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
+		if err == nil {
+			break
+		}
+		_ = conn.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("expired connection did not release its slot: %v", err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	defer client.Close()
 	defer func() {

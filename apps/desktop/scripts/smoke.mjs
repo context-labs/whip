@@ -57,7 +57,7 @@ try {
   const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
   await hosts.getByRole('textbox', { name: /Server name/ }).fill('Smoke URL');
   await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(remote.info.endpoint);
-  await hosts.getByRole('button', { name: 'Add server', exact: true }).click();
+  await hosts.getByRole('button', { name: 'Connect', exact: true }).click();
   await hosts.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${remote.info.root_id}"]`).first();
@@ -82,6 +82,25 @@ try {
   await page.getByLabel('Message WHIP', { exact: true }).fill('Preserve this desktop draft while moving the tab.');
   const tabs = page.locator('[data-workspace-tab]');
   const order = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+  // Retain only geometry for this drag; never session text or application state.
+  const dragDiagnostics = await tabs.last().evaluateHandle(source => {
+    const strip = source.parentElement;
+    const snapshot = () => ({ source: source.getBoundingClientRect().toJSON(), sourceTransform: getComputedStyle(source).transform, sourceOffsetWidth: source.offsetWidth,
+      strip: { rect: strip.getBoundingClientRect().toJSON(), scrollLeft: strip.scrollLeft, scrollWidth: strip.scrollWidth, clientWidth: strip.clientWidth, offsetWidth: strip.offsetWidth },
+      viewport: { width: innerWidth, height: innerHeight, devicePixelRatio }, fonts: document.fonts.status });
+    const data = { capture: snapshot() };
+    const events = new AbortController();
+    const pointer = event => {
+      data.pointer = { x: event.clientX, y: event.clientY, buttons: event.buttons };
+      if (event.type === 'pointerdown') data.pointerDown = { ...snapshot(), pointer: data.pointer };
+    };
+    for (const type of ['pointerdown', 'pointermove']) document.addEventListener(type, pointer, { capture: true, passive: true, signal: events.signal });
+    const observer = new MutationObserver(() => {
+      if (source.hasAttribute('data-dragging') && !data.activation) data.activation = { ...snapshot(), pointer: data.pointer };
+    });
+    observer.observe(source, { attributes: true, attributeFilter: ['data-dragging'] });
+    return { data, snapshot, stop: () => { events.abort(); observer.disconnect(); } };
+  });
   const source = await tabs.last().boundingBox(), target = await tabs.first().boundingBox();
   if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs.png') });
   await page.mouse.move(source.x + 40, source.y + source.height / 2); await page.mouse.down();
@@ -91,8 +110,21 @@ try {
   const preview = page.locator('[data-workspace-drag-preview]');
   await expect(preview).toHaveCount(1);
   await expect.poll(async () => Math.abs((await preview.boundingBox()).x + 40 - x)).toBeLessThan(2).catch(async error => {
-    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-drag-failure.png') });
+    try {
+      const geometry = await dragDiagnostics.evaluate(({ data, snapshot }) => {
+        const preview = document.querySelector('[data-workspace-drag-preview]');
+        return { ...data, failure: snapshot(), preview: preview && { rect: preview.getBoundingClientRect().toJSON(), transform: getComputedStyle(preview).transform, offsetWidth: preview.offsetWidth } };
+      });
+      const evidence = JSON.stringify({ recordedAt: new Date().toISOString(), source, target, commandedPointer: { x, y: target.y + target.height / 2 }, expectedPickupOffset: 40, ...geometry }, null, 2);
+      console.error('Desktop drag geometry:', evidence);
+      if (artifacts) await writeFile(path.join(artifacts, 'desktop-drag-failure.json'), evidence + '\n');
+    } catch (diagnosticError) { console.error('Could not capture desktop drag geometry:', diagnosticError); }
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-drag-failure.png') })
+      .catch(diagnosticError => console.error('Could not capture desktop drag screenshot:', diagnosticError));
     throw error;
+  }).finally(async () => {
+    await dragDiagnostics.evaluate(({ stop }) => stop()).catch(() => {});
+    await dragDiagnostics.dispose().catch(() => {});
   });
   assert.deepEqual(await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab)), order);
   if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs-dragging.png') });
@@ -100,6 +132,64 @@ try {
   await expect(preview).toHaveCount(0);
   await expect.poll(() => tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab))).toEqual([order[2], order[0], order[1]]);
   await expect(page.getByLabel('Message WHIP', { exact: true })).toHaveValue('Preserve this desktop draft while moving the tab.');
+  // A sidebar drag copies the session into a fresh view, not a new session or a moved tab.
+  const sidebarSession = page.locator('#whip-session-navigation').getByRole('link', { name: 'Check the implementation', exact: true });
+  const sidebarBox = await sidebarSession.boundingBox(), firstTab = await tabs.first().boundingBox();
+  const stripBox = await page.locator('[data-workspace-tab-strip]').boundingBox();
+  assert(sidebarBox && firstTab && stripBox);
+  const windowBounds = await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+  const beforeCopy = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+  await page.mouse.move(sidebarBox.x + 50, sidebarBox.y + sidebarBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sidebarBox.x + 58, sidebarBox.y + sidebarBox.height / 2);
+  // The exposed strip above the contoured tabs is normally a native drag region.
+  await page.mouse.move(firstTab.x + 8, stripBox.y + 2, { steps: 20 });
+  await expect(preview).toHaveCount(1);
+  await expect(tabs).toHaveCount(3);
+  if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-sidebar-dragging.png') });
+  await page.mouse.up();
+  await expect(preview).toHaveCount(0);
+  await expect(tabs).toHaveCount(4);
+  const afterCopy = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+  assert(!beforeCopy.includes(afterCopy[0]), 'Sidebar drop must allocate a fresh view ID');
+  assert.deepEqual(afterCopy.slice(1), beforeCopy, 'Existing views must stay in place');
+  await expect(tabs.first().getByRole('tab')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Message WHIP', { exact: true })).toHaveValue('Preserve this desktop draft while moving the tab.');
+  assert.deepEqual(await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds()), windowBounds,
+    'Sidebar drag must not move the native window');
+  // Native titlebar regions must not steal content-edge drags either.
+  const splitViews = new Set();
+  const originalPanel = page.locator(`[data-workspace-view="${afterCopy[0]}"]`);
+  await originalPanel.getByLabel('Message WHIP', { exact: true }).evaluate(element => { window.__desktopOriginalDraft = element; });
+  for (const edge of ['left', 'right', 'top', 'bottom']) {
+    const from = await sidebarSession.boundingBox(), slot = await page.locator('[data-workspace-slot]').boundingBox();
+    assert(from && slot);
+    await page.mouse.move(from.x + 50, from.y + from.height / 2); await page.mouse.down();
+    await page.mouse.move(from.x + 59, from.y + from.height / 2);
+    await page.mouse.move(slot.x + slot.width * (edge === 'left' ? .01 : edge === 'right' ? .99 : .5),
+      slot.y + slot.height * (edge === 'top' ? .01 : edge === 'bottom' ? .99 : .5), { steps: 20 });
+    await expect(page.locator(`[data-workspace-drop="${edge}"]`)).toBeVisible();
+    await expect(tabs).toHaveCount(4);
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, `desktop-sidebar-${edge}-preview.png`) });
+    await page.mouse.up();
+    await expect(preview).toHaveCount(0);
+    await expect(page.locator('[data-workspace-frame]')).toHaveCount(2);
+    await expect(tabs).toHaveCount(5);
+    const ids = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+    assert.deepEqual(ids.filter(id => afterCopy.includes(id)), afterCopy, `${edge}: moved existing desktop views`);
+    const added = ids.find(id => !afterCopy.includes(id));
+    assert(added && !splitViews.has(added), `${edge}: reused an existing split view`);
+    splitViews.add(added);
+    const addedTab = page.locator(`[data-workspace-tab="${added}"]`);
+    await expect(addedTab.getByRole('tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator(`[data-workspace-view="${added}"]`).getByLabel('Message WHIP', { exact: true })).toHaveValue('Preserve this desktop draft while moving the tab.');
+    assert.equal(await originalPanel.getByLabel('Message WHIP', { exact: true }).evaluate(element => element === window.__desktopOriginalDraft), true);
+    assert.deepEqual(await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds()), windowBounds,
+      `${edge}: sidebar split moved the native window`);
+    await addedTab.getByRole('tab').focus(); await page.keyboard.press('Delete');
+    await expect(page.locator('[data-workspace-frame]')).toHaveCount(1);
+    await expect(tabs).toHaveCount(4);
+  }
   if (process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1') {
     const route = new URL(page.url());
     route.pathname = `/h/${remote.info.runtime_id}/s/${remote.info.root_id}`;
@@ -139,9 +229,9 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
-  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'General', exact: true }).waitFor();
   await page.reload();
-  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'General', exact: true }).waitFor();
   assert.deepEqual(errors, []);
   // Force only the fixture GUI process to disappear: daemon lifetime is separate.
   await electron.evaluate(({ app }) => app.exit(0)).catch(error => {
@@ -171,7 +261,7 @@ try {
     recordedAt: new Date().toISOString(),
     ...(process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1' ? { savedTurnFailure: true, failureClearsOnSuccess: true } : {}),
     noNetwork: !initial.network_endpoint, canonicalRuntimeInstalled: true, noRetainedRuntime: true, noLegacyHome: true, daemonSurvivedGUIExit: true,
-    relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, movingTabPreview: true, tabReorderPreservesDraft: true, rendererErrors: errors };
+    relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, movingTabPreview: true, tabReorderPreservesDraft: true, sidebarDragCreatesFreshView: true, sidebarEdgeSplits: [...splitViews].length === 4, sidebarDragPreservesWindowBounds: true, rendererErrors: errors };
   await writeFile(process.env.WHIP_DESKTOP_SMOKE_OUTPUT ?? path.join(repositoryRoot, '.ai-docs/plans/desktop-app/evidence/local-smoke.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));
 } finally {

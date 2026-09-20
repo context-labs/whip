@@ -1,0 +1,26 @@
+
+> @whip/ui@0.1.0 test
+> node --test tests/*.test.ts
+
+✔ display preferences round-trip exact bounds and closed font choices (40.360458ms)
+✔ corrupt, oversized, fractional and non-enum display preferences are rejected (1.657833ms)
+✔ each supported language preserves exact text through AST tokenization (271.394292ms)
+✔ unknown and absent languages remain inert plain text (0.556666ms)
+✔ large bodies are bounded in bytes without splitting Unicode characters (0.16225ms)
+✔ token budgets fall back explicitly and do not expand into unbounded DOM (91.662333ms)
+✔ Chroma overrides retain full token styling when mapping Prism tokens (0.15125ms)
+✔ every shipped theme remains exact and derives readable control/code foregrounds (441.118042ms)
+✔ custom Chroma colors retain their selected background and complete attributes (1.963416ms)
+✔ resolved color validation rejects raw CSS, malformed token attributes and oversized data (19.857542ms)
+✔ validated custom data cannot be mutated by a retained caller reference (0.217833ms)
+✔ Claude Code preserves Paper surfaces through browser adaptation (0.784208ms)
+✔ optional browser surfaces are validated and incompatible navigation stays readable (1.665167ms)
+✔ increased contrast preserves catalog identity and reaches reading/control targets for every palette (717.988875ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1772.790458

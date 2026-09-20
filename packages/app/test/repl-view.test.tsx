@@ -71,6 +71,8 @@ it('renders a read-only cell, expands output, copies exact text and does not inv
   expect(screen.queryByText('⇒')).toBeNull();
   expect(screen.queryByText(/Observed \d/)).toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'About REPL history' })).toBeNull();
+  expect(screen.queryByText(/loaded cells?/)).toBeNull();
   expect(f.view.loadOlder).not.toHaveBeenCalled();
   expect(f.view.loadCollection).not.toHaveBeenCalled();
 });
@@ -124,4 +126,18 @@ it('shows failed-cell output and checkpoint warnings together', () => {
   expect(screen.getByLabelText('Scratch checkpoint').textContent).toContain('Do not replay effects.');
   expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('before failure');
   expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
+});
+
+it('shows a shared chronological gap and retries it without creating an execution', () => {
+  const f = fixture([
+    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'before', function: { name: 'rlm_exec', arguments: '{"code":"1"}' } }] } },
+    { seq: 5, message: { role: 'assistant', content: '', tool_calls: [{ id: 'after', function: { name: 'rlm_exec', arguments: '{"code":"2"}' } }] } },
+  ]);
+  f.state.history.root!.gaps = [{ fromSeq: 2, toSeq: 4, status: 'error', error: 'Unavailable' }];
+  f.view.loadHistoryGap = vi.fn(async () => {});
+  const mounted = render(f.app());
+  expect([...mounted.container.querySelectorAll('[data-repl-cell], [data-history-gap]')].map(node => node.hasAttribute('data-history-gap'))).toEqual([false, true, false]);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }));
+  expect(f.view.loadHistoryGap).toHaveBeenCalledWith('root', 4);
+  expect(screen.getAllByRole('article')).toHaveLength(2);
 });

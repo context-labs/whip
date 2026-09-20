@@ -18,6 +18,10 @@ type AgentTurnStart struct {
 	TurnID  string
 	Trigger string // "inbox" or "mailbox"
 	Items   []InboxItem
+	// SpanID and TraceID identify the turn's span so the turn's model calls,
+	// cells and host calls can parent under it without another read.
+	SpanID  string
+	TraceID string
 }
 
 // AgentTurnCommit settles one agent turn. DeliveredMessages are the mailbox
@@ -52,7 +56,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 		return AgentTurnStart{}, ErrAgentTerminal
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
 		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' ORDER BY i.seq LIMIT 1`,
 		InlineValueLimit+1, rootID, agentID)
@@ -94,7 +98,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 	stamp := now()
 	var inboxSeq int64
 	for index := range items {
-		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running'
+		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running',steer_turn_id='',delivery_seq=0
 			WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, items[index].Seq)
 		if err != nil {
 			return AgentTurnStart{}, err
@@ -106,6 +110,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 			return AgentTurnStart{}, ErrInboxTerminal
 		}
 		items[index].Status = "running"
+		items[index].SteerTurnID, items[index].DeliverySeq = "", 0
 		inboxSeq = items[index].Seq
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO turns(id,root_id,agent_id,status,trigger,created_at,updated_at)
@@ -121,6 +126,29 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 	_, err = s.insertActorEventTx(ctx, tx, rootID, "agent.turn.started", actorEvent{
 		AgentID: agentID, TurnID: turnID, InboxSeq: inboxSeq, InboxKind: start.Trigger, Phase: "running", Status: "running",
 	}, stamp)
+	if err != nil {
+		return AgentTurnStart{}, err
+	}
+	// The turn joins the trace of whatever caused it (Decision 3): the host
+	// call that queued its input, or the sender of the first message in its
+	// digest, with the other messages as links. Nothing known starts a trace.
+	var parent SpanLink
+	var links []SpanLink
+	if start.Trigger == "inbox" && inboxSeq > 0 {
+		parent.SpanID, parent.TraceID, err = inboxCauseTx(ctx, tx, rootID, agentID, inboxSeq)
+		if err != nil {
+			return AgentTurnStart{}, err
+		}
+	} else if start.Trigger == "mailbox" {
+		causes, err := mailboxCausesTx(ctx, tx, rootID, agentID, stamp)
+		if err != nil {
+			return AgentTurnStart{}, err
+		}
+		if len(causes) > 0 {
+			parent, links = causes[0], causes[1:]
+		}
+	}
+	start.SpanID, start.TraceID, err = s.startTurnSpanTx(ctx, tx, rootID, agentID, turnID, start.Trigger, inboxSeq, parent, links, stamp)
 	if err != nil {
 		return AgentTurnStart{}, err
 	}
@@ -167,6 +195,9 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 		return errors.New("agent turn is not running")
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=? WHERE root_id=? AND id=? AND status='running'`, stamp, rootID, agentID); err != nil {
+		return err
+	}
+	if err := s.endTurnSpanTx(ctx, tx, rootID, agentID, commit.TurnID, status, commit.Error, commit.Messages, stamp); err != nil {
 		return err
 	}
 	seen := make(map[int64]struct{}, len(commit.AcknowledgedInbox))

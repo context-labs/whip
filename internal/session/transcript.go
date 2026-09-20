@@ -135,13 +135,13 @@ func (s *Store) ReadTranscript(ctx context.Context, rootID, agentID string, afte
 // RecordRawCompaction records an idle agent's explicit compaction. The exact
 // raw sequence is resolved and validated in the same transaction as the
 // summary write, using the same mapping as turn-journal compactions.
-func (s *Store) RecordRawCompaction(ctx context.Context, rootID, agentID string, rawCutoff int, summary string) error {
+func (s *Store) RecordRawCompaction(ctx context.Context, rootID, agentID string, rawCutoff int, summary string, pinned bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := appendCompactionsTx(ctx, tx, rootID, agentID, []RootCompaction{{Summary: summary, RawCutoff: &rawCutoff}}, now()); err != nil {
+	if err := appendCompactionsTx(ctx, tx, rootID, agentID, []RootCompaction{{Summary: summary, RawCutoff: &rawCutoff, Pinned: pinned}}, now()); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -202,7 +202,7 @@ func appendCompactionsTx(ctx context.Context, tx *sql.Tx, rootID, agentID string
 			return errors.New("turn compaction cutoff is outside the retained raw prefix")
 		}
 		generation++
-		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at) VALUES(?,?,?,?,?,?)`, rootID, agentID, generation, rawCutoff, compaction.Summary, stamp); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at,pinned) VALUES(?,?,?,?,?,?,?)`, rootID, agentID, generation, rawCutoff, compaction.Summary, stamp, compaction.Pinned); err != nil {
 			return err
 		}
 	}

@@ -1,20 +1,19 @@
 """Offline normalization, paired statistics, and one JSON/Markdown/CSV projection."""
-from collections import Counter, defaultdict
+from collections import Counter
 import csv
 from decimal import Decimal
 from datetime import datetime
 import io
 import json
+import sqlite3
 import math
 from pathlib import Path
 import random
-import sqlite3
 import statistics
 
 from .common import (SCHEMA_VERSION, atomic_write, file_hash, inside, number,
                      read_json, utc_now, value_hash, write_json)
-from .observe import aggregate, final_accounting_complete, rows as database_rows
-from .result_evidence import canonical_events, evidence_file, ResultResolver, result_payload
+from .observe import aggregate, rows
 
 
 def quantile(values, fraction):
@@ -37,13 +36,22 @@ def empty_trial(trial):
         "success": None, "termination_source": None, "evidence_complete": False,
         "accounting_complete": False, "agent_seconds": None, "trial_seconds": None,
         "known_cost_usd": "0.000000", "cost_usd": None, "unknown_cost_calls": None,
+        "unknown_usage_calls": None, "model_calls": None,
         "input_tokens": None, "output_tokens": None, "cache_tokens": None,
         "cleanup_complete": None, "error_codes": [], "artifacts": {}, "phase_seconds": {}}
 
 
-def termination(outcome, raw, diagnostic):
+PROVIDER_ERROR_TOKENS = ("api error:", "stream timed out", "no next token", "without a completion marker",
+                         "invalid stream chunk", "429", "502", "503", "504", "520", "rate limit",
+                         "connection reset", "unexpected eof", "context deadline exceeded",
+                         "provider stream stalled", "per-attempt ceiling")
+REQUIRED_EVIDENCE = ("state.json", "metrics.json", "outcome.json", "sessions.db", "identity.json",
+                     "content-export.json", "configuration.json", "provider-catalog.json", "cli.ndjson", "cli.stderr")
+
+
+def termination(outcome, raw, diagnostic, structured_errors=()):
     if raw.get("cancelled"):
-        return raw.get("cancellation_source", "user_cancelled")
+        return "user_cancelled"  # only a human cancels a run
     if raw.get("outer_watchdog"):
         return "evaluator_watchdog"
     if outcome.get("status") == "timeout":
@@ -54,7 +62,16 @@ def termination(outcome, raw, diagnostic):
     if any(token in lower for token in ("host request limit", "step limit", "budget exhausted", "worker limit", "job limit")):
         return "whip_guard"
     if outcome.get("status") in ("agent_error", "startup_error"):
-        return "provider_error" if any(s in lower for s in ("429", "502", "503", "520")) else "agent_error"
+        # Generic status codes and transport words are evidence only in Whip's
+        # structured errors, not arbitrary task output written to stderr.
+        provider = any(token in error.lower() for error in structured_errors
+                       for token in PROVIDER_ERROR_TOKENS)
+        provider = provider or any(line.strip().startswith(("api error:", "whip: api error:", "whipcode: api error:"))
+                                   for line in lower.splitlines())
+        provider = provider or any(token in lower for token in (
+            "inference stream timed out: no next token", "provider stream stalled: no data for"))
+        provider = provider or ("model call exceeded the " in lower and " per-attempt ceiling" in lower)
+        return "provider_error" if provider else "agent_error"
     if outcome.get("status") == "observer_error":
         return "export_error"
     return None
@@ -70,24 +87,31 @@ def phase_duration(timing):
         return None
 
 
-def verify_snapshot(path, state, content):
-    root_id = state.get("root", {}).get("id")
-    if not path or not root_id or content.get("root_id") != root_id:
-        return False
+def span_counts(database):
+    """Trace spans captured in the copied session database (schema 19+)."""
+    if database is None:
+        return {"span_count": None, "open_span_count": None}
     try:
-        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True) as database:
-            database.row_factory = sqlite3.Row
-            if [r[0] for r in database.execute("SELECT id FROM sessions")] != [root_id]:
-                return False
-            calls = database_rows(database, "SELECT * FROM model_calls WHERE root_id=? ORDER BY rowid", (root_id,))
-            if calls != state.get("calls"):
-                return False
-            bodies = database.execute("SELECT DISTINCT r.digest,r.size FROM content_references r JOIN content_objects o ON o.digest=r.digest JOIN content_grants g ON g.reference_id=r.id WHERE g.root_id=?", (root_id,)).fetchall()
-            expected = {(r[0], r[1]) for r in bodies}
-            actual = {(r["digest"], r["bytes"]) for r in content.get("bodies", [])}
-            return expected == actual and len(actual) == len(content.get("bodies", []))
-    except (sqlite3.Error, KeyError, TypeError):
-        return False
+        with sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spans'").fetchone():
+                return {"span_count": None, "open_span_count": None}
+            total, open_spans = db.execute("SELECT count(*), coalesce(sum(end_ns=0), 0) FROM spans").fetchone()
+        return {"span_count": total, "open_span_count": open_spans}
+    except sqlite3.Error:
+        return {"span_count": None, "open_span_count": None}
+
+
+def partial_metrics(job_dir):
+    """The observer's last metrics.json under a job that produced no native result."""
+    samples = []
+    for path in (sorted(job_dir.glob("*/agent/whip/metrics.json")) if job_dir and job_dir.is_dir() else []):
+        try:
+            sample = read_json(path)
+        except (OSError, ValueError):
+            continue
+        if number(sample.get("ledger_cost_usd")):
+            samples.append((sample, path))
+    return max(samples, key=lambda item: item[0]["ledger_cost_usd"], default=None)
 
 
 def normalize_trial(trial, raw, artifact_root):
@@ -96,48 +120,45 @@ def normalize_trial(trial, raw, artifact_root):
     row.update(started=bool(raw.get("started")), trial_seconds=raw.get("trial_seconds"),
                cleanup_complete=raw.get("cleanup", {}).get("complete", False),
                phase_seconds=raw.get("phase_seconds", {}))
-    row["execution_status"] = "cancelled" if raw.get("cancelled") else "runner_error"
-    row["termination_source"] = termination({}, raw, "") or "setup_error"
     if raw.get("error_code"):
         row["error_codes"].append(raw["error_code"])
-    results = list(inside(artifact_root, raw["job_path"]).glob("*/result.json")) if raw.get("job_path") else []
+    job_dir = inside(artifact_root, raw["job_path"]) if raw.get("job_path") else None
+    results = list(job_dir.glob("*/result.json")) if job_dir else []
     if len(results) != 1:
+        row.update(execution_status="cancelled" if raw.get("cancelled") else "runner_error",
+                   termination_source=termination({}, raw, "") or "setup_error")
         row["error_codes"].append("missing_result" if not results else "multiple_results")
+        # A run that died before its native result still paid for its model
+        # calls: keep the observer's last ledger figure as a lower bound.
+        partial = partial_metrics(job_dir)
+        if partial:
+            sample, path = partial
+            row["known_cost_usd"] = money(sample["ledger_cost_usd"])
+            for key in ("model_calls", "unknown_cost_calls", "unknown_usage_calls"):
+                row[key] = sample.get(key)
+            row["partial_observation"] = {"path": path.relative_to(artifact_root).as_posix(), "not_final": True,
+                                          "observed_input_tokens": sample.get("input_tokens"),
+                                          "observed_output_tokens": sample.get("output_tokens")}
         return row
     native_path = results[0]
     native = read_json(native_path)
     row["phase_seconds"].update({key: phase_duration(native.get(key)) for key in
         ("environment_setup", "agent_setup", "agent_execution", "verifier")})
-    context = native.get("agent_result") or {}
-    metadata = context.get("metadata") or {}
-    metrics = metadata.get("whip") or {}
-    outcome = metadata.get("whip_outcome") or {}
-    agent = native_path.parent / "agent"
+    metadata = (native.get("agent_result") or {}).get("metadata") or {}
+    # The observer writes to /logs/agent/whip, bind-mounted from the trial's
+    # agent directory; the adapter only reports its own export failures.
+    evidence = native_path.parent / "agent" / "whip"
     errors = ["adapter_export_error"] if metadata.get("whip_evidence_errors") else []
-    required = ("state.json", "metrics.json", "outcome.json", "sessions.db", "identity.json",
-                "content-export.json", "configuration.json", "provider-catalog.json", "events.ndjson",
-                "cli.ndjson", "cli.stderr")
-    paths = {name: evidence_file(agent, name) for name in required}
-    if any(path is None for path in paths.values()):
+    paths = {name: evidence / name for name in REQUIRED_EVIDENCE}
+    if any(not path.is_file() for path in paths.values()):
         errors.append("missing_required_evidence")
-    if paths["outcome.json"]:
-        outcome = read_json(paths["outcome.json"])
-    if paths["metrics.json"]:
-        metrics = read_json(paths["metrics.json"])
+    paths = {name: (path if path.is_file() else None) for name, path in paths.items()}
+    outcome = read_json(paths["outcome.json"]) if paths["outcome.json"] else {}
+    metrics = read_json(paths["metrics.json"]) if paths["metrics.json"] else {}
     state = read_json(paths["state.json"]) if paths["state.json"] else {}
     content = read_json(paths["content-export.json"]) if paths["content-export.json"] else {}
     if not outcome.get("content_export_complete") or content.get("errors"):
         errors.append("incomplete_content_export")
-    if not verify_snapshot(paths["sessions.db"], state, content):
-        errors.append("snapshot_inconsistent")
-    for body in content.get("bodies", []):
-        digest = body.get("digest", "")
-        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-            errors.append("invalid_content_identity")
-            continue
-        content_path = paths["content-export.json"].parent / "content" / "sha256" / digest
-        if not content_path.is_file() or content_path.stat().st_size != body["bytes"] or file_hash(content_path) != digest:
-            errors.append("content_digest_mismatch")
     if paths["identity.json"]:
         identity = read_json(paths["identity.json"])
         if identity.get("engine") != trial["engine"] or identity.get("binary_sha256") != trial["binary_sha256"]:
@@ -151,6 +172,7 @@ def normalize_trial(trial, raw, artifact_root):
     diagnostic = paths["cli.stderr"].read_text(errors="replace") if paths["cli.stderr"] else ""
     # In --format=json mode Whip emits structured errors on stdout. Ordinary
     # model text is not diagnostic evidence and must not determine attribution.
+    structured_errors = []
     if paths["cli.ndjson"]:
         for line in paths["cli.ndjson"].read_text(errors="replace").splitlines():
             try:
@@ -159,67 +181,59 @@ def normalize_trial(trial, raw, artifact_root):
                 continue
             if isinstance(message, dict) and message.get("type") == "error" and isinstance(message.get("error"), str):
                 diagnostic += "\n" + message["error"]
-    row.update(execution_status=outcome.get("status", row["execution_status"]),
-               termination_source=termination(outcome, raw, diagnostic))
+                structured_errors.append(message["error"])
+    row.update(execution_status=outcome.get("status", "cancelled" if raw.get("cancelled") else "runner_error"),
+               termination_source=termination(outcome, raw, diagnostic, structured_errors))
     if row["termination_source"] is None and row["grader_status"] == "error":
-        row["termination_source"] = "verifier_error"
-    if outcome.get("final_snapshot") is not True or outcome.get("evidence_errors"):
-        errors.append("incomplete_final_snapshot")
-    duration = outcome.get("agent_duration_seconds")
-    duration_complete = (outcome.get("final_snapshot") is True and
-                         bool(outcome.get("frozen_daemon_pid") or outcome.get("daemon_stopped")))
-    if not duration_complete or not state.get("settled") or any((state.get("pending") or {}).values()):
+        # A native exception before agent execution is setup, not grading. Keep
+        # the native timing boundary authoritative; do not infer from log prose.
+        executed = (native.get("agent_execution") or {}).get("started_at")
+        verifying = (native.get("verifier") or {}).get("started_at")
+        row["termination_source"] = "verifier_error" if verifying else "agent_error" if executed else "setup_error"
+    # Finality: the observer took its last snapshot with the daemon frozen or
+    # stopped, nothing was pending, and its export reported no errors.
+    final = (outcome.get("final_snapshot") is True and not outcome.get("evidence_errors")
+             and bool(outcome.get("frozen_daemon_pid") or outcome.get("daemon_stopped"))
+             and bool(state.get("settled")) and not any((state.get("pending") or {}).values()))
+    if not final:
         errors.append("incomplete_finality")
-    row["agent_seconds"] = duration if number(duration) and duration_complete else None
+    duration = outcome.get("agent_duration_seconds")
+    row["agent_seconds"] = duration if number(duration) and final else None
     calls = state.get("calls")
+    # The copied database is the canonical ledger. A partial or desynchronized
+    # upload must not make edited state.json totals eligible for promotion.
+    if paths["sessions.db"]:
+        try:
+            with sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+                db.row_factory = sqlite3.Row
+                roots = [row["id"] for row in db.execute("SELECT id FROM sessions")]
+                if roots != [(state.get("root") or {}).get("id")]:
+                    errors.append("accounting_root_mismatch")
+                copied_calls = rows(db, "SELECT * FROM model_calls ORDER BY rowid")
+            if calls != copied_calls:
+                errors.append("accounting_snapshot_mismatch")
+        except sqlite3.Error:
+            errors.append("unreadable_accounting_snapshot")
     computed = aggregate(calls) if calls is not None else {}
-    matching = calls is not None and all(computed.get(key) == metrics.get(key) for key in
-        ("model_calls", "unknown_cost_calls", "unknown_usage_calls", "pending_calls", "input_tokens", "output_tokens", "cache_tokens"))
-    if not matching:
-        errors.append("accounting_snapshot_mismatch")
-    row["accounting_complete"] = bool(metadata.get("whip_accounting_complete") is True
-                                       and final_accounting_complete(computed, outcome)
-                                       and computed.get("unknown_usage_calls") == 0
-                                       and matching and not errors)
+    # Complete accounting: every dispatched call reported usage and a cost, and
+    # nothing about the evidence is in doubt. Unknown usage never becomes zero.
+    row["accounting_complete"] = not errors and all(computed.get(key) == 0 for key in
+                                                    ("unknown_usage_calls", "unknown_cost_calls", "pending_calls"))
     if calls is not None:
         row["known_cost_usd"] = money(sum(Decimal(call["cost_micros"]) for call in calls) / 1_000_000)
     elif number(metrics.get("ledger_cost_usd")):
         row["known_cost_usd"] = money(metrics["ledger_cost_usd"])
     if row["accounting_complete"]:
         row["cost_usd"] = row["known_cost_usd"]
-    row["unknown_cost_calls"] = computed.get("unknown_cost_calls", metrics.get("unknown_cost_calls"))
-    row["unknown_usage_calls"] = computed.get("unknown_usage_calls", metrics.get("unknown_usage_calls"))
-    row["model_calls"] = computed.get("model_calls", metrics.get("model_calls"))
-    usage_complete = (row["accounting_complete"] and metrics.get("unknown_usage_calls") == 0)
-    for key in ("input_tokens", "output_tokens", "cache_tokens"):
-        row[key] = metrics.get(key) if usage_complete else None
-    row["cost_sources"] = dict(Counter(call.get("cost_source", "unknown") for call in calls or []))
-    row["calls_by_purpose"] = dict(Counter(call.get("attempt", {}).get("Purpose", "unknown") for call in calls or []))
-    row["provider_statuses"] = None  # The durable ModelAttemptResult does not retain HTTP status codes.
-    row["provider_status_coverage"] = "unavailable"
+    # Token totals are lower bounds when usage calls are unknown; they are shown,
+    # and the unknown-usage count beside them says how firm they are.
+    for key in ("unknown_cost_calls", "unknown_usage_calls", "model_calls", "input_tokens", "output_tokens", "cache_tokens"):
+        row[key] = computed.get(key, metrics.get(key))
     row["diagnostics"] = {key: metrics.get(key) for key in (
         "peak_input_tokens", "sampled_peak_container_rss_bytes", "sampled_container_cpu_seconds",
-        "reported_cost_usd", "reported_cost_calls", "normalized_cost_usd", "unknown_normalized_cost_calls")}
-    row["diagnostics"].update(agent_count=len(state.get("agents", [])), turn_count=len(state.get("turns", [])))
-    resolver = ResultResolver(agent, state.get("root", {}).get("id"))
-    cells, cell_errors, unresolved = 0, 0, 0
-    try:
-        for event in canonical_events(paths["events.ndjson"]):
-            payload = event.get("payload_inline") or {}
-            if event.get("kind") == "stream.tool.completed" and payload.get("name") == "rlm_exec":
-                text, resolution = resolver.resolve(event)
-                result = result_payload(text)
-                if result:
-                    cells += 1
-                    cell_errors += bool(result.get("termination"))
-                else:
-                    unresolved += 1
-    finally:
-        resolver.close()
-    row["diagnostics"].update(cells=cells, cell_errors=cell_errors, unresolved_cells=unresolved)
-    row["definition_sha256"] = value_hash([a.get("definition") for a in state.get("agents", [])]) if state else None
-    row["controls"] = [{key: budget.get(key) for key in ("agent_id", "kind", "limit_value", "used_value", "uncertain_value")}
-                       for budget in state.get("budgets", [])]
+        "reported_cost_usd", "reported_cost_calls")}
+    row["diagnostics"].update(agent_count=len(state.get("agents", [])), turn_count=len(state.get("turns", [])),
+                              **span_counts(paths["sessions.db"]))
     row["evidence_complete"] = not errors and row["cleanup_complete"] is True
     row["error_codes"].extend(sorted(set(errors)))
     row["artifacts"] = {"native_result": native_path.relative_to(artifact_root).as_posix(),
@@ -227,6 +241,18 @@ def normalize_trial(trial, raw, artifact_root):
                         "evidence_files": {p.relative_to(artifact_root).as_posix(): file_hash(p)
                                            for p in paths.values() if p is not None}}
     return row
+
+
+def normalize_or_error(trial, raw, artifact_root):
+    """A row whose evidence cannot be read is an export error, never a missing trial."""
+    try:
+        return normalize_trial(trial, raw, artifact_root)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        row = empty_trial(trial)
+        row.update(started=bool(raw.get("started")), execution_status="export_error",
+                   termination_source="export_error", error_codes=[type(error).__name__],
+                   cleanup_complete=raw.get("cleanup", {}).get("complete"))
+        return row
 
 
 def summarize(rows):
@@ -238,11 +264,13 @@ def summarize(rows):
     times = [row["agent_seconds"] for row in rows if number(row.get("agent_seconds"))]
     pass_times = [row["agent_seconds"] for row in rows if row["success"] is True and number(row.get("agent_seconds"))]
     totals = {key: sum(row[key] for row in rows) if rows and all(row.get(key) is not None for row in rows) else None
-              for key in ("input_tokens", "output_tokens", "cache_tokens", "unknown_cost_calls", "model_calls")}
+              for key in ("input_tokens", "output_tokens", "cache_tokens", "unknown_cost_calls", "unknown_usage_calls", "model_calls")}
     return {
         "planned": n, "started": sum(row["started"] for row in rows), "graded": graded,
         "passed": passed, "failed": graded - passed, "ungraded": n - graded,
         "cancelled": sum(row["termination_source"] == "user_cancelled" for row in rows),
+        "provider_errors": sum(row["termination_source"] == "provider_error" for row in rows),
+        "evidence_incomplete": sum(not row["evidence_complete"] for row in rows),
         "verified_success_rate": passed / n if n else None,
         "graded_pass_rate": passed / graded if graded else None,
         "evidence_complete": sum(row["evidence_complete"] for row in rows),
@@ -310,7 +338,16 @@ def compare_trials(control, candidate, *, seed=0, samples=10000):
             "control": a, "candidate": b}
 
 
-def build_result(manifest, rows, *, finished_at=None, wall_seconds=None):
+def run_status(rows, *, cancelled=False):
+    """`cancelled` only when a human cancelled; `incomplete` names what is missing."""
+    if cancelled:
+        return "cancelled"
+    if all(r["success"] is not None and r["evidence_complete"] for r in rows):
+        return "complete"
+    return "incomplete"
+
+
+def build_result(manifest, rows, *, finished_at=None, wall_seconds=None, cancelled=False):
     expected = {trial["id"]: trial for trial in manifest["schedule"]}
     cells = {(t["task_id"], t["candidate_id"], t["repetition"]) for t in manifest["schedule"]}
     if len(expected) != len(manifest["schedule"]) or len(cells) != len(expected):
@@ -333,10 +370,13 @@ def build_result(manifest, rows, *, finished_at=None, wall_seconds=None):
                                for suite in sorted({r["task_id"].split("/")[0] for r in selected})}
         arms[name]["repetitions"] = {str(rep): summarize([r for r in selected if r["repetition"] == rep])
                                      for rep in sorted({r["repetition"] for r in selected})}
+    whole = summarize(ordered)
     result = {"schema_version": SCHEMA_VERSION, "run_id": manifest["run_id"],
               "manifest_sha256": value_hash(manifest), "comparison_key": manifest["comparison_key"],
               "profile": manifest["profile"], "profile_version": manifest["profile_version"],
-              "status": "complete" if all(r["success"] is not None and r["evidence_complete"] for r in ordered) else "partial",
+              "status": run_status(ordered, cancelled=cancelled),
+              "status_detail": {"ungraded": whole["ungraded"], "evidence_incomplete": whole["evidence_incomplete"],
+                                "provider_errors": whole["provider_errors"], "cancelled_trials": whole["cancelled"]},
               "finished_at": finished_at or utc_now(), "wall_seconds": wall_seconds,
               "methodology_comparable": False, "arms": arms, "trials": ordered, "comparisons": []}
     if len(manifest["candidates"]) == 2:
@@ -362,17 +402,23 @@ def write_report(directory, manifest, result):
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "result.json").exists():
         raise FileExistsError(directory / "result.json")
-    lines = [f"# Whip evaluation: {result['run_id']}", "", f"Status: **{result['status']}**. Profile: **{result['profile']}**.",
-             "", "Local Frontier adaptation; no published leaderboard ranking.", "",
-             "| Candidate | Verified successes / planned | Graded | Known cost (USD) | Complete cost (USD) | Agent median (s) |",
+    methodology = "Local Frontier adaptation; no published leaderboard ranking."
+    detail = result.get("status_detail") or {}
+    status_line = (f"Status: **{result['status']}** ({detail.get('ungraded', 0)} ungraded, "
+                   f"{detail.get('evidence_incomplete', 0)} evidence-incomplete, {detail.get('provider_errors', 0)} provider errors, "
+                   f"{detail.get('cancelled_trials', 0)} cancelled). Profile: **{result['profile']}**.")
+    lines = [f"# Whip evaluation: {result['run_id']}", "", status_line,
+             "", methodology, "",
+             "| Candidate | Verified successes / planned | Graded | Known cost (USD) | Unknown-usage calls | Agent median (s) |",
              "| --- | --- | --- | --- | --- | --- |"]
     for name, arm in result["arms"].items():
-        lines.append(f"| {name} | {arm['passed']}/{arm['planned']} | {arm['graded']} | {arm['known_cost_usd']} | {arm['cost_usd'] or 'unknown'} | {arm['agent_median_seconds']} |")
+        unknown = (arm.get("tokens") or {}).get("unknown_usage_calls")
+        lines.append(f"| {name} | {arm['passed']}/{arm['planned']} | {arm['graded']} | {arm['known_cost_usd']} | {'n/a' if unknown is None else unknown} | {arm['agent_median_seconds']} |")
     lines += ["", "Incomplete runs show confirmed successes against the entire planned denominator, not an exclusion-adjusted score.",
               "All-attempt timing includes failures; use common-success paired latency for speed comparisons.", "",
               "## Coverage and failure attribution", ""]
     for name, arm in result["arms"].items():
-        lines += [f"- {name}: evidence {arm['evidence_complete']}/{arm['planned']}; accounting {arm['accounting_complete']}/{arm['planned']}; ungraded {arm['ungraded']}; termination causes {arm['termination_sources']}."]
+        lines += [f"- {name}: evidence {arm['evidence_complete']}/{arm['planned']}; accounting {arm['accounting_complete']}/{arm['planned']}; ungraded {arm['ungraded']}; provider errors {arm['provider_errors']}; termination causes {arm['termination_sources']}."]
         for suite, value in arm["suites"].items():
             lines.append(f"- {name} / {suite}: {value['passed']}/{value['planned']} verified successes.")
     for comparison in result["comparisons"]:
@@ -393,7 +439,7 @@ def write_report(directory, manifest, result):
     for row in result["trials"]:
         lines.append(f"| {row['task_id']} | {row['candidate_id']} | {row['repetition']} | {row['grader_status']} | {row['execution_status']} | {row['termination_source']} |")
     atomic_write(directory / "report.md", ("\n".join(lines) + "\n").encode(), exclusive=True)
-    fields = ("id", "task_id", "candidate_id", "repetition", "runner", "started", "success", "grader_status", "execution_status", "termination_source", "evidence_complete", "accounting_complete", "known_cost_usd", "cost_usd", "agent_seconds", "trial_seconds", "input_tokens", "output_tokens", "cache_tokens")
+    fields = ("id", "task_id", "candidate_id", "repetition", "runner", "started", "success", "grader_status", "execution_status", "termination_source", "evidence_complete", "accounting_complete", "known_cost_usd", "cost_usd", "agent_seconds", "trial_seconds", "model_calls", "unknown_usage_calls", "input_tokens", "output_tokens", "cache_tokens")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()

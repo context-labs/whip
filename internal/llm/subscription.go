@@ -81,10 +81,16 @@ func (c *Client) subscriptionOnce(
 	if err != nil {
 		return Message{}, Usage{}, nonRetryable{err}
 	}
-	response, err := c.HTTP.Do(request)
+	response, err := c.do(request, c.stallTimeout(responsesStall))
 	if err != nil {
+		if cause, ok := ownDeadline(ctx); ok {
+			return Message{}, Usage{}, cause
+		}
 		if ctx.Err() != nil {
 			return Message{}, Usage{}, ctx.Err()
+		}
+		if _, ok := errors.AsType[stallError](err); ok {
+			return Message{}, Usage{}, err
 		}
 		return Message{}, Usage{}, errors.New("could not reach OpenAI subscription endpoint")
 	}

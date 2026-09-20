@@ -60,10 +60,13 @@ func TestManualCompactionUsesRawSequencesAfterFocusAndRestart(t *testing.T) {
 		}
 		return owner, root, runner
 	}
-	for generation, expectedCutoff := range []int{24, 28} {
+	// Each turn (~3000 tokens) exceeds the 2000-token tail budget, so the fold
+	// cuts inside the newest turn: its opening user message becomes the raw
+	// cutoff and is pinned verbatim after the summary; its tool pair is kept.
+	for generation, expectedCutoff := range []int{25, 29} {
 		owner, root, runner := openOwner()
 		before := runner.agent.MessagesSnapshot()
-		if len(before) >= expectedCutoff || before[len(before)-1].RawSequence != expectedCutoff+4 {
+		if len(before) >= expectedCutoff || before[len(before)-1].RawSequence != expectedCutoff+3 {
 			t.Fatalf("test requires sparse focused history: count=%d last=%+v", len(before), before[len(before)-1])
 		}
 		result := clientCommand(t, root, "tui", fmt.Sprintf("compact-%d", generation), "history.compact", map[string]string{})
@@ -82,11 +85,12 @@ func TestManualCompactionUsesRawSequencesAfterFocusAndRestart(t *testing.T) {
 		}
 		store = openStore(t, path)
 		_, restored, err := store.Load(rootID)
-		if err != nil || len(restored) != 5 || restored[0].RawSequence != expectedCutoff || restored[1].RawSequence != expectedCutoff+1 || restored[3].Role != "tool" || restored[3].ToolCallID != restored[2].ToolCalls[0].ID {
-			t.Fatalf("restored summary/raw tail = %+v, %v", restored, err)
+		if err != nil || len(restored) != 5 || restored[0].RawSequence != expectedCutoff || restored[1].Role != "user" || restored[1].RawSequence != expectedCutoff ||
+			restored[2].RawSequence != expectedCutoff+1 || restored[3].Role != "tool" || restored[3].ToolCallID != restored[2].ToolCalls[0].ID {
+			t.Fatalf("restored summary/pinned user/raw tail = %+v, %v", restored, err)
 		}
 		page, err := store.ReadTranscript(t.Context(), rootID, rootID, 0, -1, 128)
-		if err != nil || len(page.Messages) != expectedCutoff+4 || page.Messages[2].Message.Content != "original result 1" {
+		if err != nil || len(page.Messages) != expectedCutoff+3 || page.Messages[2].Message.Content != "original result 1" {
 			t.Fatalf("manual compaction changed raw transcript: rows=%d, %v", len(page.Messages), err)
 		}
 		if generation == 0 {

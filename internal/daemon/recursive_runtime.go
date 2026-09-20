@@ -93,6 +93,7 @@ type AgentSession struct {
 	failures          int // consecutive failed turns; drives the re-wake backoff
 	cancel            context.CancelFunc
 	turn              turnJournal
+	spanStarts        map[string]int64 // open tool/host span starts by span id, for their ends
 	emit              func(string, StreamEvent)
 	interactive       *daemonInteractiveRunner
 	prompt            rlm.PromptSnapshot
@@ -180,15 +181,18 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 }
 
 func (node *AgentSession) emitHostStart(call rlm.HostCall) {
+	node.hostSpanStart(call)
 	node.emitHostEvent("stream.cell.host.started", call)
 }
 
 // The existing kind remains completion-only for older clients.
 func (node *AgentSession) emitHostCall(call rlm.HostCall) {
+	node.hostSpanEnd(call)
 	node.emitHostEvent("stream.cell.host", call)
 }
 
 func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+	partID := node.recordHostPresentation(call)
 	emit := node.emit
 	if emit == nil {
 		return
@@ -197,11 +201,11 @@ func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 	turnID := node.turn.TurnID
 	node.mu.Unlock()
 	event := StreamEvent{
-		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
-		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err,
+		PartID: partID, Display: call.Display, ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
+		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err, OperationID: call.OperationID,
 	}
 	if kind == "stream.cell.host" {
-		event.Text = call.Duration.Round(time.Millisecond).String()
+		event.Text = call.Duration.String()
 	}
 	emit(kind, event)
 }
@@ -276,6 +280,7 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 	runtime.agents[node.id] = node
 	runtime.mu.Unlock()
 	node.agent.SetModelCallBudget(agentModelBudget{node: node})
+	node.agent.Services.SetDesktopBrowserProvider(root.desktopBrowserProvider)
 	node.agent.TransformInput = node.host.focusInput
 	return runtime.restoreChildren(ctx)
 }
@@ -507,6 +512,7 @@ func (node *AgentSession) close(closeAgent bool) {
 		node.cancel()
 	}
 	node.mu.Unlock()
+	node.revokeDesktopAttachments()
 	if node.kernel != nil {
 		node.kernel.Close()
 	}
@@ -557,17 +563,17 @@ func (node *AgentSession) run() {
 	turnID := agentTurnID(node.id)
 	var items []sessionstore.InboxItem
 	started := false
-	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (string, []llm.ContentPart, error) {
+	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (llm.Message, error) {
 		start, err := node.root.StartAgentTurn(turnCtx, node.id, turnID)
 		if err != nil {
-			return "", nil, err
+			return llm.Message{}, err
 		}
 		started = true
 		items = start.Items
 		if len(items) == 0 {
-			return "", nil, nil
+			return llm.Message{}, nil
 		}
-		return node.root.decodeInboxInput(turnCtx, items[0])
+		return node.root.decodeInboxMessage(turnCtx, items[0])
 	})
 	if !started {
 		node.finishLiveTurn()
@@ -631,11 +637,20 @@ func (node *AgentSession) run() {
 
 // scheduleRetryWake re-wakes this node after an exponential backoff
 // (2s, 4s, ... capped at 64s) if it still has queued work.
+// maxChildRetryWakes bounds how long a child keeps re-waking on a failing
+// provider: six wakes is about ten minutes at the 64 s cap. Its queued input
+// stays queued, so the next explicit wake (new mail, a parent nudge) resumes
+// it; the parent already has the completion notice with the last error.
+const maxChildRetryWakes = 6
+
 func (node *AgentSession) scheduleRetryWake() {
 	node.mu.Lock()
 	node.failures++
 	attempt := node.failures
 	node.mu.Unlock()
+	if attempt > maxChildRetryWakes {
+		return
+	}
 	delay := time.Duration(1<<min(attempt, 6)) * time.Second
 	time.AfterFunc(delay, func() {
 		if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {
@@ -811,10 +826,7 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	case "shell":
 		return host.shell(ctx, operation, arguments)
 	case "browser":
-		if operation != "run" {
-			return nil, fmt.Errorf("unknown browser operation %q", operation)
-		}
-		return host.invoke(ctx, "browser_exec", arguments)
+		return host.browser(ctx, operation, arguments)
 	case "computer":
 		if operation != "run" {
 			return nil, fmt.Errorf("unknown computer operation %q", operation)
@@ -1256,14 +1268,26 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	child.SetModelCallBudget(agentModelBudget{node: node})
 	child.TransformInput = node.host.focusInput
 	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
+	cause := parent.hostSpanLink(ctx)
 	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
 		ParentAgentID: parent.id, ChildAgentID: id, Name: name, Definition: childName,
 		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir, Report: report,
 		Prompt:       sessionstore.RuntimePayload{Data: []byte(task), MediaType: "text/plain", Source: "initial agent prompt"},
-		Capabilities: delegations, Budgets: budgets,
+		Capabilities: delegations, Budgets: budgets, ParentSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 	}); err != nil {
 		node.close(true)
 		return nil, err
+	}
+	if len(request.BrowserAttachments) != 0 {
+		if _, err := parent.agent.Services.TransferDesktopAttachments(ctx, id, request.BrowserAttachments); err != nil {
+			// No child is published or awakened until the provider acknowledges
+			// the complete transfer. Its failure path restores parent control.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			cleanupErr := parent.root.TerminalizeSubtree(cleanupCtx, parent.id, id, "deleted")
+			cancel()
+			node.close(true)
+			return nil, errors.Join(err, cleanupErr)
+		}
 	}
 	runtime.mu.Lock()
 	if runtime.closed {
@@ -1278,9 +1302,11 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	child.Services.CopyPermissionPolicyFrom(parent.agent.Services)
 	runtime.agents[id] = node
 	runtime.mu.Unlock()
+	attachments := node.desktopAttachments(ctx)
 	node.wake()
 	return map[string]any{
 		"id": id, "name": name, "parent_id": parent.id, "status": "queued", "report": report,
+		"browser_attachments": attachments,
 	}, nil
 }
 
@@ -1373,7 +1399,7 @@ func (runtime *RecursiveRuntime) submit(ctx context.Context, caller *AgentSessio
 	if !slices.ContainsFunc(relatives.Children, func(child sessionstore.RuntimeAgent) bool { return child.ID == id }) {
 		return nil, sessionstore.ErrAgentAccess
 	}
-	seq, err := caller.root.SubmitAgentInput(ctx, caller.id, id, kind, text, "parent follow-up")
+	seq, err := caller.root.SubmitAgentInput(ctx, caller.id, id, kind, text, "parent follow-up", caller.hostSpanLink(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1464,6 +1490,12 @@ func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSessi
 		"unread_messages": summary.UnreadCount, "budgets": budgets, "report": found.Report,
 		"effective_capabilities": names,
 	}
+	runtime.mu.RLock()
+	target := runtime.agents[id]
+	runtime.mu.RUnlock()
+	if target != nil {
+		result["browser_attachments"] = target.desktopAttachments(ctx)
+	}
 	if !includeGrants {
 		return result, nil
 	}
@@ -1548,8 +1580,10 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		body, _ := stringArgument(arguments, "body")
 		evidence, _ := stringArgument(arguments, "evidence_handle")
 		delivery, _ := stringArgument(arguments, "delivery")
+		cause := node.hostSpanLink(ctx)
 		message, err := node.root.SendMailboxMessage(ctx, node.id, recipient, sessionstore.MailboxSend{
 			Subject: subject, Body: body, EvidenceReferenceID: evidence, Delivery: delivery,
+			SenderSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 		})
 		return map[string]any{
 			"id": message.ID, "recipient": recipient, "delivery": message.Delivery, "status": message.Status, "created_at": message.CreatedAt,
@@ -1635,17 +1669,45 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 		if err != nil {
 			return nil, err
 		}
-		node := host.session
-		result := make([]map[string]any, 0, len(listed))
-		for _, tool := range listed {
-			call, err := manager.ResolveTool(server, tool.Name)
-			authorized := err == nil && node.root.store.AuthorizeMCP(ctx, node.root.ID(), node.id, node.authority.MCP, call.MCPSelector) == nil
+		// A window over the name-sorted catalog, light by default: schemas
+		// come from describe, and list_servers reports each server's total.
+		offset := min(max(intArgument(arguments, "offset", 0), 0), len(listed))
+		limit := intArgument(arguments, "limit", mcpListDefaultLimit)
+		if limit <= 0 {
+			limit = mcpListDefaultLimit
+		}
+		schemas := arguments["schemas"] == true
+		window := listed[offset:min(offset+limit, len(listed))]
+		result := make([]map[string]any, 0, len(window))
+		for _, tool := range window {
+			result = append(result, host.mcpToolEntry(ctx, manager, server, tool, schemas))
+		}
+		return result, nil
+	case "search":
+		server, _ := stringArgument(arguments, "server")
+		query, _ := stringArgument(arguments, "query")
+		matches, err := manager.Search(server, query, intArgument(arguments, "limit", 0))
+		if err != nil {
+			return nil, err
+		}
+		result := make([]map[string]any, 0, len(matches))
+		for _, match := range matches {
+			_, authorized := host.mcpAuthorized(ctx, manager, match.Server, match.Name)
 			result = append(result, map[string]any{
-				"name": tool.Name, "title": tool.Title, "description": tool.Description, "input_schema": tool.InputSchema,
-				"authorized": authorized, "definition": call.Definition, "generation": call.Generation,
+				"server": match.Server, "name": match.Name, "title": match.Title, "summary": match.Summary, "authorized": authorized,
 			})
 		}
 		return result, nil
+	case "describe":
+		server, _ := stringArgument(arguments, "server")
+		tool, _ := stringArgument(arguments, "tool")
+		described, err := manager.Describe(server, tool)
+		if err != nil {
+			return nil, err
+		}
+		entry := host.mcpToolEntry(ctx, manager, server, described, true)
+		entry["server"] = server
+		return entry, nil
 	case "instructions":
 		server, _ := stringArgument(arguments, "server")
 		text, generation, source, err := manager.Instructions(server)
@@ -1830,6 +1892,10 @@ func parseSpawnRequest(name, prompt string, arguments map[string]any) (spawnRequ
 	if err != nil {
 		return spawnRequest{}, err
 	}
+	attachments, err := requestedNames(arguments["browser_attachments"], "browser_attachments")
+	if err != nil {
+		return spawnRequest{}, err
+	}
 	limits, err := requestedBudgets(arguments["budgets"])
 	if err != nil {
 		return spawnRequest{}, err
@@ -1839,7 +1905,7 @@ func parseSpawnRequest(name, prompt string, arguments map[string]any) (spawnRequ
 	for _, limit := range limits {
 		budgets[string(limit.Kind)] = limit.Limit
 	}
-	request := spawnRequest{Prompt: prompt, Name: name, Capabilities: capabilities, Tools: toolNames, Budgets: budgets}
+	request := spawnRequest{Prompt: prompt, Name: name, Capabilities: capabilities, Tools: toolNames, Budgets: budgets, BrowserAttachments: attachments}
 	request.Definition, _ = stringArgument(arguments, "definition")
 	request.Report, _ = stringArgument(arguments, "report")
 	request.Model, _ = stringArgument(arguments, "model")
@@ -1876,9 +1942,10 @@ func spawnArguments(request spawnRequest) map[string]any {
 // resolvedSpawn is a request after the named child's defaults apply and
 // narrowing is checked.
 type resolvedSpawn struct {
-	definition agentdef.Definition
-	budgets    []sessionstore.BudgetLimit
-	report     string
+	definition         agentdef.Definition
+	budgets            []sessionstore.BudgetLimit
+	report             string
+	browserAttachments []string
 }
 
 // preview is the wire view a before_spawn hook receives.
@@ -1890,6 +1957,7 @@ func (r resolvedSpawn) preview() protocol.ResolvedChild {
 	return protocol.ResolvedChild{
 		Definition: r.definition.ID, Modules: r.definition.Modules, Capabilities: r.definition.Capabilities,
 		Tools: r.definition.ToolNames(), Budgets: budgets, Report: r.report,
+		BrowserAttachments: slices.Clone(r.browserAttachments),
 	}
 }
 
@@ -1906,6 +1974,9 @@ func resolveSpawn(parent *AgentSession, request spawnRequest) (resolvedSpawn, er
 		Capabilities: request.Capabilities, Tools: request.Tools, Model: agentdef.ModelDefaults{Model: request.Model, Provider: request.Provider, Effort: request.Effort},
 	})
 	if err != nil {
+		return resolvedSpawn{}, err
+	}
+	if err := validateSpawnBrowserAttachments(parent, definition, request.BrowserAttachments); err != nil {
 		return resolvedSpawn{}, err
 	}
 	kinds := slices.Sorted(maps.Keys(request.Budgets))
@@ -1930,7 +2001,7 @@ func resolveSpawn(parent *AgentSession, request spawnRequest) (resolvedSpawn, er
 	default:
 		return resolvedSpawn{}, fmt.Errorf("unknown report mode %q (notice, message, or inline)", report)
 	}
-	return resolvedSpawn{definition: definition, budgets: budgets, report: report}, nil
+	return resolvedSpawn{definition: definition, budgets: budgets, report: report, browserAttachments: slices.Clone(request.BrowserAttachments)}, nil
 }
 
 // namedChildBudgets applies a named child's budgets as defaults under the

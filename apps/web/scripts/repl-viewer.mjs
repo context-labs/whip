@@ -56,7 +56,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const chat = id => panel(id).getByRole('region', { name: 'Conversation', exact: true });
   const notebook = id => panel(id).getByRole('region', { name: 'REPL executions', exact: true });
   const ready = async (id, mode) => {
-    await (mode === 'repl' ? notebook(id) : panel(id).getByLabel('Message WHIP', { exact: true })).waitFor();
+    await (mode === 'repl' ? notebook(id) : mode === 'trace' ? panel(id).locator('[data-session-view="trace"]') : panel(id).getByLabel('Message WHIP', { exact: true })).waitFor();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /claude-code|light|dark/);
   };
   const action = async (id, label) => {
@@ -122,6 +122,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     if (await button.count()) await button.click();
     else await notebook(id).evaluate(element => { element.scrollTop = element.scrollHeight; });
   };
+  // The last cell's ordinal is the loaded count; the REPL has no summary toolbar.
+  const loadedCells = async id => {
+    await latest(id);
+    const last = notebook(id).locator('[data-repl-cell]').last();
+    await expect(last).toBeVisible();
+    return Number((await last.getAttribute('aria-label')).match(/^Execution (\d+)$/)[1]);
+  };
   const step = async value => {
     const response = await fetch(`${fixture.info.frontend}/control/repl/${value}`, { method: 'POST' });
     assert.equal(response.status, 204, `REPL fixture ${value}: ${await response.text()}`);
@@ -146,6 +153,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, repl], 'REPL must open immediately right of the preserved chat');
     assert.equal(allTabs(await workspace())[0].id, root, 'Opening REPL replaced the stable view ID');
     assert.equal(await panel(repl).locator('[data-whip-composer]').count(), 0);
+    const topFade = await notebook(repl).evaluate(element => getComputedStyle(element).maskImage);
+    assert.match(topFade, /^linear-gradient\(/, 'REPL should share the chat top fade');
+    assert.match(topFade, /20px/);
+    assert.doesNotMatch(topFade, /calc\(/, 'REPL should not fade the bottom edge');
+    await page.emulateMedia({ forcedColors: 'active' });
+    await expect(notebook(repl)).toHaveCSS('mask-image', 'none');
+    await page.emulateMedia({ forcedColors: 'none', media: 'print' });
+    await expect(notebook(repl)).toHaveCSS('mask-image', 'none');
+    await page.emulateMedia({ media: 'screen' });
     assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, initialSnapshots, 'Mode switch acquired another root');
     assert.equal(frames.filter(frame => frame.method === 'history.page').length, initialHistory, 'Mode switch fetched history automatically');
     const savedLink = page.locator('#whip-session-navigation').getByRole('link', { name: 'Inspect Root cell 000.', exact: true });
@@ -167,12 +183,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await action(repl, 'Open chat'); await ready(root, 'chat');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
     await sameAnchor(chat(root), chatAnchor);
-    await panel(root).getByRole('button', { name: 'Open REPL', exact: true }).click();
-    const toolbarRepl = leaves((await workspace()).layout)[0].selected;
-    assert.notEqual(toolbarRepl, repl, 'Toolbar opening must create a fresh view even with an existing REPL');
-    assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, toolbarRepl, repl]);
-    await ready(toolbarRepl, 'repl');
-    await tab(toolbarRepl).press('Delete');
+    for (const [label, kind] of [['REPL', 'repl'], ['Trace', 'trace'], ['Chat', 'chat']]) {
+      await panel(root).getByRole('button', { name: label, exact: true }).click();
+      await ready(root, kind);
+      assert.equal(leaves((await workspace()).layout)[0].selected, root, 'Top-bar switching must keep the current tab');
+      assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, repl]);
+      assert.equal(allTabs(await workspace()).find(tab => tab.id === repl).kind, 'repl', 'Other tabs must not change');
+    }
+    assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
+    await sameAnchor(chat(root), chatAnchor);
     await tab(repl).click(); await ready(repl, 'repl'); await sameAnchor(notebook(repl), replAnchor);
     checks.push('three-dot menu opens an adjacent REPL; nearest chat, draft and independent reading anchors restore');
 
@@ -267,12 +286,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('Claude Code, light and dark screenshots with WCAG 2/2.1 A/AA Axe checks');
 
     await chooseAgent(moved, 'repl-paged');
-    await expect(panel(moved).getByText(/32 loaded cells$/)).toBeVisible();
+    await expect.poll(() => loadedCells(moved)).toBe(32);
     const firstPage = await scrollPage(notebook(moved), 'repl-paged');
-    await expect(panel(moved).getByText(/64 loaded cells$/)).toBeVisible();
+    await expect.poll(() => loadedCells(moved)).toBe(64);
     const finalPage = await scrollPage(notebook(moved), 'repl-paged');
     assert.ok(finalPage.params.before_seq < firstPage.params.before_seq);
-    await expect(panel(moved).getByText(/80 loaded cells$/)).toBeVisible();
+    await expect.poll(() => loadedCells(moved)).toBe(80);
     const olderChild = panel(moved).getByRole('button', { name: /Load older executions$/ });
     await expect(olderChild).toHaveCount(0);
     await notebook(moved).evaluate(element => { element.scrollTop = 0; });
@@ -282,7 +301,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const before = frames.length;
       await step('refresh');
       await eventually(() => frames.slice(before).some(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-paged' && replies.has(frame.id)), { description: 'child metadata refresh completes' });
-      await expect(panel(moved).getByText(/80 loaded cells$/)).toBeVisible();
+      await expect.poll(() => loadedCells(moved)).toBe(80);
       await expect(olderChild).toHaveCount(0);
       await notebook(moved).evaluate(element => { element.scrollTop = 100; });
       await notebook(moved).evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -294,7 +313,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(notebook(moved)).toContainText('No executions in the loaded history');
     assert.equal(backwardReads('repl-sparse').length, 0, 'A sparse page must not automatically scan older history');
     await panel(moved).getByRole('button', { name: 'Load older executions', exact: true }).click();
-    await expect(panel(moved).getByText(/4 loaded cells$/)).toBeVisible();
+    await expect.poll(() => loadedCells(moved)).toBe(4);
     assert.equal(backwardReads('repl-sparse').length, 1);
     await expect(panel(moved).getByRole('button', { name: /Load older executions$/ })).toHaveCount(0);
     checks.push('a page without REPL cells has an explicit bounded fallback to earlier executions');
@@ -316,7 +335,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await older.evaluate(button => button.click());
       await eventually(() => frames.filter(frame => frame.method === 'history.page').length > historyBeforePaging + index, { description: 'explicit bounded history page' });
       await eventually(async () => !await older.count() || await older.isEnabled(), { description: 'older page completes or exhausts history' });
-      const count = Number((await panel(moved).getByText(/\d+ loaded cells?$/).innerText()).match(/(\d+) loaded cells?/)[1]);
+      const count = await loadedCells(moved);
       assert.ok(count <= 128, `Loaded ${count} cells from more than 512 retained messages`);
     }
     const historyRequests = frames.filter(frame => frame.method === 'history.page');

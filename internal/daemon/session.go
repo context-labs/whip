@@ -43,7 +43,7 @@ type Components struct {
 }
 
 type contentRunner interface {
-	TurnParts(context.Context, string, []llm.ContentPart, func(), func(string)) (string, error)
+	TurnParts(context.Context, string, []llm.ContentPart, func(), func(string), ...*llm.TranscriptPresentation) (string, error)
 }
 
 type Completion struct {
@@ -109,13 +109,35 @@ type turnCompaction struct {
 	Cutoff       int
 	RawTailStart int
 	RawCutoff    *int
+	Pinned       bool
 }
 
 // turnJournal is everything one turn produced that the commit must persist:
 // new transcript messages, compactions, and the durable items the model saw
 // (steer rows injected at a boundary, mailbox messages shown or read).
 type turnJournal struct {
-	TurnID            string
+	Presentation          *llm.TranscriptPresentation
+	PresentationSerial    uint64
+	PresentationTextBytes int
+	PresentationProse     string // Bounded pending source, discarded once canonical prose is recorded.
+	TurnID                string
+	// SpanID and TraceID identify the turn's trace span; every model call,
+	// cell, host call and wait of the turn parents under it.
+	SpanID  string
+	TraceID string
+	// LastModelCallID is the attempt that most recently settled, so the tool
+	// calls it emitted can name it.
+	LastModelCallID string
+	// PromptRef and PromptBytes point at the system prompt this turn ran
+	// under, so every model call span of the turn can name what it sent.
+	// EphemeralRef and EphemeralBytes point at the ephemeral text the next
+	// request carries; EphemeralText is that text, so an unchanged notice is
+	// not interned again.
+	PromptRef         string
+	PromptBytes       int
+	EphemeralText     string
+	EphemeralRef      string
+	EphemeralBytes    int
 	BaseSeq           int
 	HookNotices       []string        // ephemeral lines a hook raised this turn
 	Output            json.RawMessage // the final message validated against the definition's output contract
@@ -253,20 +275,21 @@ func (s *supervisor) wait() {
 }
 
 type Session struct {
-	providers  *ProviderService
-	store      *sessionstore.Store
-	meta       sessionstore.Meta
-	authority  capability.Authority
-	definition agentdef.Definition
-	executors  *executorRegistry // custom tool executors; nil when no daemon owns the root
-	runner     Runner
-	mcpMu      sync.RWMutex
-	mcp        Closeable
-	runtime    Closeable
-	factory    Factory
-	supervisor *supervisor
-	mailbox    chan inboxReady
-	done       chan struct{}
+	providers        *ProviderService
+	store            *sessionstore.Store
+	meta             sessionstore.Meta
+	authority        capability.Authority
+	definition       agentdef.Definition
+	executors        *executorRegistry // custom tool executors; nil when no daemon owns the root
+	browserProviders *browserProviders
+	runner           Runner
+	mcpMu            sync.RWMutex
+	mcp              Closeable
+	runtime          Closeable
+	factory          Factory
+	supervisor       *supervisor
+	mailbox          chan inboxReady
+	done             chan struct{}
 
 	admitMu  sync.RWMutex
 	stopping bool
@@ -870,9 +893,11 @@ func (s *Session) dispatch() error {
 	return s.supervisor.launch(workerTurn, func(context.Context) workerCompletion {
 		var text string
 		var parts []llm.ContentPart
+		var presentation *llm.TranscriptPresentation
 		if input != nil {
 			var err error
-			text, parts, err = s.decodeInboxInput(turnCtx, *input)
+			message, decodeErr := s.decodeInboxMessage(turnCtx, *input)
+			text, parts, presentation, err = message.Content, message.Parts, message.Presentation, decodeErr
 			if err != nil {
 				return workerCompletion{sequence: current.seq, err: err}
 			}
@@ -891,7 +916,7 @@ func (s *Session) dispatch() error {
 		var output string
 		var err error
 		if len(parts) > 0 {
-			output, err = content.TurnParts(turnCtx, text, parts, started, accepted)
+			output, err = content.TurnParts(turnCtx, text, parts, started, accepted, presentation)
 		} else {
 			output, err = s.runner.Turn(turnCtx, text, authored, started, accepted)
 		}
@@ -935,18 +960,33 @@ func (s *Session) inboxInput(item sessionstore.InboxItem) (string, []llm.Content
 }
 
 func (s *Session) decodeInboxInput(ctx context.Context, item sessionstore.InboxItem) (string, []llm.ContentPart, error) {
+	message, err := s.decodeInboxMessage(ctx, item)
+	return message.Content, message.Parts, err
+}
+
+func (s *Session) decodeInboxMessage(ctx context.Context, item sessionstore.InboxItem) (llm.Message, error) {
 	data, err := s.store.ResolveInboxPayload(ctx, item)
 	if err != nil {
-		return "", nil, err
+		return llm.Message{}, err
 	}
+	message := llm.Message{Role: "user", Authored: true}
 	if item.Kind != "submit.parts" && item.Kind != "steer.parts" {
-		return string(data), nil, nil
+		message.Content = string(data)
+		return message, nil
 	}
 	var payload SubmitPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return "", nil, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
+		return llm.Message{}, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
 	}
-	return s.resolveAttachments(ctx, item.AgentID, payload)
+	presentation, err := designContextPresentation(payload)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	if presentation.DesignContext != nil {
+		message.Presentation = &presentation
+	}
+	message.Content, message.Parts, err = s.resolveAttachments(ctx, item.AgentID, payload)
+	return message, err
 }
 
 func (s *Session) completeTurn(completion workerCompletion) error {

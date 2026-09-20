@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDialog, Button, Collapsible, Dialog, Field, IconButton, Input, Menu, SettingsRow, StatusIndicator, Switch, Tabs, type MenuItem, type DialogProps } from '@whip/ui';
 import { Globe, Monitor, MoreHorizontal, Plus, Terminal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { scale, surface, typography } from '@whip/ui/tokens.stylex';
+import { viewSuffix } from './session-tabs';
+import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { errorMessage, type AppLocalRuntime, type LocalRuntimeStatus } from './platform';
 import type { HostConnection } from './hosts';
 import { layout } from './styles';
 import { SettingsGroup, settingsSection } from './settings/section-layout';
+import { HostConnectionDialog, type SSHConnectionRequest } from './host-connection-dialog';
 import { SSHFields } from './connection-dialog';
-import { daemonEndpoint, localProfile, type ConnectionProfile, type ConnectionTarget } from './connections';
+import { daemonEndpoint, localProfile, validateProfile, type ConnectionProfile, type ConnectionTarget } from './connections';
 
 type ServerForm = { editing?: HostConnection; legacy?: ConnectionProfile; endpoint?: string };
 type HostDialogProps = ServerForm & { open: boolean; onOpenChange(open: boolean): void; onSaved?(id: string): void; finalFocus?: DialogProps['finalFocus'] };
@@ -20,15 +22,16 @@ type HostDialogProps = ServerForm & { open: boolean; onOpenChange(open: boolean)
 export function HostDialog(props: HostDialogProps) {
   const [pending, setPending] = useState(false);
   const address = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (!props.open) setPending(false); }, [props.open]);
-  return <Dialog open={props.open} onOpenChange={open => { if (!pending) props.onOpenChange(open); }}
+  const [request, setRequest] = useState<SSHConnectionRequest>();
+  useEffect(() => { if (!props.open) { setPending(false); setRequest(undefined); } }, [props.open]);
+  return <HostConnectionDialog request={request} open={props.open} onOpenChange={open => { if (!pending) props.onOpenChange(open); }}
     title={props.editing ? 'Edit server' : 'Add server'} initialFocus={address} finalFocus={props.finalFocus}>
-    {props.open && <ServerFormFields {...props} addressRef={address} pending={pending} onPendingChange={setPending} />}
-  </Dialog>;
+    {props.open && <ServerFormFields {...props} addressRef={address} onConnect={setRequest} onBack={() => setRequest(undefined)} pending={pending} onPendingChange={setPending} />}
+  </HostConnectionDialog>;
 }
 
-function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved, onOpenChange, addressRef, pending, onPendingChange }: HostDialogProps & {
-  addressRef: RefObject<HTMLInputElement | null>; pending: boolean; onPendingChange(value: boolean): void;
+function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved, onOpenChange, addressRef, pending, onPendingChange, onConnect, onBack }: HostDialogProps & {
+  onConnect(request: SSHConnectionRequest): void; onBack(): void; addressRef: RefObject<HTMLInputElement | null>; pending: boolean; onPendingChange(value: boolean): void;
 }) {
   const runtime = useRuntime();
   const state = useAppState();
@@ -38,8 +41,15 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; nativeSave.current?.abort(); }; }, []);
   useEffect(() => { void runtime.connections.refreshProfiles().catch(() => {}); }, [runtime]);
   const [name, setName] = useState(editing?.name ?? legacy?.label ?? '');
+  const [nativeId] = useState(() => editing?.id ?? `ssh:${crypto.randomUUID()}`);
   const [kind, setKind] = useState<'url' | 'ssh' | 'local'>(editing?.profile.target.kind ?? 'url');
-  const [ssh, setSSH] = useState<Extract<ConnectionTarget, { kind: 'ssh' }>>(editing?.profile.target.kind === 'ssh' ? editing.profile.target : { kind: 'ssh', host: '' });
+  const [sshForm, setSSHForm] = useState(() => ({
+    manual: !!editing || !runtime.platform.listSSHProfiles,
+    manualTarget: editing?.profile.target.kind === 'ssh' ? editing.profile.target : { kind: 'ssh' as const, host: '' },
+    profileTarget: { kind: 'ssh' as const, host: '' } as Extract<ConnectionTarget, { kind: 'ssh' }>,
+  }));
+  const ssh = sshForm.manual ? sshForm.manualTarget : sshForm.profileTarget;
+  const setSSH = (target: Extract<ConnectionTarget, { kind: 'ssh' }>) => setSSHForm(previous => ({ ...previous, [previous.manual ? 'manualTarget' : 'profileTarget']: target }));
   const [endpoint, setEndpoint] = useState(editing?.endpoint ?? initialEndpoint ?? (legacy?.target.kind === 'url' ? legacy.target.endpoint : ''));
   const [connectOnLaunch, setConnectOnLaunch] = useState(editing?.connectOnLaunch ?? true);
   const [acceptIdentity, setAcceptIdentity] = useState(false);
@@ -56,32 +66,43 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
     </>}
     {kind === 'local' && nameField}
     {kind === 'ssh' && (nativeSSH
-      ? <SSHFields target={ssh} busy={pending} onChange={setSSH} hostRef={addressRef}>{nameField}</SSHFields>
+      ? <SSHFields manual={sshForm.manual} onManualChange={manual => setSSHForm(previous => ({ ...previous, manual }))} editing={!!editing} target={ssh} busy={pending} onChange={setSSH} hostRef={addressRef}>{nameField}</SSHFields>
       : <Alert title="SSH requires Whip desktop" action={<Button type="button" variant="secondary" onClick={() => setKind('url')}>Use server URL</Button>}>
           Connect with your SSH configuration and keys in the desktop app. Browsers cannot open SSH connections. To connect here, use the HTTP or HTTPS address of a running Whip server.
         </Alert>)}
   </div>;
   return <form {...stylex.props(layout.column, styles.form)} onSubmit={event => {
     event.preventDefault(); event.stopPropagation();
-    if (submitting.current || unsupported || (kind === 'url' && !canSave)) return;
+    if (submitting.current || unsupported || (kind === 'url' && !canSave) || (kind === 'ssh' && !ssh.host?.trim())) return;
+    if (kind === 'ssh') {
+      try {
+        const profile = validateProfile({ id: nativeId, label: name.trim() || ssh.host.trim(), target: ssh, runtimeId: editing?.runtimeId });
+        const duplicate = state.hosts.find(host => host.device && JSON.stringify(host.profile.target) === JSON.stringify(profile.target));
+        onConnect({ profile: { ...profile, id: editing?.id ?? duplicate?.id ?? profile.id, runtimeId: editing?.runtimeId ?? duplicate?.runtimeId },
+          save: true, acceptIdentity,
+          onConnected: id => { runtime.connections.select(id); onSaved?.(id); onOpenChange(false); },
+          onCancel: onBack, onEdit: onBack });
+      } catch (error) { setErrorType('validation'); setError(errorMessage(error)); }
+      return;
+    }
     submitting.current = true; onPendingChange(true); setError('');
+    nativeSave.current = undefined;
     void (async () => {
       let validating = true;
       try {
         const url = kind === 'url' ? daemonEndpoint(endpoint) : '';
-        if (kind === 'ssh' && !ssh.host.trim()) throw new Error('Enter an SSH host.');
         validating = false;
         const label = name.trim() || (kind === 'url' ? new URL(url).host : ssh.host.trim());
         nativeSave.current = kind === 'url' ? undefined : new AbortController();
         const id = kind === 'url'
           ? await runtime.connections.save({ id: editing?.id ?? crypto.randomUUID(), name: label, url, runtime_id: editing?.runtimeId ?? legacy?.runtimeId, connect_on_launch: connectOnLaunch }, acceptIdentity, legacy?.id)
-          : await runtime.connections.saveNative({ id: editing?.id ?? `ssh:${crypto.randomUUID()}`, label, target: ssh, runtimeId: editing?.runtimeId, ...(kind === 'local' ? { ...localProfile, label: name.trim() || editing?.name || localProfile.label, runtimeId: editing?.runtimeId } : {}) }, acceptIdentity, nativeSave.current?.signal);
+          : await runtime.connections.saveNative({ id: nativeId, label, target: ssh, runtimeId: editing?.runtimeId, ...(kind === 'local' ? { ...localProfile, label: name.trim() || editing?.name || localProfile.label, runtimeId: editing?.runtimeId } : {}) }, acceptIdentity, nativeSave.current?.signal);
         if (legacy) await runtime.connections.forgetLegacyProfile(legacy.id);
         if (mounted.current) runtime.connections.select(id);
         void runtime.connections.connect(id).catch(() => {});
         if (state.legacyHosts.includes(endpoint)) runtime.forgetLegacyHost(endpoint);
         if (mounted.current) { onSaved?.(id); onOpenChange(false); }
-      } catch (error) { if (mounted.current) { setErrorType(validating ? 'validation' : 'action'); setError(validating && kind === 'url' && error instanceof TypeError ? 'Enter a valid HTTP or HTTPS server address.' : errorMessage(error)); } }
+      } catch (error) { if (mounted.current) { setErrorType(validating ? 'validation' : 'action'); setError(nativeSave.current?.signal.aborted ? '' : validating && kind === 'url' && error instanceof TypeError ? 'Enter a valid HTTP or HTTPS server address.' : errorMessage(error)); } }
       finally { submitting.current = false; if (mounted.current) onPendingChange(false); }
     })();
   }}>
@@ -94,10 +115,10 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
       {(editing || legacy?.runtimeId) && <Switch label="Accept a new daemon identity" description="Use only when this address intentionally points to a replacement daemon. Existing tabs keep their original identity." checked={acceptIdentity} disabled={pending} onCheckedChange={setAcceptIdentity} />}
     </div></Collapsible>}
     {kind === 'url' && !canSave && <Alert tone="warning">Connect Local and load its server profiles to save URL servers.</Alert>}
-    {error && <ErrorNotice type={errorType} owner={editing?.id ?? "new-server"} error={error} />}
+    {error && <ErrorNotice type={errorType} owner={editing?.id ?? "new-server"} error={error} title={kind === 'ssh' ? 'Couldn’t connect' : undefined} />}
     <div {...stylex.props(layout.row, styles.footer)}>
       <Button type="button" variant="ghost" disabled={pending && kind === 'url'} onClick={() => { if (pending) nativeSave.current?.abort(); else onOpenChange(false); }}>{pending && kind !== 'url' ? 'Cancel connection' : 'Cancel'}</Button>
-      {!unsupported && <Button type="submit" variant="primary" loading={pending} disabled={pending || (kind === 'url' && !canSave)}>{pending ? kind === 'url' ? 'Verifying and saving…' : 'Saving and connecting…' : editing ? 'Save changes' : 'Add server'}</Button>}
+      {!unsupported && <Button type="submit" variant="primary" loading={pending} disabled={pending || (kind === 'url' && !canSave) || (kind === 'ssh' && !ssh.host?.trim())}>{pending ? kind === 'url' ? 'Verifying and saving…' : 'Connecting…' : error && kind === 'ssh' ? 'Try again' : editing ? 'Save changes' : 'Connect'}</Button>}
     </div>
   </form>;
 }
@@ -111,6 +132,7 @@ export function ServerManager() {
   const addButton = useRef<HTMLButtonElement | null>(null);
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   const [form, setForm] = useState<ServerForm>();
+  const [connection, setConnection] = useState<SSHConnectionRequest>();
   const [local, setLocal] = useState<string>();
   const [renaming, setRenaming] = useState<HostConnection>();
   const [disconnecting, setDisconnecting] = useState<HostConnection>();
@@ -131,14 +153,19 @@ export function ServerManager() {
   };
   const localHost = state.hosts.find(host => host.id === local);
   return <div {...stylex.props(layout.column)}>
-    <SettingsGroup title="Saved servers" action={<Button variant="secondary" disabled={pending || localPending} ref={addButton} onClick={event => { returnFocus.current = event.currentTarget; setForm({}); }}><Plus size={14} aria-hidden />Add server</Button>}>
+    <SettingsGroup title="Saved servers" panelXstyle={styles.serverPanel} action={<Button variant="secondary" disabled={pending || localPending} ref={addButton} onClick={event => { returnFocus.current = event.currentTarget; setForm({}); }}><Plus size={14} aria-hidden />Add server</Button>}>
       {state.hosts.map(host => {
         const canDisconnect = !!host.client && host.state !== 'connecting';
         const items: MenuItem[] = [
           ...(!canDisconnect ? [{ id: 'connect', label: host.state === 'connecting' ? 'Cancel connection' : 'Connect', onSelect: () => {
             // Do not hold a pending lock across connection setup: Cancel must stay reachable.
             if (host.state === 'connecting') runtime.connections.disconnect(host.id);
-            else { setError(''); void runtime.connections.connect(host.id).then(() => runtime.connections.select(host.id)).catch(() => {}); }
+            else if (host.profile.target.kind === 'ssh') {
+              setError(''); setConnection({ profile: host.profile,
+                onConnected: id => { runtime.connections.select(id); setConnection(undefined); },
+                onCancel: () => setConnection(undefined),
+                onEdit: () => { setConnection(undefined); setForm({ editing: host }); } });
+            } else { setError(''); void runtime.connections.connect(host.id).then(() => runtime.connections.select(host.id)).catch(() => {}); }
           } }] : []),
           { id: 'rename', label: 'Rename server', disabled: !host.local && !host.device && !canSave, onSelect: () => setRenaming(host) },
           ...(!host.local || host.device ? [{ id: 'edit', label: 'Edit server', disabled: host.state === 'connecting', onSelect: () => setForm({ editing: host }) }] : []),
@@ -153,22 +180,23 @@ export function ServerManager() {
         const status = host.state === 'closed' ? 'Disconnected' : host.state[0].toUpperCase() + host.state.slice(1);
         const HostIcon = host.local ? Monitor : host.profile.target.kind === 'ssh' ? Terminal : Globe;
         return <div key={host.id} {...stylex.props(styles.server)}>
-          <SettingsRow xstyle={settingsSection.rowContent} label={<span {...stylex.props(styles.identity)}>
-            <HostIcon size={14} aria-hidden {...stylex.props(styles.icon)} />
-            <span {...stylex.props(styles.name)}>{host.name}</span>
-          </span>} description={<span {...stylex.props(styles.address)}>{address}</span>}>
-            <div {...stylex.props(layout.row, layout.wrap)}>
-              <StatusIndicator tone={host.state === 'connected' ? 'success' : host.error ? 'error' : host.state === 'incompatible' ? 'warning' : 'neutral'}>{status}</StatusIndicator>
-              <Menu onOpenChange={open => { if (open) returnFocus.current = triggers.current[host.id]; }} trigger={<IconButton ref={element => { if (element) triggers.current[host.id] = element; else delete triggers.current[host.id]; }} label={`Actions for ${host.name}`} variant="ghost" disabled={pending || localPending}><MoreHorizontal size={18} /></IconButton>} items={items} />
-            </div>
-          </SettingsRow>
-          {host.progress && <p role="status" {...stylex.props(styles.runtimeMessage)}>{host.progress}</p>}
+          <div {...stylex.props(styles.serverContent)}>
+            <HostIcon size={16} aria-hidden {...stylex.props(styles.icon)} />
+            <SettingsRow xstyle={[settingsSection.rowContent, styles.serverDetails]} label={<span {...stylex.props(styles.name)}>{host.name}</span>} description={<span {...stylex.props(styles.address)}>{address}</span>}>
+              <div {...stylex.props(layout.row, layout.wrap)}>
+                <StatusIndicator tone={host.state === 'connected' ? 'success' : host.error ? 'error' : host.state === 'incompatible' ? 'warning' : 'neutral'}>{status}</StatusIndicator>
+                <Menu onOpenChange={open => { if (open) returnFocus.current = triggers.current[host.id]; }} trigger={<IconButton ref={element => { if (element) triggers.current[host.id] = element; else delete triggers.current[host.id]; }} label={`Actions for ${host.name}`} variant="ghost" disabled={pending || localPending}><MoreHorizontal size={18} /></IconButton>} items={items} />
+              </div>
+            </SettingsRow>
+          </div>
+          {host.progress && host.profile.target.kind !== 'ssh' && <p role="status" {...stylex.props(styles.runtimeMessage)}>{host.progress}</p>}
         </div>;
       })}
     </SettingsGroup>
     {state.profileError && state.home?.state === "connected" && <ErrorNotice type="resource" owner="server-profiles" error={state.profileError} title="Could not load saved servers" />}
     {error && !removing && !disconnecting && <ErrorNotice type="action" owner="server-manager" error={error} />}
     {renaming && <RenameServerDialog host={renaming} finalFocus={returnFocus} close={() => setRenaming(undefined)} />}
+    {connection && <HostConnectionDialog open request={connection} title="Connect to server" finalFocus={returnFocus} onOpenChange={open => { if (!open) setConnection(undefined); }} />}
     <HostDialog finalFocus={returnFocus} open={!!form} {...form} onOpenChange={open => { if (!open) setForm(undefined); }} />
     <AlertDialog open={!!disconnecting} onOpenChange={open => { if (!open && !pending) setDisconnecting(undefined); }} title={`Disconnect ${disconnecting?.name ?? 'server'}?`}
       description="Sessions keep running on this server. You can reconnect at any time." finalFocus={() => returnFocus.current?.isConnected ? returnFocus.current : addButton.current}
@@ -193,7 +221,7 @@ export function ServerManager() {
         <span {...stylex.props(layout.grow)}>{runtime.connections.host(entry.runtimeId)?.name ?? entry.runtimeId} · {entry.workspace.tabs.length} tabs</span>
         <Button variant="ghost" onClick={() => { try { runtime.tabs.restorePrevious(entry.runtimeId); } catch (error) { setError(errorMessage(error)); } }}>Restore</Button>
         <Button variant="ghost" onClick={() => runtime.tabs.dismissPrevious(entry.runtimeId)}>Dismiss</Button>
-      </div><Collapsible title="Open individual previous tabs"><div {...stylex.props(layout.column)}>{[...entry.workspace.tabs, ...entry.workspace.closed.map(item => item.tab)].map(tab => <Button key={tab.id} variant="ghost" onClick={() => { try { runtime.tabs.openPrevious(entry.runtimeId, tab.id); } catch (error) { setError(errorMessage(error)); } }}>{tab.kind === 'new' ? 'New Chat' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : tab.titleHint || tab.rootId}{tab.kind === 'repl' ? ' · REPL' : ''}</Button>)}</div></Collapsible></div>)}</div>
+      </div><Collapsible title="Open individual previous tabs"><div {...stylex.props(layout.column)}>{[...entry.workspace.tabs, ...entry.workspace.closed.map(item => item.tab)].map(tab => <Button key={tab.id} variant="ghost" onClick={() => { try { runtime.tabs.openPrevious(entry.runtimeId, tab.id); } catch (error) { setError(errorMessage(error)); } }}>{tab.kind === 'new' ? 'New Chat' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : tab.kind === 'browser' ? tab.titleHint || 'Browser' : tab.titleHint || tab.rootId}{viewSuffix(tab.kind)}</Button>)}</div></Collapsible></div>)}</div>
       <p {...stylex.props(layout.muted)}>Restore when there is room in this window. Your saved sessions and drafts stay on their original host.</p>
     </Collapsible>}
     {!!state.legacyHosts.length && <Collapsible title="Import previously saved addresses">
@@ -343,13 +371,15 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
 
 const styles = stylex.create({
   form: { gap: scale.space4 },
-  identity: { display: 'flex', alignItems: 'center', gap: scale.space2, minWidth: 0 },
-  icon: { flexShrink: 0, color: surface.secondaryText },
+  serverPanel: { gap: 0, paddingBlock: scale.space2 },
+  serverContent: { display: 'flex', alignItems: 'flex-start', gap: scale.space3, minWidth: 0 },
+  serverDetails: { flex: 1 },
+  icon: { flexShrink: 0, marginTop: 2, color: surface.secondaryText },
   name: { fontSize: typography.size13, fontWeight: 500, overflowWrap: 'anywhere' },
   address: { overflowWrap: 'anywhere' },
-  footer: { justifyContent: 'flex-end', paddingTop: scale.space2 },
-  server: { minWidth: 0, paddingBlock: scale.space2, borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
-  runtimeMessage: { margin: 0 },
+  footer: { justifyContent: 'flex-end', paddingTop: scale.space5, borderTop: `1px solid ${surface.controlBorder}` },
+  server: { minWidth: 0, paddingBlock: scale.space3, borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
+  runtimeMessage: { margin: 0, paddingInlineStart: `calc(16px + ${scale.space3})` },
   setupTitle: { margin: 0, fontSize: typography.size16, fontWeight: 500 },
   diagnostics: { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 8, overflowWrap: 'anywhere' },
 });

@@ -98,7 +98,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await page.getByRole('button', { name: 'Add server', exact: true }).click();
       await addDialog.getByLabel(/Server name/).fill(host.name);
       await addDialog.getByLabel('Server address', { exact: true }).fill(origin(host.fixture));
-      await addDialog.getByRole('button', { name: 'Add server', exact: true }).click();
+      await addDialog.getByRole('button', { name: 'Connect', exact: true }).click();
       await addDialog.waitFor({ state: 'hidden' });
       await back();
     };

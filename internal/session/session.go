@@ -170,7 +170,15 @@ func (s *Store) SetUsage(id string, in, cached, out int) error {
 
 func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
 
-func now() string { return time.Now().UTC().Format(time.RFC3339) }
+// stampLayout is RFC 3339 with a fixed nine-digit fraction: stored stamps
+// keep nanoseconds, sort lexicographically as text, and still parse with
+// time.RFC3339. Every stamp that is stored or compared in SQL goes through
+// formatStamp so no two columns disagree on width.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+func formatStamp(value time.Time) string { return value.UTC().Format(stampLayout) }
+
+func now() string { return formatStamp(time.Now()) }
 
 // Create inserts a new session and returns its id.
 func (s *Store) Create(kind SessionKind, cwd, model, provider string) (string, error) {
@@ -318,11 +326,16 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 // a persisted system prompt when present. "Raw" matters: a stored row that is
 // itself a summary is a derived row saved after a compaction, so folding it
 // again would nest summaries. No event means the log loads verbatim.
+// SummaryPrefix opens the system message that carries a compaction summary,
+// as the agent installs it after a fold and as reload rebuilds it here.
+const SummaryPrefix = "Summary of the conversation so far:\n\n"
+
 func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string, msgs []llm.Message) ([]llm.Message, error) {
 	var cutoff int
 	var summary string
-	err := db.QueryRowContext(ctx, `SELECT cutoff, summary FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq DESC LIMIT 1`,
-		sessionID, agentID).Scan(&cutoff, &summary)
+	var pinned bool
+	err := db.QueryRowContext(ctx, `SELECT cutoff, summary, pinned FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq DESC LIMIT 1`,
+		sessionID, agentID).Scan(&cutoff, &summary, &pinned)
 	hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
 	minimum := 0
 	if hasSystem {
@@ -354,7 +367,7 @@ func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string,
 		out = append(out, msgs[0])
 		start = 1
 	}
-	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary, RawSequence: msgs[cutoff-1].RawSequence})
+	out = append(out, llm.Message{Role: "system", Content: SummaryPrefix + summary, RawSequence: msgs[cutoff-1].RawSequence})
 	// keep the last derived summary before the fold (a second compaction's
 	// saved row — it summarizes history the new summary doesn't reach)
 	var prior []llm.Message
@@ -365,6 +378,16 @@ func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string,
 	}
 	if len(prior) > 0 {
 		out = append(out, prior[len(prior)-1])
+	}
+	// Only restore a pin recorded by the live fold. A non-user tail can also
+	// come from an unpinned clamp or a legacy compaction.
+	if pinned && fold < len(msgs) && msgs[fold].Role != "user" {
+		for i := fold - 1; i >= start; i-- {
+			if msgs[i].Role == "user" {
+				out = append(out, msgs[i])
+				break
+			}
+		}
 	}
 	return append(out, msgs[fold:]...), nil
 }
@@ -474,6 +497,7 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM transcript_messages WHERE root_id=?`,
 		`DELETE FROM inbox WHERE root_id=?`,
 		`DELETE FROM turns WHERE root_id=?`,
+		`DELETE FROM spans WHERE root_id=?`,
 		`DELETE FROM content_grants WHERE root_id=?`,
 		`DELETE FROM events WHERE root_id=?`,
 		`DELETE FROM commands WHERE root_id=?`,
@@ -759,7 +783,7 @@ func (s *Store) AddSchedule(sessionID, schedule, prompt string, anchor time.Time
 	var id int
 	err := s.db.QueryRowContext(context.Background(), `INSERT INTO schedules (session_id, id, schedule, prompt, anchor, created_at)
 		SELECT ?, COALESCE(MAX(id),0)+1, ?, ?, ?, ? FROM schedules WHERE session_id=? RETURNING id`,
-		sessionID, schedule, prompt, anchor.UTC().Format(time.RFC3339), now(), sessionID).Scan(&id)
+		sessionID, schedule, prompt, formatStamp(anchor), now(), sessionID).Scan(&id)
 	return id, err
 }
 
@@ -801,7 +825,7 @@ func (s *Store) SchedulesContext(ctx context.Context, sessionID string) ([]Sched
 // never fires again).
 func (s *Store) MarkFired(sessionID string, id int, at time.Time) error {
 	_, err := s.db.ExecContext(context.Background(), `UPDATE schedules SET last_fire=? WHERE session_id=? AND id=?`,
-		at.UTC().Format(time.RFC3339), sessionID, id)
+		formatStamp(at), sessionID, id)
 	return err
 }
 
@@ -946,8 +970,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 		}
 		// A prefix fork can reuse only summaries whose entire raw prefix was
 		// copied. Child summaries and summaries of later source rows stay out.
-		if _, err := tx.ExecContext(context.Background(), `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at)
-			SELECT ?,?,seq,cutoff,summary,created_at FROM compactions
+		if _, err := tx.ExecContext(context.Background(), `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at,pinned)
+			SELECT ?,?,seq,cutoff,summary,created_at,pinned FROM compactions
 			WHERE session_id=? AND agent_id=? AND cutoff<=(SELECT COUNT(*) FROM messages WHERE session_id=?)`,
 			newID, newID, srcID, srcID, newID); err != nil {
 			return "", err

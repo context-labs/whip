@@ -82,6 +82,21 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 		if err = decodeProviderParams(request.Params, &p); err == nil {
 			result, err = s.providers.UpdateConfiguration(p)
 		}
+	case "mcp.import.candidates":
+		var p protocol.MCPImportCandidatesParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.MCPImportCandidates(p)
+		}
+	case "mcp.import.apply":
+		var p protocol.MCPImportApplyParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.MCPImportApply(p)
+		}
+	case "mcp.brand.icons":
+		var p protocol.MCPBrandIconsParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.MCPBrandIcons(p)
+		}
 	case "provider.key.set":
 		var p ProviderKeySetup
 		if err = decodeProviderParams(request.Params, &p); err == nil {

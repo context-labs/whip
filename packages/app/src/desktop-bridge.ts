@@ -1,5 +1,10 @@
+import type { BrowserPlatform } from './browser-types';
+export type { BrowserDesignLease, BrowserDesignRevision, BrowserDesignBounds, BrowserDesignColor, BrowserDesignElement, BrowserDesignState, BrowserDesignRecipient, BrowserDesignDraft, BrowserDesignModel, BrowserDesignIntent, BrowserDesignEvent, BrowserDesignCapture, BrowserDesignPlatform, BrowserDesignBridge } from './browser-design-types';
+import type { BrowserAgentBridge } from './browser-agent-types';
+export type { BrowserAgentBridge, BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserAgentPreview } from './browser-agent-types';
+export type { BrowserPlatform, BrowserTarget, BrowserRestoreTab, BrowserTabState, BrowserInventory, BrowserPresentation, BrowserAction, BrowserShortcut, BrowserEvent } from './browser-types';
 import type { ConnectionProfile, ConnectionTarget } from './connections';
-import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor } from './platform';
+import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor, SSHProfileList } from './platform';
 export type { LocalRuntimeStatus } from './platform';
 
 /** Serialized contract only. Electron implementation and IPC objects stay in the host. */
@@ -28,6 +33,8 @@ export type DesktopEvent =
 
 export interface DesktopBridge {
   readonly version: 2;
+  readonly browser?: BrowserPlatform;
+  readonly browserAgent?: BrowserAgentBridge;
   readonly appVersion: string;
   /** 'inset' when the host hides the native title bar (macOS hiddenInset) and
    * the renderer owns the top chrome, including window drag regions. */
@@ -45,6 +52,7 @@ export interface DesktopBridge {
   copy(text: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   pickDirectory(): Promise<string | undefined>;
+  listSSHProfiles?(): Promise<SSHProfileList>;
   listProjectEditors(): Promise<readonly ProjectEditor[]>;
   /** connectionId is a native handle. URL sources never gain local folder authority. */
   openProject(request: OpenProjectRequest, urlSource?: ConnectionProfile): Promise<void>;

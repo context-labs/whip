@@ -6,13 +6,22 @@ import type { SdkEvent, WhipClient } from './client.js';
 import type { Session } from './session.js';
 import { asError, WhipError } from './errors.js';
 import { boundExecutionEvidence, emptyExecutionEvidence, observeExecution, reconcileExecutions, seedExecutions, settleExecutions, type ExecutionEvidence } from './executions.js';
+import { emptyTraceEvidence, mergeSpanPage, observeSpan, type TraceEvidence } from './trace.js';
 export { executionRows, type ExecutionCell, type ExecutionHostCall, type ExecutionRestart, type ExecutionRow } from './executions.js';
+export { traceSpans, traceRoots, serverNowMs, toTraceSpan, MAX_TRACE_SPANS, type TraceSpan, type TraceEvidence, type TraceSpanKind, type TraceSpanStatus } from './trace.js';
 
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T
   : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 type Message = NonNullable<BoundedTranscriptPage['messages']>[number];
 type Presentation = NonNullable<RootSnapshot['presentation']>[number];
 type Status = 'idle' | 'loading' | 'live' | 'stale' | 'error' | 'closed';
+
+export interface HistoryGap {
+  fromSeq: number;
+  toSeq: number;
+  status: 'pending' | 'loading' | 'paused' | 'error';
+  error?: string;
+}
 
 export interface HistoryView {
   revision: string;
@@ -23,6 +32,10 @@ export interface HistoryView {
   messages: Message[];
   truncated: boolean;
   error?: Error;
+  /** Missing raw records between retained sections, not offloaded bodies. */
+  gaps?: HistoryGap[];
+  /** Explicit navigation evicted a newer suffix; Latest can reload it. */
+  latestMissing?: boolean;
 }
 
 export interface SessionViewSnapshot {
@@ -30,17 +43,40 @@ export interface SessionViewSnapshot {
   root?: RootSnapshot;
   history: Record<string, HistoryView>;
   collections: Record<string, RootCollectionPage>;
+  /** Previously observed waiting inputs omitted by a partial snapshot. Never actionable until verified. */
+  unverifiedInbox?: NonNullable<RootSnapshot['inbox']>;
   retainedBytes: number;
   /** Bounded supplemental REPL evidence; transcript bodies remain in history. */
   executions?: ExecutionEvidence;
+  /** Bounded span evidence for the trace view: durable pages plus live span events, merged by id. */
+  trace?: TraceEvidence;
   truncated: boolean;
   unavailable: boolean;
   error?: Error;
 }
 
+/** Merge bounded inbox pages with snapshot truth; absent partial rows remain visibly unverified. */
+export function inboxItems(state: DeepReadonly<SessionViewSnapshot>, agentId: string) {
+  const root = state.root;
+  const page = state.collections.inbox;
+  const pageStale = !!root && !!page && page.revision !== root.collection_revision && BigInt(page.event_cursor) < BigInt(root.cursor);
+  const rows = new Map<string, { item: NonNullable<DeepReadonly<RootSnapshot>['inbox']>[number]; stale: boolean }>();
+  for (const item of state.unverifiedInbox ?? []) if (item.agent_id === agentId) rows.set(item.seq, { item, stale: true });
+  if (root?.omitted?.inbox) for (const entry of page?.items ?? []) {
+    if (entry.inbox?.agent_id === agentId) rows.set(entry.inbox.seq, { item: entry.inbox, stale: pageStale });
+  }
+  for (const item of root?.inbox ?? []) if (item.agent_id === agentId && (!rows.has(item.seq) || !page || BigInt(page.event_cursor) <= BigInt(root!.cursor))) rows.set(item.seq, { item, stale: false });
+  return {
+    rows: [...rows.values()].sort((a, b) => BigInt(a.item.seq) < BigInt(b.item.seq) ? -1 : 1),
+    hasMore: !!state.unverifiedInbox?.length || !!root?.omitted?.inbox && (!page || page.has_more || pageStale),
+  };
+}
+
 export interface SessionViewOptions {
   maxBytes?: number;
   maxMessages?: number;
+  /** Warm at most one older root page after the first live snapshot; off by default. */
+  initialHistoryWarmup?: boolean;
   /** Notification batching only; every event is processed in order. */
   notificationIntervalMs?: number;
 }
@@ -81,7 +117,10 @@ export class SessionView {
   private readonly listeners = new Set<() => void>();
   private readonly opened = new Set<string>();
   private readonly lifetime = new AbortController();
-  private readonly historyRequests = new Map<string, { epoch: number; promise: Promise<void> }>();
+  private readonly historyRequests = new Map<string, { epoch: number; key: string; controller: AbortController; promise: Promise<void> }>();
+  private repair?: { epoch: number; promise: Promise<void> };
+  private traceRequest?: { controller: AbortController; promise: Promise<void> };
+  private readonly recentRecoveryCursor = new Map<string, string>();
   private stream?: Awaited<ReturnType<WhipClient['events']['subscribe']>>;
   private disconnectListener?: () => void;
   private commandListener?: () => void;
@@ -91,6 +130,7 @@ export class SessionView {
   private refreshAgain = false;
   private epoch = 0;
   private started = false;
+  private initialHistoryWarmup: boolean;
   private runtimeID?: string;
   private lastConnectionID?: string;
   private streamConnectionID?: string;
@@ -106,6 +146,7 @@ export class SessionView {
     this.maxBytes = positive(options.maxBytes ?? 8 * 1024 * 1024, 'maxBytes');
     this.maxMessages = positive(options.maxMessages ?? 512, 'maxMessages');
     this.notificationInterval = positive(options.notificationIntervalMs ?? 16, 'notificationIntervalMs');
+    this.initialHistoryWarmup = options.initialHistoryWarmup ?? false;
     this.opened.add(session.rootId);
   }
 
@@ -128,6 +169,8 @@ export class SessionView {
   async dispose(): Promise<void> {
     if (this.lifetime.signal.aborted) return;
     this.lifetime.abort();
+    this.cancelTraceRead();
+    this.cancelHistoryReads();
     this.epoch++;
     clearTimeout(this.noticeTimer);
     clearTimeout(this.refreshTimer);
@@ -135,7 +178,7 @@ export class SessionView {
     this.commandListener?.();
     const stream = this.stream;
     this.stream = undefined;
-    this.set({ ...this.current, status: 'closed', executions: undefined }, true);
+    this.set({ ...this.current, status: 'closed', executions: undefined, trace: undefined }, true);
     this.listeners.clear();
     await stream?.dispose();
   }
@@ -165,7 +208,7 @@ export class SessionView {
     if (!agentId) throw new Error('Agent ID is required');
     if (this.lifetime.signal.aborted) throw new Error('Session view is closed');
     this.opened.add(agentId);
-    try { await this.readHistory(agentId, false); }
+    try { await this.readHistory(agentId, false); void this.repairHistory(); }
     catch (error) {
       if (agentId !== this.session.rootId) this.opened.delete(agentId);
       throw error;
@@ -175,6 +218,9 @@ export class SessionView {
   closeAgent(agentId: string): void {
     if (agentId === this.session.rootId) return;
     this.opened.delete(agentId);
+    this.historyRequests.get(agentId)?.controller.abort();
+    this.historyRequests.delete(agentId);
+    this.recentRecoveryCursor.delete(agentId);
     const history = { ...this.current.history };
     delete history[agentId];
     this.set({ ...this.current, history }, true);
@@ -185,6 +231,23 @@ export class SessionView {
     const history = this.current.history[agentId];
     if (history && !history.hasMore) return;
     await this.readHistory(agentId, !!history?.messages.length);
+  }
+
+  /** Load one page of a known gap. toSeq remains stable as its beginning fills. */
+  async loadHistoryGap(agentId: string, toSeq: number): Promise<void> {
+    if (!this.opened.has(agentId)) return;
+    await this.readHistory(agentId, false, { toSeq, automatic: false });
+  }
+
+  async loadLatest(agentId = this.session.rootId): Promise<void> {
+    if (!this.opened.has(agentId)) return this.openAgent(agentId);
+    await this.readHistory(agentId, false);
+    void this.repairHistory();
+  }
+
+  private cancelHistoryReads(): void {
+    for (const request of this.historyRequests.values()) request.controller.abort();
+    this.historyRequests.clear();
   }
 
   async loadCollection(name: string, options: { more?: boolean } = {}): Promise<void> {
@@ -201,11 +264,15 @@ export class SessionView {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       if (previous && previous.revision !== page.revision) throw new WhipError('resynchronization_required', 'Collection revision changed');
       const merged = { ...page, items: [...(previous?.items ?? []), ...(page.items ?? [])] };
-      this.set({ ...this.current, collections: { ...this.current.collections, [name]: merged } }, true);
+      const verified = new Set(merged.items.flatMap(entry => entry.inbox ? [`${entry.inbox.agent_id}:${entry.inbox.seq}`] : []));
+      const unverifiedInbox = name === 'inbox' ? page.has_more
+        ? this.current.unverifiedInbox?.filter(item => !verified.has(`${item.agent_id}:${item.seq}`)) : [] : this.current.unverifiedInbox;
+      this.set({ ...this.current, unverifiedInbox, collections: { ...this.current.collections, [name]: merged } }, true);
     } catch (error) {
       if (errorKind(error) === 'resynchronization_required') {
         const collections = { ...this.current.collections };
-        delete collections[name];
+        // An invalid page cursor is not evidence that previously accepted input vanished.
+        if (name !== 'inbox') delete collections[name];
         this.set({ ...this.current, collections }, true);
       }
       throw error;
@@ -217,16 +284,24 @@ export class SessionView {
     if (connection.state === 'connected') {
       if (this.runtimeID && connection.info?.runtime_id !== this.runtimeID) {
         this.incompatibleRuntime = true;
+        this.cancelTraceRead();
         this.epoch++;
+        this.cancelHistoryReads();
         void this.stream?.dispose();
         this.stream = undefined;
         this.set({ ...this.current, executions: undefined, status: 'error', error: new WhipError('runtime_changed', 'Execution runtime changed; open a new session view') }, true);
       } else if (connection.info?.connection_id !== this.lastConnectionID) {
+        if (this.lastConnectionID) this.cancelTraceRead();
         this.lastConnectionID = connection.info?.connection_id;
+        this.recentRecoveryCursor.clear();
+        this.current = { ...this.current, history: Object.fromEntries(Object.entries(this.current.history).map(([id, history]) => [id,
+          { ...history, gaps: history.gaps?.map(gap => ({ ...gap, status: 'pending' as const, error: undefined })) }])) };
         if (refresh) void this.refresh();
       }
     } else {
+      this.cancelTraceRead();
       this.epoch++;
+      this.cancelHistoryReads();
       this.stream = undefined;
       this.set({ ...this.current, executions: this.current.executions && settleExecutions(this.current.executions), status: connection.state === 'incompatible' ? 'error' : this.current.root ? 'stale' : 'loading', error: connection.error }, true);
     }
@@ -242,6 +317,7 @@ export class SessionView {
 
   private async synchronize(): Promise<void> {
     const epoch = ++this.epoch;
+    this.cancelHistoryReads();
     const oldStream = this.stream;
     const continuous = !!oldStream && this.current.status === 'live'
       && this.streamConnectionID === this.session.client.getSnapshot().info?.connection_id;
@@ -276,8 +352,10 @@ export class SessionView {
           // Filter raw events before grouping: a grouped row keeps its FIRST seq.
           if (seq <= cursor) continue;
           gap ||= partial && seq !== cursor + 1n;
+          gap ||= (snapshot.inbox ?? []).some(item => item.agent_id === agentId && !!item.delivery_seq
+            && BigInt(item.delivery_seq) > cursor && BigInt(item.delivery_seq) < seq);
           const next = appendPresentation(rows, event, !gap);
-          if (next.at(-1) !== rows.at(-1)) gap = false;
+          if (!presentationTelemetry(event.kind) && next.at(-1) !== rows.at(-1)) gap = false;
           rows = next;
           cursor = seq;
         }
@@ -300,11 +378,14 @@ export class SessionView {
       this.streamConnectionID = this.session.client.getSnapshot().info?.connection_id;
       this.presentationGaps = gaps;
       const revisionChanged = this.current.root?.history_revision !== root.history_revision;
-      const history = revisionChanged ? {} : { ...this.current.history };
+      if (revisionChanged) this.recentRecoveryCursor.clear();
+      const history: Record<string, HistoryView> = revisionChanged ? {} : Object.fromEntries(Object.entries(this.current.history).map(([id, history]) => [id,
+        { ...history, loading: false, gaps: history.gaps?.map(gap => gap.status === 'loading' ? { ...gap, status: 'pending' as const } : gap) }]));
       const recent = (root.messages ?? []).map((message, index) => ({
         seq: root.message_seqs?.[index] ?? (root.first_message_seq ?? 1) + index, message,
       }));
       const first = recent[0]?.seq ?? 1;
+      if (recent.length) this.recentRecoveryCursor.delete(root.root_id);
       const previousHistory = history[root.root_id];
       const all = mergeMessages(previousHistory?.messages ?? [], recent);
       const merged = all.slice(-this.maxMessages);
@@ -314,14 +395,24 @@ export class SessionView {
       const hasMore = merged.length
         ? nextSeq > 1 && (previousHistory?.nextSeq !== nextSeq || previousHistory.hasMore)
         : !!root.omitted?.messages;
-      history[root.root_id] = {
+      history[root.root_id] = historyCoverage({
         revision: root.history_revision, throughSeq: recent.at(-1)?.seq ?? previousHistory?.throughSeq ?? 0,
         nextSeq, hasMore,
         loading: false, messages: merged, truncated: all.length > merged.length || !!root.omitted?.messages,
-      };
+        gaps: previousHistory?.gaps,
+        latestMissing: !recent.length && !!root.omitted?.messages && this.recentRecoveryCursor.get(root.root_id) !== root.cursor,
+      });
       this.set({
-        status: 'live', root, history, collections: {}, retainedBytes: 0,
+        status: 'live', root, history, collections: root.omitted?.inbox && this.current.collections.inbox ? { inbox: this.current.collections.inbox } : {}, retainedBytes: 0,
+        unverifiedInbox: root.omitted?.inbox ? [...new Map([
+          ...(this.current.unverifiedInbox ?? []), ...(previous?.inbox ?? []),
+        ].filter(item => item.status === 'queued' && item.origin === 'client'
+          && !root.inbox?.some(current => current.agent_id === item.agent_id && current.seq === item.seq))
+          .map(item => [`${item.agent_id}:${item.seq}`, item])).values()].slice(-128) : [],
         executions: seedExecutions(this.current.executions, snapshot, history),
+        // Spans do not depend on the history revision; a refresh keeps them and
+        // the next loadTrace pages in whatever the journal window missed.
+        trace: this.current.trace,
         truncated: Object.values(root.omitted ?? {}).some(Boolean), unavailable: this.unknownSeen,
       }, true);
       void this.consume(stream, epoch);
@@ -329,6 +420,7 @@ export class SessionView {
         // A deleted/unavailable child does not invalidate the root snapshot.
         if (agentId !== this.session.rootId && epoch === this.epoch) await this.readHistory(agentId, false).catch(() => {});
       }
+      void this.repairHistory();
     } catch (error) {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       this.set({ ...this.current, executions: this.current.executions && settleExecutions(this.current.executions), status: this.current.root ? 'stale' : 'error', error: asError(error) }, true);
@@ -358,12 +450,16 @@ export class SessionView {
       event, previous.active_turns, this.current.history, Date.now());
     let root = { ...previous, cursor: event.seq };
     let unavailable = this.current.unavailable;
+    let trace = this.current.trace;
     const payload = event.payload as Record<string, unknown>;
     if (event.unknown || (payload?.truncated && payload.content)) {
       unavailable = true;
       if (!this.unknownSeen) { this.unknownSeen = true; this.scheduleRefresh(); }
     }
-    if (event.kind === 'stream.accounting') {
+    if (event.kind === 'span.started' || event.kind === 'span.ended') {
+      // Span events carry the whole record, so no snapshot refresh is needed.
+      trace = observeSpan(trace ?? emptyTraceEvidence(previous.root_id), { kind: event.kind, payload: event.payload });
+    } else if (event.kind === 'stream.accounting') {
       const accounting = (event.payload as StreamEvent).accounting;
       if (accounting && accounting.root_id === root.root_id && accounting.agent_id === root.root_id
         && accounting.scope === 'subtree' && (!root.accounting || BigInt(accounting.revision) >= BigInt(root.accounting.revision))) {
@@ -374,7 +470,7 @@ export class SessionView {
       const agentId = typeof payload?.agent_id === 'string' && payload.agent_id ? payload.agent_id : root.root_id;
       const rows = (agentId === root.root_id ? root.presentation : root.agent_presentations?.[agentId]) ?? [];
       const next = appendPresentation(rows, item, !this.presentationGaps.has(agentId));
-      if (next.at(-1) !== rows.at(-1)) this.presentationGaps.delete(agentId);
+      if (!presentationTelemetry(item.kind) && next.at(-1) !== rows.at(-1)) this.presentationGaps.delete(agentId);
       if (agentId !== root.root_id) root.agent_presentations = { ...root.agent_presentations, [agentId]: next };
       else root.presentation = next;
     } else if (event.kind.startsWith('session.') && event.kind.endsWith('.updated')) {
@@ -401,6 +497,20 @@ export class SessionView {
           else root.agent_presentations = { ...root.agent_presentations, [agentId]: [] };
         } else if (root.active_turns[agentId] === lifecycle.turn_id) delete root.active_turns[agentId];
       }
+      if (lifecycle.agent_id && lifecycle.inbox_seq && ['inbox.removed', 'command.cancelled', 'inbox.running', 'turn.started', 'agent.turn.started'].includes(event.kind)) {
+        const removed = event.kind === 'inbox.removed' || event.kind === 'command.cancelled';
+        const update = (item: NonNullable<RootSnapshot['inbox']>[number]) => item.agent_id === lifecycle.agent_id && item.seq === lifecycle.inbox_seq
+          ? { ...item, status: removed ? 'cancelled' : 'running', delivery_seq: event.kind === 'inbox.running' ? event.seq : undefined, steer_turn_id: '' } : item;
+        const known = [...(this.current.unverifiedInbox ?? []), ...(this.current.collections.inbox?.items?.flatMap(entry => entry.inbox ? [entry.inbox] : []) ?? [])]
+          .find(item => item.agent_id === lifecycle.agent_id && item.seq === lifecycle.inbox_seq);
+        const inbox = root.inbox ?? [];
+        root = { ...root, inbox: [...inbox, ...(!removed && known && !inbox.some(item => item.agent_id === known.agent_id && item.seq === known.seq) ? [known] : [])]
+          .map(update).filter(item => item.status !== 'cancelled') };
+        this.current = { ...this.current, unverifiedInbox: this.current.unverifiedInbox?.filter(item => item.agent_id !== lifecycle.agent_id || item.seq !== lifecycle.inbox_seq) };
+        const page = this.current.collections.inbox;
+        if (page) this.current = { ...this.current, collections: { ...this.current.collections, inbox: { ...page, items: page.items?.map(entry => entry.inbox ? { inbox: update(entry.inbox) } : entry).filter(entry => entry.inbox?.status !== 'cancelled') ?? null } } };
+      }
+      if (event.kind === 'inbox.running') this.presentationGaps.add(lifecycle.agent_id || root.root_id);
       if (event.kind === 'question.pending') {
         root.questions = [...(root.questions ?? []).filter(item => item.question_id !== lifecycle.question_id), lifecycle];
       } else if (event.kind === 'question.answered' || event.kind === 'question.closed') {
@@ -413,72 +523,197 @@ export class SessionView {
     // Hidden tabs can throttle notification timers indefinitely. Bound incoming
     // growth independently, without reserializing the cached history per delta.
     this.pendingBytes += bytes(event);
-    this.set({ ...this.current, root, executions, unavailable }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
+    this.set({ ...this.current, root, executions, unavailable, trace }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
   }
 
-  private async readHistory(agentId: string, older: boolean): Promise<void> {
+  /**
+   * Page the root's durable spans into the view. The first call reads from the
+   * beginning; later calls continue from the page cursor, so a reconnect that
+   * missed journal events catches up without discarding what live events built.
+   */
+  async loadTrace(): Promise<void> {
+    if (this.lifetime.signal.aborted) throw new Error('Session view is closed');
+    if (this.incompatibleRuntime) throw new WhipError('runtime_changed', 'Execution runtime changed; open a new session view');
+    if (this.traceRequest) return this.traceRequest.promise;
+    const controller = new AbortController();
+    // Trace pages are root-scoped, not snapshot/history-revision-scoped. A
+    // concurrent root refresh must not discard their result or strand loading.
+    const promise = Promise.resolve().then(() => this.fetchTrace(controller.signal));
+    const request = { controller, promise };
+    this.traceRequest = request;
+    try { await promise; }
+    finally { if (this.traceRequest === request) this.traceRequest = undefined; }
+  }
+
+  private cancelTraceRead(): void {
+    this.traceRequest?.controller.abort();
+    this.traceRequest = undefined;
+    if (this.current.trace?.loading) this.current = { ...this.current, trace: { ...this.current.trace, loading: false } };
+  }
+
+  private async fetchTrace(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return;
+    const rootId = this.session.rootId;
+    let evidence = this.current.trace ?? emptyTraceEvidence(rootId);
+    this.set({ ...this.current, trace: { ...evidence, loading: true, error: undefined } }, true);
+    try {
+      for (let pages = 0; pages < 8; pages++) {
+        const page = await this.session.client.call('trace.page', { root_id: rootId, after_seq: evidence.pageCursor, limit: 2048 }, { signal });
+        if (signal.aborted) return;
+        if (page.root_id !== rootId) throw new Error('Trace page belongs to a different root');
+        if (page.has_more && BigInt(page.next_seq) <= BigInt(evidence.pageCursor)) throw new Error('Trace page cursor did not advance');
+        evidence = mergeSpanPage(this.current.trace ?? evidence, page);
+        this.set({ ...this.current, trace: { ...evidence, loading: true } }, true);
+        if (!page.has_more) break;
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), error: asError(error) } }, true);
+      throw error;
+    } finally {
+      if (!signal.aborted) this.set({ ...this.current, trace: { ...(this.current.trace ?? evidence), loading: false } }, true);
+    }
+  }
+
+  private async repairHistory(): Promise<void> {
+    if (this.repair?.epoch === this.epoch) return this.repair.promise;
+    if (this.lifetime.signal.aborted || this.current.status !== 'live') return;
+    const epoch = this.epoch;
+    const promise = (async () => {
+      for (let pages = 0; pages < 4 && epoch === this.epoch; pages++) {
+        const target = [...this.opened].map(agentId => ({ agentId, history: this.current.history[agentId] }))
+          .find(({ agentId, history }) => {
+            if (!history) return false;
+            const omittedSnapshot = agentId === this.session.rootId && !this.current.root?.messages?.length && this.current.root?.omitted?.messages;
+            const missingRecent = (!history.messages.length && history.hasMore) || omittedSnapshot;
+            return history.gaps?.some(gap => gap.status === 'pending') || (missingRecent && !history.error
+              && this.recentRecoveryCursor.get(agentId) !== this.current.root?.cursor);
+          });
+        if (!target) break;
+        const { agentId, history } = target;
+        const gap = history!.gaps?.find(gap => gap.status === 'pending');
+        if (!gap) this.recentRecoveryCursor.set(agentId, this.current.root?.cursor ?? '');
+        try { await this.readHistory(agentId, false, gap && { toSeq: gap.toSeq, automatic: true }); }
+        catch { /* The scoped history/gap error supplies explicit retry. */ }
+      }
+      if (epoch !== this.epoch) return;
+      // A publication or ordinary refresh must not restart an exhausted pass.
+      for (const [agentId, history] of Object.entries(this.current.history))
+        for (const gap of history.gaps ?? []) if (gap.status === 'pending') this.setGap(agentId, gap.toSeq, { status: 'paused' });
+    })();
+    const repair = { epoch, promise };
+    this.repair = repair;
+    try { await promise; } finally { if (this.repair === repair) this.repair = undefined; }
+    if (epoch === this.epoch) void this.warmInitialHistory();
+  }
+
+  private async warmInitialHistory(): Promise<void> {
+    if (!this.initialHistoryWarmup || this.current.status !== 'live') return;
+    const epoch = this.epoch;
+    const agentId = this.session.rootId;
+    // Let a user read or recent recovery finish before deciding whether to extend.
+    const existing = this.historyRequests.get(agentId);
+    if (existing) await existing.promise.catch(() => {});
+    if (epoch !== this.epoch || this.lifetime.signal.aborted || this.current.status !== 'live' || !this.initialHistoryWarmup) return;
+    this.initialHistoryWarmup = false;
+    const history = this.current.history[agentId];
+    if (!history?.messages.length || !history.hasMore || history.error || history.latestMissing || history.gaps?.length) return;
+    await this.readHistory(agentId, true).catch(() => { /* History retains the explicit retry. */ });
+  }
+
+  private setGap(agentId: string, toSeq: number, patch: Partial<HistoryGap>): void {
+    const history = this.current.history[agentId];
+    if (!history?.gaps?.some(gap => gap.toSeq === toSeq)) return;
+    this.set({ ...this.current, history: { ...this.current.history, [agentId]: {
+      ...history, gaps: history.gaps.map(gap => gap.toSeq === toSeq ? { ...gap, ...patch } : gap),
+    } } }, true);
+  }
+
+  private async readHistory(agentId: string, older: boolean, repair?: { toSeq: number; automatic: boolean }): Promise<void> {
+    const key = repair ? `gap:${repair.toSeq}` : older ? 'older' : 'recent';
     const existing = this.historyRequests.get(agentId);
     if (existing) {
-      if (existing.epoch === this.epoch) return existing.promise;
+      if (existing.epoch === this.epoch && existing.key === key) return existing.promise;
       await existing.promise.catch(() => {});
       if (this.historyRequests.get(agentId) === existing) this.historyRequests.delete(agentId);
       if (this.lifetime.signal.aborted || !this.opened.has(agentId)) return;
-      return this.readHistory(agentId, older);
+      return this.readHistory(agentId, older, repair);
     }
-    const request = { epoch: this.epoch, promise: this.fetchHistory(agentId, older) };
+    if (this.lifetime.signal.aborted || this.session.client.getSnapshot().state !== 'connected') return;
+    // An explicit older read also spends the shared view's one warm-up page.
+    if (older && agentId === this.session.rootId) this.initialHistoryWarmup = false;
+    const controller = new AbortController();
+    const request = { epoch: this.epoch, key, controller, promise: this.fetchHistory(agentId, older, controller.signal, repair) };
     this.historyRequests.set(agentId, request);
     try { await request.promise; }
     finally { if (this.historyRequests.get(agentId) === request) this.historyRequests.delete(agentId); }
   }
 
-  private async fetchHistory(agentId: string, older: boolean): Promise<void> {
+  private async fetchHistory(agentId: string, older: boolean, signal: AbortSignal, repair?: { toSeq: number; automatic: boolean }): Promise<void> {
     const epoch = this.epoch;
     const prior = this.current.history[agentId];
+    const gap = repair && prior?.gaps?.find(gap => gap.toSeq === repair.toSeq);
+    if (repair && !gap) return;
     const placeholder: HistoryView = prior ?? {
       revision: this.current.root?.history_revision ?? '', throughSeq: 0, nextSeq: 0,
       hasMore: true, messages: [], truncated: false, loading: true,
     };
-    this.set({ ...this.current, history: { ...this.current.history, [agentId]: { ...placeholder, loading: true, error: undefined } } }, true);
+    if (gap) this.setGap(agentId, gap.toSeq, { status: 'loading', error: undefined });
+    else this.set({ ...this.current, history: { ...this.current.history, [agentId]: { ...placeholder, loading: true, error: undefined } } }, true);
+    const currentRequest = () => epoch === this.epoch && this.opened.has(agentId) && !signal.aborted && !this.lifetime.signal.aborted;
     try {
       const page = await this.session.client.call('history.page', {
-        root_id: this.session.rootId, agent_id: agentId, recent: true,
-        through_seq: older && prior ? prior.throughSeq : -1,
-        ...(older && prior ? { before_seq: prior.nextSeq, revision: prior.revision } : {}),
+        root_id: this.session.rootId, agent_id: agentId,
+        ...(gap ? { after_seq: gap.fromSeq - 1, through_seq: gap.toSeq, revision: placeholder.revision }
+          : { recent: true, through_seq: older && prior ? prior.throughSeq : -1,
+            ...(older && prior ? { before_seq: prior.nextSeq, revision: prior.revision } : {}) }),
         limit: 128, max_bytes: 256 * 1024,
-      }, { signal: this.lifetime.signal });
-      if (epoch !== this.epoch || !this.opened.has(agentId) || this.lifetime.signal.aborted) return;
-      if (older && prior && page.has_more && page.next_seq >= prior.nextSeq && prior.nextSeq > 0) {
+      }, { signal });
+      if (!currentRequest()) return;
+      if (older && prior && page.has_more && page.next_seq >= prior.nextSeq && prior.nextSeq > 0)
         throw new WhipError('invalid_response', 'History cursor did not advance');
-      }
-      if (this.current.root && page.history_revision !== this.current.root.history_revision) {
-        this.scheduleRefresh();
-        return;
-      }
-      const sameRevision = prior?.revision === page.history_revision;
-      const all = mergeMessages(sameRevision ? prior?.messages ?? [] : [], page.messages ?? []);
-      // Explicit backward paging preserves the page just requested. Advancing the
-      // cursor while retaining only newer entries would make old history unreachable.
-      const messages = older ? all.slice(0, this.maxMessages) : all.slice(-this.maxMessages);
+      if (this.current.root && page.history_revision !== this.current.root.history_revision)
+        throw new WhipError('resynchronization_required', 'History revision changed');
+      if (gap && (page.history_revision !== placeholder.revision || page.through_seq !== gap.toSeq
+        || !page.messages?.length || page.messages.some((item, index) => item.seq !== gap.fromSeq + index || item.seq > gap.toSeq)
+        || page.next_seq !== page.messages.at(-1)!.seq || (!page.has_more && page.next_seq < gap.toSeq)))
+        throw new WhipError('invalid_response', 'Missing history page did not advance within its requested range');
+      const retained = this.current.history[agentId];
+      // Budget eviction can remove a child's window while its read is in flight.
+      // Keep the known end, but never resurrect its evicted message bodies.
+      const current = retained ?? prior;
+      const sameRevision = current?.revision === page.history_revision;
+      const all = mergeMessages(sameRevision ? retained?.messages ?? [] : [], page.messages ?? []);
+      // Explicit reads retain the page the person requested. Automatic repair
+      // favors the newest window, just like an ordinary metadata refresh.
+      const start = gap && !repair?.automatic
+        ? Math.max(0, all.findIndex(item => item.seq === page.messages![0]!.seq) - Math.floor((this.maxMessages - Math.min(this.maxMessages, page.messages!.length)) / 2)) : 0;
+      const messages = gap && !repair?.automatic ? all.slice(start, start + this.maxMessages)
+        : older ? all.slice(0, this.maxMessages) : all.slice(-this.maxMessages);
       const nextSeq = messages[0]?.seq ?? page.next_seq;
-      // A recent suffix cannot reset an older retained boundary; trimming the
-      // incoming page's beginning, however, makes those messages pageable again.
-      const hasMore = sameRevision && prior.nextSeq === nextSeq && nextSeq < page.next_seq
-        ? prior.hasMore : nextSeq > page.next_seq || page.has_more;
-      const history: HistoryView = {
-        revision: page.history_revision, throughSeq: page.through_seq,
-        nextSeq, hasMore,
-        loading: false, messages, truncated: all.length > messages.length || messages.some(item => !!item.body),
-      };
+      const hasMore = sameRevision && current.nextSeq === nextSeq && (gap || nextSeq < page.next_seq)
+        ? current.hasMore : gap && sameRevision ? nextSeq > current.nextSeq || current.hasMore : nextSeq > page.next_seq || page.has_more;
+      const history = historyCoverage({
+        revision: page.history_revision, throughSeq: Math.max(sameRevision ? current.throughSeq : 0, page.through_seq),
+        nextSeq, hasMore, loading: false, messages,
+        gaps: sameRevision ? current.gaps?.map(item => gap && item.toSeq === gap.toSeq
+          ? { ...item, status: repair?.automatic ? 'pending' as const : 'paused' as const, error: undefined } : item) : undefined,
+        truncated: all.length > messages.length || messages.some(item => !!item.body),
+      });
       const histories = { ...this.current.history, [agentId]: history };
       this.set({ ...this.current, history: histories, executions: this.current.executions && reconcileExecutions(this.current.executions, histories) }, true);
+      const remaining = this.current.history[agentId]?.gaps?.find(item => item.toSeq === gap?.toSeq);
+      if (remaining && remaining.fromSeq === gap?.fromSeq) this.setGap(agentId, remaining.toSeq, { status: 'paused' });
     } catch (error) {
-      if (epoch !== this.epoch || this.lifetime.signal.aborted || !this.opened.has(agentId)) return;
-      const history = { ...this.current.history };
+      if (!currentRequest()) return;
       if (errorKind(error) === 'resynchronization_required') {
+        const history = { ...this.current.history };
         delete history[agentId];
+        this.set({ ...this.current, history }, true);
         this.scheduleRefresh();
-      } else history[agentId] = { ...placeholder, loading: false, error: asError(error) };
-      this.set({ ...this.current, history, error: asError(error) }, true);
+      } else if (gap) this.setGap(agentId, gap.toSeq, { status: 'error', error: asError(error).message.slice(0, 512) });
+      else this.set({ ...this.current, history: { ...this.current.history,
+        [agentId]: { ...(this.current.history[agentId] ?? placeholder), loading: false, error: asError(error) } }, error: asError(error) }, true);
       throw error;
     }
   }
@@ -501,8 +736,23 @@ export class SessionView {
   }
 }
 
+/** Raw sequence numbers are contiguous per agent/revision. Bodies may be handles. */
+function historyCoverage(history: HistoryView): HistoryView {
+  const previous = new Map(history.gaps?.map(gap => [gap.toSeq, gap]));
+  const gaps: HistoryGap[] = [];
+  for (let index = 1; index < history.messages.length; index++) {
+    const fromSeq = history.messages[index - 1]!.seq + 1, toSeq = history.messages[index]!.seq - 1;
+    if (fromSeq <= toSeq) gaps.push({ ...previous.get(toSeq), fromSeq, toSeq, status: previous.get(toSeq)?.status ?? 'pending' });
+  }
+  return { ...history, gaps, latestMissing: !!history.latestMissing || (!!history.messages.length && history.messages.at(-1)!.seq < history.throughSeq) };
+}
+
 function mergeMessages(left: Message[], right: Message[]): Message[] {
   return [...new Map([...left, ...right].map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
+}
+
+function presentationTelemetry(kind: string): boolean {
+  return kind === 'stream.usage' || kind === 'stream.cell.host' || kind === 'stream.cell.host.started';
 }
 
 function appendPresentation(previous: Presentation[], item: Presentation, continuous = true): Presentation[] {
@@ -512,13 +762,18 @@ function appendPresentation(previous: Presentation[], item: Presentation, contin
   // them to the root or turn cumulative deltas into anonymous tool rows.
   if (payload.truncated && payload.content && !payload.agent_id) return previous;
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
-  const index = cumulative && payload.id ? previous.findIndex(row => {
+  let index = cumulative && payload.id ? previous.findIndex(row => {
     const value = (row.payload ?? {}) as StreamEvent;
-    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id;
+    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id && value.part_id === payload.part_id;
   }) : previous.length - 1;
+  // These events update existing evidence; they do not split a prose/thought
+  // part. Only join proven continuous text, never across notices or missing data.
+  if (continuous && payload.part_id && (item.kind === 'stream.text' || item.kind === 'stream.reasoning')) {
+    while (index >= 0 && presentationTelemetry(previous[index]!.kind)) index--;
+  }
   const last = previous[index];
   const lastPayload = (last?.payload ?? {}) as StreamEvent;
-  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id) {
+  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id && payload.part_id === lastPayload.part_id) {
     let next: Presentation | undefined;
     // Tool arguments/output are full values so far, even when calls interleave.
     if (cumulative && payload.id) next = { ...item, seq: last.seq };
@@ -537,16 +792,17 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
   for (const [id, history] of Object.entries(next.history)) {
     if (history.messages.length > maxMessages) {
       const messages = history.messages.slice(-maxMessages);
-      next.history[id] = { ...history, messages, nextSeq: messages[0]!.seq, hasMore: true, truncated: true };
+      next.history[id] = historyCoverage({ ...history, messages, nextSeq: messages[0]!.seq, hasMore: true, truncated: true });
       next.truncated = true;
     }
   }
-  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections, executions: next.executions });
+  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections, unverifiedInbox: next.unverifiedInbox, executions: next.executions });
   if (next.executions?.truncated) next.truncated = true;
   let total = size();
   if (total > maxBytes) {
     next.truncated = true;
     next.collections = {};
+    next.unverifiedInbox = [];
     if (next.executions) {
       const otherBytes = bytes({ root: next.root, history: next.history, collections: next.collections });
       next.executions = boundExecutionEvidence(next.executions, Math.max(0, maxBytes - otherBytes - 32));
@@ -561,7 +817,7 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
     }
     const rootHistory = next.root && next.history[next.root.root_id];
     if (total > maxBytes && next.root && rootHistory) {
-      next.history[next.root.root_id] = { ...rootHistory, messages: [], truncated: true, hasMore: true, nextSeq: 0 };
+      next.history[next.root.root_id] = historyCoverage({ ...rootHistory, messages: [], truncated: true, hasMore: true, nextSeq: 0 });
       total = size();
     }
   }

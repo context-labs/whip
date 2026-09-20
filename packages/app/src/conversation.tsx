@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
 import { useSessionView, useWhipConnection } from '@whip/sdk/react';
-import { executionRows, type SessionView } from '@whip/sdk/state';
+import { executionRows, inboxItems, type SessionView } from '@whip/sdk/state';
 import {
   Badge,
   Button,
@@ -18,6 +18,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { useSessionActions } from './session-actions';
 import { layout } from './styles';
+import type { ReadingListActions } from './reading-list';
 import {
   Timeline,
   conversationRows,
@@ -27,19 +28,23 @@ import {
 } from './timeline';
 import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
+import { ComposerQueue } from './composer-queue';
+import { ChatDropSurface } from './chat-file-drop';
 import { ReplView } from './repl-view';
+import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
-import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
+import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
+import { AgentDock } from './agent-dock';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
-import { SessionInfoBar } from './session-info-bar';
-import { openSessionView } from './session-tab-routing';
-import { SessionModelPicker } from './model-selection';
+import { SessionTopBar } from './session-top-bar';
+import { openChildChat, openSessionView } from './session-tab-routing';
+import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
-import { admittedText, isChatInput } from './input-presentation';
+import { admittedText, isChatInput, queuedInputRows } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
-import { selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type ChildChatCompanion, type SessionTab, type SessionViewKind } from './session-tabs';
 
 const loadingStyles = stylex.create({
   overlay: {
@@ -84,6 +89,8 @@ export function ConversationRoute({ rootId, runtimeId }: { rootId: string; runti
   useSessionTabs();
   const { hosts } = useAppState();
   const client = hosts.find(host => host.runtimeId === runtimeId)?.client;
+  // The tab strip renders open tabs; this body paints only when no tab holds the session (it is also mounted for a frame while a route commit leaves the tab).
+  if (runtime.tabs.workspace().tabs.some(tab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId)) return null;
   if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
   if (!client) return <div {...stylex.props(layout.empty)}>Connect to the session’s execution host.</div>;
   return <ConversationHostStatus client={client} runtimeId={runtimeId} />;
@@ -108,13 +115,16 @@ export function SessionContent({
   agentId,
   panel,
   viewId,
+  summaryCwd,
 }: {
-  kind: 'chat' | 'repl';
+  kind: SessionViewKind;
   view: SessionView;
   expectedRuntimeId: string;
   agentId: string;
   panel?: InspectorSection;
   viewId?: string;
+  /** Directory from the tab summary; stands in for the root's cwd while the session opens. */
+  summaryCwd?: string;
 }) {
   const runtime = useRuntime();
   useSessionTabs();
@@ -145,6 +155,16 @@ export function SessionContent({
   }>();
   useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
+  const dropTarget = useRef<HTMLDivElement>(null);
+  const readingActions = useRef<ReadingListActions>(null);
+  const childCompanion = useRef<ChildChatCompanion | undefined>(undefined);
+  const [childViewId, setChildViewId] = useState<string>();
+  const [childOpenError, setChildOpenError] = useState<{ agentId: string; message: string }>();
+  useLayoutEffect(() => {
+    childCompanion.current = undefined;
+    setChildViewId(undefined);
+    setChildOpenError(undefined);
+  }, [viewId, agentId, session]);
   useEffect(() => {
     setStored(undefined);
     return () => bodyRequest.current?.abort();
@@ -160,7 +180,22 @@ export function SessionContent({
   const navigationRevision = useRef(0);
   useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind, confirm, historyAction]);
   const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.connections.isAttached(session.client);
-  const focused = !viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId;
+  const workspace = runtime.tabs.workspace();
+  const focused = !viewId || selectedSessionTab(workspace)?.id === viewId;
+  const openedChild = workspace.tabs.find(tab => tab.id === childViewId && isSessionTab(tab)
+    && tab.kind === 'chat' && tab.runtimeId === expectedRuntimeId && tab.rootId === session.rootId
+    && sessionViewPane(workspace, tab.id)?.selected === tab.id);
+  const openAgent = (next: string, openInTab = false) => {
+    setChildOpenError(undefined);
+    const result = openChildChat(runtime, navigate, viewId ?? session.rootId, next, {
+      companion: childCompanion.current, openInTab,
+      onUnavailable: message => setChildOpenError({ agentId: next, message }),
+    });
+    if (result) {
+      childCompanion.current = result.companion;
+      setChildViewId(result.tab.id);
+    }
+  };
   const setPanel = (next?: InspectorSection) => {
     const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
     void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
@@ -179,20 +214,25 @@ export function SessionContent({
     connection.state === 'connected' &&
     !wrongRuntime &&
     state.status === 'live';
+  // Opening: connected, no snapshot yet, no failure. Placeholders stay neutral until the host answers.
+  const opening = connection.state === 'connected' && !root && !state.error && (state.status === 'idle' || state.status === 'loading');
   const history = state.history[agentId];
   const presentation =
     agentId === session.rootId
       ? root?.presentation
       : root?.agent_presentations[agentId];
+  const queueEnabled = session.client.supports('runtime', 'inbox.steer') && session.client.supports('runtime', 'inbox.remove');
+  const inbox = useMemo(() => inboxItems(state, agentId), [state.root, state.collections.inbox, state.unverifiedInbox, agentId]);
+  const localInputs = useMemo(() => submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId), [submitted, expectedRuntimeId, session.rootId, agentId]);
+  const deliveries = useMemo(() => new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])), [commands, expectedRuntimeId]);
+  const queueRows = useMemo(() => queueEnabled ? queuedInputRows(inbox.rows, localInputs, deliveries) : [], [queueEnabled, inbox, localInputs, deliveries]);
   const rows = useMemo(() => kind === 'chat' ? conversationRows(
-    history, presentation,
-    root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
-    submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
-    new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
-  ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
+    history, presentation, inbox.rows.filter(row => !row.stale).map(row => row.item), localInputs, deliveries, true, queueEnabled,
+  ) : [], [kind, history, presentation, inbox, localInputs, deliveries, queueEnabled]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
+  const activeTurn = root?.active_turns[agentId];
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
-  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current), [rows, executions]);
+  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current, activeTurn), [rows, executions, activeTurn]);
   useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
   const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
   const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
@@ -212,14 +252,14 @@ export function SessionContent({
         await view.refresh();
         if (!current) return;
         await view.refresh();
-        if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
+        if (current && view.getSnapshot().status === 'live' && !view.getSnapshot().root?.omitted?.inbox) runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
       })().catch(() => {});
     }, 250);
     return () => { current = false; clearTimeout(timer); };
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
   const agent = useSelectedAgent(view, state, agentId, connected);
-  const activeTurn = root?.active_turns[agentId];
-  const status = activityStatus(state, agentId, executions, connected, agent);
+  const delivery = rows.filter(row => row.role === 'user' && row.delivery).at(-1)?.delivery;
+  const status = activityStatus(state, agentId, executions, connected, agent, delivery);
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
     // The recipient history exposes failures without leaking into another tab.
@@ -261,41 +301,55 @@ export function SessionContent({
       </div>
     );
   return (
-    <>
+    <ChatDropSurface ref={dropTarget}>
 
-      <SessionInfoBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
-        cwd={agentId === session.rootId ? root?.meta.cwd : agent?.cwd}
+      <SessionTopBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
+        cwd={agentId === session.rootId ? (root ? root.meta.cwd : summaryCwd) : agent?.cwd} pending={opening}
         agentName={agentId === session.rootId ? 'Root' : agent?.name || agentId}
         onAgents={() => setPanel('agents')}
         onRoot={agentId !== session.rootId ? () => {
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
             search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
         } : undefined}
-        onRepl={kind === 'chat' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); } : undefined}
-        onDetails={() => setPanel('agents')} onPrepare={actions.prepare}
+        onChat={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'chat', true); }}
+        onRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl', true); }}
+        onTrace={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace', true); }}
+        detailsOpen={!!panel && focused} onDetails={() => setPanel(panel ? undefined : 'agents')} onPrepare={actions.prepare}
         actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
         activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}
           connected={connected} onDetails={() => setPanel('agents')} />} />
       {connection.state === 'connected' && (state.error || history?.error) && <ErrorNotice type="session"
         owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
         action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
-      {kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
+      {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
+      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn || history?.hasMore || history?.latestMissing ? (
         <Timeline
+          readingActionsRef={readingActions}
           active={!!activeTurn}
+          activeTurnId={activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={activityRows}
-          footer={<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />}
+          agents={root?.agents ?? []}
+          onAgent={openAgent}
+          footer={<><TranscriptWorking key={activeTurn ?? 'pending'} status={status} turnId={activeTurn}
+            startedAt={agent?.last_turn?.turn_id === activeTurn ? agent?.last_turn?.started_at : undefined} />
+            {state.executions?.truncated && <p {...stylex.props(layout.notice)}>Some activity could not be retained. Showing available operations; counts may be partial.</p>}<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></>}
           connected={connected}
           density={preferences.toolDensity}
           onOpenRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
+          historyCursor={history?.nextSeq}
           historyReady={!!history && !history.loading}
           canLoadOlder={connected}
           loadingHistory={history?.loading}
           hasMore={history?.hasMore ?? false}
           loadOlder={() => view.loadOlder(agentId)}
+          loadGap={toSeq => view.loadHistoryGap(agentId, toSeq)}
+          loadLatest={() => view.loadLatest(agentId)}
+          latestMissing={history?.latestMissing}
           readBody={(row) => void readBody(row)}
+          messageScope={{ client: session.client, rootId: session.rootId, agentId }}
           historyAction={
             agentId === session.rootId && connected && root
               ? (row, action) => {
@@ -316,7 +370,7 @@ export function SessionContent({
           {!root && state.error ? <p {...stylex.props(layout.emptyText)}>Session content is unavailable. Use Refresh above.</p>
             : !activeTurn && agent?.last_turn && ['failed', 'cancelled', 'interrupted'].includes(agent.last_turn.status)
             ? <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
-            : <><h2 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h2>
+            : <><h2 {...stylex.props(layout.emptyTitle)}>What do you want to work on?</h2>
           <p {...stylex.props(layout.emptyText)}>
             Give WHIP a goal, then follow the work and guide it as needed.
           </p></>}
@@ -338,12 +392,10 @@ export function SessionContent({
           ))}
         </details>
       )}
-      {kind === 'chat' && <ChatActivity state={state} agentId={agentId} connected={connected}
-        onAllAgents={() => setPanel('agents')}
-        onAgent={next => {
-          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-        }} />}
+
+      {kind === 'chat' && childOpenError && <ErrorNotice type="action" owner={`${viewId ?? session.rootId}:open-child`}
+        title="Could not open agent chat" error={childOpenError.message} tone="neutral" onDismiss={() => setChildOpenError(undefined)}
+        action={runtime.tabs.canOpen() && <Button variant="ghost" onClick={() => openAgent(childOpenError.agentId, true)}>Open in tab</Button>} />}
       {root && (
         <PendingRequests
           root={root}
@@ -353,20 +405,28 @@ export function SessionContent({
         />
       )}
       {kind === 'chat' && <Composer
+        onAccepted={() => readingActions.current?.jumpToLatest()}
+        dropTarget={dropTarget}
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}
+        agents={<AgentDock key={`agents:${expectedRuntimeId}:${session.rootId}:${agentId}`}
+          state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
+          openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
+        queueEnabled={queueEnabled}
+        queue={queueEnabled ? <ComposerQueue key={`${expectedRuntimeId}:${session.rootId}:${agentId}`} rows={queueRows} view={view} runtimeId={expectedRuntimeId} agentId={agentId} activeTurn={activeTurn} connected={connected} hasMore={inbox.hasMore} /> : undefined}
         agentId={agentId}
         connected={connection.state === 'connected' && !wrongRuntime && !!root}
         unavailableReason={connection.state === 'connected' && !root ? 'Session content is unavailable.' : undefined}
+        pending={opening}
         activeTurn={activeTurn}
         lastTurn={agent?.last_turn ?? undefined}
         runtimeId={expectedRuntimeId}
         viewId={viewId}
         active={focused && !panel}
-        modelControl={root && <>
+        modelControl={root ? <>
           <PermissionModePicker view={view} root={root} connected={connected} agentId={agentId} />
           <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />
-        </>}
+        </> : opening && <PickerSkeletons />}
       />}
       <Sheet
         open={!!panel && focused}
@@ -538,7 +598,7 @@ export function SessionContent({
           </Button>
         )}
       </Dialog>
-    </>
+    </ChatDropSurface>
   );
 }
 

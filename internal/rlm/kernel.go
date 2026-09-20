@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -46,7 +47,7 @@ func DefaultLimits() Limits {
 	return Limits{
 		Steps: defaultSteps, MaxConcurrentHostCalls: maxOutstandingCalls, HostRequests: defaultHostRequests, Wall: 30 * time.Second,
 		MemoryBytes: defaultMemoryBytes, OutputBytes: defaultOutputBytes,
-		FrameBytes: defaultFrameBytes, MaxWorkers: 4,
+		FrameBytes: defaultFrameBytes, MaxWorkers: 16,
 	}
 }
 
@@ -350,7 +351,8 @@ type KernelOptions struct {
 // model tool call it belongs to, what was called, a bounded argument summary
 // (never raw contents), how long it took, and the error text if it failed.
 type HostCall struct {
-	CallID string
+	Display *llm.OperationDisplay
+	CallID  string
 	// InvocationID distinguishes repeated operations and repeated model call IDs
 	// for this kernel's lifetime. Clients also scope it to the agent and turn.
 	InvocationID string
@@ -361,6 +363,24 @@ type HostCall struct {
 	Summary   string
 	Duration  time.Duration
 	Err       string
+	// OperationID is the durable operations row this call was admitted as,
+	// when it went through the capability dispatcher; empty otherwise.
+	OperationID string
+}
+
+type hostCallKey struct{}
+
+// WithHostCall tags the context a host call runs under with the call's
+// identity, so host handlers that queue work for other agents can name the
+// span that caused it.
+func WithHostCall(ctx context.Context, call HostCall) context.Context {
+	return context.WithValue(ctx, hostCallKey{}, call)
+}
+
+// HostCallFromContext returns the identity WithHostCall attached, if any.
+func HostCallFromContext(ctx context.Context) (HostCall, bool) {
+	call, ok := ctx.Value(hostCallKey{}).(HostCall)
+	return call, ok
 }
 
 type ScratchReport struct {
@@ -581,6 +601,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, hostCalls),
 				Module: response.Module, Operation: response.Operation,
 				Summary: hostCallSummary(response.Arguments),
+				Display: hostDisplay(response.Module, response.Operation, response.Arguments),
 			}
 			callStarted := time.Now()
 			if kernel.onHostStart != nil {
@@ -589,9 +610,13 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
-				value, callErr = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
+				// The host runs synchronously on this goroutine, so the observer
+				// can write the admitted operation id straight onto the call.
+				callCtx := tools.WithOperationObserver(WithHostCall(ctx, call), func(id string) { call.OperationID = id })
+				value, callErr = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 			}
 			if kernel.onHostCall != nil {
+				call.Display = hostResultDisplay(call, value)
 				call.Duration = time.Since(callStarted)
 				call.Status = "completed"
 				if callErr != nil {

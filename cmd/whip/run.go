@@ -320,6 +320,13 @@ func (o *runOutput) event(event daemon.ProtocolEvent) {
 		if o.enc != nil {
 			o.emit(map[string]string{"type": "reasoning", "delta": stream.Text})
 		}
+	case "stream.discard":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "discard", "chars": stream.Text})
+		} else {
+			fmt.Fprintln(os.Stdout)
+			o.note("response interrupted; regenerating")
+		}
 	case "stream.tool.started":
 		if o.enc != nil {
 			o.emit(map[string]string{"type": "tool_start", "name": stream.Name, "args": stream.Args})

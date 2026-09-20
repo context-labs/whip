@@ -1,0 +1,137 @@
+chromium: starting chat activity fixture
+firefox: starting chat activity fixture
+electron: starting chat activity fixture
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "a84954a88a8936966b360d31c479052543a74625ab75e5562965d6fd95a67385",
+    "history": [
+      {
+        "kind": "count",
+        "snapshotMessages": 64,
+        "missingFrom": 720,
+        "missingThrough": 747,
+        "gapRequests": 1,
+        "recoveredOperations": 5,
+        "anchorDrift": 0,
+        "retainedBytes": 50094,
+        "retainedRecords": 156,
+        "mounted": 20
+      },
+      {
+        "kind": "bytes",
+        "snapshotMessages": 37,
+        "missingFrom": 814,
+        "missingThrough": 846,
+        "gapRequests": 2,
+        "recoveredOperations": 5,
+        "retainedBytes": 562063,
+        "retainedRecords": 228,
+        "mounted": 11
+      },
+      {
+        "kind": "large",
+        "retainedRecords": 512,
+        "gaps": [
+          {
+            "fromSeq": 1526,
+            "toSeq": 1533,
+            "status": "paused"
+          }
+        ],
+        "hasMore": true,
+        "automaticPages": 4,
+        "explicitPages": 1,
+        "peakRows": 35
+      }
+    ]
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "a84954a88a8936966b360d31c479052543a74625ab75e5562965d6fd95a67385",
+    "history": [
+      {
+        "kind": "count",
+        "snapshotMessages": 64,
+        "missingFrom": 720,
+        "missingThrough": 747,
+        "gapRequests": 1,
+        "recoveredOperations": 5,
+        "anchorDrift": 0,
+        "retainedBytes": 50094,
+        "retainedRecords": 156,
+        "mounted": 23
+      },
+      {
+        "kind": "bytes",
+        "snapshotMessages": 37,
+        "missingFrom": 812,
+        "missingThrough": 846,
+        "gapRequests": 2,
+        "recoveredOperations": 5,
+        "retainedBytes": 561732,
+        "retainedRecords": 228,
+        "mounted": 12
+      },
+      {
+        "kind": "large",
+        "retainedRecords": 512,
+        "gaps": [
+          {
+            "fromSeq": 1398,
+            "toSeq": 1533,
+            "status": "paused"
+          }
+        ],
+        "hasMore": true,
+        "automaticPages": 4,
+        "explicitPages": 1,
+        "peakRows": 35
+      }
+    ]
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "a84954a88a8936966b360d31c479052543a74625ab75e5562965d6fd95a67385",
+    "history": [
+      {
+        "kind": "count",
+        "snapshotMessages": 64,
+        "missingFrom": 720,
+        "missingThrough": 747,
+        "gapRequests": 1,
+        "recoveredOperations": 5,
+        "anchorDrift": 0,
+        "retainedBytes": 50094,
+        "retainedRecords": 156,
+        "mounted": 32
+      },
+      {
+        "kind": "bytes",
+        "snapshotMessages": 37,
+        "missingFrom": 814,
+        "missingThrough": 846,
+        "gapRequests": 2,
+        "recoveredOperations": 5,
+        "retainedBytes": 562062,
+        "retainedRecords": 228,
+        "mounted": 11
+      },
+      {
+        "kind": "large",
+        "retainedRecords": 512,
+        "gaps": [
+          {
+            "fromSeq": 1398,
+            "toSeq": 1533,
+            "status": "paused"
+          }
+        ],
+        "hasMore": true,
+        "automaticPages": 4,
+        "explicitPages": 1,
+        "peakRows": 33
+      }
+    ]
+  }
+]

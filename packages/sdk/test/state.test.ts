@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RootSnapshot, StreamEvent } from '@whip/protocol';
-import type { SdkEvent, WhipClient } from '../src/client.js';
+import type { BoundedTranscriptPage, RootSnapshot, SpanPage, StreamEvent } from '@whip/protocol';
+import type { CallOptions, SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
-import { createSessionListView, createSessionView, executionRows } from '../src/state.js';
+import { createSessionListView, createSessionView, executionRows, inboxItems } from '../src/state.js';
 
 const pause = (ms = 5) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate: () => boolean): Promise<void> {
@@ -60,7 +60,8 @@ class Host {
   commands = new Set<(outcome: { command_id: string; status: string }) => void>();
   calls: { method: string; params: Record<string, unknown> }[] = [];
   connection = { state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection-1' } };
-  history?: (params: Record<string, unknown>) => Promise<unknown>;
+  history?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
+  trace?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
   beforeAck?: (stream: Stream) => void;
   catalogRevision = '1';
   catalogItems = [{ id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', pinned: false, updated_at: '', truncated: false }];
@@ -74,10 +75,11 @@ class Host {
     this.beforeAck?.(stream);
     return stream;
   } };
-  async call(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
     this.calls.push({ method, params });
     if (method === 'root.snapshot') return structuredClone(this.root);
-    if (method === 'history.page') return this.history?.(params) ?? {
+    if (method === 'trace.page') return this.trace?.(params, options);
+    if (method === 'history.page') return this.history?.(params, options) ?? {
       history_revision: this.root.history_revision, through_seq: 1, next_seq: 1, has_more: false,
       messages: [{ seq: 1, message: { role: 'user', content: 'child' } }],
     };
@@ -92,6 +94,102 @@ class Host {
     for (const listener of this.listeners) listener();
   }
 }
+
+test('a long committed turn recovers the interior history interval and its five observed executions', async t => {
+  const host = new Host();
+  const messages = Array.from({ length: 1658 }, (_, i) => ({ seq: i + 1, message: { role: 'assistant', content: `Record ${i + 1}` } }));
+  messages[1588]!.message = { role: 'user', content: 'Synthetic long-turn request' };
+  for (const seq of [1590, 1592, 1594, 1596, 1598]) {
+    messages[seq - 1]!.message = { role: 'assistant', content: '', tool_calls: [{ id: `call-${seq}`, function: { name: 'rlm_exec', arguments: '{"code":"42"}' } }],
+      presentation: { version: 1, turn_id: 'long', parts: [{ id: `part-${seq}`, kind: 'tool', call_id: `call-${seq}`, tool_name: 'rlm_exec' }] } } as typeof messages[number]['message'];
+  }
+  const recent = (first: number, last: number) => {
+    const page = messages.slice(first - 1, last);
+    host.root.messages = page.map(item => item.message);
+    host.root.message_seqs = page.map(item => item.seq);
+    host.root.omitted = { messages: true };
+  };
+  recent(1530, 1588);
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let eventSeq = 10;
+  for (const seq of [1590, 1592, 1594, 1596, 1598]) host.streams[0]!.push(String(++eventSeq), 'stream.tool.started', {
+    id: `call-${seq}`, name: 'rlm_exec', part_id: `part-${seq}`, turn_id: 'long',
+  });
+  await until(() => view.getSnapshot().root?.cursor === String(eventSeq));
+  const ids = executionRows(view.getSnapshot(), 'root').map(row => row.id);
+  host.root.cursor = String(eventSeq);
+  recent(1601, 1658);
+  host.history = async params => {
+    assert.equal(params.after_seq, 1588);
+    assert.equal(params.through_seq, 1600);
+    assert.equal(params.revision, '1');
+    return { history_revision: '1', through_seq: 1600, next_seq: 1600, has_more: false, messages: messages.slice(1588, 1600) };
+  };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.some(item => item.seq === 1589));
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), messages.slice(1529).map(item => item.seq));
+  const cells = executionRows(view.getSnapshot(), 'root');
+  assert.deepEqual(cells.map(row => row.id), ids);
+  assert.deepEqual(cells.map(row => row.seq), [1590, 1592, 1594, 1596, 1598]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+});
+
+test('text and reasoning retain one part across interleaved usage and host updates', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let seq = 10;
+  const events: NonNullable<RootSnapshot['presentation']> = [];
+  const push = (kind: string, payload: StreamEvent) => {
+    events.push({ seq: String(++seq), kind, payload });
+    host.streams[0]!.push(String(seq), kind, payload);
+  };
+  for (const kind of ['stream.text', 'stream.reasoning']) {
+    const payload = { agent_id: 'root', turn_id: 'turn', part_id: kind };
+    push(kind, { ...payload, text: '1. **First**' });
+    push('stream.usage', { agent_id: 'root' });
+    push(kind, { ...payload, text: ' ' });
+    push('stream.cell.host', { agent_id: 'root', id: 'call', invocation_id: 'host', name: 'files.read' });
+    push(kind, { ...payload, text: 'item\n2. Second item' });
+  }
+  await until(() => view.getSnapshot().root?.cursor === String(seq));
+  for (const kind of ['stream.text', 'stream.reasoning']) {
+    const rows = view.getSnapshot().root?.presentation?.filter(row => row.kind === kind);
+    assert.deepEqual(rows?.map(row => (row.payload as StreamEvent).text), ['1. **First** item\n2. Second item']);
+  }
+  const before = view.getSnapshot().root?.presentation;
+  host.root.cursor = String(seq);
+  host.root.presentation = events;
+  await view.refresh();
+  assert.deepEqual(view.getSnapshot().root?.presentation, before, 'refresh does not replay already observed fragments');
+  host.notify('stale');
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  assert.deepEqual(view.getSnapshot().root?.presentation, before, 'reconnect assembles raw snapshot deltas identically');
+});
+
+test('part assembly stops at notices, discarded output, and other turns', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let seq = 10;
+  const push = (kind: string, payload: StreamEvent) => host.streams[0]!.push(String(++seq), kind, { agent_id: 'root', ...payload });
+  const text = (value: string, turn = 'turn') => push('stream.text', { part_id: 'part', turn_id: turn, text: value });
+  text('A');
+  push('stream.notice', { text: 'Notice' });
+  text('B');
+  push('stream.discard', { turn_id: 'turn' });
+  text('C');
+  push('stream.usage', {});
+  text('D', 'next-turn');
+  await until(() => view.getSnapshot().root?.cursor === String(seq));
+  assert.deepEqual(view.getSnapshot().root?.presentation?.filter(row => row.kind === 'stream.text').map(row => (row.payload as StreamEvent).text), ['A', 'B', 'C', 'D']);
+});
 
 test('large cumulative calls retain child identity; legacy references never become root activity', async t => {
   const host = new Host();
@@ -297,7 +395,7 @@ for (const agentId of ['root', 'child']) {
     test(`${agentId}: partial refresh separates ${kind} across missing snapshot and live deltas`, async t => {
       const host = new Host();
       host.root.active_turns = { [agentId]: 'turn' };
-      const payload = (text: string) => ({ text, agent_id: agentId });
+      const payload = (text: string) => ({ text, agent_id: agentId, part_id: 'part', turn_id: 'turn' });
       const initial = [{ seq: '10', kind, payload: payload('A') }];
       if (agentId === 'root') host.root.presentation = initial;
       else host.root.agent_presentations = { [agentId]: initial };
@@ -314,12 +412,13 @@ for (const agentId of ['root', 'child']) {
       else host.root.agent_presentations = { [agentId]: suffix };
       await view.refresh();
       await view.refresh(); // A repeat must not lose the unresolved suffix boundary.
-      host.streams.at(-1)!.push('15', kind, payload('F'));
-      host.streams.at(-1)!.push('16', kind, payload('G'));
-      await until(() => view.getSnapshot().root?.cursor === '16');
+      host.streams.at(-1)!.push('15', 'stream.usage', { agent_id: agentId });
+      host.streams.at(-1)!.push('16', kind, payload('F'));
+      host.streams.at(-1)!.push('17', kind, payload('G'));
+      await until(() => view.getSnapshot().root?.cursor === '17');
       const rows = agentId === 'root' ? view.getSnapshot().root?.presentation : view.getSnapshot().root?.agent_presentations?.[agentId];
-      assert.deepEqual(rows?.map(row => (row.payload as StreamEvent).text), ['A', 'CD', 'FG']);
-      assert.deepEqual(rows?.map(row => row.seq), ['10', '12', '15']);
+      assert.deepEqual(rows?.filter(row => row.kind === kind).map(row => (row.payload as StreamEvent).text), ['A', 'CD', 'FG']);
+      assert.deepEqual(rows?.filter(row => row.kind === kind).map(row => row.seq), ['10', '12', '16']);
     });
   }
 }
@@ -582,8 +681,8 @@ test('empty root history and omitted bodies do not imply older messages', async 
     assert.equal(view.getSnapshot().history.root!.messages.length, 0);
     host.root.omitted = { messages: true };
     await view.refresh();
-    assert.equal(view.getSnapshot().history.root!.hasMore, true, 'An omitted empty snapshot can be recovered');
-    await view.loadOlder();
+    await until(() => view.getSnapshot().history.root!.messages.length === 1);
+    assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1, 'An omitted empty snapshot is recovered automatically');
     assert.equal(view.getSnapshot().history.root!.hasMore, false);
     assert.equal(host.calls.at(-1)?.params.through_seq, -1);
     assert.equal(host.calls.at(-1)?.params.before_seq, undefined);
@@ -800,7 +899,7 @@ test('REPL supplements count against the SessionView byte limit even while publi
   const current = view.getSnapshot();
   assert.ok(current.retainedBytes <= 4096);
   assert.equal(current.truncated, true);
-  const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, executions: current.executions })).byteLength;
+  const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, unverifiedInbox: current.unverifiedInbox, executions: current.executions })).byteLength;
   assert.equal(bytes, current.retainedBytes);
 });
 
@@ -924,4 +1023,756 @@ test('saved child failure survives refresh without inventing an execution cell',
   host.streams.at(-1)!.push('14', 'agent.turn.succeeded', { agent_id: 'child', turn_id: 'next-turn', status: 'succeeded' });
   await until(() => view.getSnapshot().root?.agents?.[0]?.last_turn?.status === 'succeeded');
   assert.equal(view.getSnapshot().root?.agents?.[0]?.last_turn?.error, undefined);
+});
+
+function historyRecords(first: number, last: number) {
+  return Array.from({ length: last - first + 1 }, (_, index) => ({ seq: first + index, message: { role: 'assistant', content: `record ${first + index}` } }));
+}
+function historySnapshot(host: Host, first: number, last: number) {
+  const records = historyRecords(first, last);
+  host.root.messages = records.map(item => item.message);
+  host.root.message_seqs = records.map(item => item.seq);
+}
+function gapPage(params: Record<string, unknown>, count = 128) {
+  const first = Number(params.after_seq) + 1, last = Math.min(Number(params.through_seq), first + count - 1);
+  return { history_revision: '1', through_seq: params.through_seq, next_seq: last, has_more: last < Number(params.through_seq), messages: historyRecords(first, last) };
+}
+
+test('gap repair is capped, shares readers, consumes live events, and preserves its retry identity', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  let release!: (page: unknown) => void;
+  host.history = () => new Promise(resolve => { release = resolve; });
+  historySnapshot(host, 20, 22);
+  await view.refresh();
+  const history = view.getSnapshot().history.root!;
+  assert.deepEqual(history.gaps, [{ fromSeq: 2, toSeq: 19, status: 'loading', error: undefined }]);
+  assert.equal(history.loading, false, 'Gap loading leaves the current transcript usable');
+  const shared = view.loadHistoryGap('root', 19);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+  host.streams.at(-1)!.push('11', 'stream.text', { text: 'still streaming', turn_id: 'next' });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  host.history = async params => gapPage(params, 2);
+  release(gapPage({ after_seq: 1, through_seq: 19 }, 2));
+  await shared;
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'paused');
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 4);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps?.map(gap => [gap.fromSeq, gap.toSeq]), [[10, 19]]);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 4, 'Ordinary refresh cannot restart exhausted work');
+  await view.loadHistoryGap('root', 19);
+  assert.equal(view.getSnapshot().history.root!.gaps?.[0]?.fromSeq, 12);
+  assert.equal(view.getSnapshot().history.root!.gaps?.[0]?.status, 'paused');
+  assert.ok(host.calls.filter(call => call.method === 'history.page').every(call => call.params.limit === 128 && call.params.max_bytes === 256 * 1024));
+});
+
+for (const invalid of ['empty', 'out-of-order', 'wrong-end', 'error']) test(`invalid gap read (${invalid}) stays local and supports explicit retry`, async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 5, 7);
+  host.history = async params => {
+    if (invalid === 'error') throw new Error('x'.repeat(2048));
+    const page = gapPage(params);
+    return { ...page, ...(invalid === 'empty' ? { messages: [] } : invalid === 'wrong-end' ? { through_seq: 99 } : { messages: [...page.messages].reverse() }) };
+  };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(view.getSnapshot().error, undefined);
+  assert.ok(view.getSnapshot().history.root!.gaps![0]!.error!.length <= 512);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
+  host.history = async params => gapPage(params);
+  await view.loadHistoryGap('root', 4);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  assert.equal(view.getSnapshot().history.root!.hasMore, false);
+});
+
+test('refresh and revision changes reject both stale gap successes and errors', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  let reject!: (error: Error) => void;
+  host.history = () => new Promise((_, fail) => { reject = fail; });
+  historySnapshot(host, 5, 7);
+  await view.refresh();
+  host.root = snapshot('20', '2');
+  await view.refresh();
+  reject(new Error('obsolete'));
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.revision, '2');
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  assert.equal(view.getSnapshot().error, undefined);
+  let resolve!: (value: unknown) => void;
+  host.history = () => new Promise(done => { resolve = done; });
+  historySnapshot(host, 5, 7);
+  await view.refresh();
+  host.root = snapshot('30', '3');
+  await view.refresh();
+  resolve({ ...gapPage({ after_seq: 1, through_seq: 4 }), history_revision: '2' });
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.revision, '3');
+  assert.equal(view.getSnapshot().history.root!.messages.length, 1);
+});
+
+test('opened child coverage repairs without opening other agents and close/reopen rejects late reads', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async () => ({ history_revision: '1', through_seq: 1, next_seq: 1, has_more: false, messages: historyRecords(1, 1) });
+  await view.openAgent('child');
+  host.history = async params => params.after_seq !== undefined ? gapPage(params) : { history_revision: '1', through_seq: 7, next_seq: 5, has_more: true, messages: historyRecords(5, 7) };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.child?.messages.length === 7);
+  assert.deepEqual(Object.keys(view.getSnapshot().history).sort(), ['child', 'root']);
+  assert.equal(host.streams.filter(stream => !stream.closed).length, 1);
+  let resolve!: (value: unknown) => void;
+  host.history = () => new Promise(done => { resolve = done; });
+  const oldRead = view.loadLatest('child');
+  view.closeAgent('child');
+  host.history = async () => ({ history_revision: '1', through_seq: 8, next_seq: 8, has_more: false, messages: historyRecords(8, 8) });
+  const reopened = view.openAgent('child');
+  resolve({ history_revision: '1', through_seq: 99, next_seq: 99, has_more: false, messages: historyRecords(99, 99) });
+  await Promise.all([oldRead, reopened]);
+  assert.deepEqual(view.getSnapshot().history.child!.messages.map(item => item.seq), [8]);
+});
+
+test('omitting every snapshot message reads a bounded recent page even with older retained history', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.root.messages = []; host.root.message_seqs = []; host.root.omitted = { messages: true };
+  host.history = async params => params.after_seq !== undefined ? gapPage(params) : { history_revision: '1', through_seq: 10, next_seq: 5, has_more: true, messages: historyRecords(5, 10) };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.length === 10);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+  await view.refresh();
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 2);
+});
+
+test('manual recovery retains its page, exposes an evicted suffix, and Latest restores recent records within budget', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { maxMessages: 6 });
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 20, 21);
+  host.history = async () => { throw new Error('offline history'); };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.history = async params => params.after_seq !== undefined ? gapPage(params, 6) : { history_revision: '1', through_seq: 21, next_seq: 16, has_more: true, messages: historyRecords(16, 21) };
+  await view.loadHistoryGap('root', 19);
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [2, 3, 4, 5, 6, 7]);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+  await view.loadLatest();
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [16, 17, 18, 19, 20, 21]);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.ok(view.getSnapshot().retainedBytes <= 8 * 1024 * 1024);
+  assert.deepEqual(view.getSnapshot().history.root!.gaps, []);
+});
+
+test('reconnection retries a failed range, and contiguous offloaded bodies are not gaps', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  historySnapshot(host, 5, 7);
+  host.history = async () => { throw new Error('try after reconnect'); };
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.notify('stale');
+  host.history = async params => ({ ...gapPage(params), messages: historyRecords(2, 4).map(({ seq }) => ({ seq, role: 'assistant', body: { reference_id: `body-${seq}`, size: '999999', digest: 'digest', media_type: 'application/json' } })) });
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live' && view.getSnapshot().history.root!.gaps?.length === 0);
+  assert.equal(view.getSnapshot().history.root!.messages.filter(item => item.body).length, 3);
+  assert.ok(host.calls.every(call => call.method !== 'content.read'));
+});
+
+test('new snapshot gaps and a cached paused gap keep independent recovery state', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async params => gapPage(params, 1);
+  historySnapshot(host, 20, 22);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'paused');
+  historySnapshot(host, 25, 27);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.messages.some(item => item.seq === 24));
+  assert.deepEqual(view.getSnapshot().history.root!.gaps?.map(gap => [gap.fromSeq, gap.toSeq, gap.status]), [[6, 19, 'paused']]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 6);
+});
+
+test('manual gap navigation keeps a dropped zero-based root prefix reachable', async t => {
+  const host = new Host();
+  historySnapshot(host, 0, 0);
+  const view = createSessionView(host.session(), { maxMessages: 3 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.history = async () => { throw new Error('defer recovery'); };
+  historySnapshot(host, 10, 10);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root!.gaps?.[0]?.status === 'error');
+  host.history = async params => gapPage(params, 3);
+  await view.loadHistoryGap('root', 9);
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [1, 2, 3]);
+  assert.equal(view.getSnapshot().history.root!.hasMore, true, 'The evicted record zero stays pageable');
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+});
+
+
+test('inbox projection respects recipient, newer pages, partial evidence and stable collection revisions', () => {
+  const root = snapshot('20');
+  root.collection_revision = '5'; root.omitted = { inbox: true };
+  const input = (seq: string, agent = 'root', status = 'queued') => ({ root_id: 'root', agent_id: agent, seq, kind: 'submit', status, origin: 'client', payload: { text: seq, reference_id: '', digest: '', size: '1', media_type: '', source: '' } });
+  root.inbox = [input('1')];
+  const page = { root_id: 'root', collection: 'inbox', revision: '5', event_cursor: '15', items: [{ inbox: input('2') }, { inbox: input('1', 'child') }], has_more: false };
+  const state = { root, status: 'live' as const, history: {}, collections: { inbox: page }, retainedBytes: 0, truncated: true, unavailable: false };
+  assert.deepEqual(inboxItems(state, 'root').rows.map(row => [row.item.seq, row.stale]), [['1', false], ['2', false]]);
+  assert.equal(inboxItems(state, 'root').hasMore, false);
+  root.collection_revision = '6';
+  assert.equal(inboxItems(state, 'root').rows[1]?.stale, true);
+  page.event_cursor = '25'; page.items = [{ inbox: input('1', 'root', 'running') }];
+  assert.equal(inboxItems(state, 'root').rows[0]?.item.status, 'running');
+  root.omitted.inbox = false;
+  assert.equal(inboxItems(state, 'root').rows.length, 1);
+});
+
+test('partial snapshots keep missing waiting inputs unverified until a page or lifecycle event resolves them', async t => {
+  const host = new Host();
+  host.root.inbox = ['1', '2'].map(seq => ({ root_id: 'root', agent_id: 'root', seq, origin: 'client', kind: 'submit', status: 'queued',
+    payload: { text: seq, reference_id: '', digest: '', size: '1', media_type: '', source: '' } }));
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.root.inbox = []; host.root.omitted = { inbox: true };
+  await view.refresh();
+  assert.deepEqual(inboxItems(view.getSnapshot(), 'root').rows.map(row => [row.item.seq, row.stale]), [['1', true], ['2', true]]);
+  host.streams.at(-1)!.push('11', 'inbox.running', { agent_id: 'root', inbox_seq: '2', turn_id: 'turn' });
+  await until(() => inboxItems(view.getSnapshot(), 'root').rows.some(row => row.item.status === 'running'));
+  assert.deepEqual(inboxItems(view.getSnapshot(), 'root').rows.map(row => [row.item.seq, row.stale, row.item.delivery_seq]), [['1', true, undefined], ['2', false, '11']]);
+  host.root.cursor = '11';
+  await view.loadCollection('inbox');
+  assert.equal(view.getSnapshot().unverifiedInbox?.length, 0);
+  assert.ok(view.getSnapshot().retainedBytes <= 8 << 20);
+});
+
+test('a steer delivery boundary prevents adjacent response fragments from coalescing across authored input', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const stream = host.streams.at(-1)!;
+  stream.push('11', 'stream.text', { text: 'Before.' });
+  stream.push('12', 'inbox.running', { agent_id: 'root', inbox_seq: '1', turn_id: 'turn' });
+  stream.push('13', 'stream.text', { text: 'After.' });
+  await until(() => view.getSnapshot().root?.cursor === '13');
+  assert.deepEqual(view.getSnapshot().root?.presentation?.map(row => row.payload), [{ text: 'Before.' }, { text: 'After.' }]);
+  host.root = { ...snapshot('13'), presentation: [
+    { seq: '11', kind: 'stream.text', payload: { text: 'Before.' } },
+    { seq: '13', kind: 'stream.text', payload: { text: 'After.' } },
+  ], inbox: [{ root_id: 'root', agent_id: 'root', seq: '1', kind: 'submit', status: 'running', delivery_seq: '12',
+    payload: { text: 'B', reference_id: '', digest: '', size: '1', media_type: '', source: '' } }] };
+  const reopened = createSessionView(host.session());
+  t.after(() => reopened.dispose());
+  await reopened.start();
+  assert.deepEqual(reopened.getSnapshot().root?.presentation?.map(row => row.payload), [{ text: 'Before.' }, { text: 'After.' }]);
+});
+
+function recordedTracePage(seq = '1', hasMore = false): SpanPage {
+  return { root_id: 'root', next_seq: seq, has_more: hasMore, server_time_ns: '1700000000000000000', spans: [{
+    id: `span-${seq}`, trace_id: 'old-turn', root_id: 'root', agent_id: 'root', kind: 'agent', name: 'old turn', status: 'ok',
+    start_ns: '1600000000000000000', end_ns: '1600000000001250000', updated_seq: seq,
+  }] };
+}
+function pendingTracePage() {
+  let resolve!: (page: SpanPage) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<SpanPage>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+test('historical trace reads survive snapshot refresh and concurrent callers wait for the same page', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const first = view.loadTrace();
+  let joined = false;
+  const second = view.loadTrace().then(() => { joined = true; });
+  await until(() => !!view.getSnapshot().trace?.loading);
+  assert.equal(joined, false);
+  await view.refresh();
+  pending.resolve(recordedTracePage());
+  await Promise.all([first, second]);
+  const trace = view.getSnapshot().trace!;
+  assert.equal(trace.loading, false);
+  assert.equal(trace.loaded, true);
+  assert.equal(trace.spans['span-1']!.startMs, 1600000000000);
+  assert.equal(trace.spans['span-1']!.endMs - trace.spans['span-1']!.startMs, 1.25);
+  assert.equal(host.calls.filter(call => call.method === 'trace.page').length, 1);
+});
+
+test('trace errors after refresh remain retryable and empty historical sessions settle as loaded', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  const rejected = assert.rejects(load, /timed out/);
+  await until(() => !!view.getSnapshot().trace?.loading);
+  await view.refresh();
+  pending.reject(new Error('Request timed out: trace.page'));
+  await rejected;
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.match(view.getSnapshot().trace!.error!.message, /timed out/);
+  host.trace = async () => ({ ...recordedTracePage('0'), spans: [] });
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.loaded, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.deepEqual(view.getSnapshot().trace!.spans, {});
+});
+
+test('trace disconnect aborts only the old read and late replies cannot overwrite reconnect results', async t => {
+  const host = new Host();
+  const first = pendingTracePage();
+  const next = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return first.promise; };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const oldLoad = view.loadTrace();
+  await until(() => !!signal);
+  host.notify('disconnected');
+  assert.equal(signal!.aborted, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = () => next.promise;
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  const newLoad = view.loadTrace();
+  await until(() => !!view.getSnapshot().trace?.loading);
+  first.resolve(recordedTracePage('1'));
+  await oldLoad;
+  assert.equal(view.getSnapshot().trace!.loading, true, 'old finally must not clear the new loading flag');
+  assert.equal(view.getSnapshot().trace!.spans['span-1'], undefined);
+  next.resolve(recordedTracePage('2'));
+  await newLoad;
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '2');
+});
+
+test('trace pagination pauses after eight pages and continues from its durable cursor, including after an error', async t => {
+  const host = new Host();
+  host.trace = async params => recordedTracePage(String(Number(params.after_seq) + 1), true);
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.pageCursor, '8');
+  assert.equal(view.getSnapshot().trace!.hasMore, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  assert.equal(host.calls.filter(call => call.method === 'trace.page').length, 8);
+  host.trace = async params => {
+    if (params.after_seq === '8') return recordedTracePage('9', true);
+    throw new Error('page failed');
+  };
+  await assert.rejects(view.loadTrace(), /page failed/);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '9');
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = async params => { assert.equal(params.after_seq, '9'); return recordedTracePage('10'); };
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.hasMore, false);
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.equal(Object.keys(view.getSnapshot().trace!.spans).length, 10);
+});
+
+test('trace pages cannot regress live spans or advance the durable cursor from live events', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  host.trace = () => pending.promise;
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  await until(() => !!view.getSnapshot().trace?.loading);
+  const live = { ...recordedTracePage().spans![0]!, updated_seq: '11', end_ns: '1600000000002500000' };
+  host.streams.at(-1)!.push('11', 'span.ended', live);
+  await until(() => view.getSnapshot().trace?.spans['span-1']?.updatedSeq === '11');
+  pending.resolve(recordedTracePage());
+  await load;
+  assert.equal(view.getSnapshot().trace!.spans['span-1']!.updatedSeq, '11');
+  assert.equal(view.getSnapshot().trace!.pageCursor, '1');
+  host.trace = async params => { assert.equal(params.after_seq, '1'); return recordedTracePage('11'); };
+  host.notify('disconnected');
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  await view.loadTrace();
+  assert.equal(view.getSnapshot().trace!.pageCursor, '11');
+});
+
+test('trace disposal cancels pending transport and wrong-root/nonadvancing pages are retryable failures', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.trace = async () => ({ ...recordedTracePage(), root_id: 'other' });
+  await assert.rejects(view.loadTrace(), /different root/);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  host.trace = async () => recordedTracePage('0', true);
+  await assert.rejects(view.loadTrace(), /did not advance/);
+  assert.equal(view.getSnapshot().trace!.pageCursor, '0');
+  const pending = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const load = view.loadTrace();
+  await until(() => !!signal);
+  await view.dispose();
+  assert.equal(signal!.aborted, true);
+  pending.resolve(recordedTracePage());
+  await load;
+  assert.equal(view.getSnapshot().trace, undefined);
+  await assert.rejects(view.loadTrace(), /closed/);
+});
+
+test('runtime replacement cancels old trace evidence and refuses new trace reads on that view', async t => {
+  const host = new Host();
+  const pending = pendingTracePage();
+  let signal: AbortSignal | undefined;
+  host.trace = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  const load = view.loadTrace();
+  await until(() => !!signal);
+  host.notify('connected', 'different-runtime');
+  assert.equal(signal!.aborted, true);
+  assert.equal(view.getSnapshot().trace!.loading, false);
+  pending.reject(new Error('late old-runtime failure'));
+  await load;
+  assert.equal(view.getSnapshot().trace!.error, undefined);
+  assert.deepEqual(view.getSnapshot().trace!.spans, {});
+  await assert.rejects(view.loadTrace(), /runtime changed/);
+});
+
+function warmupHost() {
+  const host = new Host();
+  const messages = Array.from({ length: 320 }, (_, index) => ({ seq: index + 1, message: { role: 'user', content: `Record ${index + 1}` } }));
+  host.root.messages = messages.slice(-64).map(item => item.message);
+  host.root.message_seqs = messages.slice(-64).map(item => item.seq);
+  host.root.omitted = { messages: true };
+  const page = (first = 129, last = 256): BoundedTranscriptPage => ({
+    history_revision: host.root.history_revision, through_seq: 320, next_seq: first, has_more: first > 1,
+    messages: messages.slice(first - 1, last),
+  });
+  host.history = async () => page();
+  const calls = () => host.calls.filter(call => call.method === 'history.page');
+  return { host, page, calls };
+}
+
+function pendingHistoryPage() {
+  let resolve!: (page: BoundedTranscriptPage) => void;
+  const promise = new Promise<BoundedTranscriptPage>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('initial history warm-up is opt-in, bounded, nonblocking and shared with older readers', async t => {
+  const { host, page, calls } = warmupHost();
+  const pending = pendingHistoryPage();
+  host.history = () => pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(view.getSnapshot().history.root!.messages.length, 64);
+  assert.equal(view.getSnapshot().history.root!.loading, true);
+  const older = view.loadOlder();
+  assert.equal(calls().length, 1);
+  assert.deepEqual(calls()[0]!.params, {
+    root_id: 'root', agent_id: 'root', recent: true, through_seq: 320, before_seq: 257, revision: '1', limit: 128, max_bytes: 256 * 1024,
+  });
+  pending.resolve(page());
+  await older;
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+  assert.equal(view.getSnapshot().history.root!.messages[0]!.seq, 129);
+  assert.equal(view.getSnapshot().history.root!.hasMore, true);
+  await view.start();
+  await view.refresh();
+  const unsubscribe = view.subscribe(() => {}); unsubscribe();
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.deepEqual(Object.keys(view.getSnapshot().history), ['root']);
+});
+
+for (const enabled of [undefined, false]) test(`SDK initial history warm-up default remains off (${enabled})`, async t => {
+  const { host, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: enabled });
+  t.after(() => view.dispose());
+  await view.start();
+  await view.refresh();
+  assert.equal(calls().length, 0);
+  assert.equal(view.getSnapshot().history.root!.messages.length, 64);
+});
+
+test('initial history warm-up survives an offline first start but is not repeated on reconnect', async t => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(calls().length, 0);
+  host.notify('connected');
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  host.notify('reconnecting'); host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  await view.refresh();
+  assert.equal(calls().length, 1);
+});
+
+test('a user older read on first live publication consumes the shared warm-up opportunity', async t => {
+  const { host, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  let requested = false;
+  let older: Promise<void> | undefined;
+  view.subscribe(() => {
+    if (!requested && view.getSnapshot().status === 'live') {
+      requested = true;
+      older = view.loadOlder();
+    }
+  });
+  await view.start();
+  await older;
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+});
+
+test('exhausted first-live history spends the opportunity rather than warming on a later revision', async t => {
+  const { host, calls } = warmupHost();
+  const long = host.root;
+  host.root = snapshot();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  host.root = { ...long, history_revision: '2' };
+  await view.refresh();
+  assert.equal(calls().length, 0);
+});
+
+for (const transition of ['refresh', 'revision', 'disconnect', 'dispose', 'runtime']) test(`initial history warm-up ignores late results after ${transition}`, async t => {
+  const { host, page, calls } = warmupHost();
+  const pending = pendingHistoryPage();
+  let signal: AbortSignal | undefined;
+  host.history = (_params, options) => { signal = options?.signal; return pending.promise; };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  const result = page();
+  if (transition === 'refresh') await view.refresh();
+  if (transition === 'revision') { host.root.history_revision = '2'; await view.refresh(); }
+  if (transition === 'disconnect') host.notify('reconnecting');
+  if (transition === 'dispose') await view.dispose();
+  if (transition === 'runtime') host.notify('connected', 'replacement');
+  assert.equal(signal?.aborted, true);
+  pending.resolve(result);
+  await pause();
+  assert.equal(view.getSnapshot().history.root!.messages[0]!.seq, 257);
+  if (transition === 'disconnect') { host.notify('connected'); await until(() => view.getSnapshot().status === 'live'); }
+  assert.equal(calls().length, 1);
+});
+
+test('missing recent recovery finishes before the single older warm-up page', async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.before_seq ? page(65, 192) : pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.before_seq, undefined);
+  pending.resolve(page(193, 320));
+  await until(() => view.getSnapshot().history.root?.messages[0]?.seq === 65);
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 193);
+  await view.refresh();
+  assert.equal(calls().length, 2);
+});
+
+test('initial warm-up repairs an interior gap before extending the older boundary', async t => {
+  const { host, page, calls } = warmupHost();
+  const last = host.root.messages!.at(-1)!;
+  host.root.messages = [host.root.messages![0]!, last];
+  host.root.message_seqs = [257, 320];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.after_seq ? pending.promise : page();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.after_seq, 257);
+  pending.resolve({ ...page(258, 319), through_seq: 319, next_seq: 319, has_more: false });
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 257);
+  assert.equal(view.getSnapshot().history.root!.gaps?.length, 0);
+});
+
+for (const failure of ['network', 'cursor', 'revision']) test(`initial warm-up ${failure} failure does not loop and remains manually retryable`, async t => {
+  const { host, page, calls } = warmupHost();
+  host.history = async () => {
+    if (failure === 'network') throw new Error('offline history');
+    return { ...page(), ...(failure === 'cursor' ? { next_seq: 257 } : { history_revision: 'old' }) };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await pause();
+  assert.equal(view.getSnapshot().status, 'live');
+  if (failure !== 'revision') assert.ok(view.getSnapshot().history.root?.error);
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  host.history = async () => page();
+  await view.loadOlder();
+  assert.equal(view.getSnapshot().history.root!.messages.length, 192);
+  assert.equal(calls().length, 2);
+});
+
+test('failed recent recovery suppresses speculative older warm-up', async t => {
+  const { host, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  host.history = async () => { throw new Error('recent unavailable'); };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await pause();
+  await view.refresh();
+  assert.equal(calls().length, 1);
+  assert.equal(calls()[0]!.params.before_seq, undefined);
+});
+
+test('initial warm-up obeys retention bounds and Latest can recover an evicted suffix', async t => {
+  const { host, page, calls } = warmupHost();
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true, maxMessages: 128, maxBytes: 32 * 1024 });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.messages.length === 128);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, true);
+  assert.ok(view.getSnapshot().retainedBytes <= 32 * 1024);
+  host.history = async () => page(193, 320);
+  await view.loadLatest();
+  assert.equal(view.getSnapshot().history.root!.messages.at(-1)!.seq, 320);
+  assert.equal(view.getSnapshot().history.root!.latestMissing, false);
+  assert.equal(calls().length, 2);
+});
+
+test('an older read queued behind recent recovery replaces rather than adds to warm-up', async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = []; host.root.message_seqs = [];
+  const pending = pendingHistoryPage();
+  host.history = async params => params.before_seq ? page(65, 192) : pending.promise;
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  // Once recent rows are published, ask for the older page before repair resumes.
+  let older: Promise<void> | undefined;
+  view.subscribe(() => {
+    if (!older && view.getSnapshot().history.root?.messages[0]?.seq === 193) older = view.loadOlder();
+  });
+  pending.resolve(page(193, 320));
+  await until(() => view.getSnapshot().history.root?.messages[0]?.seq === 65);
+  await older;
+  await view.refresh();
+  assert.equal(calls().length, 2);
+  assert.equal(calls()[1]!.params.before_seq, 193);
+});
+
+for (const outcome of ['error', 'paused']) test(`initial warm-up does not bypass an ${outcome} interior gap`, async t => {
+  const { host, page, calls } = warmupHost();
+  host.root.messages = [host.root.messages![0]!, host.root.messages!.at(-1)!];
+  host.root.message_seqs = [257, 320];
+  host.history = async params => {
+    if (outcome === 'error') throw new Error('gap unavailable');
+    const seq = Number(params.after_seq) + 1;
+    return { ...page(seq, seq), through_seq: 319, next_seq: seq, has_more: true };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.gaps?.[0]?.status === outcome);
+  assert.equal(calls().length, outcome === 'error' ? 1 : 4);
+  assert.ok(calls().every(call => call.params.before_seq === undefined));
+  await view.refresh();
+  assert.equal(calls().length, outcome === 'error' ? 1 : 4);
+});
+
+test('an offline-first view retains its opportunity after a failed initial synchronization', async t => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const call = host.call.bind(host);
+  let fail = true;
+  host.call = async (method, params, options) => {
+    if (method === 'root.snapshot' && fail) { fail = false; throw new Error('snapshot unavailable'); }
+    return call(method, params, options);
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'error');
+  assert.equal(calls().length, 0);
+  await view.refresh();
+  await until(() => view.getSnapshot().history.root?.messages.length === 192);
+  await view.refresh();
+  assert.equal(calls().length, 1);
+});
+
+test('disposing an offline-first view prevents any later warm-up', async () => {
+  const { host, calls } = warmupHost();
+  host.notify('reconnecting');
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  await view.start();
+  await view.dispose();
+  host.notify('connected');
+  await view.refresh();
+  assert.equal(view.getSnapshot().status, 'closed');
+  assert.equal(calls().length, 0);
+  assert.equal(host.calls.length, 0);
+});
+
+test('initial warm-up retains a zero-based root beginning and does not reopen its exhausted boundary', async t => {
+  const host = new Host();
+  const messages = Array.from({ length: 4 }, (_, seq) => ({ seq, message: { role: 'user', content: `Record ${seq}` } }));
+  host.root.messages = messages.slice(2).map(item => item.message);
+  host.root.message_seqs = [2, 3];
+  host.root.omitted = { messages: true };
+  host.history = async params => {
+    assert.equal(params.before_seq, 2);
+    return { history_revision: '1', through_seq: 3, next_seq: 0, has_more: false, messages: messages.slice(0, 2) };
+  };
+  const view = createSessionView(host.session(), { initialHistoryWarmup: true });
+  t.after(() => view.dispose());
+  await view.start();
+  await until(() => view.getSnapshot().history.root?.messages.length === 4);
+  assert.equal(view.getSnapshot().history.root!.nextSeq, 0);
+  assert.equal(view.getSnapshot().history.root!.hasMore, false);
+  await view.refresh();
+  await view.loadOlder();
+  assert.deepEqual(view.getSnapshot().history.root!.messages.map(item => item.seq), [0, 1, 2, 3]);
+  assert.equal(host.calls.filter(call => call.method === 'history.page').length, 1);
 });

@@ -3,7 +3,7 @@
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `6` (minor `0`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `6` (minor `8`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -15,6 +15,14 @@ editing Go types with `npm run generate`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol **6.8** adds optional versioned transcript `presentation` metadata,
+stream `part_id`, and allowlisted operation `display` fields. Durable presentation
+stays in existing raw JSON records, separate from opaque provider continuation.
+A bounded page can carry a compact presentation summary alongside a content
+handle. IDs/outcomes remain available without eagerly reading large bodies;
+omission is explicit. Clients without these fields retain their generic execution
+projection. See [frontend ownership and bounds](frontend.md#conversation-and-navigation-patterns).
 
 Protocol **6.0** adds immutable session execution languages and cell result format 2.
 Older clients are rejected during `initialize`, before they can subscribe to JavaScript
@@ -88,6 +96,47 @@ is returned as `TextResult.output` beside `text` on submit and steer commands.
 Registered documents from before this minor decode with the fields absent,
 which is the same as null, so their revisions do not move. All additions are
 additive.
+
+Protocol **6.7** adds the durable trace. The daemon records one span per unit of
+work it already observes (a turn, a provider attempt, a model tool call, a host
+call inside a cell, a wait on a permission or question) with nanosecond
+`start_ns`/`end_ns` captured on the observing goroutine, and journals
+`span.started` and `span.ended` with the full `SpanRecord` so a client renders a
+span the moment it begins and merges the settlement by `id`. Spans outlive the
+event window: `trace.page` (query, root association) reads them after an
+`updated_seq` cursor, optionally for one `trace_id` or only the turn spans that
+start traces (`roots_only`), and returns `server_time_ns` so clients draw open
+spans against the daemon's clock. A trace is one root turn; a child turn joins
+the trace of the host call that queued its input (`parent_span_id`/`span_trace_id`
+on inbox rows and mailbox messages), with further digest messages as `links`.
+`trace.export` renders a session (or one trace) as an OTLP/JSON
+`ExportTraceServiceRequest` carrying OTel GenAI and OpenInference attributes,
+returned as a root-scoped content reference; `whip sessions export <root>
+[-trace id] [-o file|-] [-push URL]` wraps it. Every stored stamp is
+now RFC 3339 with a fixed nine-digit fraction; `stream.cell.host` gains
+`operation_id` when the call was admitted through the dispatcher.
+
+Model call spans also point at the bodies the transcript never holds, as
+root-scoped content references readable through `content.read`:
+`system_prompt_ref` and `system_prompt_bytes` name the system prompt the turn
+ran under (interned once per turn, shared by digest within the session),
+`ephemeral_ref` and `ephemeral_bytes` name the ephemeral system text the
+request carried (turn and final-answer calls only; interned when it changes),
+and a compaction span (named `compaction`, purpose `compaction`) carries
+`output_ref` and `output_bytes` for the summary it produced plus `raw_cutoff`,
+the last transcript seq the fold covered. The summary arrives after the call settled, so
+the daemon patches the span and journals it again as `span.ended`; clients
+upsert by `updated_seq`. A user command that calls the model outside a turn
+(`history.compact`, `goal.from-context`) opens its own trace: a root `agent`
+span named for the command (`compact`, `goal`) with `trigger: command`, the
+`command`, and `input`/`output` excerpts, with the model call under it; the
+export renders such a root as `CHAIN` with `gen_ai.operation.name` set to the
+command. The export emits the system prompt as the leading
+`system` input message and the ephemeral text as the trailing one, matching the
+request order, each only when its reference changed since the agent's previous
+call that carried it; the summary as the compaction span's output message and
+as a system message on the agent's next call; and `whip.compaction.raw_cutoff`
+on both.
 
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
@@ -190,7 +239,8 @@ explicitly.
 Unix sockets use one newline-delimited JSON envelope per message. WebSockets
 use one envelope per text message. Binary WebSocket messages are rejected.
 Fragmented messages have a cumulative 1 MiB bound; control and data frames are
-written under one lock. Large bodies travel through HTTP content transfers.
+written under one lock. Large bodies use the bounded [content transfers](#content-transfers);
+desktop Browser screenshots require same-connection chunk RPCs, not HTTP.
 
 `initialize` is the first request. A request ID identifies only its response;
 it is unrelated to a durable command ID, connection ID, root ID, agent ID or
@@ -232,6 +282,33 @@ explicitly ephemeral operations such as terminal input and MCP attachment.
 Credentials and terminal input must never enter durable retry queues. Provider
 login operations expose progress and choices while keeping tokens on the host.
 Configuration writes require a revision and preserve host-side atomic writes.
+
+## Desktop Browser provider lifetime
+
+Desktop Browser is **experimental and release-gated**; native tabs are enabled
+by default, with a [desktop launch-time opt-out](desktop.md#browser-tabs-experimental).
+Advertising `desktop-browser-v1` during initialization does not authorize control.
+`browser.provider.bind` explicitly associates one root with its exact
+authenticated connection and a fresh provider epoch; another connection is not
+a replacement merely because it is newer. The [SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+owns selection/acknowledgement behavior. See the
+[Browser lifecycle guide](browser-computer-use.md#desktop-browser-tabs) for the
+agent operations; generated schemas remain the wire inventory.
+
+Provider traffic is not a durable retry queue. `browser.command` has a distinct
+command ID from its enclosing operation; results and `browser.command.cancel`
+match the exact root, epoch, command and attachment generation. Cancellation
+after delivery can report `outcome_unknown`; neither reconnect nor a late result
+replays the page effect. Native observations are ordered and bounded; invalid
+live sequence/authority fails closed. Screenshots use `upload.begin`,
+`upload.chunk` and `upload.finish` on the same holder connection with the
+requesting root/agent, even over WebSocket, preserving content authorization
+without HTTP or filesystem fallback.
+
+`browser.provider.unbind` releases only that holder's exact root/epoch. Release,
+disconnect, replacement or revocation ends agent control without closing human
+tabs; reconnect requires a fresh explicit selection. It does not recover a
+Browser lease through ordinary command-status or event replay.
 
 ## Reconnect and bounded views
 
@@ -334,8 +411,9 @@ decision handoff to the dispatcher. Revalidation and the tool operation settle
 asynchronously; observe runtime state and events for their authoritative outcome.
 The reply does not establish tool completion, and a crash during the handoff can
 interrupt the underlying operation. Optional `reason` explains a decision;
-`remember` accepts `tree` or `global` for an allowed request. An uncertain
-acknowledgement requires reconciling current permission state; the SDK
+`remember` accepts `tree` or `global` for an allowed request, except Browser
+requests, which currently allow Once-only approval and reject remembered scope.
+An uncertain acknowledgement requires reconciling current permission state; the SDK
 does not automatically repeat decisions.
 
 Permission mode changes use the ordinary durable runtime `permission.mode`
@@ -477,9 +555,14 @@ configuration to distinguish loaded model catalogs from unverified public or
 bundled lists. Ordinary configuration reads omit it; it is not persisted state
 or proof of a successful inference call.
 `provider.disconnect` requires `{ provider, revision }`, removes the selected
-WHIP-owned credential and disables the route. External/environment credentials
-can only be disabled. Legacy `provider.logout` retains account-only behavior.
-Disabling rejects subsequent model-request admissions, including helpers,
+WHIP-owned credentials and clears any disabled flag for that provider.
+Built-in endpoints return to their default environment-key reference; custom
+endpoints and model defaults are preserved. Existing host credentials can make
+the default provider available again. External/environment credentials must be
+removed at their source; reset of a disabled route never deletes them.
+Legacy `provider.logout` retains account-only behavior. The configuration API
+accepts disabled IDs without deleting credentials; re-enabling reuses the existing
+credentials. Disabling rejects subsequent model-request admissions, including helpers,
 subagents and compaction; already admitted calls keep their route snapshot.
 
 `host.directories.list` browses directories on the execution machine before a

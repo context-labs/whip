@@ -112,6 +112,9 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 	if prompt.Operation == "mcp.call" {
 		return s.decideMCP(ctx, prompt)
 	}
+	if isDesktopBrowserOperation(prompt.Operation) {
+		return s.decideDesktopBrowser(ctx, prompt)
+	}
 	s.mu.RLock()
 	headless, external := s.headlessPermissions, s.externalPermissions
 	s.mu.RUnlock()

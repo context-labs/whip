@@ -114,22 +114,11 @@ func (s *Store) RootCollectionPage(ctx context.Context, rootID, collection strin
 				page.HasMore = true
 				break
 			}
-			value, err := s.prepareContentReference(RuntimePayload{Data: raw, MediaType: "application/json", Source: "root.collection." + collection}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+			value, err := s.internContentTx(ctx, tx, rootID, "root.collection."+collection, "application/json", raw)
 			if err != nil {
 				return page, err
 			}
-			var existing string
-			err = tx.QueryRowContext(ctx, `SELECT r.id FROM content_references r JOIN content_grants g ON g.reference_id=r.id WHERE r.digest=? AND r.source=? AND g.root_id=? AND g.agent_id='' AND g.scope='root' AND g.revoked_at='' LIMIT 1`, value.Digest, value.Source, rootID).Scan(&existing)
-			if err == nil {
-				value.ReferenceID = existing
-			} else if errors.Is(err, sql.ErrNoRows) {
-				if err := insertRuntimeValue(ctx, tx, value, now()); err != nil {
-					return page, err
-				}
-			} else {
-				return page, err
-			}
-			entry = CollectionEntry{Body: &value.RuntimeValue}
+			entry = CollectionEntry{Body: &value}
 		}
 		page.Items = append(page.Items, entry)
 		page.NextCursor = &CollectionCursor{RootID: rootID, Collection: collection, Revision: page.Revision, Offset: offset + int64(len(page.Items))}
@@ -207,13 +196,15 @@ func (s *Store) readCollectionEntry(ctx context.Context, tx *sql.Tx, rootID, col
 		return CollectionEntry{Budget: &value}, nil
 	case "inbox":
 		value := InboxItem{RootID: rootID}
-		err := tx.QueryRowContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
-   FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.rowid=?`, InlineValueLimit+1, rootID, key).Scan(&value.Seq, &value.AgentID, &value.Kind, &value.Status, &value.Payload.Inline, &value.Payload.ReferenceID, &value.Payload.Digest, &value.Payload.Size, &value.Payload.MediaType, &value.Payload.Source)
+		var preview []byte
+		err := tx.QueryRowContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
+   FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.rowid=?`, InlineValueLimit+1, rootID, key).Scan(&value.Seq, &value.AgentID, &value.Kind, &value.Status, &value.Payload.Inline, &value.Payload.ReferenceID, &value.Payload.Digest, &value.Payload.Size, &value.Payload.MediaType, &value.Payload.Source, &value.Origin, &value.CommandClientID, &value.CommandID, &value.SteerTurnID, &value.DeliverySeq, &preview)
 		if value.Payload.ReferenceID != "" {
 			value.Payload.Inline = nil
 		} else if len(value.Payload.Inline) > InlineValueLimit {
 			return CollectionEntry{}, errors.New("oversized inline inbox value")
 		}
+		value.Preview = readInboxPreview(preview)
 		return CollectionEntry{Inbox: &value}, err
 	case "schedules":
 		var value Schedule

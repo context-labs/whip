@@ -1,0 +1,9 @@
+mcp-brands.json holds one small mark (64 px JPEG, PNG or SVG as a data: URI)
+for each domain in mcp-brands.txt: the 200 domains behind the MCP servers in
+Executor's integration catalogue, ranked by its popularity field on
+2026-09-15. The marks were fetched from https://integrations.sh/logo/{domain}
+by scripts/mcp-brands.mjs on 2026-09-15; rerun that script to refresh them.
+
+Each mark identifies a third-party service and remains that company's
+trademark. Whip shows a mark only beside that company's own MCP server entry,
+as a visual label, and claims no affiliation or endorsement.

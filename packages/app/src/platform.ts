@@ -1,3 +1,6 @@
+import type { HostPromptsController } from './host-prompt-controller';
+import type { BrowserAgentBridge } from './browser-agent-types';
+export { createHostPrompts } from './host-prompt-controller';
 import type { ConnectionOptions, ConnectionProfile, ConnectionTarget, ResolvedConnection } from './connections';
 export { localProfile, urlProfile, validateProfile, resolveURLConnection } from './connections';
 export type { ConnectionOptions, ConnectionProfile, ConnectionTarget, ResolvedConnection } from './connections';
@@ -67,7 +70,15 @@ export interface AppProjectEditors {
   list(): Promise<readonly ProjectEditor[]>;
   open(request: OpenProjectRequest): Promise<void>;
 }
+/** Static SSH config hints; OpenSSH resolves the alias when connecting. */
+export interface SSHProfile { alias: string; hostname?: string; user?: string; port?: number }
+export interface SSHProfileList { profiles: SSHProfile[]; truncated: boolean }
+
 export interface AppPlatform {
+  /** Optional native human-browser capability. Unavailable clients retain descriptors without realizing pages. */
+  browser?: import('./browser-types').BrowserPlatform;
+  /** Explicit model-provider transport, separate from ordinary human browsing. */
+  readonly browserAgent?: BrowserAgentBridge;
   storage: AppStorage;
   /** 'inset' when the host hides the native title bar and insets its window
    * controls into the app chrome (macOS hiddenInset); the shell reserves the
@@ -84,6 +95,8 @@ export interface AppPlatform {
   download(bytes: Uint8Array<ArrayBuffer>, filename: string, mediaType: string): Promise<'saved' | 'cancelled' | void>;
   sessionLink?(path: string, profile?: ConnectionProfile): string;
   pickDirectory?(): Promise<string | undefined>;
+  listSSHProfiles?(): Promise<SSHProfileList>;
+  hostPrompts?: HostPromptsController;
   updates?: AppUpdates;
   /** Native accessibility preference; absent hosts use browser media queries. */
   systemContrast?: { getSnapshot(): boolean | undefined; subscribe(listener: () => void): () => void };

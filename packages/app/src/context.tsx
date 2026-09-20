@@ -11,6 +11,11 @@ export function useAppState() {
   const runtime = useRuntime();
   return useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
 }
+/** The shell's palette handler, for surfaces rendered inside it (the empty workspace). */
+export const ShellCommandsContext = createContext<((action: string) => void) | null>(null);
+export function useShellCommands() {
+  return useContext(ShellCommandsContext);
+}
 export function useSessionTabs() {
   const { tabs } = useRuntime();
   return useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot);

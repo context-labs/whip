@@ -599,7 +599,8 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The raw log is [q1, first-gen summary, q2, a2]. Folding at 3 replaces
-	// the raw prefix, keeps the prior derived summary, and retains the raw tail.
+	// the raw prefix, keeps the prior derived summary, and retains the raw
+	// tail without inventing a pin for this legacy record.
 	if len(got) != 3 {
 		t.Fatalf("compacted view: %d msgs %+v", len(got), got)
 	}
@@ -610,6 +611,58 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 		t.Fatalf("the prior summary must be kept: %q", got[1].Content)
 	}
 	if got[2].Content != "a2" {
+		t.Fatalf("raw tail lost: %+v", got[2:])
+	}
+}
+
+func TestApplyCompactionRePinsOpeningMessageOfSplitTurn(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	id, err := st.Create(SessionKindAgent, "/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(id string) llm.ToolCall {
+		var tc llm.ToolCall
+		tc.ID, tc.Type = id, "function"
+		return tc
+	}
+	msgs := []llm.Message{
+		{Role: "system", Content: "sys"}, // seq 0 is never persisted
+		{Role: "user", Content: "audit the files; read-only", Authored: true},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("t1")}},
+		{Role: "tool", Content: "out1", ToolCallID: "t1"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("t2")}},
+		{Role: "tool", Content: "out2", ToolCallID: "t2"},
+	}
+	if err := st.Save(id, 1, msgs, "m", "p"); err != nil {
+		t.Fatal(err)
+	}
+	// The live agent folded the first pair of a single long turn (cutoff 3:
+	// the user message and pair t1) and pinned the opening message.
+	if err := st.RecordCompaction(id, 3, "folded pair one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(t.Context(), `UPDATE compactions SET pinned=1 WHERE session_id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := st.Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("compacted view: %d msgs %+v", len(got), got)
+	}
+	if !strings.Contains(got[0].Content, "folded pair one") {
+		t.Fatalf("summary first: %q", got[0].Content)
+	}
+	if got[1].Role != "user" || got[1].Content != "audit the files; read-only" {
+		t.Fatalf("the split turn's opening user message must be re-pinned after the summary: %+v", got[1])
+	}
+	if got[2].Role != "assistant" || got[3].ToolCallID != "t2" {
 		t.Fatalf("raw tail lost: %+v", got[2:])
 	}
 }

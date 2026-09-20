@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -158,6 +159,64 @@ done(9)
         self.assertTrue(self.called('upload'))
         self.assertTrue(self.state['draft'])
         self.assertFalse(self.called('edit'))
+
+
+class WorkflowTests(unittest.TestCase):
+    def setUp(self):
+        workflows = SCRIPT.parent.parent / '.github' / 'workflows'
+        self.release = (workflows / 'release-whipcode.yml').read_text()
+        self.security = (workflows / 'security-whipcode.yml').read_text()
+
+    def job(self, workflow, name):
+        # These are source contracts, not a replacement for actionlint's YAML
+        # and expression validation. Keep the release dependency graph explicit.
+        match = re.search(r'(?ms)^  ' + re.escape(name) + r':\n(.*?)(?=^  [a-zA-Z_-]+:|\Z)', workflow)
+        self.assertIsNotNone(match, name)
+        return match.group(1)
+
+    def test_pr_codeql_keeps_the_existing_branch_analysis_identity(self):
+        self.assertRegex(self.release, r'(?m)^  push:\n    branches: \[whip-rlm\]$')
+        self.assertRegex(self.release, r'(?m)^  pull_request:\n    branches: \[whip-rlm\]$')
+        security = self.job(self.release, 'security')
+        self.assertIn("    if: github.repository == 'context-labs/whip'\n", security)
+        self.assertNotRegex(security, r'(?m)^    needs:')
+        self.assertIn('    uses: ./.github/workflows/security-whipcode.yml\n', security)
+        # The caller filename, nested job ID and category form the established
+        # .github/workflows/release-whipcode.yml:codeql baseline configuration.
+        codeql = self.job(self.security, 'codeql')
+        self.assertIn('          languages: go\n', codeql)
+        self.assertIn('          queries: security-and-quality\n', codeql)
+        self.assertIn('          category: "/language:go/whipcode"\n', codeql)
+        self.assertIn('  workflow_call:\n', self.security)
+
+    def test_pr_scanning_cannot_reach_publishing_jobs(self):
+        metadata = self.job(self.release, 'metadata')
+        self.assertIn("    if: github.repository == 'context-labs/whip' && github.ref == 'refs/heads/whip-rlm'\n", metadata)
+        # A PR ref is refs/pull/N/merge, so metadata is skipped. Default success()
+        # then skips every downstream job, including ones with write permission.
+        for job, dependencies in [('ci', 'metadata'), ('build', '[metadata, ci, security]'),
+                                  ('publish', '[metadata, build]')]:
+            with self.subTest(job=job):
+                block = self.job(self.release, job)
+                self.assertIn('    needs: ' + dependencies + '\n', block)
+                self.assertNotRegex(block, r'(?m)^    if:')
+        self.assertIn('      contents: write\n', self.job(self.release, 'publish'))
+
+    def test_pr_security_has_no_release_authority_or_secrets(self):
+        self.assertIn('\npermissions:\n  contents: read\n', self.release)
+        self.assertIn('\npermissions:\n  contents: read\n', self.security)
+        security = self.job(self.release, 'security')
+        self.assertIn('    permissions:\n      contents: read\n      security-events: write\n', security)
+        self.assertNotIn('secrets:', security)
+        self.assertNotIn('secrets.', self.security)
+        self.assertNotIn('contents: write', self.security)
+        self.assertNotIn('pull_request_target:', self.release + self.security)
+        self.assertEqual(self.security.count('security-events: write'), 1)
+        self.assertIn('      security-events: write\n', self.job(self.security, 'codeql'))
+
+    def test_pr_concurrency_is_separate_from_unchanged_branch_lock(self):
+        self.assertIn("  group: ${{ github.event_name == 'pull_request' && format('whipcode-pr-{0}', github.event.pull_request.number) || 'whipcode-publishing' }}\n", self.release)
+        self.assertIn('  cancel-in-progress: false\n', self.release)
 
 
 if __name__ == '__main__':

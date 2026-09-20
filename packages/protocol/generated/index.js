@@ -3,8 +3,48 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 6,
+  "minor": 8,
   "operations": [
+    {
+      "name": "browser.command.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserCommandResultParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "browser.inventory.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserInventoryResultParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "browser.provider.bind",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderBindParams",
+      "result_type": "BrowserProviderBindResult"
+    },
+    {
+      "name": "browser.provider.event",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderEventParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "browser.provider.unbind",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "browser-provider",
+      "params_type": "BrowserProviderUnbindParams",
+      "result_type": "Accepted"
+    },
     {
       "name": "command.status",
       "surface": "rpc",
@@ -212,6 +252,30 @@ export const manifest = {
       "permission": "root-agent-association",
       "params_type": "MailboxReadParams",
       "result_type": "MailboxInspection"
+    },
+    {
+      "name": "mcp.brand.icons",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "MCPBrandIconsParams",
+      "result_type": "MCPBrandIconsResult"
+    },
+    {
+      "name": "mcp.import.apply",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-configuration",
+      "params_type": "MCPImportApplyParams",
+      "result_type": "MCPImportApplyResult"
+    },
+    {
+      "name": "mcp.import.candidates",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "MCPImportCandidatesParams",
+      "result_type": "MCPImportCandidatesResult"
     },
     {
       "name": "operation.invoke",
@@ -501,6 +565,22 @@ export const manifest = {
       "result_type": "Accepted"
     },
     {
+      "name": "trace.export",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-association",
+      "params_type": "TraceExportParams",
+      "result_type": "TraceExportResult"
+    },
+    {
+      "name": "trace.page",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-association",
+      "params_type": "TracePageParams",
+      "result_type": "SpanPage"
+    },
+    {
       "name": "upload.begin",
       "surface": "rpc",
       "execution": "ephemeral",
@@ -739,6 +819,22 @@ export const manifest = {
       "permission": "root-association",
       "params_type": "EmptyParams",
       "result_type": "UserHistoryResult"
+    },
+    {
+      "name": "inbox.remove",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "InboxRemoveParams",
+      "result_type": "InboxControlResult"
+    },
+    {
+      "name": "inbox.steer",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "InboxSteerParams",
+      "result_type": "InboxControlResult"
     },
     {
       "name": "lsp.status",
@@ -1064,6 +1160,10 @@ export const manifest = {
     }
   ],
   "events": {
+    "browser.command": "BrowserCommand",
+    "browser.command.cancel": "BrowserCommandCancel",
+    "browser.inventory": "BrowserInventoryRequest",
+    "browser.provider.revoked": "BrowserProviderRevoked",
     "event": "EventNotification",
     "hook.cancel": "ToolCancelParams",
     "hook.invoke": "HookInvokeParams",
@@ -1103,6 +1203,9 @@ export const manifest = {
     "inbox.consumed": "LifecycleEvent",
     "inbox.failed": "LifecycleEvent",
     "inbox.queued": "LifecycleEvent",
+    "inbox.removed": "LifecycleEvent",
+    "inbox.running": "LifecycleEvent",
+    "inbox.steering": "LifecycleEvent",
     "message.deferred": "LifecycleEvent",
     "message.delivered": "LifecycleEvent",
     "message.done": "LifecycleEvent",
@@ -1129,12 +1232,15 @@ export const manifest = {
     "session.permission_mode.updated": "SessionUpdateEvent",
     "session.reload.failed": "LifecycleEvent",
     "session.title.updated": "SessionUpdateEvent",
+    "span.ended": "SpanRecord",
+    "span.started": "SpanRecord",
     "state.private.append": "LifecycleEvent",
     "state.private.cas": "LifecycleEvent",
     "state.private.set": "LifecycleEvent",
     "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
     "stream.cell.host.started": "StreamEvent",
+    "stream.discard": "StreamEvent",
     "stream.hook.decision": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",

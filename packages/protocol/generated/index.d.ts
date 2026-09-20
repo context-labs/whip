@@ -9,6 +9,19 @@ export interface AgentCancelParams {
 }
 
 export interface AgentInputParams {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
   id: string;
   text: string;
   delivery?: string;
@@ -60,6 +73,9 @@ export type AgentListResult =
           media_type: string;
           source: string;
         };
+        model_calls?: number;
+        compactions?: number;
+        last_activity_at?: string;
       };
       id: string;
       root_id: string;
@@ -121,6 +137,9 @@ export interface AgentTranscriptResult {
         media_type: string;
         source: string;
       };
+      model_calls?: number;
+      compactions?: number;
+      last_activity_at?: string;
     };
     id: string;
     root_id: string;
@@ -146,11 +165,111 @@ export interface AgentTranscriptResult {
     messages:
       | null
       | {
+          presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
           role?: string;
           authored?: boolean;
           sent_at?: null | string;
           seq: number;
           message?: null | {
+            presentation?: null | {
+              design_context?: null | {
+                context_attachment_id: string;
+                screenshot_attachment_id?: string;
+                elements:
+                  | null
+                  | {
+                      label: string;
+                      selector?: string;
+                    }[];
+                element_count: number;
+                page_url?: string;
+                page_title?: string;
+                context_part_index: number;
+                screenshot_part_index?: null | number;
+              };
+              version: number;
+              turn_id?: string;
+              parts?:
+                | null
+                | {
+                    id: string;
+                    kind: string;
+                    start?: number;
+                    end?: number;
+                    text?: string;
+                    tool_name?: string;
+                    status?: string;
+                    call_id?: string;
+                    hosts?:
+                      | null
+                      | {
+                          invocation_id: string;
+                          name: string;
+                          summary?: string;
+                          status: string;
+                          duration?: string;
+                          error?: string;
+                          display?: null | {
+                            target?: string;
+                            command?: string;
+                            query?: string;
+                            child_id?: string;
+                            label?: string;
+                          };
+                        }[];
+                    omitted?: number;
+                  }[];
+              omitted?: number;
+            };
             role: string;
             content:
               | string
@@ -193,6 +312,7 @@ export interface AgentTranscriptResult {
             };
             model?: string;
             rewound_from?: string;
+            call_id?: string;
           };
           body?: null | {
             inline?: unknown;
@@ -216,6 +336,45 @@ export interface AgentTranscriptResult {
   inbox?:
     | null
     | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
         root_id: string;
         agent_id: string;
         seq: string;
@@ -250,11 +409,111 @@ export interface BoundedTranscriptPage {
   messages:
     | null
     | {
+        presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
         role?: string;
         authored?: boolean;
         sent_at?: null | string;
         seq: number;
         message?: null | {
+          presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
           role: string;
           content:
             | string
@@ -297,6 +556,7 @@ export interface BoundedTranscriptPage {
           };
           model?: string;
           rewound_from?: string;
+          call_id?: string;
         };
         body?: null | {
           inline?: unknown;
@@ -311,8 +571,176 @@ export interface BoundedTranscriptPage {
       }[];
 }
 
+export interface BrowserCommand {
+  command_id: string;
+  operation_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_epoch: string;
+  scope: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  expected_document?: string;
+  deadline_millis: string;
+  kind: string;
+  arguments: unknown;
+}
+
+export interface BrowserCommandCancel {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  reason: string;
+}
+
+export interface BrowserCommandResultParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  document_revision: string;
+  result?: unknown;
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+  screenshot?: null | {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+}
+
 export interface BrowserDriverParams {
   driver: string;
+}
+
+export interface BrowserInventoryRequest {
+  request_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+      }[];
+}
+
+export interface BrowserInventoryResultParams {
+  request_id: string;
+  root_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        document_revision: string;
+        url: string;
+        title: string;
+        state: string;
+        requestable: boolean;
+        attachment_id?: string;
+      }[];
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+}
+
+export interface BrowserProviderBindParams {
+  availability?: boolean;
+  root_id: string;
+  version: number;
+  desktop_id: string;
+  window_id: string;
+  offer_revision: string;
+  create_profile_id: string;
+  expected_provider_epoch?: string;
+  offered_tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        profile_id: string;
+        document_revision?: string;
+        url?: string;
+        title?: string;
+        preview?: null | {
+          host_id: string;
+          host_identity: string;
+          connection_generation: string;
+          environment_id: string;
+          loopback: string;
+          ports: null | number[];
+        };
+      }[];
+  offered_preview_hosts:
+    | null
+    | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: string;
+        ports: null | number[];
+      }[];
+}
+
+export interface BrowserProviderBindResult {
+  version: number;
+  provider_id: string;
+  provider_epoch: string;
+}
+
+export interface BrowserProviderEventParams {
+  root_id: string;
+  provider_epoch: string;
+  tab_id: string;
+  tab_generation: string;
+  attachment_id: string;
+  attachment_generation: string;
+  sequence: string;
+  operation_id?: string;
+  document_revision: string;
+  kind: string;
+  method?: string;
+  params?: unknown;
+  url?: string;
+  title?: string;
+}
+
+export interface BrowserProviderRevoked {
+  root_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  reason: string;
+}
+
+export interface BrowserProviderUnbindParams {
+  root_id: string;
+  provider_epoch: string;
 }
 
 export interface BrowserStatusResult {
@@ -359,6 +787,27 @@ export interface CapabilityRecord {
         definition: string;
       }[];
   mcp_all: boolean;
+  browser?: null | {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  browser_issuer_id?: string;
+  browser_issuer_generation?: number;
+  browser_delegation_only?: boolean;
   generation: string;
   status: string;
   expires_at: string;
@@ -517,6 +966,7 @@ export interface ConfigurationUpdate {
       }[];
   import_claude?: null | boolean;
   import_codex?: null | boolean;
+  brand_icons?: null | boolean;
   revision: string;
   default_model?: null | string;
   default_provider?: null | string;
@@ -529,6 +979,14 @@ export interface ConfigurationUpdate {
 }
 
 export interface ContentEventPayload {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
   accounting?: null | {
     root_id: string;
     agent_id: string;
@@ -562,6 +1020,7 @@ export interface ContentEventPayload {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -904,8 +1363,10 @@ export interface ExecutorPendingResult {
             provider: string;
             effort: string;
             mcp_tools?: unknown;
+            browser_attachments?: null | string[];
           };
           resolved: {
+            browser_attachments?: null | string[];
             definition: string;
             modules: null | string[];
             capabilities: null | string[];
@@ -974,8 +1435,10 @@ export interface HookInvokeParams {
       provider: string;
       effort: string;
       mcp_tools?: unknown;
+      browser_attachments?: null | string[];
     };
     resolved: {
+      browser_attachments?: null | string[];
       definition: string;
       modules: null | string[];
       capabilities: null | string[];
@@ -1011,6 +1474,7 @@ export interface HookResultParams {
     provider: string;
     effort: string;
     mcp_tools?: unknown;
+    browser_attachments?: null | string[];
   };
   context?: string;
   error?: string;
@@ -1167,6 +1631,23 @@ export interface HostThemeResolveParams {
 
 export interface IDParams {
   id: string;
+}
+
+export interface InboxControlResult {
+  agent_id: string;
+  inbox_seq: string;
+  status: string;
+}
+
+export interface InboxRemoveParams {
+  id: string;
+  inbox_seq: string;
+}
+
+export interface InboxSteerParams {
+  id: string;
+  inbox_seq: string;
+  turn_id: string;
 }
 
 export interface InitializeParams {
@@ -1356,6 +1837,50 @@ export interface MCPAttachParams {
   };
 }
 
+export interface MCPBrandIconsParams {
+  keys: null | string[];
+}
+
+export interface MCPBrandIconsResult {
+  icons: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportApplyParams {
+  cwd?: string;
+  names: null | string[];
+}
+
+export interface MCPImportApplyResult {
+  imported: null | string[];
+  skipped?: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportCandidatesParams {
+  cwd?: string;
+}
+
+export interface MCPImportCandidatesResult {
+  candidates:
+    | null
+    | {
+        name: string;
+        source: string;
+        state: string;
+        note?: string;
+        brand_hint?: string;
+        brand_key?: string;
+      }[];
+  offered: boolean;
+  config_path: string;
+  errors?: {
+    [k: string]: string;
+  };
+}
+
 export interface MCPImportParams {
   source: string;
   enabled: boolean;
@@ -1364,6 +1889,8 @@ export interface MCPImportParams {
 export interface MCPImportStatusResult {
   claude: boolean;
   codex: boolean;
+  project: boolean;
+  opencode: boolean;
 }
 
 export type MCPListResult =
@@ -1681,6 +2208,7 @@ export interface ProviderList {
           account_id?: string;
           plan?: string;
           email?: string;
+          team_name?: string;
           project_id?: string;
           project_name?: string;
           machine_key_name?: string;
@@ -1809,6 +2337,7 @@ export interface ProviderStatus {
   account_id?: string;
   plan?: string;
   email?: string;
+  team_name?: string;
   project_id?: string;
   project_name?: string;
   machine_key_name?: string;
@@ -2030,6 +2559,9 @@ export interface RootCollectionPage {
               media_type: string;
               source: string;
             };
+            model_calls?: number;
+            compactions?: number;
+            last_activity_at?: string;
           };
           id: string;
           root_id: string;
@@ -2048,6 +2580,45 @@ export interface RootCollectionPage {
           allowed_controls: null | string[];
         };
         inbox?: null | {
+          delivery_seq?: string;
+          origin?: string;
+          command_client_id?: string;
+          command_id?: string;
+          steer_turn_id?: string;
+          preview?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+            };
+            text: string;
+            truncated?: boolean;
+            attachments?:
+              | null
+              | {
+                  kind: string;
+                  name?: string;
+                  content: {
+                    inline?: unknown;
+                    text?: null | string;
+                    binary?: string | null;
+                    reference_id: string;
+                    digest: string;
+                    size: string;
+                    media_type: string;
+                    source: string;
+                  };
+                }[];
+            attachment_count?: number;
+          };
           root_id: string;
           agent_id: string;
           seq: string;
@@ -2109,6 +2680,27 @@ export interface RootCollectionPage {
                 definition: string;
               }[];
           mcp_all: boolean;
+          browser?: null | {
+            provider_id: string;
+            provider_epoch: string;
+            tab_id: string;
+            tab_generation: string;
+            profile_id: string;
+            attachment_id?: string;
+            attachment_generation?: string;
+            rights: null | string[];
+            preview?: null | {
+              host_id: string;
+              host_identity: string;
+              connection_generation: string;
+              environment_id: string;
+              loopback: string;
+              ports: null | number[];
+            };
+          };
+          browser_issuer_id?: string;
+          browser_issuer_generation?: number;
+          browser_delegation_only?: boolean;
           generation: string;
           status: string;
           expires_at: string;
@@ -2167,6 +2759,9 @@ export interface RootCollectionPage {
                   media_type: string;
                   source: string;
                 };
+                model_calls?: number;
+                compactions?: number;
+                last_activity_at?: string;
               };
               id: string;
               root_id: string;
@@ -2187,6 +2782,45 @@ export interface RootCollectionPage {
           }
         | {
             inbox: null | {
+              delivery_seq?: string;
+              origin?: string;
+              command_client_id?: string;
+              command_id?: string;
+              steer_turn_id?: string;
+              preview?: null | {
+                design_context?: null | {
+                  context_attachment_id: string;
+                  screenshot_attachment_id?: string;
+                  elements:
+                    | null
+                    | {
+                        label: string;
+                        selector?: string;
+                      }[];
+                  element_count: number;
+                  page_url?: string;
+                  page_title?: string;
+                };
+                text: string;
+                truncated?: boolean;
+                attachments?:
+                  | null
+                  | {
+                      kind: string;
+                      name?: string;
+                      content: {
+                        inline?: unknown;
+                        text?: null | string;
+                        binary?: string | null;
+                        reference_id: string;
+                        digest: string;
+                        size: string;
+                        media_type: string;
+                        source: string;
+                      };
+                    }[];
+                attachment_count?: number;
+              };
               root_id: string;
               agent_id: string;
               seq: string;
@@ -2254,6 +2888,27 @@ export interface RootCollectionPage {
                     definition: string;
                   }[];
               mcp_all: boolean;
+              browser?: null | {
+                provider_id: string;
+                provider_epoch: string;
+                tab_id: string;
+                tab_generation: string;
+                profile_id: string;
+                attachment_id?: string;
+                attachment_generation?: string;
+                rights: null | string[];
+                preview?: null | {
+                  host_id: string;
+                  host_identity: string;
+                  connection_generation: string;
+                  environment_id: string;
+                  loopback: string;
+                  ports: null | number[];
+                };
+              };
+              browser_issuer_id?: string;
+              browser_issuer_generation?: number;
+              browser_delegation_only?: boolean;
               generation: string;
               status: string;
               expires_at: string;
@@ -2329,6 +2984,7 @@ export interface RootParams {
 }
 
 export interface RootSnapshot {
+  collection_revision?: string;
   active_turns: {
     [k: string]: string;
   };
@@ -2365,6 +3021,56 @@ export interface RootSnapshot {
   messages:
     | null
     | {
+        presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
         role: string;
         content:
           | string
@@ -2407,6 +3113,7 @@ export interface RootSnapshot {
         };
         model?: string;
         rewound_from?: string;
+        call_id?: string;
       }[];
   presentation:
     | null
@@ -2446,6 +3153,9 @@ export interface RootSnapshot {
             media_type: string;
             source: string;
           };
+          model_calls?: number;
+          compactions?: number;
+          last_activity_at?: string;
         };
         id: string;
         root_id: string;
@@ -2466,6 +3176,45 @@ export interface RootSnapshot {
   inbox:
     | null
     | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
         root_id: string;
         agent_id: string;
         seq: string;
@@ -2547,6 +3296,27 @@ export interface RootSnapshot {
               definition: string;
             }[];
         mcp_all: boolean;
+        browser?: null | {
+          provider_id: string;
+          provider_epoch: string;
+          tab_id: string;
+          tab_generation: string;
+          profile_id: string;
+          attachment_id?: string;
+          attachment_generation?: string;
+          rights: null | string[];
+          preview?: null | {
+            host_id: string;
+            host_identity: string;
+            connection_generation: string;
+            environment_id: string;
+            loopback: string;
+            ports: null | number[];
+          };
+        };
+        browser_issuer_id?: string;
+        browser_issuer_generation?: number;
+        browser_delegation_only?: boolean;
         generation: string;
         status: string;
         expires_at: string;
@@ -2698,6 +3468,8 @@ export interface RuntimeConfiguration {
       }[];
   import_claude: boolean;
   import_codex: boolean;
+  mcp_import_offered: boolean;
+  brand_icons: boolean;
   revision: string;
   default_model: string;
   default_provider: string;
@@ -2855,7 +3627,57 @@ export interface SnapshotParams {
   root_id: string;
 }
 
+export interface SpanPage {
+  root_id: string;
+  spans:
+    | null
+    | {
+        id: string;
+        trace_id: string;
+        parent_id?: string;
+        root_id: string;
+        agent_id: string;
+        turn_id?: string;
+        kind: string;
+        name: string;
+        status: string;
+        start_ns: string;
+        end_ns: string;
+        attrs?: unknown;
+        links?: unknown;
+        updated_seq: string;
+      }[];
+  next_seq: string;
+  has_more: boolean;
+  server_time_ns: string;
+}
+
+export interface SpanRecord {
+  id: string;
+  trace_id: string;
+  parent_id?: string;
+  root_id: string;
+  agent_id: string;
+  turn_id?: string;
+  kind: string;
+  name: string;
+  status: string;
+  start_ns: string;
+  end_ns: string;
+  attrs?: unknown;
+  links?: unknown;
+  updated_seq: string;
+}
+
 export interface StreamEvent {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
   accounting?: null | {
     root_id: string;
     agent_id: string;
@@ -2889,6 +3711,7 @@ export interface StreamEvent {
   agent_id?: string;
   turn_id?: string;
   invocation_id?: string;
+  operation_id?: string;
   host_status?: string;
   id?: string;
   name?: string;
@@ -2898,6 +3721,19 @@ export interface StreamEvent {
 }
 
 export interface SubmitPayload {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
   text: string;
   parts?:
     | null
@@ -3081,6 +3917,31 @@ export type ToolSchemaResult =
       };
     }[];
 
+export interface TraceExportParams {
+  root_id: string;
+  trace_id?: string;
+}
+
+export interface TraceExportResult {
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  spans: number;
+  traces: number;
+}
+
+export interface TracePageParams {
+  root_id: string;
+  trace_id?: string;
+  after_seq?: string;
+  limit?: number;
+  roots_only?: boolean;
+}
+
 export interface UnsubscribeParams {
   subscription_id: string;
 }
@@ -3117,7 +3978,17 @@ export interface ContractTypes {
   ArchiveParams: ArchiveParams;
   ArchiveResult: ArchiveResult;
   BoundedTranscriptPage: BoundedTranscriptPage;
+  BrowserCommand: BrowserCommand;
+  BrowserCommandCancel: BrowserCommandCancel;
+  BrowserCommandResultParams: BrowserCommandResultParams;
   BrowserDriverParams: BrowserDriverParams;
+  BrowserInventoryRequest: BrowserInventoryRequest;
+  BrowserInventoryResultParams: BrowserInventoryResultParams;
+  BrowserProviderBindParams: BrowserProviderBindParams;
+  BrowserProviderBindResult: BrowserProviderBindResult;
+  BrowserProviderEventParams: BrowserProviderEventParams;
+  BrowserProviderRevoked: BrowserProviderRevoked;
+  BrowserProviderUnbindParams: BrowserProviderUnbindParams;
   BrowserStatusResult: BrowserStatusResult;
   BudgetCapParams: BudgetCapParams;
   BudgetState: BudgetState;
@@ -3174,12 +4045,21 @@ export interface ContractTypes {
   HostDirectoryResult: HostDirectoryResult;
   HostThemeResolveParams: HostThemeResolveParams;
   IDParams: IDParams;
+  InboxControlResult: InboxControlResult;
+  InboxRemoveParams: InboxRemoveParams;
+  InboxSteerParams: InboxSteerParams;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   LSPListResult: LSPListResult;
   LifecycleEvent: LifecycleEvent;
   ListParams: ListParams;
   MCPAttachParams: MCPAttachParams;
+  MCPBrandIconsParams: MCPBrandIconsParams;
+  MCPBrandIconsResult: MCPBrandIconsResult;
+  MCPImportApplyParams: MCPImportApplyParams;
+  MCPImportApplyResult: MCPImportApplyResult;
+  MCPImportCandidatesParams: MCPImportCandidatesParams;
+  MCPImportCandidatesResult: MCPImportCandidatesResult;
   MCPImportParams: MCPImportParams;
   MCPImportStatusResult: MCPImportStatusResult;
   MCPListResult: MCPListResult;
@@ -3252,6 +4132,8 @@ export interface ContractTypes {
   SessionUpdateEvent: SessionUpdateEvent;
   ShellParams: ShellParams;
   SnapshotParams: SnapshotParams;
+  SpanPage: SpanPage;
+  SpanRecord: SpanRecord;
   StreamEvent: StreamEvent;
   SubmitPayload: SubmitPayload;
   SubscribeParams: SubscribeParams;
@@ -3279,6 +4161,9 @@ export interface ContractTypes {
   ToolProgressParams: ToolProgressParams;
   ToolResultParams: ToolResultParams;
   ToolSchemaResult: ToolSchemaResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
   UnsubscribeParams: UnsubscribeParams;
   UploadBeginParams: UploadBeginParams;
   UploadChunkParams: UploadChunkParams;
@@ -3314,6 +4199,9 @@ export interface EventPayloadTypes {
   "inbox.consumed": LifecycleEvent | ContentEventPayload;
   "inbox.failed": LifecycleEvent | ContentEventPayload;
   "inbox.queued": LifecycleEvent | ContentEventPayload;
+  "inbox.removed": LifecycleEvent | ContentEventPayload;
+  "inbox.running": LifecycleEvent | ContentEventPayload;
+  "inbox.steering": LifecycleEvent | ContentEventPayload;
   "message.deferred": LifecycleEvent | ContentEventPayload;
   "message.delivered": LifecycleEvent | ContentEventPayload;
   "message.done": LifecycleEvent | ContentEventPayload;
@@ -3340,12 +4228,15 @@ export interface EventPayloadTypes {
   "session.permission_mode.updated": SessionUpdateEvent | ContentEventPayload;
   "session.reload.failed": LifecycleEvent | ContentEventPayload;
   "session.title.updated": SessionUpdateEvent | ContentEventPayload;
+  "span.ended": SpanRecord | ContentEventPayload;
+  "span.started": SpanRecord | ContentEventPayload;
   "state.private.append": LifecycleEvent | ContentEventPayload;
   "state.private.cas": LifecycleEvent | ContentEventPayload;
   "state.private.set": LifecycleEvent | ContentEventPayload;
   "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
   "stream.cell.host.started": StreamEvent | ContentEventPayload;
+  "stream.discard": StreamEvent | ContentEventPayload;
   "stream.hook.decision": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;
@@ -3369,6 +4260,11 @@ export interface EventPayloadTypes {
   "turn.succeeded": LifecycleEvent | ContentEventPayload;
 }
 export interface RpcMethods {
+  "browser.command.result": { params: BrowserCommandResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.inventory.result": { params: BrowserInventoryResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.event": { params: BrowserProviderEventParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
   "command.status": { params: CommandStatusParams; result: CommandResult; execution: "query"; permission: "client-command-namespace"; sensitive: false };
   "command.submit": { params: CommandParams; result: CommandResult; execution: "command"; permission: "operation-specific"; sensitive: false };
   "config.get": { params: Empty; result: RuntimeConfiguration; execution: "query"; permission: "none"; sensitive: false };
@@ -3395,6 +4291,9 @@ export interface RpcMethods {
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
   "mailbox.list": { params: MailboxPageParams; result: MailboxPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mcp.brand.icons": { params: MCPBrandIconsParams; result: MCPBrandIconsResult; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.apply": { params: MCPImportApplyParams; result: MCPImportApplyResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult; execution: "query"; permission: "host-configuration"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
   "provider.create": { params: ProviderCreateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
@@ -3430,6 +4329,8 @@ export interface RpcMethods {
   "terminal.write": { params: TerminalWriteParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: true };
   "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "trace.page": { params: TracePageParams; result: SpanPage; execution: "query"; permission: "root-association"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
   "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
   "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
@@ -3462,6 +4363,8 @@ export interface RuntimeOperations {
   "history.compact.retry": { params: EmptyParams; result: CompactionRetryResult; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.rewind": { params: RewindParams; result: RewindResult; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.user.list": { params: EmptyParams; result: UserHistoryResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "inbox.remove": { params: InboxRemoveParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "inbox.steer": { params: InboxSteerParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
   "lsp.status": { params: EmptyParams; result: LSPListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "mcp.attach": { params: MCPAttachParams; result: Empty; execution: "ephemeral"; permission: "delegated-mcp-authority"; sensitive: true };
   "mcp.disable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };

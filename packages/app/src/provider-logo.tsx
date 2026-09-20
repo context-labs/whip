@@ -1,6 +1,7 @@
 import { Sparkles } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors } from '@whip/ui/tokens.stylex';
+import { useTheme } from '@whip/ui';
 
 const logos = new URL('./assets/providers.svg', import.meta.url).href;
 const logoIDs: Record<string, string> = {
@@ -8,12 +9,15 @@ const logoIDs: Record<string, string> = {
   openrouter: 'openrouter', openai: 'openai', 'openai-codex': 'openai',
   anthropic: 'anthropic', google: 'google', gemini: 'google', 'google-generative-ai': 'google',
   deepseek: 'deepseek', mistral: 'mistral', xai: 'xai', 'x-ai': 'xai',
+  cerebras: 'cerebras', deepinfra: 'deepinfra', 'fireworks-ai': 'fireworks-ai',
+  groq: 'groq', togetherai: 'togetherai',
 };
 
 /** Brand the routing provider, independently of the model's publisher. */
 export function ProviderLogo({ id, size = 16 }: { id: string; size?: number }) {
+  const { resolvedTheme } = useTheme();
   const key = id.toLowerCase();
-  const name = Object.hasOwn(logoIDs, key) ? logoIDs[key] : undefined;
+  const name = key === 'openrouter' && resolvedTheme.dark ? 'openrouter-dark' : Object.hasOwn(logoIDs, key) ? logoIDs[key] : undefined;
   return name ? <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true" {...stylex.props(styles.logo)}>
     <use href={`${logos}#${name}`} />
   </svg> : <Sparkles size={size} aria-hidden="true" {...stylex.props(styles.logo)} />;

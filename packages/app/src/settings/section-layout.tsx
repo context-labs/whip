@@ -3,11 +3,11 @@ import * as stylex from '@stylexjs/stylex';
 import { SettingsRow } from '@whip/ui';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
-export function SettingsGroup({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
+export function SettingsGroup({ title, action, children, panelXstyle }: { title?: string; action?: ReactNode; children: ReactNode; panelXstyle?: stylex.StyleXStyles }) {
   const titleId = useId();
   return <section aria-labelledby={title ? titleId : undefined} {...stylex.props(settingsSection.group)}>
     {title && <div {...stylex.props(settingsSection.header)}><h2 id={titleId} {...stylex.props(settingsSection.heading)}>{title}</h2>{action}</div>}
-    <div {...stylex.props(settingsSection.panel)}>{children}</div>
+    <div {...stylex.props(settingsSection.panel, panelXstyle)}>{children}</div>
   </section>;
 }
 

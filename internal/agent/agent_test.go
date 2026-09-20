@@ -489,6 +489,109 @@ func TestTurnAutoCompactsOnContextLimit(t *testing.T) {
 	}
 }
 
+func TestTurnOverflowRetryResetsAfterFailure(t *testing.T) {
+	for _, failure := range []string{"summary", "retry"} {
+		t.Run(failure, func(t *testing.T) {
+			var streams atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req llm.Request
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if req.Stream && streams.Add(1) == 1 {
+					http.Error(w, `{"error":{"code":"context_length_exceeded"}}`, http.StatusBadRequest)
+					return
+				}
+				if !req.Stream && failure == "retry" {
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+					return
+				}
+				http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+			}))
+			defer srv.Close()
+			ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+			ag.Messages = append(ag.Messages,
+				llm.Message{Role: "user", Content: "old question"},
+				llm.Message{Role: "assistant", Content: "old answer"},
+			)
+			// Each new turn exceeds the tail budget, making the preceding turn foldable.
+			input := strings.Repeat("x", 70000)
+			_, err := ag.Turn(t.Context(), input, Events{})
+			if err == nil || !strings.Contains(err.Error(), "fixture failure") {
+				t.Fatalf("first turn error = %v, want fixture failure", err)
+			}
+
+			recovery, calls := compactionServer(t)
+			defer recovery.Close()
+			ag.Client = llm.New(recovery.URL, "k")
+			final, err := ag.Turn(t.Context(), input, Events{})
+			if err != nil {
+				t.Fatalf("next turn must receive its own overflow retry: %v", err)
+			}
+			if final != "recovered" || *calls != 3 {
+				t.Fatalf("next turn = %q, calls = %d; want recovered after fail+summary+retry", final, *calls)
+			}
+		})
+	}
+}
+
+func TestTurnProactiveCompactionResetsAfterFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		if !req.Stream {
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+			return
+		}
+		http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	// The system prompt alone remains over threshold after each fold, stalling the turn.
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, strings.Repeat("s", 12000))
+	ag.ContextLimit = 5000
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "old question"},
+		llm.Message{Role: "assistant", Content: "old answer"},
+	)
+	folds := 0
+	ev := Events{OnCompact: func(int, int) { folds++ }}
+	for turn := range 2 {
+		if _, err := ag.Turn(t.Context(), strings.Repeat("x", 12000), ev); err == nil {
+			t.Fatal("expected provider failure")
+		}
+		if folds != turn+1 {
+			t.Fatalf("turn %d: completed folds = %d, want %d", turn+1, folds, turn+1)
+		}
+	}
+}
+
+func TestCompactClampedTailDoesNotPin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+	}))
+	defer srv.Close()
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "first question"},
+		llm.Message{Role: "assistant", Content: "first answer"},
+		llm.Message{Role: "user", Content: "second question"},
+	)
+	var info CompactInfo
+	err := ag.ManualCompact(t.Context(), Events{
+		OnCompaction: func(_ string, _ int, _ []llm.Message, got CompactInfo) { info = got },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Pinned || ag.Messages[2].Role != "assistant" {
+		t.Fatalf("clamped fold must not report a pin: info=%+v view=%+v", info, ag.Messages)
+	}
+}
+
 func TestCompactDoesNotLoopOnRepeatedContextLimit(t *testing.T) {
 	// every request errors with context_length_exceeded → compaction must
 	// happen once and then the error surfaces (no infinite retry loop)
@@ -963,80 +1066,97 @@ func TestTruncateField(t *testing.T) {
 
 // A compaction must announce itself (start), and its result must carry which
 // model wrote the summary plus that call's usage — the UI renders both in the
-// transcript. Proven here on the proactive path with a tiny context limit so
-// the first request crosses the threshold.
+// transcript. All eventful paths must announce a real fold exactly once.
 func TestCompactionEventsCarryModelAndUsage(t *testing.T) {
-	var startFiredBeforeSummary atomic.Bool
-	var sawSummaryCall atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		if !req.Stream { // the compaction summary call
-			sawSummaryCall.Store(true)
-			if !startFiredBeforeSummary.Load() {
-				t.Error("OnCompactStart must fire before the summary call runs")
-			}
-			w.Write([]byte(`{"choices":[{"message":{"content":"folded summary"}}],` +
-				`"usage":{"prompt_tokens":1500,"completion_tokens":120}}`))
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	defer srv.Close()
+	for _, mode := range []string{"proactive", "overflow", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			var overflowRejected atomic.Bool
+			var startFiredBeforeSummary atomic.Bool
+			var sawSummaryCall atomic.Bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req llm.Request
+				json.NewDecoder(r.Body).Decode(&req)
+				if !req.Stream { // the compaction summary call
+					sawSummaryCall.Store(true)
+					if !startFiredBeforeSummary.Load() {
+						t.Error("OnCompactStart must fire before the summary call runs")
+					}
+					w.Write([]byte(`{"choices":[{"message":{"content":"folded summary"}}],` +
+						`"usage":{"prompt_tokens":1500,"completion_tokens":120}}`))
+					return
+				}
+				if mode == "overflow" && overflowRejected.CompareAndSwap(false, true) {
+					http.Error(w, `{"error":{"code":"context_length_exceeded"}}`, http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
+				fmt.Fprint(w, "data: [DONE]\n\n")
+			}))
+			defer srv.Close()
 
-	ag := newTestAgent(llm.New(srv.URL, "k"), "summarizer-model", 100, "sys")
-	ag.ContextLimit = 400     // tiny limit…
-	ag.CompactThreshold = 0.1 // …so any history crosses 40 estimated tokens
-	for i := range 8 {
-		ag.Messages = append(ag.Messages,
-			llm.Message{Role: "user", Content: fmt.Sprintf("question %d about the thing", i)},
-			llm.Message{Role: "assistant", Content: fmt.Sprintf("answer %d about the thing", i)},
-		)
-	}
-	var starts, dones int
-	var startTook, startEst int
-	var doneInfo CompactInfo
-	final, err := ag.Turn(context.Background(), "keep going", Events{
-		OnCompactStart: func(took, est int) {
-			starts++
-			startTook, startEst = took, est
-			startFiredBeforeSummary.Store(true)
-		},
-		OnCompacted: func(sum string, cutoff int, info CompactInfo) {
-			dones++
-			doneInfo = info
-		},
-	})
-	if err != nil {
-		t.Fatalf("turn: %v", err)
-	}
-	if final != "done" {
-		t.Fatalf("final: %q", final)
-	}
-	if !sawSummaryCall.Load() {
-		t.Fatal("no summary call ran — the tiny limit should have forced a proactive compaction")
-	}
-	if starts != 1 || dones != 1 {
-		t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
-	}
-	// startTook is the PRE-compaction message count (what OnCompact's took
-	// param means). With the token-budgeted tail the post-compaction length
-	// can exceed it on a tiny history (the ≥2000-token budget keeps nearly all
-	// of it, plus the summary message), so assert only that it fired and is
-	// plausible, not an exact post/pre relationship.
-	if startTook < 2 {
-		t.Fatalf("start should report the pre-compaction count, got %d", startTook)
-	}
-	if startEst <= 0 {
-		t.Fatalf("start should carry a positive token estimate, got %d", startEst)
-	}
-	if doneInfo.Model != "summarizer-model" {
-		t.Fatalf("done should name the model that wrote the summary, got %q", doneInfo.Model)
-	}
-	if doneInfo.Usage.PromptTokens != 1500 || doneInfo.Usage.CompletionTokens != 120 {
-		t.Fatalf("done should carry the summary call's usage, got %+v", doneInfo.Usage)
+			ag := newTestAgent(llm.New(srv.URL, "k"), "summarizer-model", 100, "sys")
+			if mode == "proactive" {
+				ag.ContextLimit = 400     // tiny limit…
+				ag.CompactThreshold = 0.1 // …so any history crosses 40 estimated tokens
+			}
+			for i := range 8 {
+				ag.Messages = append(ag.Messages,
+					llm.Message{Role: "user", Content: fmt.Sprintf("question %d about the thing", i)},
+					llm.Message{Role: "assistant", Content: fmt.Sprintf("answer %d about the thing", i)},
+				)
+			}
+			var starts, dones int
+			var startTook, startEst int
+			var doneInfo CompactInfo
+			ev := Events{
+				OnCompactStart: func(took, est int) {
+					starts++
+					startTook, startEst = took, est
+					startFiredBeforeSummary.Store(true)
+				},
+				OnCompacted: func(sum string, cutoff int, info CompactInfo) {
+					dones++
+					doneInfo = info
+				},
+			}
+			var final string
+			var err error
+			if mode == "manual" {
+				err = ag.ManualCompact(t.Context(), ev)
+			} else {
+				final, err = ag.Turn(t.Context(), "keep going", ev)
+			}
+			if err != nil {
+				t.Fatalf("compaction: %v", err)
+			}
+			if mode != "manual" && final != "done" {
+				t.Fatalf("final: %q", final)
+			}
+			if !sawSummaryCall.Load() {
+				t.Fatal("no summary call ran")
+			}
+			if starts != 1 || dones != 1 {
+				t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
+			}
+			// startTook is the PRE-compaction message count (what OnCompact's took
+			// param means). With the token-budgeted tail the post-compaction length
+			// can exceed it on a tiny history (the ≥2000-token budget keeps nearly all
+			// of it, plus the summary message), so assert only that it fired and is
+			// plausible, not an exact post/pre relationship.
+			if startTook < 2 {
+				t.Fatalf("start should report the pre-compaction count, got %d", startTook)
+			}
+			if startEst <= 0 {
+				t.Fatalf("start should carry a positive token estimate, got %d", startEst)
+			}
+			if doneInfo.Model != "summarizer-model" {
+				t.Fatalf("done should name the model that wrote the summary, got %q", doneInfo.Model)
+			}
+			if doneInfo.Usage.PromptTokens != 1500 || doneInfo.Usage.CompletionTokens != 120 {
+				t.Fatalf("done should carry the summary call's usage, got %+v", doneInfo.Usage)
+			}
+		})
 	}
 }
 

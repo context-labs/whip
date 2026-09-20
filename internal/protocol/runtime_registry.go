@@ -20,6 +20,8 @@ var runtimeOperations = []Operation{
 	action[SubmitPayload, TextResult]("submit", Command, "root-admission", false),
 	action[SubmitPayload, TextResult]("steer", Command, "root-admission", false),
 	action[CancelParams, Empty]("cancel", Command, "target-turn", false),
+	action[InboxSteerParams, session.InboxControlResult]("inbox.steer", Command, "root-association", false),
+	action[InboxRemoveParams, session.InboxControlResult]("inbox.remove", Command, "root-association", false),
 	action[TextParams, GoalResult]("goal.set", Command, "root-admission", false),
 	action[TextParams, GoalResult]("goal.run", Command, "root-admission", false),
 	action[GoalContextParams, GoalResult]("goal.from-context", Command, "root-admission", false),

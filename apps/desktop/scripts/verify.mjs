@@ -17,7 +17,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
   const archive = path.join(contents, 'Resources/app.asar');
   const directory = await mkdtemp(path.join(tmpdir(), 'whip-package-verification-'));
   try {
-    const roots = new Set(['package.json', 'main.cjs', 'preload.cjs', 'desktop-config.json', 'renderer-manifest.json', 'runtime-manifest.json', 'renderer', 'licenses']);
+    const roots = new Set(['package.json', 'main.cjs', 'preload.cjs', 'browser-design-preload.cjs', 'desktop-config.json', 'renderer-manifest.json', 'runtime-manifest.json', 'renderer', 'licenses']);
     for (const name of asar.listPackage(archive)) {
       const relative = name.replace(/^\//, '');
       assert(roots.has(relative.split('/')[0]), `Unexpected archive path ${relative}`);

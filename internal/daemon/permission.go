@@ -247,6 +247,9 @@ func (s *Session) revokeCapability(ctx context.Context, callerAgentID, capabilit
 	if err != nil {
 		return record, err
 	}
+	if s.browserProviders != nil {
+		s.browserProviders.invalidateRevoked(ctx, s.meta.ID)
+	}
 	for _, prompt := range pending {
 		if _, err := s.store.Pending(ctx, prompt.ID); !errors.Is(err, capability.ErrDenied) {
 			continue

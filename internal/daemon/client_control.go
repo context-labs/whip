@@ -27,6 +27,7 @@ import (
 )
 
 type clientActionPayload struct {
+	InboxSeq            int64                          `json:"inbox_seq,omitempty,string"`
 	ExpectedRevision    *int64                         `json:"expected_revision,omitempty,string"`
 	TurnID              string                         `json:"turn_id,omitempty"`
 	TargetCommandID     string                         `json:"target_command_id,omitempty"`
@@ -50,6 +51,7 @@ type clientActionPayload struct {
 	Text                string                         `json:"text,omitempty"`
 	Parts               []llm.ContentPart              `json:"parts,omitempty"`
 	Attachments         []protocol.InputAttachment     `json:"attachments,omitempty"`
+	DesignContext       *llm.DesignContextInput        `json:"design_context,omitempty"`
 	Command             string                         `json:"command,omitempty"`
 	Cut                 int                            `json:"cut,omitempty"`
 	ID                  string                         `json:"id,omitempty"`
@@ -109,6 +111,7 @@ type clientCompaction struct {
 	cutoff       int
 	rawTailStart int
 	rawCutoff    *int
+	pinned       bool
 	model        string
 	usage        llm.Usage
 	before       []llm.Message
@@ -126,7 +129,7 @@ type clientGoal struct {
 
 func isClientOperation(operation string) bool {
 	switch operation {
-	case "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
+	case "inbox.steer", "inbox.remove", "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
 		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.archive", "session.reload", "session.autotitle", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"history.compact.log", "history.compact.retry", "compaction.configure",
@@ -190,6 +193,7 @@ type clientPermissionRunner interface {
 type clientMCPManager interface {
 	Statuses() []mcp.Server
 	Blocked() []mcp.Server
+	SourceErrors() []mcp.Server
 	Reconnect(string) bool
 	Enable(string) bool
 	Disable(string) bool
@@ -274,21 +278,34 @@ func (r *AgentSession) FormGoal(ctx context.Context, window int) (string, llm.Us
 	if err != nil {
 		return "", r.agent.Usage(), err
 	}
+	end := r.beginCommandTrace(ctx, "goal", "goal.from-context", fmt.Sprintf("/goal-from-context %d", window))
 	goal, _, err := r.complete(ctx, agent.BuildGoalFromContextPrompt(tail, r.agent.ExecutionLanguage), 8192)
 	goal = strings.TrimSpace(goal)
 	if err == nil && goal == "" {
 		err = errors.New("model returned an empty goal")
 	}
+	end(goal, err)
 	return goal, r.agent.Usage(), err
 }
 
+// CompactNow runs a user's /compact as its own trace: the fold's model call
+// parents under a root named compact and carries the summary it produced, the
+// same way a mid-turn fold does.
 func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error) {
 	before := r.agent.MessagesSnapshot()
+	end := r.beginCommandTrace(ctx, "compact", "history.compact", "/compact")
 	summary, cutoff, info, err := r.agent.CompactNow(ctx)
 	rawCutoff := agent.RawCompactionCutoff(before, cutoff)
+	if err == nil || llm.IsCompletedAccountingError(err) {
+		r.mu.Lock()
+		callID := r.turn.LastModelCallID
+		r.mu.Unlock()
+		r.recordCompactionOutput(ctx, callID, summary, rawCutoff)
+	}
+	end(summary, err)
 	return clientCompaction{
 		summary: summary, cutoff: cutoff, rawTailStart: agent.CompactionRawTailStart(before, cutoff), rawCutoff: &rawCutoff,
-		model: info.Model, usage: r.agent.Usage(), before: before,
+		model: info.Model, usage: r.agent.Usage(), before: before, pinned: info.Pinned,
 	}, err
 }
 
@@ -720,6 +737,14 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		return finish(nil)
 	}
 
+	if operation == "agent.submit" {
+		var action clientActionPayload
+		if err := decodeClientAction(payload, &action); err != nil {
+			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
+		}
+		output, actionErr := s.clientAgentSubmitInput(actorCtx, action.ID, SubmitPayload{Text: action.Text, Parts: action.Parts, Attachments: action.Attachments, DesignContext: action.DesignContext}, action.Delivery, admission)
+		return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
+	}
 	output, actionErr := s.applyClientCommand(actorCtx, operation, payload)
 	return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
 }
@@ -796,7 +821,7 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 		var err error
 		if compaction.rawCutoff != nil {
 			rawCutoff = *compaction.rawCutoff
-			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary)
+			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary, compaction.pinned)
 		} else {
 			rawCutoff = s.rawCompactionCutoff(compaction.cutoff, compaction.rawTailStart)
 			err = s.store.RecordCompaction(s.meta.ID, rawCutoff, compaction.summary)
@@ -931,6 +956,15 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.runConfig = &runConfiguration{system: payload.System, maxTurns: payload.MaxTurns, headless: payload.Headless, cacheKey: payload.CacheKey}
 		s.applyRunConfiguration(runner, s.runtime, permissionMode)
 		return "configured", nil
+	case "inbox.steer", "inbox.remove":
+		result, err := s.store.ControlInbox(ctx, s.meta.ID, payload.ID, payload.InboxSeq, payload.TurnID, operation == "inbox.remove", []byte(`{"code":-32800,"message":"Queued message removed","data":{"kind":"queue_removed"}}`))
+		if err == nil && result.Status == "removed" && payload.ID == s.meta.ID {
+			s.settle(payload.InboxSeq, Completion{Sequence: payload.InboxSeq, Err: context.Canceled})
+		}
+		if err == nil {
+			s.notify()
+		}
+		return marshalClientOutput(result, err)
 	case "cancel":
 		if err := s.checkTurnTarget(ctx, s.authority.AgentID, payload.TurnID); err != nil {
 			return "", err
@@ -1226,6 +1260,7 @@ func (s *Session) clientMCP(ctx context.Context, operation string, payload clien
 	}
 	if operation == "mcp.status" {
 		statuses := append(manager.Statuses(), manager.Blocked()...)
+		statuses = append(statuses, manager.SourceErrors()...)
 		slices.SortFunc(statuses, func(a, b mcp.Server) int { return strings.Compare(a.Name, b.Name) })
 		result := make([]MCPStatusResult, 0, len(statuses))
 		for _, status := range statuses {
@@ -1267,28 +1302,20 @@ func (s *Session) clientMCPImport(ctx context.Context, operation, sourceName str
 		return "", err
 	}
 	if operation == "mcp.import.status" {
-		return marshalClientOutput(protocol.MCPImportStatusResult{Claude: importState(cfg.MCPImport, "claude") == "on", Codex: importState(cfg.MCPImport, "codex") == "on"}, nil)
+		return marshalClientOutput(importStatus(cfg.MCPImport), nil)
 	}
-	if sourceName != "claude" && sourceName != "codex" {
-		return "", errors.New("mcp import requires claude|codex and on|off")
+	if importSourceSlot(&config.MCPImport{}, sourceName) == nil {
+		return "", errors.New("mcp import requires claude|codex|project|opencode and on|off")
 	}
 	cfg, _, err = config.UpdateVersioned("", func(cfg *config.Config) error {
 		if cfg.MCPImport == nil {
 			cfg.MCPImport = &config.MCPImport{}
 		}
-		source := cfg.MCPImport.Claude
-		if sourceName == "codex" {
-			source = cfg.MCPImport.Codex
+		slot := importSourceSlot(cfg.MCPImport, sourceName)
+		if *slot == nil {
+			*slot = &config.MCPImportSource{}
 		}
-		if source == nil {
-			source = &config.MCPImportSource{}
-			if sourceName == "claude" {
-				cfg.MCPImport.Claude = source
-			} else {
-				cfg.MCPImport.Codex = source
-			}
-		}
-		source.Enabled = &enabled
+		(*slot).Enabled = &enabled
 		return nil
 	})
 	if err != nil {
@@ -1299,18 +1326,51 @@ func (s *Session) clientMCPImport(ctx context.Context, operation, sourceName str
 	if err != nil {
 		return "", err
 	}
-	return marshalClientOutput(protocol.MCPImportStatusResult{Claude: importState(cfg.MCPImport, "claude") == "on", Codex: importState(cfg.MCPImport, "codex") == "on"}, nil)
+	return marshalClientOutput(importStatus(cfg.MCPImport), nil)
 }
 
+// importSourceSlot returns the config field for a named import source, or nil
+// for an unknown name.
+func importSourceSlot(value *config.MCPImport, source string) **config.MCPImportSource {
+	switch source {
+	case "claude":
+		return &value.Claude
+	case "codex":
+		return &value.Codex
+	case "project":
+		return &value.Project
+	case "opencode":
+		return &value.Opencode
+	}
+	return nil
+}
+
+func importStatus(value *config.MCPImport) protocol.MCPImportStatusResult {
+	return protocol.MCPImportStatusResult{
+		Claude:   importState(value, "claude") == "on",
+		Codex:    importState(value, "codex") == "on",
+		Project:  importState(value, "project") == "on",
+		Opencode: importState(value, "opencode") == "on",
+	}
+}
+
+// importState mirrors mcp.ImportPolicyFrom: the user's claude, codex and
+// opencode files are on unless disabled; the repository's project file is off
+// unless enabled.
 func importState(value *config.MCPImport, source string) string {
-	if value == nil {
+	var setting *config.MCPImportSource
+	if value != nil {
+		if slot := importSourceSlot(value, source); slot != nil {
+			setting = *slot
+		}
+	}
+	if setting == nil || setting.Enabled == nil {
+		if source == "project" {
+			return "off"
+		}
 		return "on"
 	}
-	setting := value.Claude
-	if source == "codex" {
-		setting = value.Codex
-	}
-	if setting == nil || setting.Enabled == nil || *setting.Enabled {
+	if *setting.Enabled {
 		return "on"
 	}
 	return "off"
@@ -1662,8 +1722,11 @@ func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery stri
 	return s.clientAgentSubmitInput(ctx, id, SubmitPayload{Text: text}, delivery)
 }
 
-func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string) (string, error) {
+func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string, admissions ...sessionstore.CommandAdmission) (string, error) {
 	input.Text = strings.TrimSpace(input.Text)
+	if _, err := designContextPresentation(input); err != nil {
+		return "", err
+	}
 	if id == "" || input.Text == "" && len(input.Parts) == 0 && len(input.Attachments) == 0 {
 		return "", errors.New("agent submission requires an agent and content")
 	}
@@ -1690,10 +1753,11 @@ func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input S
 		kind += ".parts"
 		payload = sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "human child submission"}
 	}
-	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
-		RootID: s.meta.ID, AgentID: id, Kind: kind,
-		Payload: payload,
-	})
+	item := sessionstore.InboxEnqueue{RootID: s.meta.ID, AgentID: id, Kind: kind, Payload: payload, Origin: "client"}
+	if len(admissions) > 0 {
+		item.CommandClientID, item.CommandID = admissions[0].ClientID, admissions[0].CommandID
+	}
+	sequence, err := s.store.EnqueueInbox(ctx, item)
 	if err != nil {
 		return "", err
 	}

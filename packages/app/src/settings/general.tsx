@@ -1,3 +1,4 @@
+import { BrowserSettings } from './browser';
 import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
 import { Select, Switch } from '@whip/ui';
@@ -47,5 +48,6 @@ export function GeneralSettings() {
         {feedback('desktopNotifications')}
       </SettingRow>}
     </SettingsGroup>
+    <BrowserSettings/>
   </>;
 }

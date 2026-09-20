@@ -9,9 +9,11 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +39,8 @@ const (
 	StatusConnecting               // connect kicked off, not yet settled
 	StatusReady                    // connected, tools listed
 	StatusFailed                   // connect/list failed, or the session dropped
+	StatusBlocked                  // filtered by import policy or refused at attach; never a live server
+	StatusUnreadable               // a discovery source that could not be read; not a server at all
 )
 
 func (s Status) String() string {
@@ -49,6 +53,10 @@ func (s Status) String() string {
 		return "ready"
 	case StatusFailed:
 		return "failed"
+	case StatusBlocked:
+		return "blocked"
+	case StatusUnreadable:
+		return "unreadable"
 	}
 	return "unknown"
 }
@@ -185,7 +193,8 @@ type Manager struct {
 	// blocked holds servers an mcpImport policy filtered out. They never
 	// connect, but stay visible in the status view so a gated import isn't
 	// silent. Set at startup; read via Blocked.
-	blocked []Server
+	blocked      []Server
+	sourceErrors []Server
 
 	// connectTransport builds the transport for a server config. A var so
 	// tests can substitute in-process transports without spawning processes.
@@ -405,7 +414,11 @@ func (m *Manager) defaultTransport(ctx context.Context, cfg ServerConfig, stderr
 			cwd = filepath.Join(baseCwd, cwd)
 		}
 	}
-	maps.Copy(env, cfg.Env)
+	resolved, _, err := connectSecrets(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(env, resolved)
 	return &managedTransport{processes: processes, rootID: rootID, cwd: cwd, env: env, command: cfg.Command, stderr: stderr}, nil
 }
 
@@ -522,8 +535,8 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				s.mu.Lock()
 				catalogChanges := s.catalogChanges
 				s.mu.Unlock()
-				var listed *sdkmcp.ListToolsResult
-				listed, err = sess.ListTools(ctx, nil)
+				var listed []*sdkmcp.Tool
+				listed, err = listAllTools(ctx, sess)
 				if err != nil {
 					break
 				}
@@ -560,7 +573,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				if ir := sess.InitializeResult(); ir != nil {
 					instr = strings.TrimSpace(ir.Instructions)
 				}
-				s.defs = listed.Tools
+				s.defs = listed
 				s.instr = instr
 				s.sess = sess
 				s.gen++
@@ -613,11 +626,59 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	}
 	m.mu.Lock()
 	s.mu.Lock()
-	if !m.closed && m.servers[s.name] == s && s.gen == startGen {
+	settled := !m.closed && m.servers[s.name] == s && s.gen == startGen
+	if settled {
 		s.setStateLocked(StatusFailed, msg)
 	}
+	rearm := settled && s.autoTries > 0
 	s.mu.Unlock()
 	m.mu.Unlock()
+	// A failed auto-reconnect attempt re-arms the next one; kickAutoReconnect
+	// declines once autoTries reaches autoReconnectMax, so the chain is exactly
+	// 1s, 2s, 4s. A startup or manual attempt (autoTries == 0) stays failed
+	// for a human to look at.
+	if rearm {
+		s.kickAutoReconnect(m)
+	}
+}
+
+// toolLister is the slice of a client session that tools/list needs; tests
+// substitute paged fakes.
+type toolLister interface {
+	ListTools(context.Context, *sdkmcp.ListToolsParams) (*sdkmcp.ListToolsResult, error)
+}
+
+// maxToolPages bounds catalog discovery. Catalyst-sized servers page into the
+// hundreds of tools; a server that never ends its cursor chain must not stall
+// a connect forever.
+const maxToolPages = 64
+
+// listAllTools follows tools/list cursors so the model sees the whole
+// catalog, not the first page. Bounded: at most maxToolPages pages inside the
+// caller's deadline, and a repeated cursor ends the loop with an error rather
+// than spinning. The caller publishes the returned slice atomically.
+func listAllTools(ctx context.Context, lister toolLister) ([]*sdkmcp.Tool, error) {
+	var tools []*sdkmcp.Tool
+	seen := map[string]bool{}
+	params := &sdkmcp.ListToolsParams{}
+	for page := 1; ; page++ {
+		res, err := lister.ListTools(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, res.Tools...)
+		if res.NextCursor == "" {
+			return tools, nil
+		}
+		if seen[res.NextCursor] {
+			return nil, fmt.Errorf("tool catalog cursor %q repeats after page %d", res.NextCursor, page)
+		}
+		if page >= maxToolPages {
+			return nil, fmt.Errorf("tool catalog exceeds %d pages", maxToolPages)
+		}
+		seen[res.NextCursor] = true
+		params = &sdkmcp.ListToolsParams{Cursor: res.NextCursor}
+	}
 }
 
 // setState transitions status and wakes every waiter on the first settle.
@@ -701,7 +762,8 @@ func (m *Manager) Call(ctx context.Context, serverName, toolName string, argumen
 		return "", err
 	}
 	call.Arguments = arguments
-	return m.CallChecked(ctx, call, nil)
+	result, err := m.CallChecked(ctx, call, nil)
+	return result.Text, err
 }
 
 // bridge converts one listed MCP tool into the agent-loop tools.Tool. The
@@ -726,7 +788,8 @@ func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
 			}
 			call := call
 			call.Arguments = args
-			return s.owner.CallChecked(ctx, call, nil)
+			result, err := s.owner.CallChecked(ctx, call, nil)
+			return result.Text, err
 		},
 	}
 }
@@ -765,14 +828,27 @@ func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (s
 	return s.owner.Call(ctx, s.name, tool, args)
 }
 
-// flattenResult renders a CallToolResult as text for host storage (pure).
-// Text content is concatenated; binary/resource parts become placeholders
-// (ponytail: feed images to vision models); structured content is appended
-// as JSON when no text exists (opencode catalog.ts does the same). IsError
-// prefixes "Error: " so the model sees failure, per the MCP spec's own
-// guidance that tool errors belong in content.
-func flattenResult(res *sdkmcp.CallToolResult) string {
+// flattenResult renders a CallToolResult for host storage (pure). Text parts
+// are concatenated; structured content is always appended as JSON, because a
+// tool that returns a human summary and a machine payload means both; binary
+// parts (image, audio, blob resource) get a numbered placeholder line and
+// travel alongside as attachments so the caller can store them as handles
+// instead of losing them. IsError prefixes "Error: " so the model sees
+// failure, per the MCP spec's own guidance that tool errors belong in content.
+func flattenResult(res *sdkmcp.CallToolResult) tools.MCPResult {
 	var b strings.Builder
+	var attachments []tools.MCPAttachment
+	attach := func(kind, mime string, data []byte, detail string) {
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		placeholder := fmt.Sprintf("[%s %d: %s, %d bytes]", kind, len(attachments)+1, detail, len(data))
+		if detail == "" {
+			placeholder = fmt.Sprintf("[%s %d: %s, %d bytes]", kind, len(attachments)+1, mime, len(data))
+		}
+		b.WriteString("\n" + placeholder)
+		attachments = append(attachments, tools.MCPAttachment{MIME: mime, Data: data, Placeholder: placeholder})
+	}
 	for _, c := range res.Content {
 		switch c := c.(type) {
 		case *sdkmcp.TextContent:
@@ -781,23 +857,26 @@ func flattenResult(res *sdkmcp.CallToolResult) string {
 			}
 			b.WriteString(c.Text)
 		case *sdkmcp.ImageContent:
-			fmt.Fprintf(&b, "\n[image content omitted: %s, %d bytes]", c.MIMEType, len(c.Data))
+			attach("image", c.MIMEType, c.Data, "")
 		case *sdkmcp.AudioContent:
-			fmt.Fprintf(&b, "\n[audio content omitted: %s, %d bytes]", c.MIMEType, len(c.Data))
+			attach("audio", c.MIMEType, c.Data, "")
 		case *sdkmcp.EmbeddedResource:
 			if c.Resource != nil && c.Resource.Text != "" {
 				fmt.Fprintf(&b, "\n[resource %s]\n%s", c.Resource.URI, c.Resource.Text)
 			} else if c.Resource != nil {
-				fmt.Fprintf(&b, "\n[binary resource omitted: %s, %d bytes]", c.Resource.URI, len(c.Resource.Blob))
+				attach("binary resource", c.Resource.MIMEType, c.Resource.Blob, c.Resource.URI)
 			}
 		case *sdkmcp.ResourceLink:
 			fmt.Fprintf(&b, "\n[resource link: %s (%s)]", c.URI, c.Name)
 		}
 	}
 	out := b.String()
-	if out == "" && res.StructuredContent != nil {
+	if res.StructuredContent != nil {
 		if data, err := json.MarshalIndent(res.StructuredContent, "", "  "); err == nil {
-			out = string(data)
+			if out != "" {
+				out += "\n"
+			}
+			out += string(data)
 		}
 	}
 	if out == "" {
@@ -806,7 +885,7 @@ func flattenResult(res *sdkmcp.CallToolResult) string {
 	if res.IsError {
 		out = "Error: " + out
 	}
-	return out
+	return tools.MCPResult{Text: out, Attachments: attachments}
 }
 
 // normalizeSchema passes the server's input schema through as a JSON string,
@@ -939,9 +1018,48 @@ func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 	defer m.mu.Unlock()
 	m.blocked = make([]Server, 0, len(cfgs))
 	for name, c := range cfgs {
-		m.blocked = append(m.blocked, Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source})
+		m.blocked = append(m.blocked, Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source})
 	}
 	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
+}
+
+// SetSourceErrors records discovery sources that could not be read or
+// parsed, as failed rows named by source. "No tools" and "the config failed
+// to parse" must not look the same in /mcp. Called once at startup, before
+// Start.
+func (m *Manager) SetSourceErrors(errs map[string]error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourceErrors = make([]Server, 0, len(errs))
+	for path, err := range errs {
+		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusUnreadable, Err: "not imported: " + err.Error(), Source: path})
+	}
+	sort.Slice(m.sourceErrors, func(i, j int) bool { return m.sourceErrors[i].Name < m.sourceErrors[j].Name })
+}
+
+// AddBlocked records more never-connected servers beside the startup set: an
+// attachment outside the agent's server list, or one that tried to take a
+// native name. A repeated name replaces its earlier row.
+func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, c := range cfgs {
+		row := Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source}
+		if i := slices.IndexFunc(m.blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
+			m.blocked[i] = row
+			continue
+		}
+		m.blocked = append(m.blocked, row)
+	}
+	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
+}
+
+// SourceErrors returns the name-sorted snapshot of unreadable discovery
+// sources.
+func (m *Manager) SourceErrors() []Server {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]Server(nil), m.sourceErrors...)
 }
 
 // Blocked returns the name-sorted snapshot of policy-filtered servers.
@@ -995,6 +1113,7 @@ func (m *Manager) Reconnect(name string) bool {
 	old := s.retireLocked()
 	s.status = StatusConnecting
 	s.gen++
+	s.autoTries = 0 // a human asked: the automatic budget starts over
 	s.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
@@ -1043,23 +1162,17 @@ func (m *Manager) Close() {
 // StreamableClientTransport (remote, header-injecting client).
 func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
 	if cfg.Remote() {
-		// Header values may be secret references ("$VAR"/"${VAR}"/"!cmd") —
-		// resolve them at connect time (the point of use) so configs hold only
-		// references and resolved secrets never reach the log or session store.
-		// Unresolvable references drop the header: the connect then fails
-		// cleanly instead of sending the literal reference upstream.
-		headers := make(map[string]string, len(cfg.Headers))
-		for k, v := range cfg.Headers {
-			rv, err := config.ResolveHeader(v)
-			if err != nil {
-				logf("header %s: %v (dropped)", k, err)
-				continue
-			}
-			headers[k] = rv
+		_, headers, err := connectSecrets(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		endpoint, err := url.Parse(cfg.URL)
+		if err != nil {
+			return nil, fmt.Errorf("MCP url: %w", err)
 		}
 		return &sdkmcp.StreamableClientTransport{
 			Endpoint:   cfg.URL,
-			HTTPClient: &http.Client{Transport: headerTransport(headers)},
+			HTTPClient: &http.Client{Transport: headerTransport(headers), CheckRedirect: sameOriginRedirect(endpoint)},
 			// Catalog notifications invalidate queued admissions before refresh.
 			DisableStandaloneSSE: false,
 		}, nil
@@ -1072,15 +1185,9 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 	// stdio server right after a successful connect. The process must live
 	// until the session is closed (CommandTransport terminates it then).
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), cfg.Command[0], cfg.Command[1:]...)
-	// Env values may be secret references ("$VAR"/"${VAR}"/"!cmd") — resolve
-	// them at spawn time (the point of use), same as remote headers. A
-	// reference whose var is unset DROPS the entry rather than spawning with
-	// "KEY=", which would mask a KEY the child could inherit from whip's own
-	// environment (and is how an imported "$CUSTOMERIO_API_KEY" used to
-	// become an empty literal).
-	env, err := config.ResolveEnvMap(cfg.Env)
+	env, _, err := connectSecrets(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("env: %w", err)
+		return nil, err
 	}
 	// Inherit whip's environment and layer the server's vars on top (opencode
 	// does the same — users expect $PATH etc. to work).
@@ -1096,12 +1203,56 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 	return &sdkmcp.CommandTransport{Command: cmd, TerminateDuration: 3 * time.Second}, nil
 }
 
+// connectSecrets resolves a server's env and header references at the point
+// of use. It is the one place both transports call, so a daemon-managed child
+// and a fallback child see the same values: configs hold only references
+// ("$VAR"/"${VAR}"/"!cmd"), resolved values never reach the log or session
+// store, and a "!cmd" helper is bounded by the connect's own deadline. An
+// env entry whose reference cannot resolve is dropped rather than spawned as
+// "KEY=" (an empty override would mask a var the child could inherit); an
+// unresolvable header is dropped so the connect fails cleanly upstream instead
+// of sending the literal reference.
+func connectSecrets(ctx context.Context, cfg ServerConfig) (env, headers map[string]string, err error) {
+	env, err = config.ResolveEnvMapContext(ctx, cfg.Env)
+	if err != nil {
+		return nil, nil, fmt.Errorf("env: %w", err)
+	}
+	headers = make(map[string]string, len(cfg.Headers))
+	for k, v := range cfg.Headers {
+		rv, herr := config.ResolveHeaderContext(ctx, v)
+		if herr != nil {
+			logf("header %s: %v (dropped)", k, herr)
+			continue
+		}
+		headers[k] = rv
+	}
+	return env, headers, nil
+}
+
 func envPairs(env map[string]string) []string {
 	pairs := make([]string, 0, len(env))
 	for k, v := range env {
 		pairs = append(pairs, k+"="+v)
 	}
 	return pairs
+}
+
+// sameOriginRedirect refuses redirects that leave the configured endpoint's
+// origin. headerTransport injects configured credentials into every request,
+// including the ones Go's client issues after a redirect (after its own logic
+// has already decided to strip Authorization), so following a cross-origin
+// hop would hand the bearer token to another host. Same-origin hops keep the
+// headers; an endpoint that bounces elsewhere is misconfigured.
+func sameOriginRedirect(endpoint *url.URL) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if req.URL.Scheme != endpoint.Scheme || req.URL.Host != endpoint.Host {
+			return fmt.Errorf("refusing redirect to %s://%s: MCP credentials stay on %s://%s", req.URL.Scheme, req.URL.Host, endpoint.Scheme, endpoint.Host)
+		}
+		return nil
+	}
 }
 
 // headerTransport injects static headers (e.g. Authorization) into every

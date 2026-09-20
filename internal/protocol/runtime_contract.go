@@ -31,16 +31,26 @@ type CancelParams struct {
 	TurnID          string `json:"turn_id,omitempty"`
 	TargetCommandID string `json:"target_command_id,omitempty"`
 }
+type InboxRemoveParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+}
+type InboxSteerParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+	TurnID   string `json:"turn_id"`
+}
 type AgentCancelParams struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turn_id"`
 }
 type AgentInputParams struct {
-	ID          string            `json:"id"`
-	Text        string            `json:"text"`
-	Delivery    string            `json:"delivery,omitempty"`
-	Parts       []llm.ContentPart `json:"parts,omitempty"`
-	Attachments []InputAttachment `json:"attachments,omitempty"`
+	DesignContext *llm.DesignContextInput `json:"design_context,omitempty"`
+	ID            string                  `json:"id"`
+	Text          string                  `json:"text"`
+	Delivery      string                  `json:"delivery,omitempty"`
+	Parts         []llm.ContentPart       `json:"parts,omitempty"`
+	Attachments   []InputAttachment       `json:"attachments,omitempty"`
 }
 type QuestionAnswerParams struct {
 	ID string `json:"id"`
@@ -121,8 +131,10 @@ type BrowserStatusResult struct {
 	Driver  string `json:"driver,omitempty"`
 }
 type MCPImportStatusResult struct {
-	Claude bool `json:"claude"`
-	Codex  bool `json:"codex"`
+	Claude   bool `json:"claude"`
+	Codex    bool `json:"codex"`
+	Project  bool `json:"project"`
+	Opencode bool `json:"opencode"`
 }
 type ComputerStatusResult struct {
 	Enabled        bool     `json:"enabled"`

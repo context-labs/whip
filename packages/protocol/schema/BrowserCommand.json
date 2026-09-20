@@ -1,0 +1,132 @@
+{
+  "type": "object",
+  "properties": {
+    "command_id": {
+      "type": "string"
+    },
+    "operation_id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "provider_epoch": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "provider_id": {
+          "type": "string"
+        },
+        "provider_epoch": {
+          "type": "string"
+        },
+        "tab_id": {
+          "type": "string"
+        },
+        "tab_generation": {
+          "type": "string"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "attachment_id": {
+          "type": "string"
+        },
+        "attachment_generation": {
+          "type": "string"
+        },
+        "rights": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "preview": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "host_id": {
+              "type": "string"
+            },
+            "host_identity": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "type": "string"
+            },
+            "environment_id": {
+              "type": "string"
+            },
+            "loopback": {
+              "type": "string"
+            },
+            "ports": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "integer"
+              }
+            }
+          },
+          "required": [
+            "host_id",
+            "host_identity",
+            "connection_generation",
+            "environment_id",
+            "loopback",
+            "ports"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "provider_id",
+        "provider_epoch",
+        "tab_id",
+        "tab_generation",
+        "profile_id",
+        "rights"
+      ],
+      "additionalProperties": false
+    },
+    "expected_document": {
+      "type": "string"
+    },
+    "deadline_millis": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "arguments": true
+  },
+  "$id": "https://whip.dev/protocol/v6/BrowserCommand",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserCommand",
+  "required": [
+    "command_id",
+    "operation_id",
+    "root_id",
+    "agent_id",
+    "provider_epoch",
+    "scope",
+    "deadline_millis",
+    "kind",
+    "arguments"
+  ],
+  "additionalProperties": false
+}

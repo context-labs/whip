@@ -32,6 +32,7 @@ type EventEnvelope struct {
 }
 
 type RootSnapshot struct {
+	CollectionRevision int64             `json:"collection_revision,omitempty,string"`
 	ActiveTurns        map[string]string `json:"active_turns"`
 	view               *SnapshotViewOptions
 	Omitted            map[string]bool            `json:"omitted,omitempty"`
@@ -224,11 +225,11 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	var updated, tags string
 	var pinned int
 	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,
-		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode,execution_engine,definition,definition_revision FROM sessions WHERE id=?`, rootID).Scan(
+		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode,execution_engine,definition,definition_revision,collection_revision FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
 		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned, &snapshot.Meta.Archived,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode, &snapshot.Meta.ExecutionEngine, &snapshot.Meta.Definition, &snapshot.Meta.DefinitionRevision); err != nil {
+		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode, &snapshot.Meta.ExecutionEngine, &snapshot.Meta.Definition, &snapshot.Meta.DefinitionRevision, &snapshot.CollectionRevision); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {
@@ -402,7 +403,7 @@ func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot
 
 func readSnapshotInbox(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.status IN ('queued','running') ORDER BY agent_id,seq LIMIT ?`,
 		InlineValueLimit+1, rootID, snapshot.collectionLimit())
 	if err != nil {
@@ -411,15 +412,17 @@ func readSnapshotInbox(ctx context.Context, tx *sql.Tx, rootID string, snapshot 
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		item := InboxItem{RootID: rootID}
+		var preview []byte
 		var referenceID string
 		if err := rows.Scan(&item.Seq, &item.AgentID, &item.Kind, &item.Status, &item.Payload.Inline,
-			&referenceID, &item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source); err != nil {
+			&referenceID, &item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source, &item.Origin, &item.CommandClientID, &item.CommandID, &item.SteerTurnID, &item.DeliverySeq, &preview); err != nil {
 			return err
 		}
 		if referenceID != "" {
 			item.Payload.ReferenceID = referenceID
 			item.Payload.Inline = nil
 		}
+		item.Preview = readInboxPreview(preview)
 		snapshot.Inbox = append(snapshot.Inbox, item)
 	}
 	return rows.Err()
@@ -479,6 +482,10 @@ func readSnapshotCapabilities(ctx context.Context, tx *sql.Tx, rootID string, sn
 			return err
 		}
 		record.Scopes = scopes.Paths
+		record.Browser = scopes.Browser
+		record.BrowserIssuerID = scopes.BrowserIssuerID
+		record.BrowserIssuerGeneration = scopes.BrowserIssuerGeneration
+		record.BrowserDelegationOnly = scopes.BrowserDelegationOnly
 		if scopes.ExpiresAt != "" {
 			record.ExpiresAt, err = time.Parse(time.RFC3339Nano, scopes.ExpiresAt)
 			if err != nil {

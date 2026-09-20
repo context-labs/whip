@@ -43,6 +43,19 @@ try {
       const visit = async (params = '') => { await page.goto(`${origin}/${params}`); await expect(page.getByRole('tab')).toHaveCount(params.includes('many') ? 32 : 4); };
       const tab = value => page.locator(`[role="tab"][id="whip-workspace-tab-${value}"]`);
       const selected = value => expect(page.getByLabel('Active session', { exact: true })).toHaveText(value);
+      // A crowded strip must spend its label space on the title, not host metadata.
+      await page.setViewportSize({ width: 800, height: 600 });
+      await visit('?many');
+      await page.getByRole('tab').evaluateAll(tabs => {
+        for (const tab of tabs) tab.lastElementChild.textContent = 'This Mac';
+      });
+      const labelWidths = await tab('session-0').evaluate(tab => {
+        const [, title, metadata] = tab.children;
+        return { title: title.getBoundingClientRect().width, metadata: metadata.getBoundingClientRect().width };
+      });
+      assert.ok(labelWidths.title >= 24, `${name}: crowded tab title disappeared: ${JSON.stringify(labelWidths)}`);
+      assert.ok(labelWidths.title > labelWidths.metadata, `${name}: metadata displaced the tab title`);
+      await page.setViewportSize({ width: 1200, height: 800 });
       for (const variant of ['', '?buttons']) {
         await visit(variant);
         await tab('alpha').focus();

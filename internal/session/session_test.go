@@ -460,7 +460,8 @@ func TestCompactionEvent(t *testing.T) {
 	}
 
 	// Load derives the view: system + summary + tail from cutoff
-	// (raw: sys q1 a1 q2 a2 q3 a3; cutoff 4 keeps a2 q3 a3)
+	// (raw: sys q1 a1 q2 a2 q3 a3; cutoff 4 keeps a2 q3 a3). Legacy records
+	// have no explicit pin, even when the tail starts inside a turn.
 	_, got, err := st.Load(id)
 	if err != nil {
 		t.Fatal(err)
@@ -496,7 +497,7 @@ func TestCompactionEvent(t *testing.T) {
 	if raw := st.RawMessages(id); len(raw) != 9 {
 		t.Fatalf("post-compaction save should append, not rewrite: %d raw rows", len(raw))
 	}
-	// the view still holds (cutoff still points at the raw boundary)
+	// the view still holds (cutoff still points at the raw boundary; no inferred pin)
 	_, got, _ = st.Load(id)
 	if len(got) != 7 || got[2].Content != "a2" || got[6].Content != "a4" {
 		t.Fatalf("view after save: %+v", got)

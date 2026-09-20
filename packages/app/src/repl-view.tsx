@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RootSnapshot } from '@whip/protocol';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, CopyButton, Tooltip } from '@whip/ui';
-import { Code2, Info, RotateCcw } from 'lucide-react';
+import { Badge, Button, CodeBlock, CopyButton } from '@whip/ui';
+import { Code2, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
+import { historyGapRows, type TimelineRow } from './conversation-rows';
+import { HistoryGapControl } from './history-gap';
 import { ContentRead } from './details/shared';
 import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
-import { ExecutionTime } from './execution-time';
+import { ExecutionTime, formatHostDuration } from './execution-time';
 
-const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 const executionLabel = (engine?: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : !engine || engine === 'starlark' ? 'Starlark' : 'Unsupported execution language';
 
 export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn }: {
@@ -27,6 +28,17 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   const languageLabel = executionLabel(root?.meta?.execution_engine);
   const history = state.history[agentId];
   const rows = useMemo(() => executionRows(state, agentId), [state, agentId]);
+  const displayRows = useMemo(() => {
+    const result: (typeof rows[number] | TimelineRow)[] = [];
+    const gaps = historyGapRows(history);
+    let index = 0;
+    for (const row of rows) {
+      while (gaps[index] && row.seq !== undefined && gaps[index]!.historyGap!.toSeq < row.seq) result.push(gaps[index++]!);
+      result.push(row);
+    }
+    result.push(...gaps.slice(index));
+    return result;
+  }, [rows, history]);
   const cells = rows.filter(row => row.kind === 'cell');
   const ordinals = new Map(cells.map((row, index) => [row.id, index + 1]));
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -44,23 +56,17 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   const missing = !!history?.error || (!root && state.status === 'error');
   const failed = !root?.active_turns?.[agentId] && (lastTurn ?? root?.agents?.find(agent => agent.id === agentId)?.last_turn)?.status === 'failed';
   return <div {...stylex.props(styles.root)} data-session-view="repl">
-    <div {...stylex.props(styles.toolbar)}>
-      <span {...stylex.props(styles.title)}>
-        <Tooltip label={historyHelp}>
-          <Button variant="ghost" size="sm" aria-label="About REPL history" aria-description={historyHelp}><Info size={14} /></Button>
-        </Tooltip>
-      </span>
-      <span {...stylex.props(styles.count)}>{languageLabel} · {cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
-    </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
     {state.executions?.truncated && <p role="status" {...stylex.props(styles.notice)}>Some observed execution details were omitted to keep this view within its memory limit.</p>}
-    <ReadingList rows={rows} label="REPL executions" earlierLabel="Load older executions"
+    <ReadingList rows={displayRows} label="REPL executions" earlierLabel="Load older executions"
       hasMore={history?.hasMore ?? false} canLoadOlder={connected} loadingHistory={history?.loading}
-      loadOlder={() => view.loadOlder(agentId)} historyRevision={history?.revision ?? root?.history_revision}
+      loadOlder={() => view.loadOlder(agentId)} loadLatest={() => view.loadLatest(agentId)} latestMissing={history?.latestMissing} historyRevision={history?.revision ?? root?.history_revision}
       historyReady={!!history && !history.loading} bookmarkKey={`${runtimeId}:${viewId}:${agentId}:repl`}
       contentStyle={styles.content}
       empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded turn error below.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : `Cells appear here when this agent runs ${languageLabel}.`}</span></div>}
-      renderRow={row => row.kind === 'restart'
+      renderRow={row => !('kind' in row)
+        ? <HistoryGapControl gap={row.historyGap!} connected={connected} load={() => view.loadHistoryGap(agentId, row.historyGap!.toSeq)} />
+        : row.kind === 'restart'
         ? <div {...stylex.props(styles.restart)} data-repl-restart><RotateCcw size={14} /><span>{row.text}{row.historyUnmatched ? ' · observed; historical match unavailable' : ''}</span></div>
         : <Cell row={row} number={ordinals.get(row.id)!} view={view} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
     />
@@ -111,7 +117,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
-        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : host.duration}</span></div>
+        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : formatHostDuration(host.duration)}</span></div>
         {host.error && <ErrorNotice type="execution" owner={`${row.id}:${host.id}`} title={`${host.name} failed`} error={host.error} />}
       </div>)}
     </div>}
@@ -126,5 +132,6 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     <ErrorNotice type="action" owner={`${row.id}:copy`} title="Could not copy" error={copyError} />
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}
+    {row.codeBody && <ContentRead key={row.codeBody.reference_id} view={view} agentId={row.agentId} value={row.codeBody} label="Execution code" />}
   </article>;
 }

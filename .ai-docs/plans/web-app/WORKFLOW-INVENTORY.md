@@ -8,10 +8,18 @@ The operation list is checked against the generated manifest by `packages/app/te
 
 | Registry operation | Status | Surface and behavior |
 | --- | --- | --- |
+| `rpc:browser.command.result` | Internal | Native Browser provider SDK returns exact-command results and scoped screenshot references; unavailable in web-only clients. |
+| `rpc:browser.provider.bind` | Web | Desktop advertises inert zero-tab availability for an exact visible conversation/host/window/pane; Browser access explicitly offers a human tab. Availability is not control or preview-network authority. |
+| `rpc:browser.inventory.result` | Internal | Bounded on-demand native metadata response, fenced by request, holder, root, epoch and requested tab generations; never dispatched as a page-control command. |
+| `rpc:browser.provider.event` | Internal | Selected native provider observations, fenced by root, holder, epoch and attachment identity; no page authority inferred from events. |
+| `rpc:browser.provider.unbind` | Web | Explicit release in desktop Browser access settings removes only the current exact-holder/epoch association and leaves human tabs open. |
 | `rpc:command.status` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
 | `rpc:command.submit` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
 | `rpc:config.get` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
 | `rpc:config.update` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
+| `rpc:mcp.import.candidates` | Web | New session offer and Settings → Configuration → Servers from other agents: the MCP servers other agents configured on the host, read from files only. |
+| `rpc:mcp.import.apply` | Web | Import or Skip on that screen: writes the chosen servers into the host's native mcp block and records the answer. |
+| `rpc:mcp.brand.icons` | Web | Logos on that screen for servers the bundled marks do not cover: the daemon asks DuckDuckGo by registrable domain, caches per host, and returns data URIs; off with `brandIcons: false`. |
 | `rpc:content.read` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
@@ -69,6 +77,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
 | `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
 | `rpc:hook.result` | SDK-only | Headless executor hook handlers answer before_tool, before_spawn, and turn_start invocations for their lease generation; an empty reply allows unchanged. The desktop observes stream.hook.decision events rather than sending this RPC. |
+| `rpc:trace.export` | SDK-only | `whip sessions export` builds the OTLP/JSON document for a session (or one trace) and reads it back through a root-scoped content reference. The SDK has no helper and the desktop trace view has no export action yet. |
+| `rpc:trace.page` | Web | Session trace view (`?view=trace`) pages the `spans` table by `updated_seq` and merges `span.started`/`span.ended` events on top (`packages/sdk/src/trace.ts`, `packages/app/src/trace-view.tsx`). |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.finish` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
@@ -132,6 +142,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `runtime:session.rename` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:shell.run` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
 | `runtime:steer` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
+| `runtime:inbox.steer` | Web | Promote one queued client input above the composer at the targeted turn's next boundary. |
+| `runtime:inbox.remove` | Web | Remove only waiting client input; never cancel a running turn. |
 | `runtime:submit` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
 | `runtime:terminal.input` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
 | `runtime:tool.call` | Deferred | Manual execution console remains outside this conversation-first milestone. TUI has no direct tool.call invocation workflow; daemon adapters/scripts retain typed access. Agent execution, schema inspection, and permissions remain in scope. |

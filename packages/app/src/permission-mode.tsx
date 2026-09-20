@@ -4,7 +4,7 @@ import { ErrorNotice } from './error-feedback';
 import { Button, Popover } from '@whip/ui';
 import { Check, ChevronDown, Hand, ShieldAlert, ShieldCheck } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { colors, surface } from '@whip/ui/tokens.stylex';
+import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
 import type { InspectorProps } from './details/shared';
@@ -37,30 +37,34 @@ const modes: Mode[] = [
 
 const styles = stylex.create({
   popup: { width: 'min(340px, calc(100vw - 48px))' },
+  title: { display: 'block', paddingBlock: scale.space1, paddingInline: scale.space2 },
+  options: { display: 'flex', flexDirection: 'column', gap: scale.space1, minWidth: 0 },
   trigger: { gap: 6, maxWidth: 200 },
   chevron: { color: surface.secondaryText, flexShrink: 0 },
   danger: { color: colors.warning },
   option: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 10,
+    display: 'grid',
+    gridTemplateColumns: '16px minmax(0, 1fr) 16px',
+    alignItems: 'start',
+    gap: scale.space2,
     width: '100%',
-    paddingBlock: 8,
-    paddingInline: 8,
-    borderRadius: 6,
+    paddingBlock: scale.space2,
+    paddingInline: scale.space2,
+    borderRadius: scale.radiusControl,
     borderWidth: 0,
     backgroundColor: { default: 'transparent', ':hover': colors.hover },
     color: colors.foreground,
     font: 'inherit',
     fontSize: typography.size13,
+    lineHeight: '1.5385',
     textAlign: 'start',
     cursor: 'default',
   },
-  optionIcon: { marginTop: 1, flexShrink: 0, color: surface.secondaryText },
+  optionIcon: { marginTop: 2, color: surface.secondaryText },
   optionActive: { backgroundColor: colors.hover },
-  optionLabel: { display: 'flex', flexDirection: 'column', gap: 2 },
-  optionDescription: { color: surface.secondaryText, fontSize: typography.size12 },
-  check: { color: surface.secondaryText, flexShrink: 0, marginTop: 2 },
+  optionLabel: { display: 'flex', flexDirection: 'column', gap: scale.space1 },
+  optionDescription: { color: surface.secondaryText, fontSize: typography.size12, lineHeight: '1.5' },
+  check: { color: surface.secondaryText, alignSelf: 'start', marginTop: 3 },
 });
 
 /** Composer control: consent mode for the session. Root-only, applies when idle. */
@@ -93,7 +97,7 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
     <Popover
       open={open}
       onOpenChange={value => { if (!pending) setOpen(value); }}
-      title="How should permissions be approved?"
+      title={<span {...stylex.props(styles.title)}>How should permissions be approved?</span>}
       xstyle={styles.popup}
       trigger={
         <Button
@@ -113,7 +117,7 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
     >
       {error !== undefined && <ErrorNotice type="action" owner="permission-mode" error={error} title="Could not change permission mode" />}
       {open && (
-        <div {...stylex.props(layout.column)} role="listbox" aria-label="Permission approval mode" aria-activedescendant={current}>
+        <div {...stylex.props(styles.options)} role="listbox" aria-label="Permission approval mode" aria-activedescendant={current}>
           {modes.map((mode) => (
             <button
               key={mode.value}

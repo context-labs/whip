@@ -74,6 +74,12 @@
     "import_codex": {
       "type": "boolean"
     },
+    "mcp_import_offered": {
+      "type": "boolean"
+    },
+    "brand_icons": {
+      "type": "boolean"
+    },
     "revision": {
       "type": "string"
     },
@@ -109,6 +115,8 @@
     "default_execution_engine",
     "import_claude",
     "import_codex",
+    "mcp_import_offered",
+    "brand_icons",
     "revision",
     "default_model",
     "default_provider",

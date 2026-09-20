@@ -44,9 +44,10 @@ export function setDirectoryCollapsed(state: SidebarState, runtimeId: string, cw
 }
 
 type Session = NonNullable<DeepReadonly<SessionCatalogPage>['items']>[number];
-export type SidebarRow = { key: string; kind: 'directory'; cwd: string; label: string } | { key: string; kind: 'session'; session: Session };
+export type SidebarRow = { key: string; kind: 'directory'; cwd: string; label: string } | { key: string; kind: 'session'; session: Session } | { key: string; kind: 'more'; cwd: string; expanded: boolean; visibleCount: number };
+export const defaultDirectorySessionLimit = 7;
 const directoryName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path || 'Other sessions';
-export function sidebarRows(items: readonly Session[], collapsed: readonly string[] = []): SidebarRow[] {
+export function sidebarRows(items: readonly Session[], collapsed: readonly string[] = [], limits: ReadonlyMap<string, number> = new Map()): SidebarRow[] {
   const groups = new Map<string, Session[]>();
   for (const session of items) {
     const group = groups.get(session.cwd);
@@ -75,7 +76,12 @@ export function sidebarRows(items: readonly Session[], collapsed: readonly strin
   const rows: SidebarRow[] = [];
   for (const [cwd, sessions] of groups) {
     rows.push({ key: `directory:${cwd}`, kind: 'directory', cwd, label: labels.get(cwd)! });
-    if (!hidden.has(cwd)) for (const session of sessions) rows.push({ key: `session:${session.id}`, kind: 'session', session });
+    if (hidden.has(cwd)) continue;
+    const visibleCount = Math.min(sessions.length, limits.get(cwd) ?? defaultDirectorySessionLimit);
+    for (const session of sessions.slice(0, visibleCount)) {
+      rows.push({ key: `session:${session.id}`, kind: 'session', session });
+    }
+    if (sessions.length > defaultDirectorySessionLimit) rows.push({ key: `more:${cwd}`, kind: 'more', cwd, expanded: visibleCount === sessions.length, visibleCount });
   }
   return rows;
 }

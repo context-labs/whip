@@ -36,6 +36,26 @@ ordinary responses without changing delegation or authorization. See
 [agent inspection](tools.md#choosing-between-models-and-agents) for retrieval
 and response-shape migration examples.
 
+## Desktop Browser authority
+
+The experimental desktop Browser path is available through the same
+host module in Starlark and JavaScript; it adds no model-facing tool or execution
+engine. The [Browser guide](browser-computer-use.md#desktop-browser-tabs) owns the
+lifecycle/helper contract. A fresh root must have Browser module grants and an
+explicitly selected provider. Historical roots are not silently broadened.
+
+Open, attach and preview-port expansion resolve the exact native resource before
+durable permission admission and recheck it after Once-only approval. Saved
+permission rules do not authorize Browser v1 resource requests. Attachment IDs
+alone are not grants: `agents.spawn` must explicitly name
+`browser_attachments=[attachment_id]`. A successful handoff creates child-bound
+control and leaves the parent with delegation/revocation authority, not shared
+control; ancestry remains checked on use. Detach, stop and revoke cascade to
+retire dependent control without closing the human tab. Reconnect/restart does
+not restore native selection or replay uncertain page effects; see the
+[SDK provider lifetime](../packages/sdk/README.md#experimental-native-browser-provider).
+This contract does not imply packaged-release acceptance.
+
 ## Durable communication
 
 Spawn returns immediately with the child’s admission metadata. The child’s
@@ -358,9 +378,12 @@ in either mode, subject to its existing consent gate.
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized
-node through `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
+node through `mcp.search`, `mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
 are not appended to the provider’s tool catalog. Root and child therefore keep
-the same stable interface even as MCP servers connect, fail, or reconnect.
+the same stable interface even as MCP servers connect, fail, or reconnect. A
+call's text carries structured content as JSON; image, audio and binary parts
+become content handles owned by the caller and are named in the text, and image
+parts also reach the root's next turn as vision input.
 
 The root session owns the only live manager; attachment, model reload, status,
 root calls, and descendant calls use that synchronized owner. Tool invocations
@@ -433,6 +456,17 @@ ephemeral system text before the model's next request, bounded to eight
 notices and 2 KiB per turn, so the model knows what ran without any operation
 changing its result shape.
 
+The ephemeral system text (the turn's budget line, a worker-restart notice,
+the `turn_start` contribution, hook notices) rides as the last message of every
+request, not beside the system prompt. Provider prefix caches match a request
+from the front, so a change in that text at index 1 would invalidate the
+cached history behind it; at the tail it costs only its own tokens. For the
+same reason the budget line names which budgets are finite and never carries
+remaining amounts, which would change every turn; `agents.inspect` has the
+numbers. Each request's ephemeral text is interned and referenced from the
+call's trace span (`ephemeral_ref`), so a trace can show what the model was
+told without the text ever entering history.
+
 ## Output contracts
 
 A definition may state what a turn returns. `output` is an object JSON Schema;
@@ -466,7 +500,7 @@ Omitted or zero values use these defaults:
 | `rlm.memoryMiB` | 256 | worker memory ceiling |
 | `rlm.outputBytes` | 65,536 | captured cell output |
 | `rlm.frameBytes` | 1,048,576 | worker protocol frame |
-| `rlm.maxWorkers` | 4 | daemon-wide live kernels |
+| `rlm.maxWorkers` | 16 | daemon-wide live kernels |
 
 The worker memory budget limits resident RAM. On Linux, the separate virtual
 address-space ceiling includes the Go runtime's measured startup reservations,

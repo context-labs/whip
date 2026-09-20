@@ -27,7 +27,7 @@ func TestRuntimeGuideSelectsFragments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"- files.list(", "- browser.run(...)\n", "Host module operations accept keyword arguments only", "Working directory: /workspace"} {
+	for _, want := range []string{"- files.list(", "- browser.open(url=", "Host module operations accept keyword arguments only", "Working directory: /workspace"} {
 		if !strings.Contains(files, want) {
 			t.Fatalf("guide missing %q:\n%s", want, files)
 		}

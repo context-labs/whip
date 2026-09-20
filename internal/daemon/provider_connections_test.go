@@ -181,69 +181,65 @@ func TestProviderConnectPreservesCustomEndpointAndDefaults(t *testing.T) {
 	}
 }
 
-func TestProviderDisconnectDoesNotFallBackAndSurvivesRestart(t *testing.T) {
+func TestProviderDisconnectRestoresDefaultSetup(t *testing.T) {
+	for _, environment := range []string{"", "private-environment-key"} {
+		t.Run(map[bool]string{true: "environment", false: "empty"}[environment != ""], func(t *testing.T) {
+			service := providerConnectionsFixture(t)
+			t.Setenv(config.OpenRouterEnvVar, environment)
+			before, revision, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+				cfg.Providers["openrouter"] = config.Provider{BaseURL: config.OpenRouterBaseURL, APIKey: "private-saved-key"}
+				cfg.DisabledProviders = []string{"openrouter", "unrelated"}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := config.UpdateCatalog("openrouter", config.Catalog{BaseURL: config.OpenRouterBaseURL, Models: []config.ModelInfoLite{{ID: "fixture"}}}); err != nil {
+				t.Fatal(err)
+			}
+			status, err := service.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: "openrouter", Revision: revision})
+			if err != nil || status.Disabled || status.Available == nil || *status.Available != (environment != "") {
+				t.Fatalf("disconnect = %+v, %v", status, err)
+			}
+			cfg, err := config.Load()
+			if err != nil || cfg.Providers["openrouter"].APIKey != "" || cfg.Providers["openrouter"].APIKeyEnv != config.OpenRouterEnvVar || cfg.DefaultModel != before.DefaultModel || !reflect.DeepEqual(cfg.Models, before.Models) || !reflect.DeepEqual(cfg.DisabledProviders, []string{"unrelated"}) {
+				t.Fatal("disconnect did not restore setup while preserving unrelated config")
+			}
+			if _, exists := config.LoadCatalogs()["openrouter"]; exists {
+				t.Fatal("disconnect retained cache")
+			}
+			restarted := NewProviderService(t.Context(), "restarted")
+			t.Cleanup(restarted.Close)
+			reloaded := providerEntry(t, restarted, "openrouter").Status
+			if reloaded.Disabled || reloaded.Available == nil || *reloaded.Available != (environment != "") {
+				t.Fatal("restart changed reset state")
+			}
+			if _, err := restarted.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: "openrouter", Revision: revision}); !errors.Is(err, config.ErrRevisionConflict) {
+				t.Fatal("stale disconnect accepted")
+			}
+		})
+	}
+}
+
+func TestProviderDisconnectClearsPreviousAccountBehindAnAPIKey(t *testing.T) {
 	service := providerConnectionsFixture(t)
-	t.Setenv(config.OpenRouterEnvVar, "private-environment-key")
-	before, revision, err := config.UpdateVersioned("", func(cfg *config.Config) error {
-		cfg.Providers["openrouter"] = config.Provider{BaseURL: config.OpenRouterBaseURL, APIKey: "private-saved-key"}
+	if err := inferencenet.SaveAuth(inferencenet.Auth{MachineKey: "old-account-key", TeamName: "Old team"}); err != nil {
+		t.Fatal(err)
+	}
+	_, revision, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+		cfg.Providers[config.InferenceNetProvider] = config.Provider{BaseURL: config.InferenceNetBaseURL, APIKey: "saved-key"}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := config.UpdateCatalog("openrouter", config.Catalog{BaseURL: config.OpenRouterBaseURL, Models: []config.ModelInfoLite{{ID: "fixture"}}}); err != nil {
-		t.Fatal(err)
-	}
-	status, err := service.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: "openrouter", Revision: revision})
-	if err != nil || !status.Disabled || status.Available == nil || *status.Available {
+	status, err := service.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: config.InferenceNetProvider, Revision: revision})
+	if err != nil || status.Disabled || status.Available == nil || *status.Available {
 		t.Fatalf("disconnect = %+v, %v", status, err)
 	}
-	cfg, err := config.Load()
-	if err != nil || cfg.Providers["openrouter"].APIKey != "" || cfg.DefaultModel != before.DefaultModel || !reflect.DeepEqual(cfg.Models, before.Models) {
-		t.Fatal("disconnect removed routes/defaults or retained the saved key")
-	}
-	if _, exists := cfg.EffectiveProviders()["openrouter"]; exists {
-		t.Fatal("disconnected provider fell back to environment")
-	}
-	if _, exists := config.LoadCatalogs()["openrouter"]; exists {
-		t.Fatal("disconnect retained cache")
-	}
-	restarted := NewProviderService(t.Context(), "restarted")
-	t.Cleanup(restarted.Close)
-	if !providerEntry(t, restarted, "openrouter").Status.Disabled {
-		t.Fatal("restart lost opt-out")
-	}
-	if _, err := restarted.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: "openrouter", Revision: revision}); !errors.Is(err, config.ErrRevisionConflict) {
-		t.Fatal("stale disconnect accepted")
-	}
-	current, err := restarted.ReadConfiguration()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := restarted.UpdateConfiguration(ConfigurationUpdate{Revision: current.Revision, DisabledProviders: new([]string{})}); err != nil {
-		t.Fatal(err)
-	}
-	if err := restarted.checkModelProvider("openrouter"); !llm.IsPermanentRequestError(err) {
-		t.Fatal("enabling a disconnected route made a retained session key usable again")
-	}
-	if !slices.Contains(providerEntry(t, restarted, "openrouter").Methods, "environment") {
-		t.Fatal("host environment was not offered as an explicit reconnection method")
-	}
-	restarted.validate = func(_ context.Context, _, key string) ([]llm.ModelInfo, error) {
-		if key != "private-environment-key" {
-			t.Fatal("environment reconnection resolved the wrong key")
-		}
-		return []llm.ModelInfo{{ID: "fixture-chat-model"}}, nil
-	}
-	current, err = restarted.ReadConfiguration()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := restarted.SetProviderKey(t.Context(), ProviderKeySetup{Revision: current.Revision, Provider: "openrouter", Environment: true}); err != nil {
-		t.Fatal(err)
-	}
-	if status := providerEntry(t, restarted, "openrouter").Status; status.KeySource != "environment" || !*status.Available {
-		t.Fatal("explicit environment reconnection did not take effect")
+	auth, err := inferencenet.LoadAuth()
+	if err != nil || auth != (inferencenet.Auth{}) {
+		t.Fatal("old account survived disconnect")
 	}
 }
 
@@ -482,5 +478,26 @@ func TestProviderDisableBlocksRetainedRootChildAndHelperClients(t *testing.T) {
 	}
 	if requests.Load() != 1 || runTurnCount(runs, id) != 1 {
 		t.Fatal("disabled route was dispatched or automatically retried")
+	}
+}
+
+func TestProviderResetLegacyDisabledEnvironmentPreservesSource(t *testing.T) {
+	service := providerConnectionsFixture(t)
+	t.Setenv(config.OpenRouterEnvVar, "environment-key")
+	_, revision, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+		cfg.Providers["openrouter"] = config.Provider{BaseURL: config.OpenRouterBaseURL, APIKeyEnv: config.OpenRouterEnvVar}
+		cfg.DisabledProviders = []string{"openrouter", "unrelated"}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := service.DisconnectProvider(t.Context(), protocol.ProviderDisconnectParams{Provider: "openrouter", Revision: revision})
+	if err != nil || status.Disabled || status.Available == nil || !*status.Available {
+		t.Fatalf("reset = %+v, %v", status, err)
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.Providers["openrouter"].APIKeyEnv != config.OpenRouterEnvVar || os.Getenv(config.OpenRouterEnvVar) != "environment-key" || !reflect.DeepEqual(cfg.DisabledProviders, []string{"unrelated"}) {
+		t.Fatal("reset changed external credentials or unrelated providers")
 	}
 }

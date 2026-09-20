@@ -65,6 +65,46 @@ test('an already-aborted connect does not create a transport', async t => {
   assert.equal(client.getSnapshot().state, 'closed');
 });
 
+test('queue controls preserve recipient and turn identities and recover a lost acknowledgement without resubmission', async t => {
+  const receipts = new Map<string, Record<string, unknown>>();
+  let lose = true;
+  const server = harness((request, connection) => {
+    if (request.method === 'initialize') connection.reply(request, initialize());
+    if (request.method === 'command.submit') {
+      const payload = request.params.payload as { id: string; inbox_seq: string };
+      const result = { command_id: request.params.command_id, operation: request.params.operation, ingress_seq: '0', status: 'succeeded',
+        result: { agent_id: payload.id, inbox_seq: payload.inbox_seq, status: request.params.operation === 'inbox.steer' ? 'steering' : 'removed' } };
+      receipts.set(String(request.params.command_id), result);
+      if (lose) { lose = false; connection.fail(); } else connection.reply(request, result);
+    }
+    if (request.method === 'command.status') connection.reply(request, receipts.get(String(request.params.command_id)));
+  });
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'queue-controls', commandPollMs: 1 });
+  t.after(() => client.close());
+  await client.connect();
+  const steer = client.session('root').inbox.steer('child', '9007199254740993', 'exact-turn');
+  const steered = await steer.result();
+  assert.equal(steered.result?.status, 'steering');
+  assert.equal((await client.session('other-root').inbox.remove('other-child', '2').result()).result?.status, 'removed');
+  const submissions = server.connections.flatMap(connection => connection.requests).filter(request => request.method === 'command.submit');
+  assert.equal(submissions.length, 2);
+  assert.deepEqual(submissions.map(request => [request.params.root_id, request.params.operation, request.params.payload]), [
+    ['root', 'inbox.steer', { id: 'child', inbox_seq: '9007199254740993', turn_id: 'exact-turn' }],
+    ['other-root', 'inbox.remove', { id: 'other-child', inbox_seq: '2' }],
+  ]);
+});
+
+test('older daemons remain connected while queue mutation capability is unavailable', async t => {
+  const server = harness((request, connection) => connection.reply(request, { ...initialize(), operations: initialize().operations!.filter(operation => !operation.name.startsWith('inbox.')) }));
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'old-queue', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal(client.getSnapshot().state, 'connected');
+  assert.equal(client.supports('runtime', 'inbox.steer'), false);
+  assert.equal(client.supports('runtime', 'inbox.remove'), false);
+  assert.equal(client.supports('runtime', 'submit'), true);
+});
+
 test('an incompatible daemon is rejected during initialization before session reads or reconnect retries', async t => {
   const server = harness((request, connection) => {
     assert.equal(request.method, 'initialize');
@@ -78,6 +118,41 @@ test('an incompatible daemon is rejected during initialization before session re
   assert.equal(server.current.closed, true);
   await assert.rejects(client.sessions.list(), { kind: 'unsupported_protocol' });
   assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
+});
+
+test('older hosts without MCP import/logo operations retain a usable configuration connection', async t => {
+  const configuration = {
+    revision: '1', import_claude: false, import_codex: false, default_model: '', default_provider: '', default_effort: '',
+    default_execution_engine: 'starlark', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1,
+  };
+  for (const method of ['config.get', 'config.update', 'provider.key.set'] as const) await t.test(method, async t => {
+    const server = harness((request, connection) => connection.reply(request, request.method === 'initialize'
+      ? { ...initialize(), protocol_minor: manifest.minor - 1,
+        operations: initialize().operations!.filter(operation => !['mcp.import.candidates', 'mcp.brand.icons'].includes(operation.name)) }
+      : configuration));
+    const client = new WhipClient({ endpoint: server.factory, clientId: 'older-config', reconnect: false });
+    t.after(() => client.close());
+    await client.connect();
+    const result = await client.call(method, method === 'config.get' ? {} : method === 'config.update' ? { revision: '1' }
+      : { revision: '1', provider: 'test-provider', key: 'fixture-key', environment: false });
+    assert.equal(result.mcp_import_offered, true, 'Do not offer an unsupported import workflow');
+    assert.equal(result.brand_icons, false, 'Do not enable unsupported external lookups');
+    assert.equal(client.getSnapshot().state, 'connected');
+  });
+});
+
+test('configuration compatibility never masks missing supported fields or invalid values', async t => {
+  for (const malformed of [{}, { mcp_import_offered: null, brand_icons: true }]) await t.test(JSON.stringify(malformed), async t => {
+    const server = harness((request, connection) => connection.reply(request, request.method === 'initialize' ? initialize() : {
+      revision: '1', import_claude: false, import_codex: false, default_model: '', default_provider: '', default_effort: '',
+      default_execution_engine: 'starlark', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1,
+      ...malformed,
+    }));
+    const client = new WhipClient({ endpoint: server.factory, clientId: 'invalid-config', reconnect: false });
+    t.after(() => client.close());
+    await client.connect();
+    await assert.rejects(client.configuration.get(), { kind: 'invalid_response' });
+  });
 });
 
 test('an old daemon’s initialization rejection remains an incompatible connection', async t => {

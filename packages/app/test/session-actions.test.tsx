@@ -4,8 +4,9 @@ import { UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';
 import { SessionActionsProvider, useSessionActions } from '../src/session-actions';
 import type { AppRuntime } from '../src/runtime';
+import { SessionTabs, selectedSessionTab } from '../src/session-tabs';
 
-const route = vi.hoisted(() => ({ location: { pathname: '/other' }, navigate: vi.fn() }));
+const route = vi.hoisted(() => ({ location: { pathname: '/other' }, navigate: vi.fn(async () => {}) }));
 vi.mock('@tanstack/react-router', () => ({ useLocation: () => route.location, useNavigate: () => route.navigate }));
 beforeEach(() => { route.location = { pathname: '/other' }; route.navigate.mockClear(); });
 function Rows({ visible = true }: { visible?: boolean }) {
@@ -25,11 +26,51 @@ function fixture() {
   const runtime = { getSnapshot: () => snapshot, subscribe: () => () => {}, connections: { host: vi.fn((id: string) => id === 'remote' ? host : undefined) },
     platform: { copy: vi.fn(async () => {}), storage: { getItem: () => null } },
     tabs: { workspace: () => workspace, open: vi.fn(() => 'fork-tab'), titles: vi.fn() },
-    forgetSession: vi.fn(), run, report: vi.fn() } as unknown as AppRuntime;
+    forgetSession: vi.fn(), run, report: vi.fn(), reportWorkspace: vi.fn() } as unknown as AppRuntime;
   const tree = (visible = true) => <RuntimeContext.Provider value={runtime}><UIProvider><SessionActionsProvider><Rows visible={visible} /></SessionActionsProvider></UIProvider></RuntimeContext.Provider>;
   const view = render(tree());
   return { get, metadata, rename, fork, archive, remove, session, host, runtime, run, workspace, rerender: (visible = true) => view.rerender(tree(visible)) };
 }
+it('Open in new tab opens a fresh selected root chat without session work, while background still reuses', async () => {
+  const f = fixture();
+  const tabs = new SessionTabs();
+  tabs.visit('remote', 'same-root', { view: 'repl', agent: 'child', panel: 'context' });
+  const original = tabs.workspace().tabs[0]!;
+  Object.assign(f.runtime, { tabs });
+  fireEvent.click(screen.getByRole('button', { name: 'Open in new tab', exact: true }));
+  await waitFor(() => expect(route.navigate).toHaveBeenCalledOnce());
+  const tab = selectedSessionTab(tabs.workspace())!;
+  expect(tab).toMatchObject({ kind: 'chat', rootId: 'same-root', runtimeId: 'remote', location: {} });
+  expect(tab.id).not.toBe(original.id);
+  expect(tabs.workspace().tabs[0]).toEqual(original);
+  expect(route.navigate).toHaveBeenCalledWith(expect.objectContaining({ state: { whipViewId: tab.id } }));
+  expect(f.get).not.toHaveBeenCalled(); expect(f.session).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Open in background tab', exact: true }));
+  expect(tabs.workspace().tabs).toHaveLength(2); expect(route.navigate).toHaveBeenCalledOnce();
+});
+
+it('Open in new tab permits known offline hosts but disables removed hosts', () => {
+  const f = fixture();
+  const tabs = new SessionTabs(); Object.assign(f.runtime, { tabs });
+  f.host.state = 'disconnected'; f.rerender();
+  expect(screen.getByRole('button', { name: 'Open in new tab', exact: true }).hasAttribute('disabled')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Open in new tab', exact: true }));
+  expect(tabs.workspace().tabs).toHaveLength(1); expect(route.navigate).toHaveBeenCalledOnce();
+  expect(f.get).not.toHaveBeenCalled(); expect(f.session).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
+  vi.spyOn(f.runtime.connections, 'host').mockReturnValue(undefined); f.rerender();
+  expect(screen.getByRole('button', { name: 'Open in new tab', exact: true }).hasAttribute('disabled')).toBe(true);
+});
+
+it('Open in new tab reports full capacity without navigating', async () => {
+  const f = fixture();
+  const tabs = new SessionTabs();
+  for (let i = 0; i < 32; i++) tabs.openChatView('remote', 'same-root');
+  Object.assign(f.runtime, { tabs });
+  fireEvent.click(screen.getByRole('button', { name: 'Open in new tab', exact: true }));
+  await waitFor(() => expect(f.runtime.reportWorkspace).toHaveBeenCalledOnce());
+  expect(tabs.workspace().tabs).toHaveLength(32); expect(route.navigate).not.toHaveBeenCalled();
+});
+
 it('loads the full title only on action and keeps rename alive after the clicked row unmounts', async () => {
   const f = fixture();
   expect(f.get).not.toHaveBeenCalled();
@@ -75,6 +116,20 @@ it('deletes only after confirmation and clears the clicked root on its original 
   await waitFor(() => expect(f.runtime.forgetSession).toHaveBeenCalledExactlyOnceWith('remote', 'same-root'));
   expect(f.remove).toHaveBeenCalledOnce();
   expect(route.navigate).not.toHaveBeenCalled();
+});
+it('deleting the current and only session lands in a New Chat on that host', async () => {
+  const f = fixture();
+  route.location = { pathname: '/h/remote/s/same-root' };
+  route.navigate.mockResolvedValue(undefined);
+  const openNew = vi.fn(() => ({ id: 'draft', kind: 'new', runtimeId: 'remote', cwd: '', permissionMode: 'prompt' }));
+  Object.assign(f.runtime.tabs, { openNew }); Object.assign(f.host, { runtimeId: 'remote' });
+  f.rerender();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete…', exact: true }));
+  await screen.findByText(f.metadata.title);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete session', exact: true }));
+  await waitFor(() => expect(f.runtime.forgetSession).toHaveBeenCalledOnce());
+  expect(openNew).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runtimeId: 'remote' }));
+  expect(route.navigate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: '/new/$draftId', params: { draftId: 'draft' }, replace: true }));
 });
 it('archive keeps tabs and drafts, with an Undo that restores the same root', async () => {
   const f = fixture();

@@ -1,24 +1,22 @@
 import { ErrorNotice } from './error-feedback';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import { Alert, Button } from '@whip/ui';
-import { ArrowRight } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { CatalogModelPicker } from './model-selection';
-import { ProviderLogo } from './provider-logo';
-import { layout } from './styles';
+import { SettingsGroup } from './settings/section-layout';
 import { errorMessage } from './platform';
-import { ProviderConnectionDialog, sourceLabel, stateLabel, type ProviderEntry, type useProviderConnections } from './settings/provider-connections';
+import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow, type ProviderEntry, type useProviderConnections } from './settings/provider-connections';
 
 type Connections = ReturnType<typeof useProviderConnections>;
 
 /** A view of host-owned readiness. Choosing a default is always an explicit write. */
-export function ProviderSetup({ client, enabled, hostName, connections, onReady }: {
-  client: WhipClient; enabled: boolean; hostName: string; connections: Connections; onReady(): void;
+export function ProviderSetup({ client, enabled, hostName, connections, onReady, actions }: {
+  client: WhipClient; enabled: boolean; hostName: string; connections: Connections; onReady(): void; actions?: ReactNode;
 }) {
-  const { inventory, flows, refresh, discover, discovering, discoveryError } = connections;
+  const { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError } = connections;
   useEffect(() => { void discover(); }, [discover]);
   const entries = inventory.data?.providers ?? [];
   const available = entries.filter(entry => entry.status.available && !entry.status.disabled);
@@ -58,27 +56,20 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady 
       if (!controller.signal.aborted) { setError(errorMessage(error)); await inventory.refetch(); }
     } finally { if (!controller.signal.aborted) setBusy(false); }
   }
-  const rows = (values: ProviderEntry[]) => values.map(entry => <Button key={entry.id} data-provider-choice variant="ghost" xstyle={styles.row}
-    disabled={!enabled || busy} onClick={() => choose(entry)} aria-label={`${(entry.status.available || entry.status.auth_state === 'unchecked') && !entry.status.disabled ? 'Use' : 'Connect'} ${entry.name}`}>
-    <ProviderLogo id={entry.id} />
-    <span {...stylex.props(styles.identity)}>
-      <span {...stylex.props(layout.row)}><span>{entry.name}</span>{entry.recommended && <span {...stylex.props(styles.note)}>Recommended</span>}</span>
-      <span {...stylex.props(styles.note)}>{entry.status.available ? `${sourceLabel(entry)} · ${hostName}`
-        : entry.status.disabled || ['configuration_error', 'sign_in_required', 'setup_required', 'unchecked'].includes(entry.status.auth_state ?? '') ? stateLabel(entry)
-        : entry.id === 'inference-net' ? 'Sign in in your browser' : entry.id === 'openai-codex' ? 'Use your ChatGPT subscription' : 'Use an API key'}</span>
-    </span><ArrowRight size={14} aria-hidden />
-  </Button>);
+  const pending = entries.filter(entry => !available.includes(entry));
+  const rows = (values: ProviderEntry[]) => values.map(entry => <ProviderConnectionRow key={entry.id} setup entry={entry} hostName={hostName}
+    enabled={enabled && !busy} connect={!((entry.status.available || entry.status.auth_state === 'unchecked') && !entry.status.disabled)} onSelect={() => choose(entry)} />);
+  const refreshButton = <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Refresh</Button>;
   if (inventory.data && !inventory.data.selection) return <section aria-label="Provider setup" {...stylex.props(styles.panel)}>
     <Alert tone="warning">Update Whip on {hostName} to use provider setup. Your draft is preserved.</Alert>
     <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Check again</Button>
+    {actions}
   </section>;
   return <section aria-label="Provider setup" {...stylex.props(styles.panel)}>
-    <div {...stylex.props(styles.heading)}><strong>{available.length ? 'Already available' : 'Connect a provider to send your first message'}</strong>
-      <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Refresh</Button></div>
     {inventory.isPending && <p role="status">Checking providers on {hostName}…</p>}
-    {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} />}
-    {discoveryError && enabled && <ErrorNotice type="resource" owner={`${host}:provider-discovery`} title="Could not discover providers" error={discoveryError} />}
-    {!!available.length && rows(available)}
+    {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} action={refreshButton} />}
+    {enabled && (discoveryError || persistenceError || inventory.data?.discovery_error) && <ErrorNotice type="resource" owner={`${host}:provider-discovery`} title="Could not discover providers" error={discoveryError || persistenceError || inventory.data?.discovery_error} action={refreshButton} />}
+    {!!available.length && <SettingsGroup title="Already available" panelXstyle={styles.providerPanel}>{rows(available)}</SettingsGroup>}
     {candidate && <div {...stylex.props(styles.confirmation)}>
       <p {...stylex.props(styles.note)}>Default for new sessions on {hostName}. Your first message makes the request.</p>
       <CatalogModelPicker label="Change model" settings model={model} provider={candidate.id} catalog={catalog.data?.result}
@@ -88,8 +79,9 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady 
       {catalog.error && <Button variant="ghost" disabled={!enabled || busy} onClick={() => void catalog.refetch()}>Retry model discovery</Button>}
       <Button data-provider-confirm variant="primary" disabled={!enabled || busy || !model} loading={busy} onClick={() => void useModel()}>Use {model || 'selected model'}</Button>
     </div>}
-    {!!available.length && entries.some(entry => !available.includes(entry)) && <p {...stylex.props(styles.group)}>Connect another provider</p>}
-    {rows(entries.filter(entry => !available.includes(entry)))}
+    <ProviderConnectionList key={host} entries={pending} enabled={enabled && !busy} hostName={hostName} onSelect={choose}
+      title={available.length ? 'Connect another provider' : undefined} actions={actions} refresh={refreshButton} />
+    {!inventory.isPending && !inventory.error && !entries.length && <p role="status" {...stylex.props(styles.note)}>No providers are available on this host. Try refreshing or connect a remote host.</p>}
     {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
     {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not save the default model" error={error} />}
     {active && inventory.data && <ProviderConnectionDialog key={active.id} client={client} entry={active} enabled={enabled}
@@ -101,10 +93,7 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady 
 
 const styles = stylex.create({
   panel: { display: 'flex', flexDirection: 'column', width: '100%', gap: scale.space2, textAlign: 'start' },
-  heading: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, fontSize: typography.size13, color: surface.secondaryText },
-  row: { width: '100%', justifyContent: 'flex-start', gap: scale.space3, textAlign: 'start', height: 'auto', padding: scale.space3, whiteSpace: 'normal' },
-  identity: { display: 'flex', flexDirection: 'column', gap: scale.space1, flex: 1, minWidth: 0 },
+  providerPanel: { padding: scale.space3, gap: scale.space2, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder },
   note: { fontSize: typography.size12, color: surface.secondaryText, margin: 0, lineHeight: 1.5, overflowWrap: 'anywhere' },
-  group: { fontSize: typography.size12, color: surface.secondaryText, marginBottom: 0, marginTop: scale.space4 },
   confirmation: { display: 'flex', flexDirection: 'column', gap: scale.space3, padding: scale.space4, borderRadius: scale.radiusControl, backgroundColor: colors.panel },
 });

@@ -1,0 +1,159 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { WhipClient } from '@whip/sdk';
+import type { MCPImportApplyResult, MCPImportCandidatesResult } from '@whip/protocol';
+import { Button, Checkbox } from '@whip/ui';
+import { Check } from 'lucide-react';
+import * as stylex from '@stylexjs/stylex';
+import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
+import { useRuntime } from './context';
+import { ErrorNotice } from './error-feedback';
+import { MCPBrandIcon, useBrandIcons, useBrandMarks } from './mcp-brand';
+import { layout } from './styles';
+
+// The import screen: the servers other agents configured on a host, one flat
+// list, tick what you want, and they become Whip's own (trusted) servers. The
+// daemon reads files only; nothing here dials or launches a server.
+
+/** One row of the daemon's answer; the generated contract inlines it. */
+export type MCPImportCandidate = NonNullable<MCPImportCandidatesResult['candidates']>[number];
+
+export function candidatesQueryKey(runtimeId: string | undefined, cwd = '') { return ['mcp-import-candidates', runtimeId, cwd] as const; }
+
+/** Older daemons have neither operation; the Welcome offer stays hidden and Settings explains. */
+export function importSupported(client: WhipClient) {
+  return client.supports('rpc', 'mcp.import.candidates') && client.supports('rpc', 'mcp.import.apply');
+}
+
+export function useMCPImportCandidates(client: WhipClient, { enabled, cwd = '' }: { enabled: boolean; cwd?: string }) {
+  const runtimeId = client.getSnapshot().info?.runtime_id;
+  const supported = importSupported(client);
+  const query = useQuery({
+    queryKey: candidatesQueryKey(runtimeId, cwd),
+    queryFn: ({ signal }) => client.mcpImport.candidates(cwd ? { cwd } : {}, { signal }),
+    enabled: enabled && supported,
+    staleTime: 30_000,
+  });
+  return { query, supported, runtimeId };
+}
+
+/** A host is offered the screen once: when it has something importable and has not answered yet. */
+export function shouldOffer(data: MCPImportCandidatesResult | undefined) {
+  return !!data && !data.offered && (data.candidates ?? []).some(candidate => candidate.state === 'importable');
+}
+
+/** Everything that is not already in Whip first, A→Z; the already-native servers last, A→Z. */
+export function sortCandidates(candidates: readonly MCPImportCandidate[]) {
+  return [...candidates].sort((a, b) => Number(a.state === 'native') - Number(b.state === 'native') || a.name.localeCompare(b.name));
+}
+
+/** Import sources in the order the intro names them. */
+const sources = [['codex', 'Codex'], ['claude', 'Claude'], ['opencode', 'OpenCode'], ['project', "the project's .mcp.json"]] as const;
+const sourceName = (source: string) => sources.find(([id]) => id === source)?.[1] ?? source;
+const listFormat = new Intl.ListFormat('en', { type: 'conjunction' });
+
+function describeSources(candidates: readonly MCPImportCandidate[]) {
+  const present = sources.filter(([id]) => candidates.some(candidate => candidate.source === id)).map(([, name]) => name);
+  return present.length ? listFormat.format(present) : 'other agents';
+}
+
+/** The short reason on the right of a row; empty for a plain importable server. */
+export function caveat(candidate: MCPImportCandidate, included: boolean) {
+  switch (candidate.state) {
+    case 'native': return 'Already in Whip';
+    case 'disabled': return `Off in ${sourceName(candidate.source)}`;
+    case 'unsupported': return candidate.note || 'Not supported yet';
+    case 'excluded': return included ? '' : 'Excluded by your rules';
+    default: return '';
+  }
+}
+
+export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
+  client: WhipClient; hostName: string; cwd?: string; onDone?: (result: MCPImportApplyResult) => void;
+}) {
+  const runtime = useRuntime();
+  const { query, runtimeId, supported } = useMCPImportCandidates(client, { enabled: true, cwd });
+  // Ticks the person changed; everything else follows the row's default. An
+  // excluded server enters here unticked when its Include button is pressed.
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const data = query.data;
+  const rows = sortCandidates(data?.candidates ?? []);
+  // Bundled marks first; the daemon is asked only for domains the bundle lacks, once the bundle has loaded.
+  const marks = useBrandMarks();
+  const icons = useBrandIcons(client, marks ? rows.map(row => row.brand_key).filter((key): key is string => !!key && !marks[key]) : []);
+  const mark = (candidate: MCPImportCandidate) => candidate.brand_key ? marks?.[candidate.brand_key] ?? icons?.[candidate.brand_key] : undefined;
+  const included = (candidate: MCPImportCandidate) => candidate.name in overrides;
+  const selectable = (candidate: MCPImportCandidate) =>
+    candidate.state === 'importable' || candidate.state === 'disabled' || (candidate.state === 'excluded' && included(candidate));
+  const checked = (candidate: MCPImportCandidate) => selectable(candidate) && (overrides[candidate.name] ?? candidate.state === 'importable');
+  const chosen = rows.filter(checked).map(candidate => candidate.name);
+  const tick = (name: string, value: boolean) => setOverrides(previous => ({ ...previous, [name]: value }));
+  async function apply(names: string[]) {
+    setBusy(true); setError(undefined);
+    try {
+      const result = await client.mcpImport.apply(cwd ? { cwd, names } : { names });
+      runtime.queries.setQueryData(candidatesQueryKey(runtimeId, cwd), (old: MCPImportCandidatesResult | undefined) => old && { ...old, offered: true });
+      // Other cwd variants refetch on their next use; no burst of file reads now.
+      void runtime.queries.invalidateQueries({ queryKey: ['mcp-import-candidates', runtimeId], refetchType: 'none' });
+      onDone?.(result);
+    } catch (value) { setError(value); } finally { setBusy(false); }
+  }
+  if (!supported) return <p role="status" {...stylex.props(layout.muted)}>{hostName} runs an older daemon without MCP import. Update whipcode there, or run <code>whip mcp import</code> on that machine.</p>;
+  if (query.isPending) return <p role="status" {...stylex.props(layout.muted)}>Looking for MCP servers on {hostName}…</p>;
+  if (query.error) return <ErrorNotice type="resource" owner={`${runtimeId}:mcp-import`} title="Could not read the other agents' configuration" error={query.error} />;
+  if (!data) return null;
+  const found = rows.filter(row => row.state !== 'native').length;
+  return <div aria-label="Import MCP servers" {...stylex.props(layout.column)}>
+    {rows.length === 0
+      ? <p {...stylex.props(styles.intro)}>No MCP servers were found in Codex, Claude, or OpenCode on {hostName}.</p>
+      : <p {...stylex.props(styles.intro)}>Whip found {found} {found === 1 ? 'server' : 'servers'} in {describeSources(rows)} on {hostName}. Pick the ones to add; they run as Whip's own servers, without per-call approval.</p>}
+    {rows.length > 0 && <ul role="list" aria-label="Discovered MCP servers" {...stylex.props(styles.list)}>
+      {rows.map(candidate => <li key={candidate.name} {...stylex.props(styles.row)}>
+        <span {...stylex.props(styles.slot)}>{candidate.state === 'native'
+          ? <Check size={14} aria-label={`${candidate.name} is already in Whip`} {...stylex.props(styles.nativeMark)} />
+          : <Checkbox aria-label={`Import ${candidate.name}`} checked={checked(candidate)} disabled={busy || !selectable(candidate)}
+            onCheckedChange={value => tick(candidate.name, !!value)} />}</span>
+        <MCPBrandIcon name={candidate.name} src={mark(candidate)} quiet={candidate.state === 'native' || candidate.state === 'unsupported'} />
+        <span {...stylex.props(styles.name, (candidate.state === 'native' || candidate.state === 'unsupported') && styles.quiet)}>{candidate.name}</span>
+        <span {...stylex.props(styles.caveat)}>
+          {caveat(candidate, included(candidate))}
+          {candidate.state === 'excluded' && !included(candidate) && <>
+            {' · '}<Button variant="ghost" size="sm" xstyle={styles.inlineAction} disabled={busy} onClick={() => tick(candidate.name, false)}>Include</Button>
+          </>}
+        </span>
+      </li>)}
+    </ul>}
+    {data.errors && Object.entries(data.errors).map(([path, message]) =>
+      <p key={path} role="status" {...stylex.props(layout.muted)}>Couldn't read {path}: {message}</p>)}
+    <ErrorNotice type="action" owner={`${runtimeId}:mcp-import`} title="Could not import" error={error} />
+    <div {...stylex.props(layout.row, layout.wrap)}>
+      <span {...stylex.props(layout.muted)}>
+        {rows.length > 0 && <>{chosen.length} selected · saved to Whip's configuration on {hostName} </>}
+        {data.config_path && <code {...stylex.props(styles.path)}>{data.config_path}</code>}
+      </span>
+      <span {...stylex.props(layout.grow)} />
+      {!data.offered && <Button variant="ghost" disabled={busy} onClick={() => void apply([])}>Skip for now</Button>}
+      {rows.length > 0 && <Button variant="primary" loading={busy} disabled={chosen.length === 0} onClick={() => void apply(chosen)}>
+        Import {chosen.length} {chosen.length === 1 ? 'server' : 'servers'}
+      </Button>}
+    </div>
+  </div>;
+}
+
+const styles = stylex.create({
+  intro: { margin: 0, color: surface.secondaryText, lineHeight: 1.5 },
+  list: { listStyle: 'none', margin: 0, padding: 0, backgroundColor: colors.panel, borderRadius: scale.radiusPanel, overflow: 'hidden' },
+  row: {
+    display: 'flex', alignItems: 'center', gap: 12, minHeight: 34, paddingInline: 14,
+    borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder,
+  },
+  slot: { display: 'inline-flex', width: 16, justifyContent: 'center', flexShrink: 0 },
+  nativeMark: { color: surface.secondaryText },
+  name: { flex: 1, minWidth: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  quiet: { color: surface.secondaryText, fontWeight: 400 },
+  caveat: { display: 'inline-flex', alignItems: 'center', flexShrink: 0, fontSize: typography.size12, color: surface.secondaryText, whiteSpace: 'nowrap' },
+  inlineAction: { paddingInline: 4, minHeight: 0, height: 'auto', fontSize: typography.size12 },
+  path: { fontFamily: typography.mono, fontSize: typography.size11 },
+});

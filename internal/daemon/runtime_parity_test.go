@@ -46,6 +46,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 		"history.clear": {`{}`, false}, "history.rewind": {`{"cut":2,"expected_revision":"0"}`, false}, "history.compact": {`{}`, true},
 		"history.compact.log": {`{}`, false}, "history.compact.retry": {`{}`, false}, "compaction.configure": {`{}`, false}, "history.user.list": {`{}`, false},
 		"session.preview": {`{"id":"$ROOT"}`, false}, "agents.list": {`{}`, false}, "agent.transcript": {`{"id":"$ROOT"}`, false},
+		"inbox.steer": {`{"id":"$ROOT","inbox_seq":"999","turn_id":"stale"}`, true}, "inbox.remove": {`{"id":"$ROOT","inbox_seq":"999"}`, true},
 		"agent.submit": {`{"id":"missing","text":"input"}`, true}, "agent.turn.cancel": {`{"id":"missing","turn_id":"stale"}`, true},
 		"question.answer":   {`{"id":"missing","answer":["yes"],"dismissed":false}`, true},
 		"provider.catalogs": {`{}`, false}, "agent.control": {`{"id":"missing"}`, true}, "agent.delete": {`{"id":"missing"}`, true},

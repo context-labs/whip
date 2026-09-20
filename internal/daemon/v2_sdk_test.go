@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -86,8 +87,11 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	frontend := "http://" + listener.Addr().String()
 	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
-	var factory Factory = func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
-		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
+	var factory Factory = func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		if meta.Kind == session.SessionKindToolHost {
+			return Components{Runner: NewToolRunner(tools.NewServices())}, nil
+		}
+		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices(), control: runner}
 		value.services.SetExternalPermissions(true)
 		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {
 			if input == "question:single" || input == "question:batch" {
@@ -389,23 +393,48 @@ type sdkRunnerControl struct {
 
 type sdkFixtureRunner struct {
 	*fakeRunner
-	root     *Session
-	services *tools.Services
+	root            *Session
+	services        *tools.Services
+	control         *sdkRunnerControl
+	journalStart    int
+	boundaryJournal turnJournal
 }
 
-func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
 	// Echo the resolved model input so built SDK tests can distinguish an actual
 	// host attachment read from an opaque reference appended to the prompt.
 	data, err := json.Marshal(SubmitPayload{Text: input, Parts: parts})
 	if err != nil {
 		return "", err
 	}
-	output, err := r.Turn(ctx, string(data), true, started, accepted)
+	prompt := string(data)
+	if os.Getenv("WHIP_WEB_INLINE_IMAGES_FIXTURE") == "1" {
+		// Keep a screenshot-sized attachment in the authored record without
+		// echoing its base64 as a megabyte-long assistant response.
+		prompt = input
+	}
+	output, err := r.Turn(ctx, prompt, true, started, accepted)
 	r.mu.Lock()
 	for index := len(r.history) - 1; index >= 0; index-- {
 		if r.history[index].Role == "user" {
 			r.history[index].Content = input
 			r.history[index].Parts = parts
+			if os.Getenv("WHIP_WEB_INLINE_IMAGES_FIXTURE") == "1" && input == "Internal screenshot fixture" {
+				var images []llm.ContentPart
+				for _, part := range parts {
+					if part.Type == "image_url" {
+						images = append(images, part)
+					}
+				}
+				if len(images) > 0 {
+					// Match SteerImages: provider-facing user records with no
+					// Authored flag, one inline and one beyond the page budget.
+					caption := "images attached (browser/computer screenshots or MCP results):"
+					small := llm.Message{Role: "user", Content: caption, Parts: []llm.ContentPart{images[len(images)-1]}}
+					large := llm.Message{Role: "user", Content: caption, Parts: []llm.ContentPart{images[0], images[0]}}
+					r.history = slices.Insert(r.history, index+1, small, large)
+				}
+			}
 			break
 		}
 	}
@@ -414,11 +443,30 @@ func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []
 }
 
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	r.mu.Lock()
+	r.journalStart, r.boundaryJournal = len(r.history), turnJournal{}
+	r.mu.Unlock()
+	if input == "queue:boundary" {
+		return r.queueBoundaryTurn(ctx, input, started)
+	}
+	if input == "history-gap:count" || input == "history-gap:bytes" || input == "history-gap:large" {
+		return r.historyGapTurn(ctx, input, started)
+	}
 	if input == "scratch-result" {
 		return r.scratchResult(ctx, started)
 	}
 	return r.fakeRunner.Turn(ctx, input, authored, func() {
 		started()
+		if input == "hold:thinking-response" {
+			r.control.mu.Lock()
+			firstToken := r.control.hold("thinking-first-token")
+			r.control.mu.Unlock()
+			select {
+			case <-firstToken:
+			case <-ctx.Done():
+				return
+			}
+		}
 		for _, text := range []string{input[:len(input)/2], input[len(input)/2:]} {
 			r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.text", event: StreamEvent{Text: text}}})
 		}
@@ -426,7 +474,7 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 			streamSDKPerformance(ctx, r.root)
 		}
 		refreshFixture := strings.HasPrefix(input, "hold:tool-stream-refresh-")
-		if input == "hold:tool-stream" || refreshFixture {
+		if input == "hold:tool-stream" || strings.HasPrefix(input, "hold:tool-stream-") {
 			// Interleave calls so the supervisor cannot coalesce all updates before
 			// they reach the SDK. These payloads are cumulative, not deltas.
 			for _, args := range []string{`{"code":"print(`, `{"code":"print(1)"}`} {
@@ -461,6 +509,14 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 			}
 		}
 	}, accepted)
+}
+
+func (r *sdkFixtureRunner) turnJournal() turnJournal {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	journal := r.boundaryJournal
+	journal.Messages = append([]llm.Message(nil), r.history[r.journalStart:]...)
+	return journal
 }
 
 func (r *sdkFixtureRunner) ReplaceHistory(history []llm.Message) {

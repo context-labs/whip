@@ -78,6 +78,10 @@ type MailboxSend struct {
 	EvidenceReferenceID string
 	AvailableAt         time.Time
 	UpsertKey           string
+	// SenderSpanID and SpanTraceID name the host call that sent the message,
+	// so the turn it triggers can parent under it in the trace.
+	SenderSpanID string
+	SpanTraceID  string
 }
 
 type MailboxSummary struct {
@@ -126,7 +130,7 @@ func timestampArg(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
-	return value.UTC().Format(time.RFC3339)
+	return formatStamp(value)
 }
 
 func parseTimestamp(value string) time.Time {
@@ -267,10 +271,10 @@ func (s *Store) insertMailboxMessageTx(ctx context.Context, tx *sql.Tx, rootID, 
 		return MailboxMessage{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_messages
-		(id,root_id,sender_agent_id,recipient_agent_id,kind,delivery,upsert_key,subject,excerpt,body_inline,body_ref,evidence_ref,status,available_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending',?,?)`,
+		(id,root_id,sender_agent_id,recipient_agent_id,kind,delivery,upsert_key,subject,excerpt,body_inline,body_ref,evidence_ref,status,available_at,created_at,sender_span_id,span_trace_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending',?,?,?,?)`,
 		id, rootID, senderAgentID, recipientAgentID, send.Kind, send.Delivery, send.UpsertKey, send.Subject, excerpt,
-		inline, reference, nullableString(send.EvidenceReferenceID), availableAt, stamp); err != nil {
+		inline, reference, nullableString(send.EvidenceReferenceID), availableAt, stamp, send.SenderSpanID, send.SpanTraceID); err != nil {
 		return MailboxMessage{}, err
 	}
 	message.ID = id

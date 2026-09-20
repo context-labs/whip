@@ -36,7 +36,9 @@ class FollowupAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.probe_interval.stop)
 
     async def download(self, source, target):
-        value = self.metrics if target.name == "metrics.json" else self.outcome if target.name == "outcome.json" else {}
+        value = (self.metrics if target.name == "metrics.json" else
+                 self.outcome if target.name == "outcome.json" else
+                 {"bodies": []} if target.name == "content-export.json" else {})
         target.write_text(json.dumps(value))
 
     def environment(self, execute, download=None):

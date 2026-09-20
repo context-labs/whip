@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -86,8 +88,37 @@ func TestServeInProcess(t *testing.T) {
 	for _, tool := range list.Tools {
 		names[tool.Name] = true
 	}
-	if len(list.Tools) != 4 || !names["read"] || names["rlm_exec"] {
-		t.Fatalf("served tools = %v (want whip's 4 restricted tools)", names)
+	wantNames := []string{"bash", "read", "write", "edit", "browser_list_tabs", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"}
+	if len(list.Tools) != len(wantNames) || names["rlm_exec"] {
+		t.Fatalf("served tools = %v (want exactly %v)", names, wantNames)
+	}
+	for _, name := range wantNames {
+		if !names[name] {
+			t.Fatalf("missing restricted tool %s: %v", name, names)
+		}
+	}
+
+	// Lifecycle is discoverable while unpaired, but cannot acquire a legacy
+	// browser or authority without an explicitly selected desktop provider.
+	unpaired, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "browser_open", Arguments: map[string]any{"url": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unpaired browser call should return a routine value: %v", err)
+	}
+	if unpaired.IsError || len(unpaired.Content) != 1 {
+		t.Fatalf("unpaired browser result: %#v", unpaired)
+	}
+	browserText, ok := unpaired.Content[0].(*sdkmcp.TextContent)
+	if !ok {
+		t.Fatalf("unpaired browser content: %#v", unpaired.Content)
+	}
+	var unavailable browser.DesktopResult
+	if err := json.Unmarshal([]byte(browserText.Text), &unavailable); err != nil {
+		t.Fatal(err)
+	}
+	if unavailable.Error == nil || unavailable.Error.Kind != "desktop_unavailable" || unavailable.AttachmentID != "" {
+		t.Fatalf("unpaired browser did not fail closed: %+v", unavailable)
 	}
 
 	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{

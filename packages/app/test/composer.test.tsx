@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
+  const onAccepted = vi.fn();
   const drafts = new Map<string, string>([
     ['runtime:root:a', 'same draft'],
     ['runtime:root:b', 'same draft'],
@@ -48,9 +49,11 @@ function fixture() {
   } as unknown as AppRuntime;
   const session = {
     rootId: 'root',
+    client: { clientId: 'composer-test' },
     command: vi.fn(() => ({})),
+    submit: vi.fn(() => ({})),
   } as unknown as Session;
-  const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn']) => (
+  const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn'], extra: Partial<ComponentProps<typeof Composer>> = {}) => (
     <RuntimeContext.Provider value={runtime}>
       <UIProvider>
         <Composer
@@ -62,12 +65,56 @@ function fixture() {
           runtimeId="runtime"
           active={active}
           lastTurn={lastTurn}
+          onAccepted={onAccepted}
+          {...extra}
         />
       </UIProvider>
     </RuntimeContext.Provider>
   );
-  return { drafts, waits, app, session, runtime, snapshot };
+  return { drafts, waits, app, session, runtime, snapshot, onAccepted };
 }
+
+it.each(['root', 'a'])('notifies only the sending composer on admission for %s, including queued messages', async agentId => {
+  const f = fixture();
+  f.runtime.setDraft(`runtime:root:${agentId}`, 'Send this');
+  render(f.app(agentId, undefined, false, undefined, { queueEnabled: true, activeTurn: 'turn' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(f.onAccepted).not.toHaveBeenCalled();
+  await act(async () => { f.waits[0]!.accepted(); });
+  expect(f.onAccepted).toHaveBeenCalledTimes(1);
+  await act(async () => { f.waits[0]!.finish(); });
+  expect(f.onAccepted).toHaveBeenCalledTimes(1);
+});
+
+it('does not request a scroll on rejection or after the sending composer unmounts', async () => {
+  const f = fixture();
+  const mounted = render(f.app('a'));
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.reject(new Error('Rejected')); });
+  expect(f.onAccepted).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  mounted.rerender(f.app('b'));
+  await act(async () => { f.waits[1]!.accepted(); f.waits[1]!.finish(); });
+  expect(f.onAccepted).not.toHaveBeenCalled();
+});
+
+it('replaces the send icon with one spinner until submission finishes', async () => {
+  const f = fixture();
+  render(f.app('a'));
+  const send = screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement;
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  fireEvent.click(send);
+  expect(send.getAttribute('aria-busy')).toBe('true');
+  expect(send.disabled).toBe(true);
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('[aria-label="Loading"]')).not.toBeNull();
+  expect(send.querySelector('.lucide-arrow-up')).toBeNull();
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
+  expect(send.getAttribute('aria-busy')).toBeNull();
+  expect(send.querySelectorAll('svg')).toHaveLength(1);
+  expect(send.querySelector('.lucide-arrow-up')).not.toBeNull();
+  expect(send.querySelector('[aria-label="Loading"]')).toBeNull();
+});
 
 it('focuses the composer when its desktop chat view becomes active', async () => {
   const f = fixture();
@@ -322,3 +369,48 @@ for (const outcome of ['cancelled', 'interrupted']) {
     expect(f.runtime.report).not.toHaveBeenCalled();
   });
 }
+
+
+it('switches from Send to Stop after accepting an active-turn draft', async () => {
+  const f = fixture();
+  const session = { ...f.session, cancelTurn: vi.fn(), agents: { cancelTurn: vi.fn() } } as unknown as Session;
+  render(<RuntimeContext.Provider value={f.runtime}><UIProvider><Composer session={session} agentId="a" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></RuntimeContext.Provider>);
+  expect(screen.queryByLabelText('Message delivery')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(f.session.command).toHaveBeenCalledWith('agent.submit', expect.objectContaining({ delivery: 'queued', text: 'same draft' }), expect.anything());
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
+  expect((screen.getByLabelText('Message this agent') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pause this turn' })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Message this agent'), { target: { value: 'Another message' } });
+  expect(screen.getByRole('button', { name: 'Queue message' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Message this agent'), { target: { value: '   ' } });
+  expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pause this turn' })).toBeTruthy();
+});
+
+it('stacks agent and queue slots below submission notices without remounting the draft', async () => {
+  const f = fixture();
+  const agents = <section aria-label="Test agents">Agents</section>;
+  const queue = <section aria-label="Test queue">Queue</section>;
+  const app = (showAgents = true, showQueue = true) => f.app('a', undefined, false, undefined, {
+    agents: showAgents ? agents : undefined, queue: showQueue ? queue : undefined,
+  });
+  const rendered = render(app());
+  const input = screen.getByLabelText('Message this agent') as HTMLTextAreaElement;
+  const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  before(screen.getByRole('region', { name: 'Test agents' }), screen.getByRole('region', { name: 'Test queue' }));
+  before(screen.getByRole('region', { name: 'Test queue' }), input);
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await act(async () => { f.waits[0]!.reject(new Error('Submission unavailable')); });
+  before(screen.getByRole('alert'), screen.getByRole('region', { name: 'Test agents' }));
+  for (const [showAgents, showQueue] of [[true, false], [false, true], [false, false], [true, true]]) {
+    rendered.rerender(app(showAgents, showQueue));
+    expect(screen.queryAllByRole('region', { name: 'Test agents' })).toHaveLength(showAgents ? 1 : 0);
+    expect(screen.queryAllByRole('region', { name: 'Test queue' })).toHaveLength(showQueue ? 1 : 0);
+    expect(screen.getByLabelText('Message this agent')).toBe(input);
+    expect(input.value).toBe('same draft');
+  }
+});

@@ -20,7 +20,7 @@ export interface InspectorProps {
   connected: boolean;
   agentId: string;
   viewId?: string;
-  kind?: 'chat' | 'repl';
+  kind?: 'chat' | 'repl' | 'trace';
 }
 export type Value = NonNullable<RootSnapshot['blackboard']>[number]['payload'];
 export function useDetailQuery<O extends QueryOperation>(

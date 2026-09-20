@@ -80,7 +80,7 @@ export class HostConnections {
   constructor(
     private readonly platform: AppPlatform,
     private readonly recovery: RecoveryStorage,
-    private readonly effects: { connected(runtimeId: string): void; detached(client: WhipClient, runtimeId: string): void },
+    private readonly effects: { connected(runtimeId: string, client: WhipClient): void; detached(client: WhipClient, runtimeId: string): void },
   ) {
     const fallback = platform.defaultConnection ?? urlProfile(platform.defaultEndpoint!);
     const native = fallback.target.kind === 'local';
@@ -136,7 +136,7 @@ export class HostConnections {
       clientId = crypto.randomUUID();
       this.platform.storage.setItem('whip.web.client.v1', clientId);
     }
-    return createWhipClient({ endpoint, clientId, clientKind: 'human', recoveryStorage: this.recovery, reconnect });
+    return createWhipClient({ endpoint, clientId, clientKind: 'human', browserProvider: !!this.platform.browserAgent, recoveryStorage: this.recovery, reconnect });
   }
   connect(id = 'local'): Promise<void> {
     if (this.closed) return Promise.reject(new Error('Application has been disposed'));
@@ -182,7 +182,12 @@ export class HostConnections {
     return setup.promise;
   }
   async connectOnLaunch() {
-    await Promise.allSettled([...this.records.values()].filter(record => record.profile.connect_on_launch).map(record => this.connect(record.profile.id)));
+    const local = this.connect('local');
+    // Saved remote hosts restore in the background; they must not gate the shell.
+    for (const record of this.records.values())
+      if (record.profile.id !== 'local' && record.profile.connect_on_launch)
+        void this.connect(record.profile.id).catch(() => {});
+    await local.catch(() => {});
   }
   private persistDevice(profile: ConnectionProfile) {
     if (this.preserveDeviceRecords) throw new Error('Saved execution hosts need recovery. Original device records have been preserved.');
@@ -212,7 +217,13 @@ export class HostConnections {
     signal?.addEventListener('abort', cancel, { once: true });
     try { await this.connect(target.id); signal?.throwIfAborted(); this.persistDevice(record.target); }
     catch (error) {
-      if (this.records.get(target.id) === record) { this.detach(record); if (existing) { this.records.set(target.id, existing); existing.error = errorMessage(error); } else record.error = errorMessage(error); this.publish(); }
+      if (this.records.get(target.id) === record) {
+        this.detach(record);
+        const message = signal?.aborted ? undefined : errorMessage(error);
+        if (existing) { this.records.set(target.id, existing); existing.error = message; }
+        else record.error = message;
+        this.publish();
+      }
       throw error;
     }
     finally { signal?.removeEventListener('abort', cancel); }
@@ -264,7 +275,7 @@ export class HostConnections {
       }
       if (record.connectionId !== info.connection_id) {
         record.connectionId = info.connection_id;
-        this.effects.connected(info.runtime_id);
+        this.effects.connected(info.runtime_id, client);
         if (record.profile.id === 'local') void this.refreshProfiles().catch(() => {});
       }
     }

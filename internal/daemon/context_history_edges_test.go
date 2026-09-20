@@ -229,7 +229,7 @@ func TestHistoryFailedToolMetadataSurvivesRawCommitAndReload(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		if request.Messages[len(request.Messages)-1].Role != "tool" {
+		if lastTranscriptMessage(request.Messages).Role != "tool" {
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"failed-call","type":"function","function":{"name":"fail_fixture","arguments":"{}"}}]}}]}`+"\n\n")
 		} else {
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"reported tool failure"},"finish_reason":"stop"}]}`+"\n\n")

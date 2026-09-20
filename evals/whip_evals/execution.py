@@ -12,8 +12,9 @@ import threading
 import time
 import tomllib
 
-from .adapter import OBSERVER_GRACE_SECONDS, CLEANUP_TIMEOUT_SECONDS
-from .common import read_json, write_json
+from .adapter import (OBSERVER_GRACE_SECONDS, CLEANUP_TIMEOUT_SECONDS,
+                      DEPENDENCY_SETUP_SECONDS, DEPENDENCY_SETUP_TRIES)
+from .common import read_json, write_json, PROVIDER_MODEL
 
 
 def schedule(tasks, candidates, repetitions, seed):
@@ -37,8 +38,12 @@ def schedule(tasks, candidates, repetitions, seed):
     return result
 
 
-def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, stats=None):
-    """Central admission; workers never reserve resources while holding others."""
+def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, stats=None, cancel_on_interrupt=True):
+    """Central admission; workers never reserve resources while holding others.
+
+    An interrupt is a human cancel on a local host (Ctrl-C) but a preemption on
+    Modal, where the VMs outlive the coordinator; the caller says which.
+    """
     cancelled = cancelled or threading.Event()
     for trial in trials:
         if any(trial["resources"][key] > capacity[key] for key in capacity):
@@ -75,17 +80,21 @@ def run_pool(trials, capacity, jobs, worker, *, cancelled=None, on_result=None, 
                     results[trial["id"]] = result
                     result.setdefault("phase_seconds", {})["queue"] = queue_times[trial["id"]]
                     if result.get("cleanup", {}).get("complete") is not True:
-                        cancelled.set()  # Unproven resources remain reserved.
+                        # Unproven resources stay reserved; the run continues.
+                        result["cleanup_incomplete"] = True
                     else:
                         for key in available:
                             available[key] += trial["resources"][key]
                     if on_result:
                         on_result(trial, result)
         except BaseException:
-            cancelled.set()  # Signal workers before executor shutdown waits for them.
+            if cancel_on_interrupt:
+                cancelled.set()  # Signal workers before executor shutdown waits for them.
             raise
     for trial in pending:
-        results[trial["id"]] = {"started": False, "cancelled": True,
+        # Never dispatched: because the run was cancelled, or because resources
+        # reserved by an unproven cleanup never came back.
+        results[trial["id"]] = {"started": False, "cancelled": cancelled.is_set(),
                                 "cleanup": {"complete": True}, "error_code": "dispatch_stopped"}
     return results
 
@@ -101,10 +110,12 @@ def job_config(trial, task, binary, contract, task_path, job_dir, *, fixture=Fal
               "n_concurrent_trials": 1, "retry": {"max_retries": 0},
               "environment": {"type": "docker", "delete": True},
               "agents": [{"import_path": "whip_evals.adapter:" + ("HarborWhip" if trial["runner"] == "harbor" else "PierWhip"),
-                          "model_name": "inference-net/kimi-k3",
+                          "model_name": PROVIDER_MODEL,
                           "override_timeout_sec": envelope["agent_runner_seconds"],
                           "override_setup_timeout_sec": AGENT_SETUP_SECONDS, "kwargs": kwargs}],
               "tasks": [{"path": str(task_path)}]}
+    if trial["runner"] == "pier":
+        config["environment"]["import_path"] = "whip_evals.adapter:PierDockerEnvironment"
     # Validate with the pinned native parser without starting a job.
     from importlib import import_module
     model = import_module(trial["runner"] + ".models.job.config").JobConfig
@@ -178,16 +189,9 @@ def execute_job(trial, config, envelope, directory, cancelled, *, evals):
 
 # These envelopes describe the pinned Harbor 0.22.0 / Pier 0.3.1 single-step
 # runners. Native task verifier limits are read, never overridden.
-AGENT_SETUP_SECONDS = 600
+# Runner-side setup budget: every dependency bootstrap try plus the fixed steps.
+AGENT_SETUP_SECONDS = DEPENDENCY_SETUP_SECONDS * DEPENDENCY_SETUP_TRIES + 120
 RUNNER_GUARD_SECONDS = 60
-
-
-def native_agent_timeout(path):
-    task = tomllib.loads((Path(path) / "task.toml").read_text())
-    timeout = task["agent"]["timeout_sec"]
-    if not math.isfinite(timeout) or timeout <= 0 or int(timeout) != timeout:
-        raise ValueError("native agent timeout must be positive integral seconds")
-    return int(timeout)
 
 
 def timing_envelope(path, runner, timeout):
@@ -231,7 +235,7 @@ def cleanup_owned_containers(job_dir, runner):
 
     Both the runner-created random project identity and the exact host log
     mount must agree. Never remove images, networks, volumes or other projects.
-    A failed ownership check/timeout is recorded and dispatch remains halted.
+    A failed ownership check/timeout is recorded; the trial's resources stay reserved.
     """
     from importlib import import_module
     from types import SimpleNamespace
@@ -252,7 +256,7 @@ def cleanup_owned_containers(job_dir, runner):
         if len(configs) != 1:
             raise ValueError("expected one runner-owned trial config")
         config_path = configs[0]
-        config = json.loads(config_path.read_text())
+        config = read_json(config_path)
         trial_dir = config_path.parent.resolve()
         if config.get("trial_name") != trial_dir.name or Path(config["trials_dir"]).resolve() != job_dir:
             raise ValueError("runner config does not belong to this job directory")

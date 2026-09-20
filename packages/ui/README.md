@@ -69,7 +69,7 @@ in its native style path. Composition uses Base UI's `mergeProps` and `render`.
 
 | Group | Exports | Interaction/ownership |
 | --- | --- | --- |
-| Actions | Button, IconButton, ButtonGroup, ToggleGroup, Link, Tooltip, Kbd, CopyButton | Buttons default to `type=button`; busy controls cannot repeat actions; icon actions require a label. Clipboard errors belong to the caller. |
+| Actions | Button, IconButton, ButtonGroup, ToggleGroup, Link, Tooltip, Kbd, CopyButton | Buttons default to `type=button`; busy controls cannot repeat actions; icon actions require a label. Clipboard errors belong to the caller. `ToggleGroup` shares secondary/ghost button styling, 2px spacing, arrow-key focus, compact `size="sm"`, and optional `multiple` selection; callers control whether an empty selection is allowed. |
 | Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Slider, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
 | Overlays | Dialog, AlertDialog, Sheet, Menu, ContextMenu, Popover, CommandPicker | Controlled open state; focus trap/return and escape/outside behavior from Base UI. Confirming asynchronous work never silently closes a dialog. |
 | Structure | Tabs, Collapsible, Accordion, Separator, Stack, Row, Panel, ScrollArea, SettingsRow, Breadcrumbs, VisuallyHidden | Native scrollbars/touch scrolling; explicit selected sections. App owns navigation and virtualization. |
@@ -289,6 +289,8 @@ separate acceptance work.
 Dialog accepts an optional `header` slot for controls such as a search input; its
 `title` remains the accessible dialog name. `initialFocus` and `finalFocus`
 forward Base UI focus destinations. Default titled dialogs are unchanged.
+`headerXstyle` and `bodyXstyle` let composed dialogs adjust section spacing and
+flex sizing while retaining the shared title, close control and focus behavior.
 
 Text inputs, textareas, combobox inputs, and number inputs indicate focus by
 changing their one-pixel border to `surface.secondaryText`. They do not add an
@@ -372,3 +374,8 @@ SettingsRow already renders the visible title.
 decorative three-dot status mark. Supply adjacent readable text and own any live
 region in the consumer. Motion begins after one second, stops while the document
 is hidden, and follows OS reduced motion. It owns no progress or execution state.
+
+`RadioGroup` accepts `variant="cards"` for a single-selection list with an optional
+leading `icon`, description, and trailing status on each option. It retains Base UI
+keyboard and focus behavior. `Collapsible` accepts `disabled` and `xstyle` for
+busy form disclosures and full-width triggers.

@@ -59,3 +59,36 @@ func (c *Client) HistoryPage(ctx context.Context, params HistoryPageParams) (ses
 	err := c.Call(ctx, "history.page", params, &page)
 	return page, err
 }
+
+// TracePage reads a root's spans after a cursor; see protocol.TracePageParams.
+func (c *Client) TracePage(ctx context.Context, params protocol.TracePageParams) (session.SpanPage, error) {
+	var page session.SpanPage
+	err := c.Call(ctx, "trace.page", params, &page)
+	return page, err
+}
+
+// traceExport renders the OTLP/JSON export and parks it in the root's content
+// store as a reference, so any client fetches it through the existing bounded
+// content reads regardless of size.
+func (s *Server) traceExport(ctx context.Context, params protocol.TraceExportParams) (protocol.TraceExportResult, error) {
+	data, summary, err := s.daemon.store.ExportOTLP(ctx, params.RootID, session.ExportOptions{TraceID: params.TraceID, ServiceVersion: s.options.BuildID})
+	if err != nil {
+		return protocol.TraceExportResult{}, err
+	}
+	value, err := s.daemon.store.StoreContent(ctx, session.ContentGrant{RootID: params.RootID, Scope: session.ContentGrantRoot},
+		session.RuntimePayload{Data: data, MediaType: "application/json", Source: "otlp export"})
+	if err != nil {
+		return protocol.TraceExportResult{}, err
+	}
+	return protocol.TraceExportResult{
+		Spans: summary.Spans, Traces: summary.Traces,
+		Content: ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source},
+	}, nil
+}
+
+// TraceExport renders a session as OTLP/JSON; see protocol.TraceExportParams.
+func (c *Client) TraceExport(ctx context.Context, params protocol.TraceExportParams) (protocol.TraceExportResult, error) {
+	var result protocol.TraceExportResult
+	err := c.Call(ctx, "trace.export", params, &result)
+	return result, err
+}

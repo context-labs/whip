@@ -1,14 +1,17 @@
 import * as stylex from '@stylexjs/stylex';
 import { Tabs } from '@base-ui/react/tabs';
-import { DragDropProvider } from '@dnd-kit/react';
+import { DragDropProvider, useDraggable } from '@dnd-kit/react';
 import { useSortable } from '@dnd-kit/react/sortable';
-import { AutoScroller, PointerSensor, PointerActivationConstraints } from '@dnd-kit/dom';
 import { MoreHorizontal, X } from 'lucide-react';
 import { containsPoint, tabDrop, useWorkspaceTabDrag } from './workspace-tab-drag';
-import { createContext, useContext, useLayoutEffect, useRef } from 'react';
+import { useContext, useLayoutEffect, useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Tooltip } from './actions';
 import { styles, tabMarker } from './workspace-tabs.stylex';
+import { workspaceDragContext, workspaceDragPlugins, workspacePointerSensors, useWorkspaceDragTarget } from './workspace-drag';
+import type { WorkspaceDragCallbacks } from './workspace-tab-drag';
+import type { WorkspaceDrop } from './workspace-layout';
+export { WorkspaceDragScope } from './workspace-drag';
 
 export interface WorkspaceTabItem {
   value: string;
@@ -31,6 +34,9 @@ export interface WorkspaceTabsProps {
   onValueChange?: (value: string) => void;
   onClose: (value: string) => void;
   onReorder?: (values: string[]) => void;
+  /** Register this standalone strip as the shared scope's target (no layout). */
+  onExternalDrop?: (data: unknown, drop: WorkspaceDrop) => string | void;
+  canDropExternal?: (data: unknown, drop: WorkspaceDrop) => boolean;
   utilities?: ReactNode;
   leading?: ReactNode;
   label?: string;
@@ -48,26 +54,23 @@ export function workspaceTabId(value: string): string {
   return `whip-workspace-tab-${encodeURIComponent(value)}`;
 }
 
-export const workspaceDragContext = createContext(false);
-
-export const workspacePointerSensors = [PointerSensor.configure({
-  activationConstraints: [new PointerActivationConstraints.Distance({ value: 6 })],
-  preventActivation: event => event.pointerType === 'touch' || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey,
-})];
-// Default feedback/selection plugins inject CSS and conflict with the renderer's CSP.
-// Sortable movement uses native Web Animations; keyboard reordering belongs to the app's menu.
-export const workspaceDragPlugins = [AutoScroller];
-
-export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder, utilities, leading, label = 'Open sessions', panelId, groupId, windowDrag = false, trafficLightInset = false }: WorkspaceTabsProps) {
+export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder, onExternalDrop, canDropExternal, utilities, leading, label = 'Open sessions', panelId, groupId, windowDrag = false, trafficLightInset = false }: WorkspaceTabsProps) {
   const sharedDrag = useContext(workspaceDragContext);
   const strip = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const controls = useRef(new Map<string, HTMLElement>());
   const pendingFocus = useRef<{ closed: string; next?: string } | null>(null);
   const activeExists = items.some(item => item.value === value);
-  const drag = useWorkspaceTabDrag({
-    locate: (id, point) => list.current && containsPoint(list.current.getBoundingClientRect(), point) ? tabDrop(list.current, id, point) : null,
-    onDrop: ({ viewId, index }) => {
+  const callbacks: WorkspaceDragCallbacks = {
+    locate: (id, point, source) => {
+      if (!list.current || !containsPoint(list.current.getBoundingClientRect(), point)) return null;
+      const target = tabDrop(list.current, id, point);
+      if (source.kind === 'external' && (!onExternalDrop || (canDropExternal && !canDropExternal(source.data, target.drop)))) return null;
+      return target;
+    },
+    onDrop: (drop, source) => {
+      if (source.kind === 'external') return onExternalDrop?.(source.data, drop);
+      const { viewId, index } = drop;
       const from = items.findIndex(item => item.value === viewId);
       if (!onReorder || from < 0 || index === undefined) return;
       const to = index > from ? index - 1 : index;
@@ -76,7 +79,9 @@ export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder,
       values.splice(to, 0, values.splice(from, 1)[0]!);
       onReorder(values);
     },
-  });
+  };
+  const drag = useWorkspaceTabDrag(callbacks);
+  useWorkspaceDragTarget(callbacks, !!onExternalDrop);
 
   function reveal(control: HTMLElement | undefined) {
     if (!control || !list.current) return;
@@ -119,7 +124,7 @@ export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder,
       {leading && <div {...stylex.props(styles.utilities, windowDrag && styles.windowNoDrag)}>{leading}</div>}
       {/* aria-owns keeps sibling action buttons outside the tablist's required tab-only ownership. */}
       {items.length > 0 && <div role="tablist" aria-label={label} aria-owns={items.map(item => workspaceTabId(item.value)).join(' ')} {...stylex.props(styles.semanticList)}/>}
-      <Tabs.List ref={list} activateOnFocus={false} role="presentation" data-workspace-tab-strip={groupId ?? ''} {...stylex.props(styles.list)}>
+      <Tabs.List ref={list} activateOnFocus={false} role="presentation" data-workspace-tab-strip={groupId ?? ''} {...stylex.props(styles.list, windowDrag && sharedDrag?.external && styles.windowNoDrag)}>
         {items.map((item, index) => <WorkspaceTab key={item.value} item={item} index={index} active={item.value === value} panelId={panelId} groupId={groupId} divider={item.value !== value && items[index + 1]?.value !== value && index < items.length - 1} reorderable={sharedDrag ? !!groupId : !!onReorder} windowDrag={windowDrag}
           controlRef={element => { if (element) controls.current.set(item.value, element); else controls.current.delete(item.value); }}
           onFocus={element => reveal(element)} onClose={() => close(item.value)}/>) }
@@ -187,4 +192,16 @@ function WorkspaceTabPreview({ item }: { item: WorkspaceTabItem }) {
     {item.menu && <span {...stylex.props(styles.close, styles.closeVisible)}><MoreHorizontal size={13}/></span>}
     <span {...stylex.props(styles.close, styles.closeVisible)}><X size={13}/></span>
   </>;
+}
+
+/** A non-sortable source: the original item stays put and only its tab face follows. */
+export function WorkspaceExternalSource({ id, data, label, status, disabled = false, children }: {
+  id: string; data: unknown; label: string; status?: ReactNode; disabled?: boolean;
+  children: (props: { ref: (element: HTMLElement | null) => void; draggable: false }) => ReactNode;
+}) {
+  const scope = useContext(workspaceDragContext);
+  const { ref } = useDraggable({ id, disabled: disabled || !scope, data: {
+    external: true, payload: data, tabFace: <WorkspaceTabPreview item={{ value: id, label, status }}/>,
+  } });
+  return children({ ref, draggable: false });
 }

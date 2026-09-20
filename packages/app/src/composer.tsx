@@ -6,10 +6,11 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import type { Session } from '@whip/sdk';
 import { Button, IconButton, Select, Textarea } from '@whip/ui';
-import { ArrowUp, AtSign, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, AtSign, Paperclip, Square } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
@@ -18,14 +19,17 @@ import { layout } from './styles';
 import { ErrorNotice, type ErrorType } from './error-feedback';
 import { errorMessage } from './platform';
 import { selectedSessionTab } from './session-tabs';
+import { submitChatInput } from './chat-submission';
+import { ComposerAttachments } from './composer-attachments';
+import { ChatFileDrop } from './chat-file-drop';
 
 const styles = stylex.create({
   region: {
+    position: 'relative',
     width: '100%',
     maxWidth: 864,
     alignSelf: 'center',
     paddingInline: { default: 24, [scale.phone]: 12 },
-    paddingTop: 8,
     paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
   },
   box: {
@@ -73,7 +77,18 @@ export function Composer({
   viewId,
   modelControl,
   active = false,
+  pending = false,
+  agents,
+  queue,
+  queueEnabled = false,
+  dropTarget,
+  onAccepted,
 }: {
+  onAccepted?(): void;
+  dropTarget?: RefObject<HTMLElement | null>;
+  agents?: ReactNode;
+  queue?: ReactNode;
+  queueEnabled?: boolean;
   session: Session;
   agentId: string;
   connected: boolean;
@@ -84,6 +99,8 @@ export function Composer({
   viewId?: string;
   modelControl?: ReactNode;
   active?: boolean;
+  /** The session is still opening: keep the footprint, skip the unavailable hint. */
+  pending?: boolean;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
@@ -98,19 +115,26 @@ export function Composer({
   const mountedKey = useRef<string | undefined>(undefined);
   const [completion, setCompletion] = useState(false);
   const selection = useRef({ start: 0, end: 0 });
-  const [delivery, setDelivery] = useState('queued');
+  const [delivery, setDelivery] = useState<'queued' | 'steer'>('queued');
   const [failure, setFailure] = useState<{ key: string; type: ErrorType; error: unknown; accepted?: boolean; outcome?: string; turnEventSeq?: string }>();
   const fail = (error: unknown, type: ErrorType = 'submission') => {
     if (mountedKey.current === key && !(error instanceof Error && error.name === 'AbortError')) setFailure({ key, type, error });
   };
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const form = useRef<HTMLFormElement>(null);
   useLayoutEffect(() => {
     const element = input.current;
-    if (!element) return;
+    const box = element?.parentElement;
+    if (!element || !box) return;
     const fit = () => {
+      // Measuring a collapsed input must not temporarily enlarge the transcript
+      // viewport: the browser would clamp its scrollTop before we restore it.
+      const minimum = box.style.minHeight;
+      box.style.minHeight = `${box.getBoundingClientRect().height}px`;
       element.style.height = '0px';
       element.style.height = `${Math.min(220, Math.max(40, element.scrollHeight))}px`;
+      box.style.minHeight = minimum;
     };
     fit();
     let width = element.clientWidth;
@@ -164,13 +188,11 @@ export function Composer({
       fail(error, 'validation');
     }
   };
+  const attachmentUnavailable = !connected ? 'Reconnect to attach files.'
+    : sending ? 'Wait for this message to be accepted before attaching files.'
+    : attachments.some(item => !item.value && !item.error) ? 'Wait for the current upload to finish before attaching files.' : undefined;
   async function attach(selected: File[]) {
-    if (
-      !connected ||
-      sending ||
-      attachments.some((item) => !item.value && !item.error)
-    )
-      return;
+    if (attachmentUnavailable) { fail(new Error(attachmentUnavailable), 'validation'); return; }
     try {
       setFailure(undefined);
       await runtime.compositions.add(
@@ -186,71 +208,32 @@ export function Composer({
   }
   async function submit() {
     const text = runtime.draft(key);
-    if (
-      !connected ||
-      sending ||
-      unresolved ||
-      (!text.trim() && !attachments.length) ||
-      attachments.some((item) => !item.value)
-    )
-      return;
-    let token: symbol | undefined;
-    try {
-      token = runtime.compositions.beginSubmission(key);
-    } catch (error) {
-      fail(error);
-      return;
-    }
-    if (!token) return;
-    let inputId: string | undefined;
-    let accepted = false;
     setFailure(undefined);
-    try {
-      const payload = {
-        text,
-        ...(attachments.length
-          ? { attachments: attachments.map((item) => item.value!) }
-          : {}),
-      };
-      const sentIds = attachments.map((item) => item.id);
-      inputId = runtime.submittedInputs.add({ runtimeId, rootId: session.rootId, agentId },
-        text + (attachments.length ? `\n${attachments.length} attached files` : ''), !!activeTurn);
-      const command =
-        agentId !== session.rootId
-          ? session.command('agent.submit', { id: agentId, ...payload, delivery }, { commandId: inputId })
-          : delivery === 'steer' && activeTurn
-            ? session.steer(payload, { commandId: inputId })
-            : session.submit(payload, { commandId: inputId });
-      await runtime.run(
-        command,
-        agentId === session.rootId ? 'Send message' : 'Message child',
-        () => {
-          accepted = true;
-          try {
-            if (runtime.draft(key) === text) {
-              runtime.setDraft(key, '');
-              if (mountedKey.current === key) {
-                draftRef.current = '';
-                setDraft('');
-              }
+    const result = await submitChatInput({
+      runtime, session, runtimeId, agentId, compositionKey: key, connected,
+      text, attachments, delivery: queueEnabled ? 'queued' : delivery, activeTurn,
+      onAccepted: () => {
+        try {
+          if (runtime.draft(key) === text) {
+            runtime.setDraft(key, '');
+            if (mountedKey.current === key) {
+              draftRef.current = '';
+              setDraft('');
             }
-          } catch (error) {
-            runtime.report(error);
           }
-          runtime.compositions.clear(key, sentIds);
-          runtime.compositions.finishSubmission(key, token!);
-          if (mountedKey.current === key && (!viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId)) input.current?.focus();
-        },
-        key,
-      );
-    } catch (error) {
-      const command = runtime.getSnapshot().commands.find(item => item.commandId === inputId && item.runtimeId === runtimeId);
-      if (inputId && !command?.delivery) runtime.submittedInputs.remove(inputId, runtimeId);
-      if (mountedKey.current === key && !(error instanceof Error && error.name === 'AbortError'))
-        setFailure({ key, type: 'submission', error, accepted, outcome: command?.status, turnEventSeq: lastTurn?.event_seq });
-      /* Preserve drafts when acceptance is uncertain. Do not resubmit automatically. */
-    } finally {
-      runtime.compositions.finishSubmission(key, token);
+        } catch (error) {
+          runtime.report(error);
+        }
+        if (mountedKey.current === key) {
+          if (!viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId) input.current?.focus();
+          onAccepted?.();
+        }
+      },
+    });
+    if (result.status === 'failed' && mountedKey.current === key
+      && !(result.error instanceof Error && result.error.name === 'AbortError')) {
+      setFailure({ key, type: 'submission', error: result.error, accepted: result.accepted,
+        outcome: result.outcome, turnEventSeq: lastTurn?.event_seq });
     }
   }
   const recordedTurnOutcome = failure?.accepted && lastTurn && lastTurn.event_seq !== failure.turnEventSeq
@@ -259,21 +242,15 @@ export function Composer({
         || (lastTurn.error_truncated && errorMessage(failure.error).startsWith(lastTurn.error)))));
   return (
     <form
+      ref={form}
       {...stylex.props(styles.region)}
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
-      }}
-      onDrop={(event) => {
-        if (event.dataTransfer.files.length) {
-          event.preventDefault();
-          void attach(Array.from(event.dataTransfer.files));
-        }
-      }}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
+      <ChatFileDrop target={dropTarget ?? form} scope={key} unavailable={attachmentUnavailable}
+        onFiles={attach} onError={message => fail(new Error(message), 'validation')} />
       {failure?.key === key && !unresolved && !recordedTurnOutcome && <ErrorNotice type={failure.type} owner={key} error={failure.error}
         tone={failure.outcome === 'cancelled' || failure.outcome === 'interrupted' ? 'neutral' : 'error'}
         title={failure.outcome === 'cancelled' ? 'Your message was cancelled' : failure.outcome === 'interrupted' ? 'Your message was interrupted' : failure.accepted ? 'Your message could not complete' : undefined}
@@ -310,23 +287,11 @@ export function Composer({
           )}
         </>} />
       )}
+      {agents}
+      {queue}
       <div {...stylex.props(styles.box)}>
-        {attachments.map((item) => (
-          <div key={item.id} {...stylex.props(layout.row)}>
-            <Paperclip size={13} />
-            <span {...stylex.props(layout.grow)}>
-              {item.name} ·{' '}
-              {item.value ? 'Ready' : item.error ? 'Upload failed' : 'Uploading…'}
-              {item.error && <ErrorNotice type="resource" owner={`${key}:${item.id}`} title={`${item.name} could not upload`} error={item.error} />}
-            </span>
-            <IconButton
-              label={`Remove ${item.name}`}
-              onClick={() => runtime.compositions.remove(key, item.id)}
-            >
-              <X size={13} />
-            </IconButton>
-          </div>
-        ))}
+        <ComposerAttachments attachments={attachments} owner={key}
+          onRemove={id => runtime.compositions.remove(key, id)} />
           <Textarea
             ref={input}
             data-whip-composer
@@ -366,12 +331,12 @@ export function Composer({
               }
             }}
           />
-        {activeTurn && (
+        {activeTurn && !queueEnabled && (
           <Select
             label="Message delivery"
             xstyle={styles.delivery}
             value={delivery}
-            onValueChange={setDelivery}
+            onValueChange={(value) => setDelivery(value === 'steer' ? 'steer' : 'queued')}
             options={[
               { value: 'queued', label: 'Queue message' },
               { value: 'steer', label: 'Steer current work' },
@@ -394,11 +359,7 @@ export function Composer({
           <IconButton
             label="Attach text or images"
             variant="ghost"
-            disabled={
-              !connected ||
-              sending ||
-              attachments.some((item) => !item.value && !item.error)
-            }
+            disabled={!!attachmentUnavailable}
             onClick={() => files.current?.click()}
           >
             <Paperclip size={15} />
@@ -420,7 +381,7 @@ export function Composer({
           </IconButton>
           <span {...stylex.props(layout.grow)} />
           {modelControl}
-          {activeTurn ? (
+          {activeTurn && !draft.trim() && !attachments.length ? (
             <Button
               type="button"
               variant="primary"
@@ -446,7 +407,7 @@ export function Composer({
               type="submit"
               variant="primary"
               xstyle={styles.send}
-              aria-label="Send message"
+              aria-label={activeTurn ? !queueEnabled && delivery === 'steer' ? 'Steer current work' : 'Queue message' : 'Send message'}
               disabled={
                 !connected ||
                 (!draft.trim() && !attachments.length) ||
@@ -456,7 +417,7 @@ export function Composer({
               }
               loading={sending}
             >
-              <ArrowUp size={16} />
+              {!sending && <ArrowUp size={16} />}
             </Button>
           )}
         </div>
@@ -480,7 +441,7 @@ export function Composer({
           }}
         />
       )}
-      {!connected && <div role="status" {...stylex.props(styles.hint)}>
+      {!connected && !pending && <div role="status" {...stylex.props(styles.hint)}>
         {unavailableReason ?? 'Reconnecting.'} Your draft stays here; it will not be sent automatically.
       </div>}
     </form>

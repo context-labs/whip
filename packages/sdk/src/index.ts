@@ -1,5 +1,7 @@
 export { WhipClient, createWhipClient } from './client.js';
 export type { ClientOptions, ConnectionSnapshot, ConnectionState, CallOptions, SdkEvent, QueryOutcome, ExecutorNotification, ExecutorNotifications, Notification, Notifications } from './client.js';
+export { BrowserProviders } from './browser.js';
+export type { BrowserProviderBridge, BrowserSelection, BrowserSelectionOptions } from './browser.js';
 export { Terminals, MAX_TERMINAL_WRITE_BYTES } from './terminals.js';
 export type { TerminalAttachment, TerminalOutput, TerminalExit } from './terminals.js';
 export { CommandHandle, isTerminal } from './command.js';

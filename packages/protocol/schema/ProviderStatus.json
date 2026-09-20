@@ -40,6 +40,9 @@
     "email": {
       "type": "string"
     },
+    "team_name": {
+      "type": "string"
+    },
     "project_id": {
       "type": "string"
     },

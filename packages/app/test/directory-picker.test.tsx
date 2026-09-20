@@ -15,21 +15,23 @@ function fixture() {
   const client = { subscribe: () => () => {}, getSnapshot: () => connection, host: { pickDirectory, directories } } as unknown as WhipClient;
   const onSelect = vi.fn(), submit = vi.fn();
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const tree = (target = client, native = false) => <ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}>
-    <form onSubmit={event => { event.preventDefault(); submit(); }}><DirectoryPicker client={target} native={native} value="/start" onSelect={onSelect} disabled={false} /></form>
+  const tree = (target = client, native = false, sessionTrigger = false) => <ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}>
+    <form onSubmit={event => { event.preventDefault(); submit(); }}><DirectoryPicker client={target} native={native} sessionTrigger={sessionTrigger} value="/start" onSelect={onSelect} disabled={false} /></form>
   </QueryClientProvider></UIProvider></ThemeProvider>;
   return { client, tree, onSelect, submit, pickDirectory, directories, finish: (path: string) => finish({ path }) };
 }
-it('browses remote directories without submitting the session form through the portal', async () => {
-  const f = fixture(); render(f.tree());
+it.each([false, true])('browses remote directories without submitting the session form (session trigger: %s)', async sessionTrigger => {
+  const f = fixture(); render(f.tree(f.client, false, sessionTrigger));
   expect(screen.queryByRole('button', { name: 'Choose folder…', exact: true })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Browse host', exact: true }));
-  fireEvent.change(screen.getByLabelText('Host path'), { target: { value: '/remote/project' } });
+  fireEvent.click(screen.getByRole('button', { name: sessionTrigger ? 'Project folder' : 'Browse host', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit path', exact: true }));
+  fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/remote/project' } });
   fireEvent.click(screen.getByRole('button', { name: 'Go', exact: true }));
   await waitFor(() => expect(f.directories).toHaveBeenCalledWith(expect.objectContaining({ path: '/remote/project' }), expect.anything()));
   await screen.findByText('/remote/project', { exact: true });
-  fireEvent.click(screen.getByRole('button', { name: 'Use this folder', exact: true }));
-  expect(f.onSelect).toHaveBeenCalledExactlyOnceWith('/remote/project');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Choose folder', exact: true }).hasAttribute('disabled')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose folder', exact: true }));
+  await waitFor(() => expect(f.onSelect).toHaveBeenCalledExactlyOnceWith('/remote/project'));
   expect(f.submit).not.toHaveBeenCalled();
   expect(f.pickDirectory).not.toHaveBeenCalled();
 });

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -117,6 +118,7 @@ type RuntimeInbox struct {
 }
 
 type InboxEnqueue struct {
+	Origin          string
 	RootID          string
 	AgentID         string
 	Kind            string
@@ -125,6 +127,10 @@ type InboxEnqueue struct {
 	OperationID     string
 	TraceID         string
 	Payload         RuntimePayload
+	// ParentSpanID and SpanTraceID name the host call that queued this input,
+	// so the turn it starts can parent under it in the trace.
+	ParentSpanID string
+	SpanTraceID  string
 }
 
 type InboxSequence struct {
@@ -133,12 +139,18 @@ type InboxSequence struct {
 }
 
 type InboxItem struct {
-	RootID  string       `json:"root_id"`
-	AgentID string       `json:"agent_id"`
-	Seq     int64        `json:"seq,string"`
-	Kind    string       `json:"kind"`
-	Status  string       `json:"status"`
-	Payload RuntimeValue `json:"payload"`
+	DeliverySeq     int64         `json:"delivery_seq,omitempty,string"`
+	Origin          string        `json:"origin,omitempty"`
+	CommandClientID string        `json:"command_client_id,omitempty"`
+	CommandID       string        `json:"command_id,omitempty"`
+	SteerTurnID     string        `json:"steer_turn_id,omitempty"`
+	Preview         *InboxPreview `json:"preview,omitempty"`
+	RootID          string        `json:"root_id"`
+	AgentID         string        `json:"agent_id"`
+	Seq             int64         `json:"seq,string"`
+	Kind            string        `json:"kind"`
+	Status          string        `json:"status"`
+	Payload         RuntimeValue  `json:"payload"`
 }
 
 type ScheduleFireClaim struct {
@@ -266,6 +278,7 @@ type RootCompaction struct {
 	// RawCutoff is the highest raw message sequence summarized. New
 	// runners supply it from their view-to-raw mapping, not a focused index.
 	RawCutoff *int
+	Pinned    bool // retain the opening user message before the raw tail
 }
 
 type RuntimeState struct {
@@ -345,7 +358,7 @@ func (s *Store) LoadQueuedInbox(ctx context.Context, rootID, agentID string, aft
 		return nil, fmt.Errorf("queued inbox load requires a root, agent, nonnegative cursor, and limit from 1 to %d", MaxInboxBatch)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),i.origin,i.command_client_id,i.command_id,i.steer_turn_id,i.delivery_seq,i.preview
 		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
 		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND i.seq>? ORDER BY i.seq LIMIT ?`, InlineValueLimit+1, rootID, agentID, afterSeq, limit)
 	if err != nil {
@@ -359,9 +372,10 @@ func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) 
 	var items []InboxItem
 	for rows.Next() {
 		item := InboxItem{RootID: rootID, AgentID: agentID}
+		var preview []byte
 		var referenceID string
 		if err := rows.Scan(&item.Seq, &item.Kind, &item.Status, &item.Payload.Inline, &referenceID,
-			&item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source); err != nil {
+			&item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source, &item.Origin, &item.CommandClientID, &item.CommandID, &item.SteerTurnID, &item.DeliverySeq, &preview); err != nil {
 			return nil, err
 		}
 		if referenceID == "" {
@@ -370,6 +384,7 @@ func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) 
 			item.Payload.ReferenceID = referenceID
 			item.Payload.Inline = nil
 		}
+		item.Preview = readInboxPreview(preview)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -422,7 +437,7 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running' WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
+	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running',steer_turn_id='',delivery_seq=0 WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
 	if err != nil {
 		return err
 	}
@@ -444,7 +459,62 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 	}, stamp); err != nil {
 		return err
 	}
+	// A root turn always starts its own trace (Decision 1).
+	if _, _, err := s.startTurnSpanTx(ctx, tx, rootID, agentID, rootTurnID(agentID, inboxSeq), "inbox", inboxSeq, SpanLink{}, nil, stamp); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// startTurnSpanTx opens the agent span for a turn. parent names the span that
+// caused the turn (a spawn, submit, or send host call); an empty parent starts
+// a new trace. links are further causes, such as the rest of a mailbox digest.
+func (s *Store) startTurnSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, turnID, trigger string, inboxSeq int64, parent SpanLink, links []SpanLink, stamp string) (spanID, traceID string, err error) {
+	spanID = TurnSpanID(rootID, agentID, turnID)
+	traceID = parent.TraceID
+	if parent.SpanID == "" || traceID == "" {
+		parent, traceID = SpanLink{}, TraceIDForTurn(turnID)
+	}
+	name, definition := turnSpanNameTx(ctx, tx, rootID, agentID)
+	attrs := map[string]any{"trigger": trigger, "agent_name": name, "definition": definition}
+	if inboxSeq > 0 {
+		attrs["inbox_seq"] = inboxSeq
+		var kind string
+		var input []byte
+		if err := tx.QueryRowContext(ctx, `SELECT kind,substr(payload_inline,1,?) FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`,
+			SpanExcerptLimit+1, rootID, agentID, inboxSeq).Scan(&kind, &input); err == nil {
+			attrs["inbox_kind"] = kind
+			if kind == "submit" || kind == "steer" || kind == "schedule" {
+				attrs["input"] = SpanExcerpt(string(input))
+			}
+		}
+	}
+	record := SpanRecord{
+		ID: spanID, TraceID: traceID, ParentID: parent.SpanID, RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindAgent, Name: name, Status: SpanStatusRunning, StartNS: time.Now().UnixNano(),
+		Attrs: SpanAttrs(attrs), Links: spanLinksJSON(links),
+	}
+	return spanID, traceID, s.startSpanTx(ctx, tx, record, stamp)
+}
+
+// endTurnSpanTx closes a turn's span with its outcome. The last assistant
+// message is the visible result; the error text is bounded like everything
+// else in attrs.
+func (s *Store) endTurnSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, turnID, status, errorText string, messages []llm.Message, stamp string) error {
+	attrs := map[string]any{}
+	if errorText != "" {
+		attrs["error"] = SpanExcerpt(errorText)
+	}
+	for _, message := range slices.Backward(messages) {
+		if message.Role == "assistant" && message.Content != "" {
+			attrs["output"] = SpanExcerpt(message.Content)
+			break
+		}
+	}
+	return s.endSpanTx(ctx, tx, SpanRecord{
+		ID: TurnSpanID(rootID, agentID, turnID), TraceID: TraceIDForTurn(turnID), RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindAgent, Name: "turn", Status: spanStatusForTurn(status), EndNS: time.Now().UnixNano(), Attrs: SpanAttrs(attrs),
+	}, stamp)
 }
 
 // StartRootMailboxTurn records a root turn triggered by ready mail rather
@@ -467,6 +537,16 @@ func (s *Store) StartRootMailboxTurn(ctx context.Context, rootID, agentID string
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
 		AgentID: agentID, TurnID: turnID, InboxKind: "mailbox", Phase: "running", Status: "running",
 	}, stamp); err != nil {
+		return "", err
+	}
+	// The root's mail-triggered turn starts its own trace; the messages that
+	// woke it are links, so the cause stays navigable without chaining every
+	// later root turn into the first trace.
+	links, err := mailboxCausesTx(ctx, tx, rootID, agentID, stamp)
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := s.startTurnSpanTx(ctx, tx, rootID, agentID, turnID, "mailbox", 0, SpanLink{}, links, stamp); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -671,6 +751,9 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 	}, stamp); err != nil {
 		return err
 	}
+	if err := s.endTurnSpanTx(ctx, tx, commit.RootID, commit.AgentID, turnID, status, commit.Error, commit.Messages, stamp); err != nil {
+		return err
+	}
 	if beforeCommit != nil {
 		if err := beforeCommit(); err != nil {
 			return err
@@ -729,7 +812,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 		return InboxSequence{}, ErrInvalidScheduleSlot
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE schedules SET last_fire=? WHERE session_id=? AND id=? AND last_fire=?`,
-		claim.Slot.UTC().Format(time.RFC3339), claim.RootID, claim.ScheduleID, lastFireText)
+		formatStamp(claim.Slot), claim.RootID, claim.ScheduleID, lastFireText)
 	if err != nil {
 		return InboxSequence{}, err
 	}
@@ -749,7 +832,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 		return InboxSequence{}, err
 	}
 	sequence, err := s.enqueueInboxTx(ctx, tx, item, prepared, "schedule.fired", actorEvent{
-		ScheduleID: claim.ScheduleID, Slot: claim.Slot.UTC().Format(time.RFC3339),
+		ScheduleID: claim.ScheduleID, Slot: formatStamp(claim.Slot),
 	})
 	if err != nil {
 		return InboxSequence{}, err
@@ -904,10 +987,13 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET steer_turn_id='' WHERE root_id=? AND steer_turn_id<>''`, rootID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
 		return err
 	}
-	return nil
+	return s.interruptOpenSpansTx(ctx, tx, rootID, nil, stamp)
 }
 
 // emitInterruptedTurnEventsTx records a terminal turn event for every running
@@ -1049,8 +1135,8 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 		return InboxSequence{}, err
 	}
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at) VALUES(?,?,?,?, 'queued',?,?,?)`,
-		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at,parent_span_id,span_trace_id,origin,command_client_id,command_id,preview) VALUES(?,?,?,?, 'queued',?,?,?,?,?,?,?,?,?)`,
+		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp, item.ParentSpanID, item.SpanTraceID, item.Origin, item.CommandClientID, item.CommandID, inboxPreviewJSON(item)); err != nil {
 		return InboxSequence{}, err
 	}
 	event.AgentID = item.AgentID
@@ -1072,29 +1158,39 @@ func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind
 	if err != nil {
 		return 0, err
 	}
-	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "actor event"}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	seq, err := nextEventSeqTx(ctx, tx, rootID)
 	if err != nil {
 		return 0, err
 	}
-	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
-		return 0, err
-	}
+	return seq, s.insertEventWithSeqTx(ctx, tx, rootID, seq, kind, payload, "actor event", stamp)
+}
+
+func nextEventSeqTx(ctx context.Context, tx *sql.Tx, rootID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq); err != nil {
-		return 0, err
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq)
+	return seq, err
+}
+
+// insertEventWithSeqTx journals one payload at a sequence the caller already
+// allocated with nextEventSeqTx inside the same transaction, so a row that
+// records its own event sequence (a span's updated_seq) can be written first.
+func (s *Store) insertEventWithSeqTx(ctx context.Context, tx *sql.Tx, rootID string, seq int64, kind string, payload []byte, source, stamp string) error {
+	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: source}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return err
+	}
+	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
+		return err
 	}
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
 		rootID, seq, kind, inline, reference, stamp); err != nil {
-		return 0, err
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
-		return 0, err
+		return err
 	}
-	if err := s.projectTurnEvent(ctx, tx, rootID, kind, payload, seq, stamp); err != nil {
-		return 0, err
-	}
-	return seq, nil
+	return s.projectTurnEvent(ctx, tx, rootID, kind, payload, seq, stamp)
 }
 
 func (s *Store) CommitRuntime(ctx context.Context, transition RuntimeTransition) (RuntimeResult, error) {
@@ -1479,6 +1575,48 @@ func (s *Store) prepareContentReference(payload RuntimePayload, grant ContentGra
 	return preparedRuntimeValue{RuntimeValue: value, grant: grant}, nil
 }
 
+// InternContent stores one body and returns a root-scoped reference to it,
+// reusing the reference an earlier call minted for the same digest and source
+// in this root. Spans point at bodies the transcript never holds this way (the
+// system prompt a turn ran under, the summary a fold produced): a 35 KB prompt
+// repeated over a hundred calls costs one blob and one reference row.
+func (s *Store) InternContent(ctx context.Context, rootID, source string, data []byte) (RuntimeValue, error) {
+	if rootID == "" || source == "" || len(data) == 0 {
+		return RuntimeValue{}, errors.New("interned content requires a root, a source and a body")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	value, err := s.internContentTx(ctx, tx, rootID, source, "text/plain", data)
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	return value, tx.Commit()
+}
+
+func (s *Store) internContentTx(ctx context.Context, tx *sql.Tx, rootID, source, mediaType string, data []byte) (RuntimeValue, error) {
+	value, err := s.prepareContentReference(RuntimePayload{Data: data, MediaType: mediaType, Source: source}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return RuntimeValue{}, err
+	}
+	var existing string
+	err = tx.QueryRowContext(ctx, `SELECT r.id FROM content_references r JOIN content_grants g ON g.reference_id=r.id
+		WHERE r.digest=? AND r.source=? AND g.root_id=? AND g.agent_id='' AND g.scope='root' AND g.revoked_at='' LIMIT 1`, value.Digest, value.Source, rootID).Scan(&existing)
+	switch {
+	case err == nil:
+		value.ReferenceID = existing
+	case errors.Is(err, sql.ErrNoRows):
+		if err := insertRuntimeValue(ctx, tx, value, now()); err != nil {
+			return RuntimeValue{}, err
+		}
+	default:
+		return RuntimeValue{}, err
+	}
+	return value.RuntimeValue, nil
+}
+
 func insertRuntimeValue(ctx context.Context, tx runtimeValueWriter, value preparedRuntimeValue, stamp string) error {
 	if value.ReferenceID == "" {
 		return nil
@@ -1608,10 +1746,13 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	// Only uncertain running input is interrupted; queued input (including
 	// human follow-ups) survives a restart and runs when the node reopens.
-	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running'`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted',steer_turn_id='' WHERE status='running'`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
+		return err
+	}
+	if err := s.interruptOpenSpansTx(ctx, tx, "", nil, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()

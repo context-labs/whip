@@ -187,7 +187,7 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 		if err != nil {
 			return ProviderStatus{}, errors.New("could not read provider account on execution host")
 		}
-		result.Email, result.ProjectID = auth.UserEmail, auth.ProjectID
+		result.Email, result.TeamName, result.ProjectID = auth.UserEmail, auth.TeamName, auth.ProjectID
 		result.ProjectName, result.MachineKeyName = auth.ProjectName, auth.MachineKeyName
 	}
 	return result, nil

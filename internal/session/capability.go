@@ -16,15 +16,19 @@ import (
 )
 
 type storedCapabilityScopes struct {
-	Paths                []string                 `json:"paths,omitempty"`
-	FileScope            string                   `json:"file_scope,omitempty"`
-	FileIssuerID         string                   `json:"file_issuer_id,omitempty"`
-	FileIssuerGeneration int64                    `json:"file_issuer_generation,omitempty"`
-	ExpiresAt            string                   `json:"expires_at,omitempty"`
-	MCP                  []capability.MCPSelector `json:"mcp,omitempty"`
-	MCPAll               bool                     `json:"mcp_all,omitempty"`
-	MCPIssuerID          string                   `json:"mcp_issuer_id,omitempty"`
-	MCPIssuerGeneration  int64                    `json:"mcp_issuer_generation,omitempty"`
+	Paths                   []string                 `json:"paths,omitempty"`
+	FileScope               string                   `json:"file_scope,omitempty"`
+	FileIssuerID            string                   `json:"file_issuer_id,omitempty"`
+	FileIssuerGeneration    int64                    `json:"file_issuer_generation,omitempty"`
+	ExpiresAt               string                   `json:"expires_at,omitempty"`
+	MCP                     []capability.MCPSelector `json:"mcp,omitempty"`
+	MCPAll                  bool                     `json:"mcp_all,omitempty"`
+	MCPIssuerID             string                   `json:"mcp_issuer_id,omitempty"`
+	MCPIssuerGeneration     int64                    `json:"mcp_issuer_generation,omitempty"`
+	Browser                 *capability.BrowserScope `json:"browser,omitempty"`
+	BrowserIssuerID         string                   `json:"browser_issuer_id,omitempty"`
+	BrowserIssuerGeneration int64                    `json:"browser_issuer_generation,omitempty"`
+	BrowserDelegationOnly   bool                     `json:"browser_delegation_only,omitempty"`
 }
 
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
@@ -52,8 +56,11 @@ type RootGrants struct {
 func FullRootGrants() RootGrants {
 	return RootGrants{
 		Files: []string{"read", "write", "edit", "workspace.write"},
-		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"},
-		MCP:   true,
+		Shell: []string{
+			"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process",
+			"browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port",
+		},
+		MCP: true,
 	}
 }
 
@@ -105,7 +112,8 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 	}
 	authority := capability.Authority{RootID: rootID, AgentID: agentID}
 	rows, err := s.db.QueryContext(ctx, `SELECT id,operations,generation FROM capabilities
-		WHERE root_id=? AND agent_id=? AND status='active' ORDER BY id`, rootID, agentID)
+		WHERE root_id=? AND agent_id=? AND status='active'
+		AND json_extract(scopes,'$.browser') IS NULL ORDER BY id`, rootID, agentID)
 	if err != nil {
 		return capability.Authority{}, nil, err
 	}
@@ -158,7 +166,7 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 				if !slices.Contains(names, "shell") {
 					names = append(names, "shell")
 				}
-			case "browser_exec":
+			case "browser_exec", "browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.detach", "browser.allow_preview_port":
 				if authority.Shell.ID == "" {
 					authority.Shell = capability.Reference{ID: id, Generation: generation}
 				}
@@ -456,6 +464,17 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if grant.ID == "" || grant.RootID == "" || grant.AgentID == "" || len(grant.Operations) == 0 {
 		return errors.New("capability grant identity and operations are required")
 	}
+	if grant.Browser != nil {
+		if grant.AgentID != grant.RootID || grant.IssuerAgentID != "" || len(grant.Scopes) != 0 ||
+			grant.MCPAll || len(grant.MCP) != 0 || !validBrowserScope(*grant.Browser, true) {
+			return capability.ErrDenied
+		}
+		for _, operation := range grant.Operations {
+			if operation != "browser.run" && operation != "browser.detach" && operation != "browser.allow_preview_port" {
+				return capability.ErrDenied
+			}
+		}
+	}
 	hasMCP := slices.Contains(grant.Operations, "mcp.call")
 	if hasMCP {
 		// Child MCP grants must record a validated issuer reference through delegation.
@@ -473,7 +492,7 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if err != nil {
 		return err
 	}
-	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll}
+	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll, Browser: grant.Browser}
 	for _, scope := range grant.Scopes {
 		canonical, err := workspace.Canonicalize(scope)
 		if err != nil {
@@ -552,6 +571,8 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 	// A remembered rule turns the prompt into a lease before the admission is
 	// stored, so the durable record says the operation never needed a human.
 	command, rules, hasRule := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+	// Once-only requests still carry their resource summary in events and spans.
+	// hasRule governs remembered approval, never whether command is displayed.
 	rule := capability.RuleLabel(rules)
 	var ruleSource string
 	if admission.RequirePermission && hasRule {
@@ -616,6 +637,12 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 			CanonicalPath: admission.CanonicalPath, RequestDigest: admission.RequestDigest,
 			CapabilityID: admission.Request.CapabilityID, Generation: admission.Request.CapabilityGeneration,
 			Status: "pending", Command: command, Rule: rule,
+		}, stamp); err != nil {
+			return capability.Ticket{}, err
+		}
+		if err := s.startWaitSpanTx(ctx, tx, admission.Request.RootID, admission.Request.AgentID, ticket.PermissionID, "permission: "+admission.Request.Operation, map[string]any{
+			"permission_id": ticket.PermissionID, "operation_id": admission.Request.OperationID, "operation": admission.Request.Operation,
+			"command": SpanExcerpt(command), "rule": rule, "path": admission.CanonicalPath,
 		}, stamp); err != nil {
 			return capability.Ticket{}, err
 		}
@@ -689,7 +716,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, err
 	}
 	if !sameCapabilityAdmission(stored, admission) || rootID != stored.Request.RootID || agentID != stored.Request.AgentID || operationID != stored.Request.OperationID {
-		if err := terminalizePermission(ctx, tx, stored, permissionID, string(capability.StatusDenied), decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
+		if err := s.terminalizePermission(ctx, tx, stored, permissionID, string(capability.StatusDenied), decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -698,8 +725,11 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, capability.ErrStaleAdmission
 	}
 	admission = stored
+	if strings.HasPrefix(admission.Request.Operation, "browser.") && decision.Remember != "" {
+		return capability.Ticket{}, capability.ErrDenied
+	}
 	if !decision.Allow {
-		if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
+		if err := s.terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -728,6 +758,9 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status=?,updated_at=? WHERE id=? AND status='pending'`, permissionStatusValue("approved", decision.PrincipalID), stamp, permissionID); err != nil {
+		return capability.Ticket{}, err
+	}
+	if err := s.endWaitSpanTx(ctx, tx, rootID, permissionID, "approved", decision.PrincipalID, stamp); err != nil {
 		return capability.Ticket{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -828,6 +861,12 @@ func validateCapabilityAgent(ctx context.Context, tx *sql.Tx, rootID, agentID st
 }
 
 func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capability.Admission) error {
+	if strings.HasPrefix(admission.Request.Operation, "browser.") {
+		if !browserOperation(admission.Request.Operation) {
+			return capability.ErrDenied
+		}
+		return validateBrowserAdmissionTx(ctx, tx, admission)
+	}
 	if admission.Request.Operation == "mcp.call" {
 		var call capability.MCPCall
 		decoder := json.NewDecoder(bytes.NewReader(admission.Request.Arguments))
@@ -967,7 +1006,7 @@ func (s *Store) commitDeniedAdmission(ctx context.Context, tx *sql.Tx, prepared 
 	return fmt.Errorf("%w: %w", capability.ErrDenied, denial)
 }
 
-func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID, status, principal, reason string) error {
+func (s *Store) terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID, status, principal, reason string) error {
 	stamp := now()
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status=?,updated_at=? WHERE id=? AND status='pending'`,
 		permissionStatusValue(status, principal), stamp, permissionID); err != nil {
@@ -977,11 +1016,54 @@ func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability
 		status, []byte(reason), stamp, admission.Request.OperationID); err != nil {
 		return err
 	}
+	if err := s.endWaitSpanTx(ctx, tx, admission.Request.RootID, permissionID, status, principal, stamp); err != nil {
+		return err
+	}
 	return releaseCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations)
 }
 
+// startWaitSpanTx opens a wait span under the agent's running turn. Waits on
+// a human are the idle stretches a timeline must show, so they are spans like
+// everything else, not gaps.
+func (s *Store) startWaitSpanTx(ctx context.Context, tx *sql.Tx, rootID, agentID, waitID, name string, attrs map[string]any, stamp string) error {
+	var turnID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM turns WHERE root_id=? AND agent_id=? AND status='running'`, rootID, agentID).Scan(&turnID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if turnID == "" {
+		return nil // a wait outside any turn has no trace to join
+	}
+	parent := TurnSpanID(rootID, agentID, turnID)
+	traceID := TraceIDForTurn(turnID)
+	_ = tx.QueryRowContext(ctx, `SELECT trace_id FROM spans WHERE id=?`, parent).Scan(&traceID)
+	return s.startSpanTx(ctx, tx, SpanRecord{
+		ID: WaitSpanID(rootID, waitID), TraceID: traceID, ParentID: parent, RootID: rootID, AgentID: agentID, TurnID: turnID,
+		Kind: SpanKindWait, Name: name, Status: SpanStatusRunning, StartNS: time.Now().UnixNano(), Attrs: SpanAttrs(attrs),
+	}, stamp)
+}
+
+// endWaitSpanTx closes a wait span with the decision that ended it. A wait
+// that never opened (no running turn) has nothing to close.
+func (s *Store) endWaitSpanTx(ctx context.Context, tx *sql.Tx, rootID, waitID, decision, principal, stamp string) error {
+	id := WaitSpanID(rootID, waitID)
+	record, err := readSpanTx(ctx, tx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status := SpanStatusOK
+	if decision == "interrupted" {
+		status = SpanStatusInterrupted
+	}
+	record.EndNS, record.Status = time.Now().UnixNano(), status
+	record.Attrs = SpanAttrs(map[string]any{"decision": decision, "principal": principal})
+	return s.endSpanTx(ctx, tx, record, stamp)
+}
+
 func (s *Store) denyStalePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID string, decision capability.Decision, denial error) error {
-	if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, denial.Error()); err != nil {
+	if err := s.terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, denial.Error()); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

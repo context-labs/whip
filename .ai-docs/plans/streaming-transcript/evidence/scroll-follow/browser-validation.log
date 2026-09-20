@@ -1,0 +1,79 @@
+chromium: starting chat activity fixture
+firefox: starting chat activity fixture
+electron: starting chat activity fixture
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history",
+      "staged main/preload",
+      "400% native zoom"
+    ]
+  }
+]

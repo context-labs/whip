@@ -312,7 +312,7 @@ func TestChildResponseIsLocalAndMessageBodyStaysOutOfParentContext(t *testing.T)
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		switch {
 		case last.Role == "user" && strings.Contains(last.Content, "delegate now"):
 			streamToolCall(w, "spawn", `agents.spawn(name="worker", prompt="do work")`)
@@ -395,7 +395,7 @@ func TestQueuedMailWakesIdleRootWithoutHumanInput(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		switch {
 		case last.Role == "user" && strings.Contains(last.Content, "delegate now"):
 			streamToolCall(w, "spawn", `agents.spawn(name="worker", prompt="do work")`)
@@ -544,7 +544,7 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 		}
 		// Count only the child's prompt turn; the root's mailbox turn for the
 		// child's completion notice is a separate, expected call.
-		if strings.Contains(input.Messages[len(input.Messages)-1].TextContent(), "run once after restart") {
+		if strings.Contains(lastTranscriptMessage(input.Messages).TextContent(), "run once after restart") {
 			calls.Add(1)
 		}
 		streamText(w, "restored queued prompt")
@@ -647,7 +647,7 @@ func TestConcurrentChildTurnPressureKeepsPromptQueued(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		last := input.Messages[len(input.Messages)-1].TextContent()
+		last := lastTranscriptMessage(input.Messages).TextContent()
 		switch {
 		case strings.Contains(last, "first child prompt"):
 			firstOnce.Do(func() { close(firstStarted) })
@@ -759,7 +759,7 @@ func TestSuspendedKernelRestoresScratchWithEphemeralNotice(t *testing.T) {
 		mu.Unlock()
 		// The ephemeral restart notice is appended after the user message, so
 		// key on the last message that is not a system notice.
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}
@@ -871,7 +871,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}
@@ -995,68 +995,101 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 // REPL panel renders: print output streams while a cell runs, and each host
 // call inside the cell is published with a bounded summary.
 func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		var input llm.Request
-		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		last := input.Messages[len(input.Messages)-1]
-		if last.Role == "user" && strings.Contains(last.Content, "trace") {
-			streamToolCall(w, "trace", "print('working')\nfor i in range(3):\n    files.list(path=\".\")\nprint('done')")
-			return
-		}
-		streamText(w, "done")
-	}))
-	defer server.Close()
-	store, root, _ := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
-	receipt, err := root.Submit(t.Context(), "trace")
-	if err != nil || waitReceipt(t, receipt).Err != nil {
-		t.Fatalf("turn err=%v", err)
-	}
-	events, _, err := store.ReplayEvents(t.Context(), root.ID(), 0, session.MaxEventReplay)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hostCount, outputSeen, completed := 0, false, false
-	starts := make(map[string]StreamEvent)
-	for _, envelope := range events {
-		var event StreamEvent
-		if json.Unmarshal(envelope.Payload.Inline, &event) != nil {
-			continue
-		}
-		switch envelope.Kind {
-		case "stream.cell.host.started":
-			if event.InvocationID == "" || event.TurnID == "" || event.AgentID != root.ID() {
-				t.Fatalf("missing host scope: %+v", event)
-			}
-			if _, exists := starts[event.InvocationID]; exists {
-				t.Fatalf("repeated host invocation: %s", event.InvocationID)
-			}
-			starts[event.InvocationID] = event
-		case "stream.cell.host":
-			start, exists := starts[event.InvocationID]
-			if !exists || start.ID != event.ID || start.TurnID != event.TurnID || start.Name != event.Name {
-				t.Fatalf("completion without a matching start: %+v", event)
-			}
-			if event.ID == "trace" && event.Name == "files.list" && strings.Contains(event.Args, "path=.") && event.Text != "" {
-				if event.Result != "" {
-					t.Errorf("host call failed: %s", event.Result)
+	for _, engine := range []string{"starlark", "quickjs"} {
+		t.Run(engine, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				var input llm.Request
+				if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
 				}
-				hostCount++
+				last := lastTranscriptMessage(input.Messages)
+				if last.Role == "user" && strings.Contains(last.Content, "trace") {
+					code := "print('working')\nfor i in range(3):\n    files.list(path=\".\")\nprint('done')"
+					if engine == "quickjs" {
+						code = `print("working"); for (let i = 0; i < 3; i++) { await files.list({path: "."}); } print("done");`
+					}
+					streamToolCall(w, "trace", code)
+					return
+				}
+				streamText(w, "done")
+			}))
+			defer server.Close()
+			store, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4, engine)
+			// Measure presentation delivery with a ready worker, not QuickJS
+			// compilation under the race and coverage instrumentation.
+			if err := runtime.rootNode.kernel.Start(); err != nil {
+				t.Fatalf("start presentation worker: %v", err)
 			}
-		case "stream.tool.output":
-			if event.ID == "trace" && strings.Contains(event.Text, "working") {
-				outputSeen = true
+			receipt, err := root.Submit(t.Context(), "trace")
+			if err != nil || waitReceipt(t, receipt).Err != nil {
+				t.Fatalf("turn err=%v", err)
 			}
-		case "stream.tool.completed":
-			if event.ID == "trace" && strings.Contains(event.Result, "done") && !strings.HasPrefix(event.Result, "Error:") {
-				completed = true
+			events, _, err := store.ReplayEvents(t.Context(), root.ID(), 0, session.MaxEventReplay)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-	}
-	if hostCount != 3 || len(starts) != 3 || !outputSeen || !completed {
-		t.Fatalf("host events=%d live output=%v completed=%v", hostCount, outputSeen, completed)
+			hostCount, outputSeen, completed := 0, false, false
+			starts := make(map[string]StreamEvent)
+			for _, envelope := range events {
+				var event StreamEvent
+				if json.Unmarshal(envelope.Payload.Inline, &event) != nil {
+					continue
+				}
+				switch envelope.Kind {
+				case "stream.cell.host.started":
+					if event.InvocationID == "" || event.TurnID == "" || event.AgentID != root.ID() || event.PartID == "" || event.Display == nil || event.Display.Target != "." {
+						t.Fatalf("missing host scope: %+v", event)
+					}
+					if _, exists := starts[event.InvocationID]; exists {
+						t.Fatalf("repeated host invocation: %s", event.InvocationID)
+					}
+					starts[event.InvocationID] = event
+				case "stream.cell.host":
+					start, exists := starts[event.InvocationID]
+					if !exists || start.ID != event.ID || start.TurnID != event.TurnID || start.Name != event.Name {
+						t.Fatalf("completion without a matching start: %+v", event)
+					}
+					if event.ID == "trace" && event.Name == "files.list" && strings.Contains(event.Args, "path=.") && event.Text != "" {
+						if event.Result != "" {
+							t.Errorf("host call failed: %s", event.Result)
+						}
+						hostCount++
+					}
+				case "stream.tool.output":
+					if event.ID == "trace" && strings.Contains(event.Text, "working") {
+						outputSeen = true
+					}
+				case "stream.tool.completed":
+					if event.ID == "trace" && strings.Contains(event.Result, "done") && !strings.HasPrefix(event.Result, "Error:") {
+						completed = true
+					}
+				}
+			}
+			if hostCount != 3 || len(starts) != 3 || !outputSeen || !completed {
+				t.Fatalf("host events=%d live output=%v completed=%v", hostCount, outputSeen, completed)
+			}
+			page, err := store.ReadTranscript(t.Context(), root.ID(), root.ID(), 0, -1, 128)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := 0
+			for _, message := range page.Messages {
+				if message.Message.Presentation == nil {
+					continue
+				}
+				for _, part := range message.Message.Presentation.Parts {
+					for _, host := range part.Hosts {
+						if host.Name == "files.list" && host.Status == "completed" && host.Display != nil && host.Display.Target == "." {
+							retained++
+						}
+					}
+				}
+			}
+			if retained != 3 {
+				t.Fatalf("durable host operations=%d", retained)
+			}
+		})
 	}
 }
 
@@ -1074,7 +1107,7 @@ func TestBackgroundShellJobOutlivesTheCellAndTurn(t *testing.T) {
 		mu.Lock()
 		requests = append(requests, input)
 		mu.Unlock()
-		last := input.Messages[len(input.Messages)-1]
+		last := lastTranscriptMessage(input.Messages)
 		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
 			last = input.Messages[index]
 		}

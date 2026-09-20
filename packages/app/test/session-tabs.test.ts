@@ -7,7 +7,247 @@ function storage(): AppStorage {
   const values = new Map<string, string>();
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
+describe('child chat companions', () => {
+  const allowSplit = { canSplit: () => true };
+  function fixture() {
+    const disk = storage(), tabs = new SessionTabs(disk);
+    tabs.visit('mac', 'root', { agent: 'parent', panel: 'context' });
+    return { disk, tabs, source: tabs.workspace().tabs[0]! };
+  }
+  it('inserts the child and right pane in one write without changing the source', () => {
+    const { disk, tabs, source } = fixture();
+    const write = vi.spyOn(disk, 'setItem'), observe = vi.fn(() => {
+      expect(tabs.workspace().tabs).toHaveLength(2);
+      expect(tabs.workspace().tabs[1]).toMatchObject({ location: { agent: 'A' } });
+    });
+    tabs.subscribe(observe);
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab).toMatchObject({ kind: 'chat', runtimeId: 'mac', rootId: 'root', location: { agent: 'A' } });
+    expect(result.tab.id).not.toBe(source.id);
+    expect(tabs.workspace().layout).toMatchObject({ type: 'split', direction: 'horizontal',
+      first: { tabs: [source], selected: source.id }, second: { tabs: [result.tab], selected: result.tab.id } });
+    expect(write).toHaveBeenCalledOnce(); expect(observe).toHaveBeenCalledOnce();
+    expect(new SessionTabs(disk).workspace()).toEqual(tabs.workspace());
+  });
+  it('reuses one companion for A → B → A even at both capacity limits', () => {
+    const fresh = new SessionTabs(); fresh.visit('mac', 'root', {});
+    const left = fresh.split('root', 'left'); fresh.split(left, 'bottom');
+    const first = fresh.openChildChat('root', 'A', allowSplit);
+    for (let i = fresh.workspace().tabs.length; i < 32; i++) fresh.openChatView('mac', 'filler-' + i, '', { paneId: sessionViewPane(fresh.workspace(), left)!.id });
+    const b = fresh.openChildChat('root', 'B', { companion: first.companion, canSplit: () => false });
+    const again = fresh.openChildChat('root', 'A', { companion: b.companion, canSplit: () => false });
+    expect(b.tab.id).toBe(first.tab.id); expect(again.tab.id).toBe(first.tab.id);
+    expect(fresh.workspace().tabs).toHaveLength(32); expect(sessionPanes(fresh.workspace().layout)).toHaveLength(4);
+    expect(fresh.workspace().tabs.find(tab => tab.id === 'root')).toMatchObject({ location: {} });
+  });
+  it.each(['source', 'child', 'both'] as const)('reuses the companion after toggling %s inspector panels', target => {
+    const { tabs, source } = fixture();
+    const first = tabs.openChildChat(source.id, 'A', allowSplit);
+    if (target !== 'child') tabs.updateLocation(source.id, { agent: 'parent' });
+    if (target !== 'source') tabs.updateLocation(first.tab.id, { agent: 'A', panel: 'context' });
+    const next = tabs.openChildChat(source.id, 'B', { companion: first.companion, canSplit: () => false });
+    expect(next.tab.id).toBe(first.tab.id);
+    expect(next.tab.location.agent).toBe('B');
+    expect(tabs.workspace().tabs).toHaveLength(2);
+    expect(sessionPanes(tabs.workspace().layout)).toHaveLength(2);
+  });
+  it('focuses an exact visible child without adopting it or changing an owned companion', () => {
+    const { tabs, source } = fixture();
+    const external = tabs.split(source.id, 'left'); tabs.updateLocation(external, { agent: 'B' });
+    const filler = tabs.split(external, 'bottom'); tabs.updateLocation(filler, { agent: 'other' });
+    const a = tabs.openChildChat(source.id, 'A', allowSplit);
+    for (let i = tabs.workspace().tabs.length; i < 32; i++) tabs.openChatView('mac', 'filler-' + i, '', { paneId: sessionViewPane(tabs.workspace(), filler)!.id });
+    const result = tabs.openChildChat(source.id, 'B', { companion: a.companion, canSplit: () => false });
+    expect(result.tab.id).toBe(external);
+    expect(result.companion).toEqual(a.companion);
+    expect(selectedSessionTab(tabs.workspace())?.id).toBe(external);
+    const c = tabs.openChildChat(source.id, 'C', { companion: result.companion, canSplit: () => false });
+    expect(c.tab.id).toBe(a.tab.id);
+    expect(tabs.workspace().tabs.find(tab => tab.id === external)).toMatchObject({ location: { agent: 'B' } });
+    expect(tabs.workspace().tabs.find(tab => tab.id === source.id)).toEqual(source);
+  });
+  it.each(['moved', 'closed', 'repurposed', 'hidden', 'source changed'] as const)('does not overwrite a %s companion', change => {
+    const { tabs, source } = fixture();
+    const a = tabs.openChildChat(source.id, 'A', allowSplit);
+    if (change === 'moved') tabs.transfer(a.tab.id, a.companion!.sourcePaneId);
+    if (change === 'closed') tabs.closeViews([a.tab.id]);
+    if (change === 'repurposed') tabs.updateLocation(a.tab.id, { agent: 'unrelated' });
+    if (change === 'hidden') tabs.openChatView('mac', 'unrelated', '', { paneId: a.companion!.paneId });
+    if (change === 'source changed') tabs.updateLocation(source.id, { agent: 'another-parent' });
+    const before = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'B', { companion: a.companion, canSplit: () => false })).toThrow('Open in tab');
+    expect(tabs.getSnapshot()).toBe(before);
+    const b = tabs.openChildChat(source.id, 'B', { companion: a.companion, ...allowSplit });
+    expect(b.tab.id).not.toBe(a.tab.id);
+  });
+  it.each(['repl', 'trace'] as const)('does not repurpose a visible %s of the child', kind => {
+    const { tabs, source } = fixture();
+    const other = tabs.split(source.id, 'left');
+    tabs.visit('mac', 'root', { agent: 'A', view: kind }, other);
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(other); expect(result.tab.kind).toBe('chat');
+    expect(tabs.workspace().tabs.find(tab => tab.id === other)?.kind).toBe(kind);
+  });
+  it('does not adopt unrelated visible matches or select hidden matching tabs', () => {
+    const { tabs, source } = fixture();
+    const external = tabs.split(source.id, 'left'); tabs.updateLocation(external, { agent: 'A' });
+    expect(tabs.openChildChat(source.id, 'A').companion).toBeUndefined();
+    tabs.openChatView('mac', 'unrelated', '', { paneId: sessionViewPane(tabs.workspace(), external)!.id });
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(external); expect(result.companion).toBeDefined();
+  });
+  it('does not match equal child IDs on another host or root', () => {
+    const { tabs, source } = fixture();
+    const wrongHost = tabs.openChatView('other', 'root', '', { edge: 'left' }); tabs.updateLocation(wrongHost.id, { agent: 'A' });
+    const wrongRoot = tabs.openChatView('mac', 'other', '', { edge: 'left' }); tabs.updateLocation(wrongRoot.id, { agent: 'A' });
+    const result = tabs.openChildChat(source.id, 'A', allowSplit);
+    expect(result.tab.id).not.toBe(wrongHost.id); expect(result.tab.id).not.toBe(wrongRoot.id);
+    expect(result.tab).toMatchObject({ runtimeId: 'mac', rootId: 'root' });
+  });
+  it('leaves the exact snapshot unchanged on invalid source, child, geometry and capacity', () => {
+    const { tabs, source } = fixture();
+    const before = tabs.getSnapshot();
+    expect(() => tabs.openChildChat('missing', 'A', allowSplit)).toThrow('source');
+    expect(() => tabs.openChildChat(source.id, '', allowSplit)).toThrow('identity');
+    expect(() => tabs.openChildChat(source.id, 'A')).toThrow('Widen');
+    expect(tabs.getSnapshot()).toBe(before);
+    tabs.split(source.id, 'left'); tabs.split(source.id, 'left'); tabs.split(source.id, 'left');
+    const fullPanes = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'A', allowSplit)).toThrow('four panes');
+    expect(tabs.getSnapshot()).toBe(fullPanes);
+    const result = tabs.openChildChat(source.id, 'A', { openInTab: true });
+    expect(sessionViewPane(tabs.workspace(), result.tab.id)?.id).toBe(sessionViewPane(tabs.workspace(), source.id)?.id);
+    expect(tabs.workspace().tabs.find(tab => tab.id === source.id)).toEqual(source);
+    for (let i = tabs.workspace().tabs.length; i < 32; i++) tabs.openChatView('mac', 'filler-' + i);
+    const fullTabs = tabs.getSnapshot();
+    expect(() => tabs.openChildChat(source.id, 'B', { openInTab: true })).toThrow('32');
+    expect(tabs.getSnapshot()).toBe(fullTabs);
+  });
+});
+
+describe('always-new root chat views', () => {
+  it('atomically opens another root view without changing existing REPL or trace views', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.visit('mac', 'root', { view: 'repl', agent: 'child', panel: 'context' });
+    const trace = state.openRelated('root', 'trace');
+    state.open('mac', 'after');
+    const before = state.workspace();
+    const write = vi.spyOn(disk, 'setItem'), notify = vi.fn(); state.subscribe(notify);
+    const tab = state.openChatView('mac', 'root', 'Root title');
+    expect(tab).toMatchObject({ kind: 'chat', runtimeId: 'mac', rootId: 'root', titleHint: 'Root title', location: {} });
+    expect(tab.id).not.toBe('root'); expect(tab.id).not.toBe(trace.id);
+    expect(state.workspace().tabs.map(item => item.id)).toEqual(['root', trace.id, tab.id, 'after']);
+    expect(state.workspace().tabs.filter(item => item.id !== tab.id)).toEqual(before.tabs);
+    expect(selectedSessionTab(state.workspace())?.id).toBe(tab.id);
+    expect(write).toHaveBeenCalledOnce(); expect(notify).toHaveBeenCalledOnce();
+    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
+    expect(state.open('mac', 'root')).toBe(tab.id);
+  });
+
+  it.each([-10, 1, 100])('inserts at the bounded slot %s in a specific pane without source-index adjustment', index => {
+    const state = new SessionTabs();
+    state.visit('mac', 'root', {}); state.open('mac', 'next');
+    const paneId = state.workspace().focusedPaneId;
+    state.split('root', 'right');
+    const other = sessionPanes(state.workspace().layout).find(pane => pane.id !== paneId)!;
+    const tab = state.openChatView('remote', 'root', '', { paneId, index });
+    const pane = sessionViewPane(state.workspace(), tab.id)!;
+    const ids = ['root', 'next']; ids.splice(Math.max(0, Math.min(2, index)), 0, tab.id);
+    expect(pane.tabs.map(item => item.id)).toEqual(ids);
+    expect(pane.selected).toBe(tab.id); expect(state.workspace().focusedPaneId).toBe(paneId);
+    expect(sessionPanes(state.workspace().layout).find(p => p.id === other.id)).toEqual(other);
+  });
+
+  it.each(['left', 'right', 'top', 'bottom'] as const)('atomically opens a fresh root chat at a nested %s edge', edge => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.visit('mac', 'root', { agent: 'child', panel: 'context' });
+    state.openRelated('root', 'repl');
+    state.openRelated('root', 'trace');
+    state.split('root', 'right');
+    const before = state.workspace();
+    const target = sessionPanes(before.layout)[1]!;
+    const write = vi.spyOn(disk, 'setItem'), notify = vi.fn(); state.subscribe(notify);
+    const tab = state.openChatView('mac', 'root', 'Root', { paneId: target.id, edge });
+    const after = state.workspace(), pane = sessionViewPane(after, tab.id)!;
+    expect(tab).toMatchObject({ kind: 'chat', rootId: 'root', location: {} });
+    expect(before.tabs.some(item => item.id === tab.id)).toBe(false);
+    for (const original of before.tabs) expect(after.tabs.find(item => item.id === original.id)).toEqual(original);
+    for (const original of sessionPanes(before.layout)) {
+      expect(sessionPanes(after.layout).find(item => item.id === original.id)).toEqual(original);
+    }
+    expect(after.layout.type).toBe('split');
+    if (after.layout.type !== 'split' || before.layout.type !== 'split') throw new Error('Expected split');
+    expect(after.layout.first).toEqual(before.layout.first);
+    expect(after.layout.second).toMatchObject({ type: 'split', ratio: .5,
+      direction: edge === 'left' || edge === 'right' ? 'horizontal' : 'vertical',
+      first: edge === 'left' || edge === 'top' ? pane : target,
+      second: edge === 'left' || edge === 'top' ? target : pane });
+    expect(pane.tabs).toEqual([tab]); expect(pane.selected).toBe(tab.id);
+    expect(after.focusedPaneId).toBe(pane.id); expect(after.restoreSelection).toBe(true);
+    expect(write).toHaveBeenCalledOnce(); expect(notify).toHaveBeenCalledOnce();
+    expect(new SessionTabs(disk).workspace()).toEqual(after);
+  });
+
+  it('rejects edge splits at either limit or a stale pane without a partial view, pane or write', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.visit('mac', 'root', {});
+    for (let i = 0; i < 3; i++) state.openChatView('mac', 'root', '', { edge: 'right' });
+    const write = vi.spyOn(disk, 'setItem'), notify = vi.fn(); state.subscribe(notify);
+    const full = state.getSnapshot();
+    expect(() => state.openChatView('mac', 'root', '', { edge: 'bottom' })).toThrow('four');
+    expect(() => state.openChatView('mac', 'root', '', { paneId: 'gone', edge: 'left' })).toThrow('pane');
+    expect(state.getSnapshot()).toBe(full); expect(write).not.toHaveBeenCalled(); expect(notify).not.toHaveBeenCalled();
+    // Strip insertion remains available at the pane limit.
+    expect(state.openChatView('mac', 'root')).toBeDefined();
+    const cappedDisk = storage(), capped = new SessionTabs(cappedDisk);
+    const cappedWrite = vi.spyOn(cappedDisk, 'setItem');
+    for (let i = 0; i < 32; i++) capped.openChatView('mac', 'root');
+    const before = capped.getSnapshot(); cappedWrite.mockClear();
+    expect(() => capped.openChatView('mac', 'root', '', { edge: 'top' })).toThrow('32');
+    expect(capped.getSnapshot()).toBe(before); expect(cappedWrite).not.toHaveBeenCalled();
+  });
+
+  it('creates in an empty pane and never reuses closed view identities', () => {
+    const state = new SessionTabs();
+    const first = state.openChatView('mac', 'root');
+    state.closeViews([first.id]);
+    const closed = state.workspace().closed;
+    const second = state.openChatView('mac', 'root');
+    expect(second.id).not.toBe(first.id);
+    expect(state.workspace().tabs).toEqual([second]);
+    expect(state.workspace().closed).toEqual(closed);
+  });
+
+  it('rejects invalid identities, stale panes and capacity without any mutation or write', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const write = vi.spyOn(disk, 'setItem'), notify = vi.fn(); state.subscribe(notify);
+    const empty = state.getSnapshot();
+    expect(() => state.openChatView('', 'root')).toThrow('identity');
+    expect(() => state.openChatView('mac', '')).toThrow('identity');
+    expect(() => state.openChatView('mac', 'root', '', { paneId: 'gone' })).toThrow('pane');
+    expect(() => state.openChatView('mac', 'root', '', { index: NaN })).toThrow('index');
+    expect(state.getSnapshot()).toBe(empty); expect(write).not.toHaveBeenCalled(); expect(notify).not.toHaveBeenCalled();
+    for (let i = 0; i < 32; i++) state.openChatView('mac', 'root');
+    write.mockClear(); notify.mockClear();
+    const full = state.getSnapshot();
+    expect(state.canOpen('mac', 'root')).toBe(true);
+    expect(() => state.openChatView('mac', 'root')).toThrow('32');
+    expect(state.getSnapshot()).toBe(full); expect(write).not.toHaveBeenCalled(); expect(notify).not.toHaveBeenCalled();
+  });
+});
+
 describe('window session tabs', () => {
+  it('restores each draft model route and reasoning choice without sharing defaults', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const first = state.openNew({ model: 'gpt-6-astra', provider: 'openai', effort: 'high' });
+    const second = state.openNew({});
+    state.updateNew(first.id, { effort: 'low' });
+    const restored = new SessionTabs(disk).workspace().tabs;
+    expect(restored.find(tab => tab.id === first.id)).toMatchObject({ model: 'gpt-6-astra', provider: 'openai', effort: 'low' });
+    expect(restored.find(tab => tab.id === second.id)).not.toHaveProperty('model');
+    expect(() => state.updateNew(first.id, { provider: undefined })).toThrow('Invalid New Chat options');
+    expect(() => state.updateNew(first.id, { effort: 'high\nlow' })).toThrow('Invalid New Chat options');
+  });
   it('opens fresh REPL views next to their source and restores each identity independently', () => {
     const disk = storage(), state = new SessionTabs(disk);
     state.open('mac', 'before'); state.visit('mac', 'root', { agent: 'child', panel: 'context' }); state.open('mac', 'after');
@@ -472,7 +712,6 @@ describe('New Chat descriptors', () => {
     const disk = { ...storage(), persistent: false }, write = vi.spyOn(disk, 'setItem');
     const state = new SessionTabs(disk), before = state.workspace();
     expect(() => state.openNew()).toThrow('Window storage is unavailable');
-    expect(() => state.ensureNew('recovery')).toThrow('Window storage is unavailable');
     expect(write).not.toHaveBeenCalled();
     expect(state.workspace()).toBe(before);
   });
@@ -488,34 +727,6 @@ describe('New Chat descriptors', () => {
   it('accepts the existing partial session search descriptor contract', () => {
     expect(sessionSearch({ kind: 'repl', location: { agent: 'child' } })).toEqual({ agent: 'child', view: 'repl' });
     expect(sessionSearch({ kind: 'new' })).toEqual({});
-  });
-  it('materializes recovery identities once without selecting, reopening or replacing accepted work', () => {
-    const disk = storage(), state = new SessionTabs(disk);
-    const selected = state.openNew();
-    const id = 'legacy-welcome-' + encodeURIComponent('runtime/one');
-    const recovered = state.ensureNew(id, { cwd: '/legacy' });
-    expect(selectedSessionTab(state.workspace())?.id).toBe(selected.id);
-    expect(state.ensureNew(id, { cwd: '/ignored' })).toEqual(recovered);
-    expect(state.workspace().tabs).toHaveLength(2);
-    state.closeViews([id]);
-    expect(state.ensureNew(id)).toEqual(recovered);
-    expect(state.workspace().tabs).toHaveLength(1);
-    state.promoteNew(id, 'runtime/one', 'accepted');
-    expect(state.ensureNew(id)).toMatchObject({ kind: 'chat', rootId: 'accepted' });
-    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
-  });
-  it('keeps recovery materialization atomic when capacity or storage refuses it', () => {
-    const disk = storage(), state = new SessionTabs(disk);
-    for (let i = 0; i < 32; i++) state.openNew();
-    const before = state.workspace();
-    expect(() => state.ensureNew('legacy-welcome-host')).toThrow('32');
-    expect(state.workspace()).toBe(before);
-    const other = new SessionTabs(disk);
-    other.closeViews([other.workspace().tabs[0]!.id]);
-    const beforeFailure = other.workspace();
-    disk.setItem = () => { throw new Error('quota'); };
-    expect(() => other.ensureNew('legacy-welcome-host')).toThrow('quota');
-    expect(other.workspace()).toBe(beforeFailure);
   });
   it('reopens only the requested retained view', () => {
     const state = new SessionTabs();

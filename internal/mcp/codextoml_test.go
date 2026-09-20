@@ -432,3 +432,51 @@ func TestParseCodexBearerTokenEnvVarInvalid(t *testing.T) {
 		t.Error("non-string bearer_token_env_var should error")
 	}
 }
+
+// TestParseCodexIgnoresUnrelatedSections: codex's config carries far more
+// than MCP servers. Top-level keys, [[array]] tables and other features'
+// sections must not be able to fail MCP discovery, while a malformed value
+// inside an mcp_servers table still errors.
+func TestParseCodexIgnoresUnrelatedSections(t *testing.T) {
+	doc := `
+model = "gpt-5"
+notify = ["osascript", "-e",
+  "display notification"]
+
+[[unrelated.entries]]
+kind = "slack"
+weird = { nested = [1, 2] }
+
+[features]
+multi = [
+  "a",
+  "b",
+]
+
+[mcp_servers.docs]
+command = "docs-mcp"
+args = ["--stdio"]
+
+[other.section]
+after = true
+`
+	cfgs, err := ParseCodex([]byte(doc))
+	if err != nil {
+		t.Fatalf("unrelated sections broke discovery: %v", err)
+	}
+	if len(cfgs) != 1 || cfgs["docs"].Command == nil || cfgs["docs"].Command[0] != "docs-mcp" {
+		t.Fatalf("cfgs = %+v, want only docs", cfgs)
+	}
+	_, err = ParseCodex([]byte("[mcp_servers.bad]\ncommand = 5\n"))
+	if err == nil || !strings.Contains(err.Error(), "command must be a string or array") {
+		t.Fatalf("malformed server table err = %v, want a loud error", err)
+	}
+	_, err = ParseCodex([]byte("[mcp_servers.bad]\nnot a pair\n"))
+	if err == nil || !strings.Contains(err.Error(), "expected key = value") {
+		t.Fatalf("malformed server line err = %v, want a loud error", err)
+	}
+	// An array table under mcp_servers is ours and unsupported: loud, not skipped.
+	if _, err = ParseCodex([]byte("[[mcp_servers.arr]]\ncommand = \"x\"\n")); err == nil {
+		t.Fatal("array table under mcp_servers parsed silently")
+	}
+}

@@ -1,7 +1,6 @@
 import { ErrorNotice } from '../error-feedback';
-import { useEffect, useRef, useState } from 'react';
-import { assertValid } from '@whip/protocol';
-import { Badge, Button, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
+import { useState } from 'react';
+import { Badge, Button, CodeBlock, Field, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
@@ -38,63 +37,103 @@ export function Integrations(props: InspectorProps) {
     </>
   );
 }
+type MCPAction = 'reconnect' | 'enable' | 'disable';
+type MCPImportSource = 'claude' | 'codex' | 'project' | 'opencode';
+const importSources: ReadonlyArray<{ source: MCPImportSource; label: string }> = [
+  { source: 'claude', label: 'Claude user file (~/.claude.json)' },
+  { source: 'codex', label: 'Codex config (~/.codex/config.toml)' },
+  { source: 'project', label: 'Project .mcp.json (repository-authored, off by default)' },
+  { source: 'opencode', label: 'OpenCode config (~/.config/opencode/opencode.json)' },
+];
+// Controls follow what the daemon can honor for a row in its current state.
+// Blocked and unreadable rows are not live servers and get none.
+function mcpActions(status: string): readonly MCPAction[] {
+  switch (status) {
+    case 'blocked':
+    case 'unreadable':
+      return [];
+    case 'disabled':
+      return ['enable'];
+    case 'connecting':
+      return ['disable'];
+    default:
+      return ['reconnect', 'disable'];
+  }
+}
+// Every control names its subject and its real scope: enable/disable act on
+// this session only (the host keeps its configuration), reconnect is a
+// request the daemon may still be carrying out when the command succeeds.
+const mcpActionLabel: Record<MCPAction, (name: string) => string> = {
+  reconnect: (name) => `Reconnect ${name}`,
+  enable: (name) => `Enable ${name} for this session`,
+  disable: (name) => `Disable ${name} for this session`,
+};
+const mcpActionOutcome: Record<MCPAction, string> = {
+  reconnect: 'Reconnect requested',
+  enable: 'Enabled for this session',
+  disable: 'Disabled for this session',
+};
 export function MCP(props: InspectorProps) {
   const runtime = useRuntime();
   const query = useDetailQuery(props, 'mcp.status', {}, true);
   const imports = useDetailQuery(props, 'mcp.import.status', {});
-  const [configuration, setConfiguration] = useState('');
-  const controller = useRef<AbortController | null>(null);
-  useEffect(() => () => controller.current?.abort(), []);
   return (
     <>
       <Section
         title="MCP servers"
-        description="Server processes, credentials, and delegated authority belong to the execution host."
+        description="Server processes, credentials, and delegated authority belong to the execution host. Enable and disable apply to this session only; add or remove servers on the host with whip mcp add and whip mcp remove."
       >
         <QueryFeedback query={query} view={props.view} />
         {query.data?.result?.length === 0 && (
           <Empty>No MCP servers are configured for this session.</Empty>
         )}
-        {query.data?.result?.map((server) => (
-          <article key={server.name} {...stylex.props(layout.column, layout.notice)}>
-            <div {...stylex.props(layout.row)}>
-              <strong>{server.name}</strong>
-              <Badge>{server.status}</Badge>
-            </div>
-            <span {...stylex.props(layout.muted)}>
-              {server.tools ?? 0} tools · {server.source || 'host configuration'}
-            </span>
-            {server.note && <p>{server.note}</p>}
-            {server.error && <ErrorNotice type="resource" owner={`mcp:${server.name}`} title={`${server.name} needs attention`} error={server.error} />}
-            <div {...stylex.props(layout.row, layout.wrap)}>
-              {(['reconnect', 'enable', 'disable'] as const).map((action) => (
-                <Action
-                  key={action}
-                  disabled={!props.connected}
-                  run={() =>
-                    runtime.run(
-                      props.view.session.command(`mcp.${action}`, { name: server.name }),
-                      `${action} MCP server`,
-                    )
-                  }
-                >
-                  {action[0]!.toUpperCase() + action.slice(1)}
-                </Action>
-              ))}
-            </div>
-          </article>
-        ))}
+        {query.data?.result?.map((server) => {
+          const actions = mcpActions(server.status);
+          return (
+            <article key={server.name} {...stylex.props(layout.column, layout.notice)}>
+              <div {...stylex.props(layout.row)}>
+                <strong>{server.name}</strong>
+                <Badge>{server.status}</Badge>
+              </div>
+              <span {...stylex.props(layout.muted)}>
+                {server.status === 'unreadable'
+                  ? server.source || 'discovery source'
+                  : `${server.tools ?? 0} tools · ${server.source || 'host configuration'}`}
+              </span>
+              {server.note && <p>{server.note}</p>}
+              {server.error && <ErrorNotice type="resource" owner={`mcp:${server.name}`} title={`${server.name} needs attention`} error={server.error} />}
+              {actions.length > 0 && (
+                <div {...stylex.props(layout.row, layout.wrap)}>
+                  {actions.map((action) => (
+                    <Action
+                      key={action}
+                      disabled={!props.connected}
+                      run={() =>
+                        runtime.run(
+                          props.view.session.command(`mcp.${action}`, { name: server.name }),
+                          mcpActionOutcome[action],
+                        )
+                      }
+                    >
+                      {mcpActionLabel[action](server.name)}
+                    </Action>
+                  ))}
+                </div>
+              )}
+            </article>
+          );
+        })}
       </Section>
       <Section
-        title="Import sources"
-        description="Read MCP definitions from tools installed on the execution host."
+        title="Host import defaults"
+        description="Which files on the execution host feed MCP definitions into sessions. Saved to host configuration; this session reloads when idle. Enabling a source runs those servers' programs at session start."
       >
         <QueryFeedback query={imports} view={props.view} />
         {imports.data?.result &&
-          (['claude', 'codex'] as const).map((source) => (
+          importSources.map(({ source, label }) => (
             <div key={source} {...stylex.props(layout.settingsRow)}>
               <span>
-                {source} · {imports.data!.result![source] ? 'Enabled' : 'Disabled'}
+                {label} · {imports.data!.result![source] ? 'Enabled' : 'Disabled'}
               </span>
               <Action
                 disabled={!props.connected}
@@ -104,7 +143,7 @@ export function MCP(props: InspectorProps) {
                       source,
                       enabled: !imports.data!.result![source],
                     }),
-                    'Change MCP import source',
+                    'Saved to host configuration',
                   )
                 }
               >
@@ -112,40 +151,6 @@ export function MCP(props: InspectorProps) {
               </Action>
             </div>
           ))}
-      </Section>
-      <Section
-        title="Attach session MCP servers"
-        description="Optional advanced configuration. Sent once to this session; never saved in drafts, query caches, recovery records, or browser storage. Existing delegated MCP authority still applies."
-      >
-        <Field
-          label="Private MCP server JSON"
-          description='A server-name map, such as {"docs":{"url":"https://host.example/mcp"}}. At most 256 KiB.'
-        >
-          <Textarea
-            autoComplete="off"
-            spellCheck={false}
-            value={configuration}
-            onChange={(event) => setConfiguration(event.target.value)}
-          />
-        </Field>
-        <Action
-          disabled={!props.connected || !configuration.trim()}
-          run={async () => {
-            if (new TextEncoder().encode(configuration).length > 256 << 10)
-              throw new Error('MCP configuration exceeds 256 KiB.');
-            const payload: unknown = { servers: JSON.parse(configuration) };
-            assertValid('MCPAttachParams', payload);
-            setConfiguration('');
-            controller.current?.abort();
-            controller.current = new AbortController();
-            await props.view.session.invoke('mcp.attach', payload, {
-              signal: controller.current.signal,
-            });
-            await runtime.queries.invalidateQueries();
-          }}
-        >
-          Attach to this session
-        </Action>
       </Section>
     </>
   );
@@ -281,8 +286,8 @@ function Tools(props: InspectorProps) {
   return (
     <>
       <Section
-        title="Available tools"
-        description="The schemas the execution host offers to this session. Availability remains subject to permissions and delegated authority."
+        title="Built-in tools"
+        description="Public schemas of whip's own tools. MCP tools are counted per server under MCP servers; availability remains subject to permissions and delegated authority."
       >
         <QueryFeedback query={query} view={props.view} />
         <Field label="Find a tool">

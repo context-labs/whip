@@ -26,22 +26,26 @@ type CapabilityDelegation struct {
 }
 
 type CapabilityRecord struct {
-	ID                   string                   `json:"id"`
-	RootID               string                   `json:"root_id"`
-	AgentID              string                   `json:"agent_id"`
-	IssuerAgentID        string                   `json:"issuer_agent_id"`
-	Operations           []string                 `json:"operations"`
-	Scopes               []string                 `json:"scopes"`
-	FileScope            string                   `json:"file_scope,omitempty"`
-	FileIssuerID         string                   `json:"file_issuer_id,omitempty"`
-	FileIssuerGeneration int64                    `json:"file_issuer_generation,string,omitempty"`
-	MCP                  []capability.MCPSelector `json:"mcp"`
-	MCPAll               bool                     `json:"mcp_all"`
-	Generation           int64                    `json:"generation,string"`
-	Status               string                   `json:"status"`
-	ExpiresAt            time.Time                `json:"expires_at"`
-	CreatedAt            time.Time                `json:"created_at"`
-	UpdatedAt            time.Time                `json:"updated_at"`
+	ID                      string                   `json:"id"`
+	RootID                  string                   `json:"root_id"`
+	AgentID                 string                   `json:"agent_id"`
+	IssuerAgentID           string                   `json:"issuer_agent_id"`
+	Operations              []string                 `json:"operations"`
+	Scopes                  []string                 `json:"scopes"`
+	FileScope               string                   `json:"file_scope,omitempty"`
+	FileIssuerID            string                   `json:"file_issuer_id,omitempty"`
+	FileIssuerGeneration    int64                    `json:"file_issuer_generation,string,omitempty"`
+	MCP                     []capability.MCPSelector `json:"mcp"`
+	MCPAll                  bool                     `json:"mcp_all"`
+	Browser                 *capability.BrowserScope `json:"browser,omitempty"`
+	BrowserIssuerID         string                   `json:"browser_issuer_id,omitempty"`
+	BrowserIssuerGeneration int64                    `json:"browser_issuer_generation,omitempty"`
+	BrowserDelegationOnly   bool                     `json:"browser_delegation_only,omitempty"`
+	Generation              int64                    `json:"generation,string"`
+	Status                  string                   `json:"status"`
+	ExpiresAt               time.Time                `json:"expires_at"`
+	CreatedAt               time.Time                `json:"created_at"`
+	UpdatedAt               time.Time                `json:"updated_at"`
 }
 
 func (s *Store) InspectCapability(ctx context.Context, rootID, callerAgentID, capabilityID string) (CapabilityRecord, error) {
@@ -114,6 +118,10 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 	issuer, err := loadCapabilityRecordTx(ctx, tx, rootID, delegation.Issuer.ID)
 	if err != nil {
 		return CapabilityRecord{}, err
+	}
+	if issuer.Browser != nil {
+		// Attachment transfers require the dedicated browser handoff path.
+		return CapabilityRecord{}, capability.ErrDenied
 	}
 	checkTime := time.Now()
 	if issuer.AgentID != callerAgentID || issuer.Status != "active" || issuer.Generation != delegation.Issuer.Generation || (!issuer.ExpiresAt.IsZero() && !issuer.ExpiresAt.After(checkTime)) {
@@ -270,6 +278,17 @@ func (s *Store) RevokeCapabilityFor(ctx context.Context, rootID, callerAgentID, 
 		}
 		return CapabilityRecord{}, capability.ErrDenied
 	}
+	if record.Browser != nil {
+		if _, err := tx.ExecContext(ctx, `WITH RECURSIVE descendants(id) AS (
+			SELECT id FROM capabilities WHERE root_id=? AND json_extract(scopes,'$.browser_issuer_id')=?
+			UNION SELECT c.id FROM capabilities c JOIN descendants d
+			ON json_extract(c.scopes,'$.browser_issuer_id')=d.id WHERE c.root_id=?
+		) UPDATE capabilities SET status='revoked',generation=generation+1,updated_at=?
+		WHERE id IN (SELECT id FROM descendants) AND root_id=? AND status='active'`,
+			rootID, capabilityID, rootID, stamp, rootID); err != nil {
+			return CapabilityRecord{}, err
+		}
+	}
 	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", capabilityID, "denied", callerAgentID, "capability revoked"); err != nil {
 		return CapabilityRecord{}, err
 	}
@@ -313,6 +332,10 @@ func loadCapabilityRecordTx(ctx context.Context, tx *sql.Tx, rootID, capabilityI
 	record.FileIssuerGeneration = scopes.FileIssuerGeneration
 	record.MCP = scopes.MCP
 	record.MCPAll = scopes.MCPAll
+	record.Browser = scopes.Browser
+	record.BrowserIssuerID = scopes.BrowserIssuerID
+	record.BrowserIssuerGeneration = scopes.BrowserIssuerGeneration
+	record.BrowserDelegationOnly = scopes.BrowserDelegationOnly
 	if scopes.ExpiresAt != "" {
 		record.ExpiresAt, err = time.Parse(time.RFC3339Nano, scopes.ExpiresAt)
 		if err != nil {
@@ -377,7 +400,8 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 			}
 			matches = errors.Is(err, capability.ErrDenied)
 		}
-		if !matches && (item.admission.CanonicalPath != "" || item.admission.Mutation == capability.MutationWorkspace) {
+		if !matches && (browserOperation(item.admission.Request.Operation) ||
+			item.admission.CanonicalPath != "" || item.admission.Mutation == capability.MutationWorkspace) {
 			err := validateCapabilityAdmission(ctx, tx, item.admission)
 			if err != nil && !errors.Is(err, capability.ErrDenied) {
 				return err
@@ -395,7 +419,7 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 		return err
 	}
 	for _, item := range pending {
-		if err := terminalizePermission(ctx, tx, item.admission, item.id, status, principal, reason); err != nil {
+		if err := s.terminalizePermission(ctx, tx, item.admission, item.id, status, principal, reason); err != nil {
 			return err
 		}
 	}
@@ -403,7 +427,8 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 }
 
 func isShellOperation(operation string) bool {
-	return operation == "bash" || operation == "shell_start" || operation == "browser_exec" || operation == "computer_exec" || operation == "workspace_process"
+	return operation == "bash" || operation == "shell_start" || operation == "browser_exec" ||
+		operation == "computer_exec" || operation == "workspace_process" || browserOperation(operation)
 }
 
 // isToolOperation reports a custom tool operation, tools.<name>.

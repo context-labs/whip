@@ -22,8 +22,8 @@ func (session *AgentSession) Turn(ctx context.Context, input string, authored bo
 	return session.RunTurn(ctx, input, nil, authored, started, accepted, nil)
 }
 
-func (session *AgentSession) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
-	return session.RunTurn(ctx, input, parts, true, started, accepted, nil)
+func (session *AgentSession) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
+	return session.RunTurn(ctx, input, parts, true, started, accepted, nil, presentation...)
 }
 
 // RunTurn is the only model-backed execution path for roots and descendants.
@@ -32,7 +32,7 @@ func (session *AgentSession) TurnParts(ctx context.Context, input string, parts 
 // boundary, and everything the model saw is recorded in the turn journal so
 // the caller's commit marks it delivered. Callers retain separate durable
 // envelopes around its returned transcript.
-func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (string, []llm.ContentPart, error)) (string, error) {
+func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (llm.Message, error), presentations ...*llm.TranscriptPresentation) (string, error) {
 	session.mu.Lock()
 	session.turn = turnJournal{}
 	session.accountingStopped = nil
@@ -50,9 +50,13 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 		defer release()
 	}
+	var presentation *llm.TranscriptPresentation
+	if len(presentations) > 0 {
+		presentation = presentations[0]
+	}
 	if prepare != nil {
-		var err error
-		input, parts, err = prepare(ctx)
+		message, err := prepare(ctx)
+		input, parts, presentation = message.Content, message.Parts, message.Presentation
 		if err != nil {
 			return "", err
 		}
@@ -67,13 +71,19 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			return "", fmt.Errorf("%w: %w", sessionstore.ErrInvalidInput, err)
 		}
 	}
-	var turnID string
+	var turnID, spanID, traceID string
 	var baseSeq int
 	if session.root != nil {
 		var err error
 		turnID, err = session.root.store.RunningTurnID(ctx, session.root.ID(), session.id)
 		if err != nil {
 			return "", err
+		}
+		if turnID != "" {
+			spanID, traceID, err = session.root.store.TurnSpan(ctx, session.root.ID(), session.id, turnID)
+			if err != nil {
+				return "", err
+			}
 		}
 		bounds, err := session.root.store.TranscriptBounds(ctx, session.root.ID(), session.id)
 		if err != nil {
@@ -83,8 +93,11 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	}
 	session.mu.Lock()
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
+	session.turn.SpanID, session.turn.TraceID, session.turn.LastModelCallID = spanID, traceID, ""
 	session.mu.Unlock()
-	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices}
+	defer session.finishPresentation()
+	session.internPrompt(ctx)
+	events := agent.Events{InputPresentation: presentation, OnStart: started, EphemeralNotices: session.hookNotices, OnEphemeral: func(text string) { session.recordEphemeral(ctx, text) }}
 	if contract := session.effectiveDefinition().Output; len(contract) > 0 && string(contract) != "null" {
 		check, err := session.outputContract(contract)
 		if err != nil {
@@ -128,36 +141,71 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	if contribution := session.turnStart(ctx, input); contribution != "" {
 		events.EphemeralSystem = strings.TrimSpace(events.EphemeralSystem + "\n" + contribution)
 	}
-	if emit := session.emit; emit != nil {
-		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
-		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }
-		events.OnToolCall = func(id, name, args string) {
-			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+	// Tool spans are recorded whether or not a client is streaming; the
+	// stream events ride alongside when one is.
+	emit := session.emit
+	events.OnToolStart = func(id, name, args string) {
+		session.toolSpanStart(id, name, args)
+		if emit != nil {
+			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID, PartID: session.toolPresentationID(id)})
 		}
-		events.OnToolStart = func(id, name, args string) {
-			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+	}
+	events.OnToolEnd = func(id, name, result string) {
+		session.toolSpanEnd(id, name, result)
+		if emit != nil {
+			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID, PartID: session.toolPresentationID(id)})
 		}
-		events.OnToolOutput = func(id, text string) {
-			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID})
+	}
+	events.OnText = func(text string) {
+		id := session.presentationPart("text", "", text)
+		if emit != nil {
+			emit("stream.text", StreamEvent{Text: text, TurnID: turnID, PartID: id})
 		}
-		events.OnToolEnd = func(id, name, result string) {
-			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID})
+	}
+	events.OnThink = func(text string) {
+		id := session.presentationPart("reasoning", "", text)
+		if emit != nil {
+			emit("stream.reasoning", StreamEvent{Text: text, TurnID: turnID, PartID: id})
 		}
-		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
-		events.OnRetry = func(event llm.RetryEvent) {
+	}
+	events.OnToolCall = func(id, name, args string) {
+		partID := session.presentationPart("tool", id, "")
+		if emit != nil {
+			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID, PartID: partID})
+		}
+	}
+	events.OnRetry = func(event llm.RetryEvent) {
+		if event.Regenerating {
+			session.discardPresentation()
+		}
+		if emit == nil {
+			return
+		}
+		if event.Regenerating {
+			emit("stream.discard", StreamEvent{Text: strconv.Itoa(event.Discarded), TurnID: turnID})
+			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("response interrupted after %d characters (%v); regenerating in %s (%d of %d)", event.Discarded, event.Err, event.Delay, event.Regeneration, event.Regenerations)})
+		} else {
 			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
 		}
+	}
+	if emit != nil {
+		events.OnToolOutput = func(id, text string) {
+			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID, PartID: session.toolPresentationID(id)})
+		}
+		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
 		events.OnUsage = func(usage llm.Usage) {
 			emit("stream.usage", StreamEvent{Usage: &UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage}})
 		}
 	}
-	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {
+	events.OnCompaction = func(summary string, cutoff int, before []llm.Message, info agent.CompactInfo) {
 		rawCutoff := agent.RawCompactionCutoff(before, cutoff)
 		session.mu.Lock()
 		session.turn.Compactions = append(session.turn.Compactions, turnCompaction{
-			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff,
+			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff, Pinned: info.Pinned,
 		})
+		callID := session.turn.LastModelCallID
 		session.mu.Unlock()
+		session.recordCompactionOutput(ctx, callID, summary, rawCutoff)
 	}
 	var output string
 	if len(parts) > 0 {
@@ -180,6 +228,7 @@ func (session *AgentSession) recordTranscriptMessage(message llm.Message) int {
 	message.Parts = slices.Clone(message.Parts)
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	session.attachPresentationLocked(&message)
 	message.RawSequence = session.turn.BaseSeq + len(session.turn.Messages) + 1
 	session.turn.Messages = append(session.turn.Messages, message)
 	return message.RawSequence
@@ -188,7 +237,7 @@ func (session *AgentSession) recordTranscriptMessage(message llm.Message) int {
 func journalCompactions(journal turnJournal) []sessionstore.RootCompaction {
 	result := make([]sessionstore.RootCompaction, len(journal.Compactions))
 	for i, value := range journal.Compactions {
-		result[i] = sessionstore.RootCompaction{Summary: value.Summary, Cutoff: value.Cutoff, RawTailStart: value.RawTailStart, RawCutoff: value.RawCutoff}
+		result[i] = sessionstore.RootCompaction{Summary: value.Summary, Cutoff: value.Cutoff, RawTailStart: value.RawTailStart, RawCutoff: value.RawCutoff, Pinned: value.Pinned}
 	}
 	return result
 }
@@ -278,7 +327,8 @@ func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]l
 	var out []llm.Message
 	var delivered []int64
 	for _, item := range items {
-		text, parts, err := session.root.decodeInboxInput(ctx, item)
+		message, err := session.root.decodeInboxMessage(ctx, item)
+		text, parts := message.Content, message.Parts
 		if err == nil {
 			err = session.validateImageInput(parts)
 		}
@@ -298,7 +348,7 @@ func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]l
 			continue
 		}
 		delivered = append(delivered, item.Seq)
-		out = append(out, llm.Message{Role: "user", Content: text, Parts: parts, Authored: true})
+		out = append(out, llm.Message{Role: "user", Content: text, Parts: parts, Authored: true, Presentation: message.Presentation})
 	}
 	session.mu.Lock()
 	session.turn.DeliveredInbox = append(session.turn.DeliveredInbox, delivered...)
@@ -544,6 +594,16 @@ func (session *AgentSession) bind(root *Session) error {
 		return errors.New("agent services are required")
 	}
 	session.agent.Services.SetMCPProvider(root.mcpProvider)
+	session.agent.Services.SetDesktopBrowserProvider(root.desktopBrowserProvider)
+	// Binary MCP result parts become content handles owned by this agent. The
+	// id is read at call time: bind runs before a fresh agent's id is assigned.
+	session.agent.Services.SetMCPAttachmentStore(func(ctx context.Context, mime string, data []byte) (string, error) {
+		value, err := root.StoreContent(ctx, session.id, sessionstore.RuntimePayload{Data: data, MediaType: mime, Source: "MCP tool result"})
+		if err != nil {
+			return "", err
+		}
+		return value.ReferenceID, nil
+	})
 	if root.executors != nil {
 		session.agent.Services.SetCustomTools(root.definition.ID, root.meta.DefinitionRevision, customTools(root.definition), root.executors)
 	}
@@ -572,20 +632,26 @@ func (session *AgentSession) modelBudgetNotice(ctx context.Context) (string, err
 	if err != nil {
 		return "", err
 	}
-	var remaining []string
+	// The notice rides on every request of every turn, so its bytes must not
+	// move between turns: exact remaining amounts would change each turn and
+	// break the provider's prefix cache. It names which budgets are finite;
+	// agents.inspect has the numbers when the model needs them.
+	var finite []string
 	incomplete := false
 	for _, budget := range budgets {
 		switch budget.Kind {
 		case sessionstore.BudgetTokens, sessionstore.BudgetElapsed, sessionstore.BudgetCost:
-			amount := "unlimited"
 			if budget.Remaining != nil {
-				amount = sessionstore.FormatBudgetAmount(budget.Kind, *budget.Remaining)
+				finite = append(finite, string(budget.Kind))
 			}
-			remaining = append(remaining, string(budget.Kind)+": "+amount)
 			incomplete = incomplete || budget.Incomplete
 		}
 	}
-	notice := "Model budget remaining at turn start (shared with ancestors): " + strings.Join(remaining, ", ") + ". Concurrent requests each consume model-call time. Each request has a finite output ceiling and deadline. Provider-reported charges take precedence; missing charges use reported tokens and the call's saved prices. Unpriced calls require an unlimited monetary budget and remain marked unknown. Finite allowances may reduce output or stop further calls."
+	notice := "Model budgets (shared with ancestors): unlimited."
+	if len(finite) > 0 {
+		notice = "Model budgets (shared with ancestors): finite " + strings.Join(finite, ", ") + "; the rest unlimited. agents.inspect reports exact remaining amounts. Finite allowances may reduce output or stop further calls."
+	}
+	notice += " Concurrent requests each consume model-call time. Each request has a finite output ceiling and deadline. Provider-reported charges take precedence; missing charges use reported tokens and the call's saved prices. Unpriced calls require an unlimited monetary budget and remain marked unknown."
 	if incomplete {
 		notice += " Some previous usage is unconfirmed; reservation estimates are recorded separately from known usage."
 	}

@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "provider_epoch": {
+      "type": "string"
+    },
+    "tabs": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string"
+          },
+          "tab_generation": {
+            "type": "string"
+          },
+          "document_revision": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "requestable": {
+            "type": "boolean"
+          },
+          "attachment_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id",
+          "tab_generation",
+          "document_revision",
+          "url",
+          "title",
+          "state",
+          "requestable"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "error": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/BrowserInventoryResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserInventoryResultParams",
+  "required": [
+    "request_id",
+    "root_id",
+    "provider_epoch",
+    "tabs"
+  ],
+  "additionalProperties": false
+}

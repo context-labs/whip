@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab } from './session-tabs';
+import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget, type ChildChatOptions, type ChildChatResult, type TabWorkspace, type SplitEdge, sessionPanes, MAX_SESSION_PANES } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -26,10 +26,65 @@ export function draftDestination(pathname: string): string | undefined {
   try { return decodeURIComponent(match[1]!); } catch { return; }
 }
 
+export function browserDestination(pathname: string): string | undefined {
+  const match = /^\/browser\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return;
+  try { return decodeURIComponent(match[1]!); } catch { return; }
+}
+
+export async function openBrowserTab(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: { url?: string; environmentId?: string; paneId?: string } = {}) {
+  try { const tab = await runtime.browser.create(options.url, options.environmentId, options.paneId); await navigate(tabDestination(tab)); }
+  catch (error) { runtime.reportWorkspace(error); }
+}
+
 export function tabDestination(tab: SessionTab) {
+  if (tab.kind === 'browser') return { to: '/browser/$viewId' as const, params: { viewId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
+}
+
+/** Sidebar drag and menu intent always opens another view, never another session. */
+export function openChatView(runtime: AppRuntime, navigate: AnyRouter['navigate'], runtimeId: string, rootId: string, titleHint = '', target?: ChatViewTarget) {
+  try {
+    if (!runtime.connections.host(runtimeId)) throw new Error('This execution host is no longer available.');
+    const tab = runtime.tabs.openChatView(runtimeId, rootId, titleHint, target);
+    void navigate(tabDestination(tab)).catch(error => runtime.reportWorkspace(error));
+    return tab;
+  } catch (error) { runtime.reportWorkspace(error); }
+}
+
+/** Shared with drag/menu splitting: never allocate an invisible or undersized split. */
+export function canSplitSessionPane(workspace: TabWorkspace, paneId: string, edge: SplitEdge, compact = false): boolean {
+  if (compact || sessionPanes(workspace.layout).length >= MAX_SESSION_PANES || typeof document === 'undefined') return false;
+  const frame = Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-frame]'))
+    .find(element => element.dataset.workspaceFrame === paneId);
+  if (!frame || frame.closest('[data-workspace-compact="true"]')) return false;
+  return edge === 'left' || edge === 'right' ? frame.clientWidth >= 641 : frame.clientHeight >= 481;
+}
+
+/** Keep the returned ownership receipt in the source view, not in persisted workspace state. */
+export function openChildChat(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, agentId: string,
+  options: Omit<ChildChatOptions, 'canSplit'> & { onUnavailable?: (message: string) => void } = {}): ChildChatResult | undefined {
+  try {
+    const source = runtime.tabs.workspace().tabs.find(tab => tab.id === sourceId);
+    if (!source || source.kind !== 'chat') throw new Error('This source chat is no longer open.');
+    if (!runtime.connections.host(source.runtimeId)) throw new Error('This execution host is no longer available.');
+    const result = runtime.tabs.openChildChat(sourceId, agentId, { ...options,
+      canSplit: (paneId, edge) => canSplitSessionPane(runtime.tabs.workspace(), paneId, edge) });
+    // Navigation failures do not retry allocation or offer a second, duplicate creation.
+    void navigate(tabDestination(result.tab)).then(() => {
+      requestAnimationFrame(() => {
+        if (selectedSessionTab(runtime.tabs.workspace())?.id === result.tab.id)
+          Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-view]'))
+            .find(panel => panel.dataset.workspaceView === result.tab.id)?.focus({ preventScroll: true });
+      });
+    }).catch(error => runtime.reportWorkspace(error));
+    return result;
+  } catch (error) {
+    if (options.onUnavailable) options.onUnavailable(error instanceof Error ? error.message : String(error));
+    else runtime.reportWorkspace(error);
+  }
 }
 
 /** Explicit creation intent: start a shell on the host, then open and select its tab. */
@@ -48,10 +103,15 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
   } catch (error) { runtime.reportWorkspace(error); }
 }
 
-/** Explicit view opening creates an adjacent REPL; URL observation only selects it. */
-export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: 'chat' | 'repl') {
+/** Explicit opening creates an adjacent view; top-bar navigation changes the source tab in place. */
+export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: SessionViewKind, inPlace = false) {
   try {
-    const tab = runtime.tabs.openRelated(sourceId, kind);
+    const source = inPlace
+      ? runtime.tabs.workspace().tabs.find(tab => tab.id === sourceId)
+      : runtime.tabs.openRelated(sourceId, kind);
+    if (!source || !isSessionTab(source)) throw new Error('This session view is no longer open');
+    // The route binding commits the mode only after navigation, keeping the tab ID and location.
+    const tab = { ...source, kind };
     await navigate(tabDestination(tab));
     requestAnimationFrame(() => {
       if (selectedSessionTab(runtime.tabs.workspace())?.id === tab.id)
@@ -71,6 +131,16 @@ export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate']
     void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.reportWorkspace(error));
     return tab;
   } catch (error) { runtime.reportWorkspace(error); }
+}
+
+/** After the last tab closes, keep a place to type: a New Chat on the closed tab's host and folder (the default host when that host is gone). Closing a New Chat itself empties the workspace. */
+export function openAfterLastClose(runtime: AppRuntime, navigate: AnyRouter['navigate'], closed?: { kind: SessionTab['kind']; runtimeId?: string }, cwd?: string) {
+  if (closed && closed.kind !== 'new' && closed.kind !== 'browser') {
+    const known = runtime.getSnapshot().hosts.some(host => host.runtimeId === closed.runtimeId);
+    openNewChat(runtime, navigate, known ? { runtimeId: closed.runtimeId, cwd: cwd || undefined } : {}, true);
+    return;
+  }
+  void navigate({ to: '/', replace: true }).catch(error => runtime.reportWorkspace(error));
 }
 
 /** A native link can select an already saved host, but cannot create one. */
@@ -123,6 +193,12 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       observedLocation = current;
       runtime.clearWorkspaceError();
       if (capacityNotice !== current.href) capacityNotice = undefined;
+      const browserId = browserDestination(current.pathname);
+      if (browserId) {
+        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'browser' && tab.id === browserId);
+        if (tab) runtime.tabs.activate(tab.id);
+        return;
+      }
       const terminal = terminalDestination(current.pathname);
       if (terminal) {
         // A terminal URL selects an open tab; it never starts a shell, so a

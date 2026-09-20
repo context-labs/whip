@@ -17,8 +17,10 @@ import (
 )
 
 func TestRecursiveAgentReceiptsWithLargeMCPGrants(t *testing.T) {
+	// The fixture server registers five tools of its own (mutate, mutate.other,
+	// echo, image, large); the rest fill the grant up to toolCount.
 	const toolCount = 780
-	extraTools := make([]string, toolCount-4)
+	extraTools := make([]string, toolCount-5)
 	for index := range extraTools {
 		extraTools[index] = fmt.Sprintf("workspace_documentation_search_%04d", index)
 	}
@@ -35,8 +37,11 @@ child`)
 	}
 	receipt := result.Value.(map[string]any)
 	childID := receipt["id"].(string)
-	if len(receipt) != 5 || receipt["name"] != "large" || receipt["parent_id"] != parent.id || receipt["status"] != "queued" || receipt["report"] != "message" {
+	if len(receipt) != 6 || receipt["name"] != "large" || receipt["parent_id"] != parent.id || receipt["status"] != "queued" || receipt["report"] != "message" {
 		t.Fatalf("unexpected admission receipt: %+v", receipt)
+	}
+	if attachments, ok := receipt["browser_attachments"].([]any); !ok || len(attachments) != 0 {
+		t.Fatalf("unexpected inherited browser attachments: %+v", receipt["browser_attachments"])
 	}
 	waitRunTurn(t, runs, childID, 1)
 	runtime.mu.RLock()

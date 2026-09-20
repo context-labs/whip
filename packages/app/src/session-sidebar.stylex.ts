@@ -6,7 +6,17 @@ export const sessionMarker = stylex.defineMarker();
 export const directoryMarker = stylex.defineMarker();
 
 export const styles = stylex.create({
-  hosts: { display: 'flex', flexDirection: 'column', gap: 8 },
+  header: { position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, marginInline: -8, paddingInline: 8, paddingBottom: 4, marginBottom: -4, backgroundColor: surface.navigation },
+  scrollEdge: {
+    position: 'absolute', top: '100%', insetInline: 0, height: 12, pointerEvents: 'none', opacity: 0,
+    borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder,
+    backgroundImage: `linear-gradient(to bottom, ${surface.navigation}, transparent)`,
+    boxShadow: 'inset 0 5px 8px -6px rgb(0 0 0 / 0.24)',
+    transitionProperty: 'opacity', transitionDuration: { default: '160ms', [scale.reducedMotion]: '0ms' }, transitionTimingFunction: 'ease-out',
+  },
+  scrollEdgeVisible: { opacity: 1 },
+  scrollContent: { display: 'flex', flexDirection: 'column', minHeight: '100%' },
+  hosts: { display: 'flex', flexDirection: 'column', flexShrink: 0, gap: 8 },
   host: { display: 'flex', flexDirection: 'column' },
   collapsedHost: { flex: '0 0 auto', minHeight: 0 },
   hostHeading: { flexShrink: 0, color: colors.foreground },
@@ -26,9 +36,10 @@ export const styles = stylex.create({
   wordmarkLink: { display: 'flex', alignItems: 'center', paddingInline: 8, borderRadius: 6, color: colors.foreground },
   destinations: { display: 'flex', flexDirection: 'column', flexShrink: 0, marginBottom: 12 },
   destination: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: { default: 28, [scale.touch]: 44 }, paddingBlock: 0, paddingInline: 8, borderWidth: 0, borderRadius: 6, font: 'inherit', fontSize: typography.size13, lineHeight: `calc(${typography.size13} * 18 / 13)`, textAlign: 'left', textDecoration: 'none', cursor: 'pointer', color: surface.secondaryText, backgroundColor: { default: 'transparent', ':hover': colors.hover } },
+  moreButton: { minHeight: 0, paddingInline: 10, color: colors.muted },
   primaryDestination: { color: colors.foreground },
-  footer: { minHeight: 48, display: 'flex', alignItems: 'center', flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, marginInline: -8, marginBottom: -8, paddingInline: 8 },
-  list: { overflowAnchor: 'none', scrollbarWidth: 'thin' },
+  footer: { minHeight: 48, display: 'flex', alignItems: 'center', flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, marginTop: 'auto', paddingBlock: 8 },
+  list: { overflowAnchor: 'none', overscrollBehaviorY: 'contain', scrollbarWidth: 'thin', marginInline: -8, marginBottom: -8, paddingInline: 8, paddingBottom: 8 },
   group: { display: 'flex', alignItems: 'end', paddingBottom: 2, gap: 2 },
   groupButton: { fontSize: typography.size12, gap: 5, paddingInline: 4, backgroundColor: { default: 'transparent', ':hover': 'transparent' } },
   icon: { minHeight: { default: 28, [scale.touch]: 44 }, height: { default: 28, [scale.touch]: 44 }, width: { default: 28, [scale.touch]: 44 }, minWidth: { default: 28, [scale.touch]: 44 }, padding: 0, justifyContent: 'center', flexShrink: 0, color: surface.secondaryText },

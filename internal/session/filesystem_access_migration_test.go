@@ -106,7 +106,8 @@ func TestVersionThirteenUpgradePreservesAuthorityAndSessionState(t *testing.T) {
 		if err := store.db.QueryRowContext(t.Context(), `SELECT identity,runtime_id,catalog_revision FROM runtime_schema`).Scan(&identity, &runtime, &catalog); err != nil {
 			t.Fatal(err)
 		}
-		if identity != schemaIdentity || runtime != "persistent-runtime" || catalog != beforeCatalog {
+		// Only the normalized updated_at stamp is watched by the catalog trigger.
+		if identity != schemaIdentity || runtime != "persistent-runtime" || catalog != beforeCatalog+1 {
 			t.Fatalf("runtime state changed: %s %s %d", identity, runtime, catalog)
 		}
 		if err := store.db.QueryRowContext(t.Context(), `SELECT COUNT(*),MAX(seq) FROM events`).Scan(&count, &last); err != nil {

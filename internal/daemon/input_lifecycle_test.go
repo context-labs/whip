@@ -192,7 +192,7 @@ type lifecyclePartsRunner struct {
 	parts []llm.ContentPart
 }
 
-func (r *lifecyclePartsRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+func (r *lifecyclePartsRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string), presentation ...*llm.TranscriptPresentation) (string, error) {
 	r.parts = parts
 	return r.Turn(ctx, text, true, started, accepted)
 }
@@ -360,7 +360,7 @@ func TestLifecycleChildPayloadFailureSettlesClaimAndAcceptsNextInput(t *testing.
 		t.Fatal("invalid child input reached the model")
 	}
 	runtime.setRunTurnHook(nil)
-	if _, err := root.SubmitAgentInput(t.Context(), root.AgentID(), id, "submit", "valid child input", "test"); err != nil {
+	if _, err := root.SubmitAgentInput(t.Context(), root.AgentID(), id, "submit", "valid child input", "test", sessionstore.SpanLink{}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)

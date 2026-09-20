@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // PermissionRule is an "always allow" decision remembered for one session tree.
@@ -20,6 +23,9 @@ type PermissionRule struct {
 // AddPermissionRule installs a tree rule; re-adding an existing
 // (operation, rule) returns the row already there.
 func (s *Store) AddPermissionRule(ctx context.Context, rootID, operation, rule, principalID string) (PermissionRule, error) {
+	if strings.HasPrefix(operation, "browser.") {
+		return PermissionRule{}, capability.ErrDenied
+	}
 	if rootID == "" || operation == "" || rule == "" {
 		return PermissionRule{}, errors.New("permission rule requires a root, operation, and rule")
 	}
@@ -105,7 +111,7 @@ func (s *Store) PermissionRuleSource(ctx context.Context, rootID, operation stri
 }
 
 func (s *Store) permissionRuleSource(ctx context.Context, db rowQuerier, rootID, operation string, rules []string) (string, error) {
-	if len(rules) == 0 {
+	if strings.HasPrefix(operation, "browser.") || len(rules) == 0 {
 		return "", nil
 	}
 	source := "global"

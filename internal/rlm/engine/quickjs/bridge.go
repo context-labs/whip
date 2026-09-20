@@ -298,7 +298,7 @@ func (v *runtime) RunCell(ctx context.Context, cellID, source string) (err error
 	v.ordinal = 0
 	v.cells = map[string]string{cellID: hash([]byte(source))}
 	// ASYNC global eval retains top-level lexical bindings; no async-IIFE rewrite.
-	promise := v.evalRaw(ctx, source, 128)
+	promise := v.evalNamed(ctx, "<cell>", source, 128)
 	defer v.freeValue(ctx, promise)
 	if v.call(ctx, "qjs_is_exception", promise) != 0 {
 		e := v.valueCall(ctx, "qjs_get_exception")

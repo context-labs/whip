@@ -221,7 +221,9 @@ func TestVersionTenUpgradePreservesStateAndRestarts(t *testing.T) {
 		if err := store.db.QueryRowContext(t.Context(), `SELECT identity,runtime_id,catalog_revision FROM runtime_schema WHERE id=1`).Scan(&identity, &runtime, &revision); err != nil {
 			t.Fatal(err)
 		}
-		if identity != schemaIdentity || runtime != "persistent-runtime" || revision != int64(18+attempt) {
+		// Normalizing updated_at invalidates the catalog once; created_at is
+		// not watched by session_catalog_update. Archiving adds one on reopen.
+		if identity != schemaIdentity || runtime != "persistent-runtime" || revision != int64(19+attempt) {
 			t.Fatalf("runtime identity/revision changed: %s %s %d", identity, runtime, revision)
 		}
 		command, err := store.LoadCommand(t.Context(), "client", "saved-command")
