@@ -15,12 +15,23 @@ test('retains only bounded startup/source/health fields from the last attempt', 
   assert.equal(result.recordsObserved, 2);
   assert.deepEqual(result.lastAttempt, { scenario: 'first-launch', warmup: false, state: 'runner-failed', probeState: 'timeout', target: 'home', rendererDigestMatches: true,
     timings: { windowCreatedMs: 100, domReadyMs: 150, finishedMs: 30_100, shell: { lowerMs: 160, upperMs: 165 }, connected: {}, usable: {} },
-    checks: report.checks, instrumentation: report.instrumentation, daemon: {}, launchServices: { code: 0, signaled: false, spawnFailed: false } });
+    checks: report.checks, observation: {}, instrumentation: report.instrumentation, daemon: {}, launchServices: { code: 0, signaled: false, spawnFailed: false } });
+});
+test('retains bounded contract observations for frontdoor and separate onboarding', () => {
+  for (const target of ['empty-frontdoor', 'new-session-onboarding']) {
+    const observation = { routeKind: 'new-draft', uiVariant: 'provider-setup', sdkState: 'connected', startupPhase: 'visible' };
+    const checks = { frontdoor: false, sdkConnected: true, appVisible: true, newSessionEnabled: false };
+    const result = JSON.parse(startupDiagnostic({ results: [{ ...report, scenario: target === 'empty-frontdoor' ? 'first-launch' : target, target, observation, checks }] }));
+    assert.equal(result.lastAttempt.target, target);
+    assert.deepEqual(result.lastAttempt.observation, observation);
+    assert.deepEqual(result.lastAttempt.checks, checks);
+  }
 });
 test('never serializes arbitrary strings, private paths, configuration, transcripts, environment, errors or nested extras', () => {
   const secret = '/private/fixture/token-and-transcript-canary';
   const polluted = { ...report, target: secret, state: secret, rendererDigest: secret, domReadyMs: secret, windowCreatedMs: -1, finishedMs: Infinity,
     shell: { lowerMs: NaN, upperMs: 3_600_001, extra: secret }, checks: { host: secret, transcript: secret, extra: secret },
+    observation: { routeKind: secret, uiVariant: secret, sdkState: secret, startupPhase: secret, route: secret, token: secret },
     instrumentation: { probes: secret, wallMs: Infinity }, config: { key: secret }, environment: { HOME: secret }, messages: [secret], stack: secret };
   const last = { ...failure(), scenario: secret, warmup: secret, state: secret, lastReport: polluted, launchError: secret,
     daemon: { state: secret, privateSocketVerified: secret, socket: secret }, launchExit: { code: secret, signal: secret, error: secret } };
@@ -32,6 +43,7 @@ test('never serializes arbitrary strings, private paths, configuration, transcri
   assert.deepEqual(result.source, {});
   assert.deepEqual(result.lastAttempt.checks, {});
   assert.deepEqual(result.lastAttempt.timings, { shell: {}, connected: {}, usable: {} });
+  assert.deepEqual(result.lastAttempt.observation, {});
   assert.deepEqual(result.lastAttempt.daemon, {});
   assert.deepEqual(result.lastAttempt.launchServices, { signaled: true, spawnFailed: true });
   assert.equal(result.recordsObserved, 10_000);

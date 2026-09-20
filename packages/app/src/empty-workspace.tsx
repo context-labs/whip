@@ -37,7 +37,7 @@ export function EmptyWorkspace({ missing = false, subject = 'draft' }: { missing
   const note = missing
     ? subject === 'terminal' ? 'Its tab may belong to another window, or its shell has ended.' : 'Its tab may belong to another window, or the draft is no longer saved on this device.'
     : firstRun ? 'Choose a project folder on a host, then describe the task.' : undefined;
-  return <div {...stylex.props(layout.empty)}>
+  return <div data-empty-workspace={missing ? 'missing' : 'frontdoor'} {...stylex.props(layout.empty)}>
     <div {...stylex.props(styles.column)}>
       <div {...stylex.props(styles.header)}>
         <h1 {...stylex.props(styles.heading)}>{heading}</h1>
