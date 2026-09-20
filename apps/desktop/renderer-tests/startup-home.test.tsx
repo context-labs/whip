@@ -4,7 +4,8 @@ import { screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { fixture } from '../../../packages/app/test/welcome-fixture';
 
-// Desktop owns this integration contract; the app has no dependency on its consumer.
+// Component-shape contracts only; startup-frontdoor.test.tsx covers real bootstrap.
+// Desktop owns the probe; the app has no dependency on its consumer.
 // Geometry/fonts/navigation are favorable: this is not a native paint/connection test.
 const source = readFileSync('apps/desktop/src/startup-probe.ts', 'utf8');
 const script = source.split('const snapshotScript = String.raw`')[1]!.split('`;')[0]!;

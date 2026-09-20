@@ -113,7 +113,10 @@ async function start() {
   const window = new BrowserWindow({ width: 1200, height: 800, minWidth: 800, minHeight: 600, ...bounds,
     show: false, backgroundColor: '#111111', title: 'Whip',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 18 } } : {}),
-    webPreferences: { preload: path.join(root, 'preload.cjs'), additionalArguments: enableBrowserTabs ? [browserTabsArgument] : [], sandbox: true, contextIsolation: true,
+    webPreferences: { preload: path.join(root, 'preload.cjs'), additionalArguments: [
+      ...(enableBrowserTabs ? [browserTabsArgument] : []),
+      ...(process.env.WHIP_DESKTOP_FIXTURE === '1' && process.env.WHIP_DESKTOP_STARTUP_PROBE === '1' ? ['--whip-startup-measurement'] : []),
+    ], sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, webviewTag: false, spellcheck: true } });
   if (renderer) await attachStartupProbe(window, { userData: app.getPath('userData'), rendererDigest: renderer.digest, quit: () => app.quit() });
   const emit = (event: DesktopEvent) => { if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:event', event); };

@@ -140,6 +140,33 @@ delete local transfer files after validation.
    GitHub release and R2 feed, and check discovery from the previous app version.
    Record the run URL, tag, source SHA, feed URL, and acceptance evidence.
 
+### Signed startup contract
+
+The LaunchServices collector measures **zero-interaction empty-frontdoor** startup
+at bare `/` with empty device/window stores; it must not seed a draft, auto-open a
+tab, or redirect first launch. Success requires the actual frontdoor's visible,
+enabled New session action, an affirmative **current verified local renderer SDK
+connection**, and `StartupScreen`'s `visible` phase. Missing/unknown connection
+state, hidden/inert controls, stale-route empty states and sidebar-only actions
+fail closed. Exact bundle origin/path, notices, document visibility, shell mark,
+fonts/two animation frames and existing deadlines/sample counts remain gates.
+A running private daemon alone is not renderer connectivity.
+
+A separate disposable `new-session-onboarding` functional launch waits for that
+same frontdoor, clicks its scoped New session action exactly once, and requires
+provider setup or a configured composer on the exact newly generated draft route
+and visible workspace view. It does **not** enter startup timing percentiles.
+Retained-session measurements keep their exact route, connected controls and
+fixture-transcript requirements. Neither scenario changes production first-run UX.
+
+The fixture-only renderer observation is enabled by a literal native argument
+only when both fixture and probe flags are set. Preload exposes only an immutable
+boolean; bootstrap projects current bounded SDK/tab state without new IPC or
+exposing runtime/client capabilities, and removes the getter on disposal. Actual
+bootstrap tests fake the protocol transport, not application routes/connections or
+startup completion. Component selector tests and collector lifecycle self-tests
+remain narrower checks, not substitutes for a signed LaunchServices run.
+
 ### Failed signed startup evidence
 
 The package job always attempts a separate `desktop-startup-diagnostics-arm64`
@@ -152,7 +179,8 @@ original failure. The release payload artifact remains **success-only**.
 This schema-1 diagnostic is an explicit allowlist, at most **8 KiB**, containing
 source/renderer/archive hashes, signing booleans, record count, and only the last
 attempt's enumerated state/target, bounded timings, boolean readiness checks,
-probe counters, launcher exit health and verified fixture-daemon health. It never
+probe counters, fixed route/UI/SDK/startup-phase enums, launcher exit health and
+verified fixture-daemon health. It never
 copies raw reports, logs, errors, PIDs, paths, route/session IDs, configuration,
 keys, transcripts or environment. Do not replace its exact upload path with a
 fixture directory or the full `signed-startup.json` on failure.
@@ -162,9 +190,9 @@ bounded private-socket verifier, prints the same minimized diagnostic and saves
 the sidecar **before owned GUI/daemon cleanup**. It describes measurement health,
 not successful cleanup or release acceptance. Diagnostic failures cannot replace
 the acceptance error. Passing measurements make no additional health calls.
-`home: false` with other checks healthy warrants checking the current HomeView
-contract; `painted: false` alone does not prove a paint failure because the frame
-wait is gated on home/session readiness. Renderer contract tests run with
+A missing `frontdoor`/`home` check warrants checking the observed route/UI variant
+and renderer connection against the scenario contract. `painted: false` alone
+does not prove a paint failure: frame waits are gated on the target UI readiness. Renderer contract tests run with
 `npm run test:web`; the collector lifecycle/self-test remains in `test:desktop`.
 A source-level fix is not signed LaunchServices acceptance: require a fresh hosted
 check on a new reviewed commit/release version, and never move a failed release tag.

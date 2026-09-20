@@ -56,6 +56,8 @@ const bridge: DesktopBridge = {
   ready: () => send('ready'),
 };
 contextBridge.exposeInMainWorld('whipDesktop', bridge);
+// An immutable opt-in only: no IPC, environment, identity, or native capability.
+if (process.argv.includes('--whip-startup-measurement')) contextBridge.exposeInMainWorld('whipStartupMeasurement', true);
 
 declare const __APP_VERSION__: string;
 declare const __APP_NAME__: string;

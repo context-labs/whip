@@ -2031,6 +2031,19 @@ New session · Search sessions · New terminal · Commands · Reopen closed tab.
 Empty states everywhere ask "What do you want to work on?"; failure copy is
 reserved for stale URLs and real errors.
 
+A fresh bare `/` with empty device **and** window stores stays here without opening
+or seeding a tab. New session is a separate user action that creates its real
+`/new/$draftId` route and mounts provider setup or the configured composer.
+Desktop startup acceptance preserves this UX: the zero-interaction measurement
+requires the scoped frontdoor action, current verified local SDK connectivity,
+and the actual `StartupScreen` visible phase, not just layout rectangles or a
+healthy daemon. Only explicit native startup fixtures opt into a read-only
+bootstrap projection of bounded connection/tab state; it exposes no runtime,
+client, identities, paths, errors or native capabilities and is removed on dispose.
+A separate functional onboarding launch clicks the real action and verifies the
+generated draft route; its timings never enter startup percentiles. See
+[Desktop release acceptance](desktop-releases.md#signed-startup-contract).
+
 ### Loading states and placeholders
 
 Keep the interface still while a host answers. Four rules, in priority order

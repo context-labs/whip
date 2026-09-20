@@ -169,16 +169,18 @@ async function selfTest() {
   await writeFile(path.join(fixture, 'probe.mjs'), compiled);
   const { attachStartupProbe } = await import(pathToFileURL(path.join(fixture, 'probe.mjs')));
   let capturedScript;
-  const fakeWindow = () => {
+  const fakeWindow = (overrides = {}, click) => {
     const window = new EventEmitter(); const webContents = new EventEmitter();
     let count = 0;
     Object.assign(webContents, { isDestroyed: () => false, getURL: () => 'whip-app://bundle/',
       executeJavaScript: async script => {
+        if (script.includes('button.click()')) { assert(click, 'Only onboarding may click'); click(); return true; }
         capturedScript = script;
         assert(!script.includes('localStorage')); assert(!script.includes('fetch('));
         count++;
-        return { now: 10, shell: 1, pathname: '/', host: true, noNotice: count > 1, home: true, session: false,
-          transcript: false, visible: true, fonts: true, painted: true, forbiddenExtra: 'must not be serialized' };
+        return { now: 10, shell: 1, pathname: '/', draftPath: '', routeKind: 'root', uiVariant: 'empty-frontdoor', sdkState: 'connected', startupPhase: 'visible',
+          frontdoor: true, sdkConnected: true, appVisible: true, newSessionEnabled: true, host: true, noNotice: count > 1, home: false, session: false,
+          transcript: false, visible: true, fonts: true, painted: true, forbiddenExtra: 'must not be serialized', ...(typeof overrides === 'function' ? overrides(count) : overrides) };
       } });
     Object.assign(window, { webContents, isDestroyed: () => false });
     return { window, count: () => count };
@@ -204,6 +206,43 @@ async function selfTest() {
     const outside = path.join(fixture, 'outside'); await writeFile(outside, 'preserved'); await symlink(outside, path.join(fixture, 'startup.json'));
     await assert.rejects(attachStartupProbe(fakeWindow().window, { userData: fixture, rendererDigest: 'a'.repeat(64), quit() {} }), { code: 'EEXIST' });
     assert.equal(await readFile(outside, 'utf8'), 'preserved'); await rm(path.join(fixture, 'startup.json'));
+    const runProbe = async (window, reject = false) => {
+      let stopped = false;
+      await attachStartupProbe(window.window, { userData: fixture, rendererDigest: 'a'.repeat(64), quit() { stopped = true; } });
+      window.window.webContents.emit('dom-ready');
+      if (reject) {
+        await eventually(() => window.count() >= 3 || stopped, 'negative probe samples', 2000);
+        assert(!stopped, 'Invalid observations must not complete');
+        window.window.emit('closed');
+      }
+      await eventually(() => stopped, 'probe result', 2000);
+      const result = JSON.parse(await readFile(path.join(fixture, 'startup.json'), 'utf8'));
+      if (reject) { assert.equal(result.state, 'closed'); assert.equal(result.usable, undefined); }
+      else assert.equal(result.state, 'complete');
+      await rm(path.join(fixture, 'startup.json'));
+      return result;
+    };
+    for (const invalid of [{ sdkConnected: false }, { appVisible: false }, { frontdoor: false }, { pathname: '/new/wrong' },
+      { host: false }, { noNotice: false }, { visible: false }, { shell: null }, { fonts: false }, { painted: false }])
+      await runProbe(fakeWindow(invalid), true);
+    process.env.WHIP_DESKTOP_STARTUP_ONBOARDING = 'invalid';
+    await assert.rejects(attachStartupProbe(fakeWindow().window, { userData: fixture, rendererDigest: 'a'.repeat(64), quit() {} }));
+    process.env.WHIP_DESKTOP_STARTUP_ONBOARDING = '1';
+    let clicks = 0;
+    const onboarding = fakeWindow(() => clicks ? { frontdoor: false, home: true, draftPath: '/new/draft', pathname: '/new/draft' } : {}, () => { clicks++; });
+    const onboarded = await runProbe(onboarding);
+    assert.equal(clicks, 1); assert.equal(onboarded.target, 'new-session-onboarding');
+    // A plausible onboarding UI on a different path cannot satisfy the generated view binding.
+    clicks = 0;
+    await runProbe(fakeWindow(() => clicks ? { frontdoor: false, home: true, draftPath: '/new/draft', pathname: '/new/wrong' } : {}, () => { clicks++; }), true);
+    assert.equal(clicks, 1);
+    delete process.env.WHIP_DESKTOP_STARTUP_ONBOARDING;
+    process.env.WHIP_DESKTOP_STARTUP_ROUTE = '/h/runtime/s/root';
+    const session = { frontdoor: false, session: true, transcript: true, pathname: '/h/runtime/s/root' };
+    assert.equal((await runProbe(fakeWindow(session))).target, 'retained-session');
+    for (const invalid of [{ session: false }, { transcript: false }, { pathname: '/h/runtime/s/wrong' }])
+      await runProbe(fakeWindow({ ...session, ...invalid }), true);
+    delete process.env.WHIP_DESKTOP_STARTUP_ROUTE;
     const wrong = fakeWindow(); wrong.window.webContents.getURL = () => 'https://example.invalid'; quit = 0;
     await attachStartupProbe(wrong.window, { userData: fixture, rendererDigest: 'a'.repeat(64), quit() { quit++; } });
     wrong.window.webContents.emit('dom-ready'); await eventually(() => quit === 1, 'origin rejection', 2000);
@@ -340,7 +379,7 @@ async function main() {
       WHIP_DESKTOP_EXECUTABLE: executable };
     environments.push(env); return { directory, env, userData };
   };
-  async function launch(f, scenario, { route = '/', link, warmup = false, idle = false } = {}) {
+  async function launch(f, scenario, { route = '/', link, warmup = false, idle = false, onboarding = false } = {}) {
     if (interrupted) throw new Error('Startup measurement interrupted');
     await rm(path.join(f.userData, 'startup.json'), { force: true });
     const runId = randomBytes(16).toString('hex');
@@ -348,7 +387,8 @@ async function main() {
     const start = process.hrtime.bigint();
     const systemBeforeLaunch = idle ? await run('/usr/bin/vm_stat', [], minimalEnvironment()) : undefined;
     const env = { ...f.env, WHIP_DESKTOP_STARTUP_PROBE: idle ? '0' : '1', WHIP_DESKTOP_STARTUP_RUN: runId,
-      WHIP_DESKTOP_STARTUP_NS: String(start), WHIP_DESKTOP_STARTUP_ROUTE: route };
+      WHIP_DESKTOP_STARTUP_NS: String(start), WHIP_DESKTOP_STARTUP_ROUTE: route,
+      ...(onboarding ? { WHIP_DESKTOP_STARTUP_ONBOARDING: '1' } : {}) };
     const args = ['-n', '-W', '-a', bundle, ...Object.entries(env).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
       ...(link ? [link] : []), '--args', ownershipArgument];
     const child = spawn('/usr/bin/open', args, { env: minimalEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -455,6 +495,12 @@ async function main() {
       const f = await createFixture(`first-${index}`); await launch(f, 'first-launch');
       await run(executable, ['daemon', 'stop'], f.env); await rm(f.directory, { recursive: true, force: true });
     }
+    if (!values.idle) {
+      // Functional onboarding is a separate fresh launch, excluded from all startup percentiles.
+      const f = await createFixture('onboarding');
+      await launch(f, 'new-session-onboarding', { onboarding: true });
+      await run(executable, ['daemon', 'stop'], f.env); await rm(f.directory, { recursive: true, force: true });
+    }
     const retained = await createFixture('retained'); await launch(retained, 'prepare', { warmup: true });
     seeded = await seedSession(fixture, executable, retained.env, packageInfo.productName === 'Whip Beta' ? 'whip-beta' : 'whip');
     await launch(retained, 'prepare-session', { route: seeded.route, link: seeded.link, warmup: true });
@@ -500,7 +546,7 @@ async function main() {
       completed, interrupted, archiveSHA256, environment: { cpu: cpus()[0]?.model, totalMemoryBytes: totalmem(), darwin: release(), node: process.version,
         PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/zsh', applicationHOME: 'dedicated empty fixture user directory', applicationTMPDIR: 'dedicated fixture directory', inheritedCredentials: false },
       evidence, fixture: { providerRequests: seeded?.providerRequests, retainedAnswer: answer, daemonTransport: 'private Unix socket', providerClosedDuringMeasurements: true },
-      requested: values.idle ? { settleSeconds: Number(values['idle-settle']), sampleSeconds: 60 } : { samples, firstSamples }, statistics, results, cleanup,
+      requested: values.idle ? { settleSeconds: Number(values['idle-settle']), sampleSeconds: 60 } : { samples, firstSamples }, statistics, functional: { newSessionOnboarding: results.some(record => record.scenario === 'new-session-onboarding' && record.state === 'complete' && record.launchServicesExit?.code === 0) }, results, cleanup,
       ownedGuiPids: [...ownedPids], ownedDaemonPids: [...ownedDaemonPids] }, null, 2) + '\n');
     const clean = cleanup.every(item => item.state === 'stopped') && !results.some(item => item.unidentifiedApp);
     if (clean) await rm(fixture, { recursive: true, force: true });

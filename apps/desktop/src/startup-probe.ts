@@ -3,10 +3,13 @@ import { lstat, open, realpath, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { isDesktopURL } from './assets';
 
-// No arguments or renderer-facing API: this observes a fixed, disposable fixture.
+// Fixed disposable fixtures only. The renderer exposes bounded read-only state;
+// the separately named onboarding scenario alone invokes a real UI action.
 // A textarea alone is insufficient: it remains editable while disconnected.
 const snapshotScript = String.raw`(async () => {
-  const visible = element => !!element && element.getClientRects().length > 0;
+  const visible = element => !!element && element.getClientRects().length > 0 &&
+    !element.closest('[hidden], [inert], [aria-hidden="true"]') &&
+    !['hidden', 'collapse'].includes(getComputedStyle(element).visibility);
   const enabled = element => visible(element) && !element.matches(':disabled') && element.getAttribute('aria-disabled') !== 'true';
   const inspect = () => {
     const navigation = document.querySelector('[aria-label="Session navigation"]');
@@ -18,14 +21,28 @@ const snapshotScript = String.raw`(async () => {
     const providerSetup = [...document.querySelectorAll('[aria-label="Provider setup"]')].find(visible);
     const home = (enabled(firstMessage) && enabled(firstMessage?.closest('form')?.querySelector('[aria-label="Model"]'))) ||
       (!!providerSetup && [...providerSetup.querySelectorAll('[data-provider-choice]')].some(enabled));
+    const observation = typeof window.whipStartupSnapshot === 'function' ? window.whipStartupSnapshot() : undefined;
+    const sdkState = ['connecting', 'connected', 'reconnecting', 'incompatible', 'paused', 'closed', 'unverified'].includes(observation?.sdkState) ? observation.sdkState : 'unknown';
+    const sdkConnected = sdkState === 'connected' && observation?.sdkConnected === true;
+    const phase = document.querySelector('[data-startup-phase]')?.getAttribute('data-startup-phase');
+    const startupPhase = ['pending', 'exiting', 'entering', 'visible'].includes(phase) ? phase : 'unknown';
+    const appVisible = startupPhase === 'visible';
+    const empty = document.querySelector('[data-empty-workspace="frontdoor"]');
+    const newSessionEnabled = enabled(empty?.querySelector('button[aria-label="New session"]'));
+    const frontdoor = visible(empty) && newSessionEnabled && sdkConnected && appVisible && observation?.tabCount === 0 && location.pathname === '/';
+    const views = [...document.querySelectorAll('[data-workspace-view]')].filter(visible);
+    const viewId = views.length === 1 ? views[0].getAttribute('data-workspace-view') : '';
+    const draftPath = observation?.tabCount === 1 && observation?.newDraftMatchesRoute === true && /^[a-zA-Z0-9_-]{1,128}$/.test(viewId || '') ? '/new/' + viewId : '';
+    const routeKind = location.pathname === '/' ? 'root' : /^\/new\/[a-zA-Z0-9_-]{1,128}$/.test(location.pathname) ? 'new-draft' : /^\/h\/[a-zA-Z0-9_-]{1,128}\/s\/[a-zA-Z0-9_-]{1,128}$/.test(location.pathname) ? 'retained-session' : 'other';
+    const uiVariant = visible(empty) ? 'empty-frontdoor' : visible(document.querySelector('[data-empty-workspace="missing"]')) ? 'missing' : providerSetup ? 'provider-setup' : enabled(firstMessage) ? 'composer' : 'unknown';
     const conversation = document.querySelector('[aria-label="Conversation"]');
     const transcript = visible(conversation) && [...conversation.querySelectorAll('[data-message-id]')].slice(0, 128)
       .some(message => (message.textContent || '').slice(0, 4096).includes('Verified Whip desktop startup fixture: 42'));
-    return { host, noNotice, home, session, transcript, visible: document.visibilityState === 'visible', fonts: document.fonts.status === 'loaded' };
+    return { host, noNotice, home, frontdoor, sdkConnected, appVisible, newSessionEnabled, draftPath, routeKind, uiVariant, sdkState, startupPhase, session, transcript, visible: document.visibilityState === 'visible', fonts: document.fonts.status === 'loaded' };
   };
   let state = inspect();
   let painted = false;
-  if (state.host && state.noNotice && state.visible && state.fonts && (state.home || state.session)) {
+  if (state.host && state.noNotice && state.visible && state.fonts && (state.frontdoor || state.home || state.session)) {
     let timer;
     painted = await Promise.race([
       document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))),
@@ -39,7 +56,9 @@ const snapshotScript = String.raw`(async () => {
 })()`;
 
 interface Snapshot {
-  now: number; shell: number | null; pathname: string;
+  now: number; shell: number | null; pathname: string; draftPath: string;
+  routeKind: string; uiVariant: string; sdkState: string; startupPhase: string;
+  frontdoor: boolean; sdkConnected: boolean; appVisible: boolean; newSessionEnabled: boolean;
   host: boolean; noNotice: boolean; home: boolean; session: boolean;
   transcript: boolean; visible: boolean; fonts: boolean; painted: boolean;
 }
@@ -66,6 +85,9 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
   const runId = process.env.WHIP_DESKTOP_STARTUP_RUN ?? '';
   const started = process.env.WHIP_DESKTOP_STARTUP_NS ?? '';
   const expectedPath = process.env.WHIP_DESKTOP_STARTUP_ROUTE ?? '/';
+  const onboarding = process.env.WHIP_DESKTOP_STARTUP_ONBOARDING === '1';
+  if ((process.env.WHIP_DESKTOP_STARTUP_ONBOARDING !== undefined && !onboarding) || (onboarding && expectedPath !== '/'))
+    throw new Error('Invalid onboarding fixture options');
   if (process.platform !== 'darwin' || !/^[a-f0-9]{32}$/.test(runId) || !/^\d{1,20}$/.test(started) ||
       !/^[a-f0-9]{64}$/.test(options.rendererDigest) || options.userData !== process.env.WHIP_DESKTOP_USER_DATA ||
       !process.env.WHIPCODE_HOME || !/^(?:\/|\/h\/[a-zA-Z0-9_-]{1,128}\/s\/[a-zA-Z0-9_-]{1,128})$/.test(expectedPath))
@@ -83,11 +105,12 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
   const result = {
     schema: 1, runId, pid: process.pid, rendererDigest: options.rendererDigest,
     versions: { node: process.versions.node, electron: process.versions.electron, uv: process.versions.uv },
-    state: 'collecting', target: expectedPath === '/' ? 'home' : 'retained-session',
+    state: 'collecting', target: onboarding ? 'new-session-onboarding' : expectedPath === '/' ? 'empty-frontdoor' : 'retained-session',
     windowCreatedMs: elapsed(attached), domReadyMs: undefined as number | undefined,
     shell: undefined as Timing | undefined, connected: undefined as Timing | undefined,
     usable: undefined as Timing | undefined, finishedMs: undefined as number | undefined,
-    checks: undefined as Omit<Snapshot, 'now' | 'shell' | 'pathname'> | undefined,
+    checks: undefined as Pick<Snapshot, 'host' | 'noNotice' | 'home' | 'frontdoor' | 'sdkConnected' | 'appVisible' | 'newSessionEnabled' | 'session' | 'transcript' | 'visible' | 'fonts' | 'painted'> | undefined,
+    observation: undefined as Pick<Snapshot, 'routeKind' | 'uiVariant' | 'sdkState' | 'startupPhase'> | undefined,
     instrumentation: { pollIntervalMs: 25, paintWaitBoundMs: 250, probes: 0, wallMs: 0, maxWallMs: 0 },
   };
   const write = async (handle: FileHandle) => {
@@ -103,6 +126,8 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
   };
   try { await write(file); } catch (error) { await file.close(); throw error; }
   let finished = false;
+  let onboardingStarted = false;
+  let draftPath: string | undefined;
   let polling: ReturnType<typeof setTimeout> | undefined;
   const stop = () => {
     clearTimeout(deadline); clearTimeout(polling);
@@ -131,7 +156,12 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
     if (!Number.isFinite(value.now) || value.now < 0 || value.now > 60_000 ||
         (value.shell !== null && (!Number.isFinite(value.shell) || value.shell < 0 || value.shell > value.now)) ||
         typeof value.pathname !== 'string' || value.pathname.length > 1024 ||
-        ['host', 'noNotice', 'home', 'session', 'transcript', 'visible', 'fonts', 'painted'].some(key => typeof value[key as keyof Snapshot] !== 'boolean')) {
+        typeof value.draftPath !== 'string' || (value.draftPath !== '' && !/^\/new\/[a-zA-Z0-9_-]{1,128}$/.test(value.draftPath)) ||
+        !['root', 'new-draft', 'retained-session', 'other'].includes(value.routeKind) ||
+        !['empty-frontdoor', 'missing', 'provider-setup', 'composer', 'unknown'].includes(value.uiVariant) ||
+        !['connecting', 'connected', 'reconnecting', 'incompatible', 'paused', 'closed', 'unverified', 'unknown'].includes(value.sdkState) ||
+        !['pending', 'exiting', 'entering', 'visible', 'unknown'].includes(value.startupPhase) ||
+        ['host', 'noNotice', 'home', 'frontdoor', 'sdkConnected', 'appVisible', 'newSessionEnabled', 'session', 'transcript', 'visible', 'fonts', 'painted'].some(key => typeof value[key as keyof Snapshot] !== 'boolean')) {
       failed(); return;
     }
     const duration = Number(after - before) / 1e6;
@@ -143,10 +173,25 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
       const age = value.now - value.shell;
       result.shell = { lowerMs: Math.max(0, elapsed(before) - age), upperMs: Math.max(0, elapsed(after) - age) };
     }
-    result.checks = { host: value.host, noNotice: value.noNotice, home: value.home, session: value.session,
+    result.checks = { host: value.host, noNotice: value.noNotice, home: value.home, frontdoor: value.frontdoor,
+      sdkConnected: value.sdkConnected, appVisible: value.appVisible, newSessionEnabled: value.newSessionEnabled, session: value.session,
       transcript: value.transcript, visible: value.visible, fonts: value.fonts, painted: value.painted };
-    const connected = value.host && value.noNotice && value.visible &&
-      (expectedPath === '/' ? value.home : value.session) && value.pathname === expectedPath;
+    result.observation = { routeKind: value.routeKind, uiVariant: value.uiVariant, sdkState: value.sdkState, startupPhase: value.startupPhase };
+    const attachedAndVisible = value.host && value.noNotice && value.visible && value.sdkConnected && value.appVisible;
+    if (onboarding && !onboardingStarted && attachedAndVisible && value.frontdoor && value.pathname === '/' && result.shell && value.fonts && value.painted) {
+      // A separate functional fixture, never part of zero-interaction timing samples.
+      onboardingStarted = true;
+      const clicked = await window.webContents.executeJavaScript(`(() => {
+        const button = document.querySelector('[data-empty-workspace="frontdoor"] button[aria-label="New session"]');
+        if (!button || button.disabled || button.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+        button.click(); return true;
+      })()`);
+      if (clicked !== true) { failed(); return; }
+    }
+    if (onboardingStarted && !draftPath && value.draftPath && value.pathname === value.draftPath) draftPath = value.draftPath;
+    const connected = attachedAndVisible && (onboarding
+      ? !!draftPath && value.draftPath === draftPath && value.pathname === draftPath && value.home
+      : (expectedPath === '/' ? value.frontdoor : value.session) && value.pathname === expectedPath);
     if (connected && !result.connected) result.connected = { lowerMs: elapsed(before), upperMs: elapsed(after) };
     if (connected && result.shell && value.fonts && value.painted && (expectedPath === '/' || value.transcript)) {
       result.usable = { lowerMs: elapsed(before), upperMs: elapsed(after) };
