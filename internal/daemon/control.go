@@ -65,14 +65,10 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 		return ErrClosed
 	case c.requests <- request:
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-c.ctx.Done():
-		return ErrClosed
-	case err := <-request.done:
-		return err
-	}
+	// Accepted work can still be writing caller-owned results when cancellation
+	// arrives. Observe its completion before returning ownership to the caller.
+	// Actor work is bounded and uses c.ctx; slow deletion runs outside this actor.
+	return <-request.done
 }
 
 type CreateSession struct {

@@ -16,6 +16,7 @@ import { createWhipClient } from '@whip/sdk';
 import { unixSocket } from '@whip/sdk/node';
 import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { verifyDesktop } from './verify.mjs';
+import { captureStartupFailure, startupDiagnostic } from './startup-diagnostics.mjs';
 import { repositoryRoot, sha256 } from '../../../scripts/renderer-artifact.mjs';
 
 const exec = promisify(execFile);
@@ -24,11 +25,11 @@ const marker = 'Whip desktop startup fixture';
 const answer = `Verified ${marker}: 42`;
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   samples: { type: 'string', default: '30' }, 'first-samples': { type: 'string', default: '3' },
-  output: { type: 'string' }, 'self-test': { type: 'boolean' }, notarized: { type: 'boolean' },
+  output: { type: 'string' }, 'diagnostics-output': { type: 'string' }, 'self-test': { type: 'boolean' }, notarized: { type: 'boolean' },
   idle: { type: 'boolean' },
   'idle-settle': { type: 'string', default: '30' },
 } });
-assert(positionals.length <= 1, 'Usage: startup.mjs [Whip.app] [--samples 30] [--first-samples 3] [--output file]');
+assert(positionals.length <= 1, 'Usage: startup.mjs [Whip.app] [--samples 30] [--first-samples 3] [--output file] [--diagnostics-output file]');
 const minimalEnvironment = () => {
   const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/zsh' };
   for (const key of ['HOME', 'USER', 'LOGNAME', 'TMPDIR']) if (process.env[key]) env[key] = process.env[key];
@@ -221,11 +222,16 @@ async function selfTest() {
       assert(observed.session && observed.transcript && observed.noNotice && observed.painted);
       dom.window.document.body.insertAdjacentHTML('beforeend', '<div role="alert">Connection failed</div>');
       assert.equal((await dom.window.eval(capturedScript)).noNotice, false);
-      dom.window.document.body.innerHTML = '<aside aria-label="Session navigation"><button aria-label="Manage servers">Servers</button></aside><form><textarea data-whip-composer aria-label="Your first message"></textarea><button aria-label="Connect a provider" disabled>Connect</button></form>';
+      dom.window.document.body.innerHTML = '<aside aria-label="Session navigation"><button aria-label="Manage servers">Servers</button></aside><form><textarea data-whip-composer aria-label="Your first message"></textarea><button aria-label="Model" disabled>Model</button></form>';
       assert.equal((await dom.window.eval(capturedScript)).home, false, 'A first-message draft does not prove its host is connected');
       dom.window.document.querySelector('button[disabled]').disabled = false;
       observed = await dom.window.eval(capturedScript);
-      assert(observed.home && observed.host && observed.painted, 'Connected first-run provider setup must count as an interactive home');
+      assert(observed.home && observed.host && observed.painted, 'Connected configured composer must count as an interactive home');
+      dom.window.document.querySelector('form').outerHTML = '<section aria-label="Provider setup"><button data-provider-choice disabled>Connect</button></section>';
+      assert.equal((await dom.window.eval(capturedScript)).home, false);
+      dom.window.document.querySelector('button[disabled]').disabled = false;
+      observed = await dom.window.eval(capturedScript);
+      assert(observed.home && observed.painted, 'Actionable provider setup must count without a composer');
     } finally { dom.window.close(); }
     console.log('Startup probe self-test passed');
   } finally {
@@ -312,6 +318,14 @@ async function main() {
   const output = path.resolve(values.output ?? path.join(repositoryRoot, `.ai-docs/plans/desktop-app/evidence/packaged-${values.idle ? 'idle' : 'startup'}.json`));
   const results = []; const environments = []; const ownedPids = new Set(); const ownedDaemonPids = new Set();
   let completed = false; let interrupted = false; let seeded;
+  const saveDiagnostic = async () => {
+    if (!values['diagnostics-output']) return;
+    try {
+      const filename = path.resolve(values['diagnostics-output']);
+      await mkdir(path.dirname(filename), { recursive: true });
+      await writeFile(filename, startupDiagnostic({ completed, evidence, archiveSHA256, results }), { mode: 0o600 });
+    } catch { console.error('Startup diagnostic file could not be written'); }
+  };
   const interrupt = () => { interrupted = true; };
   process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
   const createFixture = async name => {
@@ -397,10 +411,18 @@ async function main() {
       assert(record.usable && record.connected && record.shell);
       const status = await fixtureStatus(executable, f.env);
       assert.equal(status.state, 'running'); assert(Number.isSafeInteger(status.pid) && status.pid > 0); ownedDaemonPids.add(status.pid);
+      captured.daemon = { state: status.state, privateSocketVerified: true };
       console.log(`${scenario}${warmup ? ' warmup' : ''}: shell ≤${record.shell.upperMs.toFixed(1)} ms, usable ≤${record.usable.upperMs.toFixed(1)} ms`);
     } catch (error) {
-      if (!idle) results.push({ scenario, warmup, runId, pid, state: 'runner-failed',
-        unidentifiedApp: !pid && !launchExit, ...(captured ? { lastReport: captured } : {}), launchError, launchExit });
+      if (!idle) {
+        const failure = { scenario, warmup, runId, pid, state: 'runner-failed',
+          unidentifiedApp: !pid && !launchExit, ...(captured ? { lastReport: captured } : {}), launchError, launchExit };
+        results.push(failure);
+        await captureStartupFailure(failure, () => fixtureStatus(executable, f.env), async () => {
+          console.error('Startup failure diagnostic: ' + startupDiagnostic({ completed, evidence, archiveSHA256, results }).trim());
+          await saveDiagnostic();
+        });
+      }
       throw error;
     } finally {
       if (pid) {
@@ -449,6 +471,7 @@ async function main() {
     }
     completed = true;
   } finally {
+    await saveDiagnostic();
     const cleanup = [];
     for (const env of environments) {
       if (!await lstat(env.WHIPCODE_HOME).catch(() => false)) continue;
