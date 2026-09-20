@@ -140,6 +140,35 @@ delete local transfer files after validation.
    GitHub release and R2 feed, and check discovery from the previous app version.
    Record the run URL, tag, source SHA, feed URL, and acceptance evidence.
 
+### Failed signed startup evidence
+
+The package job always attempts a separate `desktop-startup-diagnostics-arm64`
+artifact upload, retained for **7 days**. Its sole file is
+`apps/desktop/out/diagnostics/startup.json`, produced by the collector's
+`--diagnostics-output` option once startup collection is reached. Earlier build/signing
+failures may have no startup diagnostic; missing files warn rather than hide the
+original failure. The release payload artifact remains **success-only**.
+
+This schema-1 diagnostic is an explicit allowlist, at most **8 KiB**, containing
+source/renderer/archive hashes, signing booleans, record count, and only the last
+attempt's enumerated state/target, bounded timings, boolean readiness checks,
+probe counters, launcher exit health and verified fixture-daemon health. It never
+copies raw reports, logs, errors, PIDs, paths, route/session IDs, configuration,
+keys, transcripts or environment. Do not replace its exact upload path with a
+fixture directory or the full `signed-startup.json` on failure.
+
+On acceptance failure, the collector checks the isolated daemon using the existing
+bounded private-socket verifier, prints the same minimized diagnostic and saves
+the sidecar **before owned GUI/daemon cleanup**. It describes measurement health,
+not successful cleanup or release acceptance. Diagnostic failures cannot replace
+the acceptance error. Passing measurements make no additional health calls.
+`home: false` with other checks healthy warrants checking the current HomeView
+contract; `painted: false` alone does not prove a paint failure because the frame
+wait is gated on home/session readiness. Renderer contract tests run with
+`npm run test:web`; the collector lifecycle/self-test remains in `test:desktop`.
+A source-level fix is not signed LaunchServices acceptance: require a fresh hosted
+check on a new reviewed commit/release version, and never move a failed release tag.
+
 The two-build Go integration test proves the canonical backend handoff and session
 preservation. Mock updater tests prove event handling and approval persistence.
 Neither substitutes for step 4's actual Squirrel replacement or the minimum-OS
