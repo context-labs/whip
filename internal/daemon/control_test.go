@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/context-labs/whip/internal/protocol"
@@ -87,6 +88,51 @@ func TestControlRouteHonorsCallerAndDaemonCancellation(t *testing.T) {
 	closed := &Control{ctx: daemonContext, requests: make(chan controlRequest), done: make(chan struct{})}
 	if err := closed.route(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
 		t.Fatalf("daemon cancellation = %v", err)
+	}
+}
+
+func TestControlRouteWaitsForAcceptedWorkAfterCancellation(t *testing.T) {
+	for _, source := range []string{"caller", "daemon"} {
+		t.Run(source, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				callerCtx, cancelCaller := context.WithCancel(t.Context())
+				daemonCtx, cancelDaemon := context.WithCancel(t.Context())
+				control := newControl(daemonCtx, nil)
+				entered, release := make(chan struct{}), make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				t.Cleanup(func() { unblock(); cancelCaller(); cancelDaemon(); <-control.done })
+				finished := make(chan error, 1)
+				workErr := errors.New("accepted work result")
+				var record session.CommandRecord
+				go func() {
+					finished <- control.route(callerCtx, func(context.Context) error {
+						close(entered)
+						<-release
+						record.Status = "succeeded"
+						return workErr
+					})
+				}()
+				<-entered
+				if source == "caller" {
+					cancelCaller()
+				} else {
+					cancelDaemon()
+				}
+				synctest.Wait()
+				select {
+				case err := <-finished:
+					t.Fatalf("route returned before accepted work finished: %v", err)
+				default:
+				}
+				unblock()
+				if err := <-finished; !errors.Is(err, workErr) {
+					t.Fatalf("route result = %v, want %v", err, workErr)
+				}
+				if record.Status != "succeeded" {
+					t.Fatalf("route returned before publishing its result: %+v", record)
+				}
+			})
+		})
 	}
 }
 
