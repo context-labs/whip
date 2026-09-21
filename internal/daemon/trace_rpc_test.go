@@ -74,6 +74,75 @@ func TestTraceRPCsPageSpansAndExportInlineOrByReference(t *testing.T) {
 	}
 }
 
+// Trace reads share the session connection. A count-bounded page must not close
+// that connection when its serialized spans exceed the transport frame budget.
+func TestTracePageBoundsWireBytesAndKeepsConnection(t *testing.T) {
+	fixture := newV2Fixture(t, &fakeRunner{})
+	root := fixture.rootID
+	const count = 24
+	for i := range count {
+		span := session.SpanRecord{
+			ID: strings.Repeat("s", i+1), TraceID: "large-trace", RootID: root, AgentID: root,
+			Kind: session.SpanKindTool, Name: "files.read", Status: session.SpanStatusOK,
+			StartNS: 1, EndNS: 2,
+			// Escaping on the wire, not raw attribute length, determines the budget.
+			Attrs: json.RawMessage(`{"summary":"` + strings.Repeat("<", 8192) + `"}`),
+		}
+		if err := fixture.store.RecordSpanEnd(t.Context(), span); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := fixture.dial("unix", "large-trace-page")
+	seen := make(map[string]bool)
+	var cursor int64
+	pages := 0
+	for {
+		page, err := client.TracePage(t.Context(), protocol.TracePageParams{
+			RootID: root, AfterSeq: cursor, Limit: session.MaxSpanPage,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		if page.NextSeq <= cursor || len(page.Spans) == 0 {
+			t.Fatal("trace page did not advance")
+		}
+		for _, span := range page.Spans {
+			if seen[span.ID] {
+				t.Fatalf("duplicate span %q", span.ID)
+			}
+			seen[span.ID] = true
+		}
+		cursor = page.NextSeq
+		if !page.HasMore {
+			break
+		}
+	}
+	if len(seen) != count || pages < 2 {
+		t.Fatalf("got %d spans in %d pages", len(seen), pages)
+	}
+
+	// A single oversized legacy record produces an ordinary RPC error, not a
+	// disconnect or a nonadvancing page that would loop on every reconnect.
+	if err := fixture.store.RecordSpanEnd(t.Context(), session.SpanRecord{
+		ID: "oversized", TraceID: "oversized", RootID: root, AgentID: root,
+		Kind: session.SpanKindTool, Name: "files.read", Status: session.SpanStatusOK,
+		StartNS: 1, EndNS: 2,
+		Attrs: json.RawMessage(`{"summary":"` + strings.Repeat("x", 1<<20) + `"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.TracePage(t.Context(), protocol.TracePageParams{
+		RootID: root, AfterSeq: cursor,
+	}); err == nil || !strings.Contains(err.Error(), "span exceeds trace page byte limit") {
+		t.Fatalf("oversized span error = %v", err)
+	}
+	var ping json.RawMessage
+	if err := client.Call(t.Context(), "daemon.ping", struct{}{}, &ping); err != nil {
+		t.Fatalf("trace read broke shared connection: %v", err)
+	}
+}
+
 // Historical trace reads must not construct a session actor, even after the
 // database is reopened by a new daemon with no roots in memory.
 func TestTracePageAfterReopenDoesNotOpenRuntime(t *testing.T) {

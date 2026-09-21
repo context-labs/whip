@@ -23,8 +23,8 @@ vi.mock('../src/timeline', async importOriginal => ({
 }));
 // Test composition/recipient ownership with a stateful uncontrolled draft; real
 // composer/draft/upload preservation is additionally exercised in the browser.
-vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId, agents, queue }: ComponentProps<typeof import('../src/composer').Composer>) => <>
-  {agents}{queue}
+vi.mock('../src/composer', () => ({ Composer: ({ agentId, onAccepted, viewId, notice, agents, queue }: ComponentProps<typeof import('../src/composer').Composer>) => <>
+  {notice}{agents}{queue}
   <textarea aria-label={`Draft for ${agentId}`} defaultValue="" />
   <button onClick={onAccepted}>Accept send in {viewId}</button>
 </> }));
@@ -67,7 +67,7 @@ function fixture(width = 1000) {
       <SessionContent kind={kind} view={view} expectedRuntimeId="host" agentId="root" viewId={source.id} />
     </div></div>
   </UIProvider></ThemeProvider></RuntimeContext.Provider>;
-  return { runtime, source, view, app, ...render(app()) };
+  return { runtime, source, view, snapshot, app, ...render(app()) };
 }
 
 it('an accepted send scrolls only its own chat view, not another view of the same session', () => {
@@ -123,6 +123,19 @@ it.each(['repl', 'trace'] as const)('retains the companion and open-child highli
   expect(runtime.tabs.workspace().tabs).toHaveLength(2);
   expect(sessionPanes(runtime.tabs.workspace().layout)).toHaveLength(2);
   expect(runtime.tabs.workspace().tabs.find(tab => tab.id === child.id)).toMatchObject({ location: { agent: 'b' } });
+});
+
+it('places upcoming wakes before agents in the composer and never in REPL or trace', () => {
+  const f = fixture();
+  Object.assign(f.snapshot.root, { upcoming_schedules: [{ id: 1, next_fire: '2026-09-21T01:30:00Z', prompt: 'Wake prompt' }], upcoming_schedule_count: 1 });
+  f.rerender(f.app());
+  const notice = f.container.querySelector('[data-scheduled-wake]')!;
+  const dock = f.container.querySelector('[data-agent-dock]')!;
+  expect(notice.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for (const kind of ['repl', 'trace'] as const) {
+    f.rerender(f.app(kind));
+    expect(f.container.querySelector('[data-scheduled-wake]')).toBeNull();
+  }
 });
 
 it('insufficient split space leaves the main view intact until Open in tab is explicitly chosen', () => {

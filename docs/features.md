@@ -559,7 +559,11 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   replay, resize, hangup, backpressure, limits, shutdown under `-race`) and
   `internal/daemon/terminal_rpc_test.go` (round trip, exit ordering, detach on
   disconnect, takeover, gating, validation).
-- Schedules and blackboard subscriptions create durable wakeups.
+- Schedules and blackboard subscriptions create durable wakeups. Desktop/web root
+  chats show upcoming scheduled wake-ups in a compact composer-width disclosure
+  with expandable prompt previews. Fired occurrences disappear independently of
+  turn execution; recurring schedules show their next occurrence. Full schedule
+  inspection and management remain in the session inspector.
 - Process shutdown is root-owned and waits for supervised workers.
 
 ## TypeScript client SDK

@@ -123,6 +123,10 @@ export function inboxInputId(item: InboxInput, local?: SubmittedInput) {
 export const isChatInput = (item: InboxInput) =>
   /^(submit|steer)(\.parts)?$/.test(item.kind);
 
+// Scheduled occurrences have their own pending-wake projection, not an inbox notice.
+export const isAcceptedInputNotice = (item: InboxInput) =>
+  !isChatInput(item) && item.kind !== 'schedule';
+
 export function admittedText(
   kind: string,
   payload: InboxInput['payload'],

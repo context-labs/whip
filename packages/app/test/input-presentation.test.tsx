@@ -6,11 +6,18 @@ import {
   SubmittedInputs,
   queuedInputRows,
   admittedText,
+  isAcceptedInputNotice,
   type InboxInput,
 } from '../src/input-presentation';
 import { conversationRows, MessageRow } from '../src/timeline';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
+
+it('excludes schedules in every admission state without hiding other fallback inputs', () => {
+  for (const status of ['queued', 'running', 'consumed']) expect(isAcceptedInputNotice(inbox('1', status, 'schedule'))).toBe(false);
+  for (const kind of ['submit', 'steer', 'submit.parts', 'steer.parts']) expect(isAcceptedInputNotice(inbox('1', 'queued', kind))).toBe(false);
+  for (const kind of ['mailbox', 'goal', 'unknown']) expect(isAcceptedInputNotice(inbox('1', 'queued', kind))).toBe(true);
+});
 
 const scope = { runtimeId: 'host', rootId: 'root', agentId: 'root' };
 const inbox = (

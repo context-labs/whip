@@ -68,7 +68,8 @@ class Host {
   getSnapshot = () => this.connection;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   onCommand = (fn: (outcome: { command_id: string; status: string }) => void) => { this.commands.add(fn); return () => { this.commands.delete(fn); }; };
-  events = { subscribe: async (_rootId: string, cursor: string) => {
+  replay?: () => Promise<{ events: SdkEvent[]; latest: string; expired?: boolean }>;
+  events = { replay: async () => this.replay?.() ?? { events: [], latest: this.root.cursor, expired: true }, subscribe: async (_rootId: string, cursor: string) => {
     const stream = new Stream();
     stream.cursor = cursor;
     this.streams.push(stream);
@@ -94,6 +95,178 @@ class Host {
     for (const listener of this.listeners) listener();
   }
 }
+
+const wake = (id = 1, next_fire = '2026-09-21T01:00:00Z') => ({ id, next_fire, prompt: 'Continue the task' });
+
+test('schedule fire removes only its occurrence before queued work starts and refreshes the next slot', async t => {
+  const host = new Host();
+  const first = wake(), other = wake(2);
+  host.root.upcoming_schedules = [first, other];
+  host.root.upcoming_schedule_count = 2;
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const before = view.getSnapshot();
+  host.streams[0]!.push('11', 'schedule.fired', { schedule_id: first.id, slot: first.next_fire });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, [other]);
+  assert.equal(view.getSnapshot().root?.upcoming_schedule_count, undefined);
+  assert.equal(view.getSnapshot().root?.omitted?.upcoming_schedules, true);
+  assert.deepEqual(view.getSnapshot().root?.active_turns, {});
+  assert.deepEqual(before.root?.upcoming_schedules, [first, other], 'published snapshots stay immutable');
+  assert.equal(host.calls.filter(call => call.method === 'root.snapshot').length, 1, 'fire removes without waiting for refresh');
+  const next = wake(1, '2026-09-21T02:00:00Z');
+  host.root.cursor = '11';
+  host.root.upcoming_schedules = [other, next];
+  await until(() => host.streams.length === 2);
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, [other, next]);
+  // Even a fresh sequence carrying the previous slot cannot remove the next one.
+  host.streams[1]!.push('12', 'schedule.fired', { schedule_id: first.id, slot: first.next_fire });
+  await until(() => view.getSnapshot().root?.cursor === '12');
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, [other, next]);
+  assert.equal(view.getSnapshot().root?.upcoming_schedule_count, undefined);
+  host.streams[1]!.push('11', 'schedule.fired', { schedule_id: next.id, slot: next.next_fire });
+  await pause();
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, [other, next], 'old event sequence cannot remove a newer slot');
+});
+
+for (const [nextFire, slot, removed] of [
+  ['2026-09-21T01:00:00.000000000Z', '2026-09-21T01:00:00.000000000Z', true],
+  ['2026-09-21T01:00:00.123000000Z', '2026-09-21T01:00:00.123000000Z', true],
+  ['2026-09-21T01:00:00.123456789Z', '2026-09-21T01:00:00.123456788Z', false],
+  ['2026-09-21T01:00:00Z', undefined, false],
+] as const) {
+  test(`schedule occurrence identity preserves timestamp precision: ${nextFire} / ${slot}`, async t => {
+    const host = new Host();
+    host.root.upcoming_schedules = [wake(1, nextFire)];
+    const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+    t.after(() => view.dispose());
+    await view.start();
+    host.streams[0]!.push('11', 'schedule.fired', { schedule_id: 1, slot });
+    await until(() => view.getSnapshot().root?.cursor === '11');
+    assert.equal(view.getSnapshot().root?.upcoming_schedules?.length, removed ? 0 : 1);
+  });
+}
+
+test('an omitted occurrence firing invalidates the total without removing another schedule', async t => {
+  const host = new Host();
+  host.root.upcoming_schedules = [wake()];
+  host.root.upcoming_schedule_count = 3;
+  host.root.omitted = { upcoming_schedules: true };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.streams[0]!.push('11', 'schedule.fired', { schedule_id: 3, slot: wake().next_fire });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, [wake()]);
+  assert.equal(view.getSnapshot().root?.upcoming_schedule_count, undefined);
+  assert.equal(view.getSnapshot().root?.omitted?.upcoming_schedules, true);
+});
+
+for (const recovery of ['refresh', 'reconnect']) {
+  test(`schedule fire cannot be resurrected by an older ${recovery} snapshot`, async t => {
+    const host = new Host();
+    const first = wake();
+    host.root.upcoming_schedules = [first];
+    host.root.upcoming_schedule_count = 1;
+    const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+    t.after(() => view.dispose());
+    await view.start();
+    host.streams[0]!.push('11', 'schedule.fired', { schedule_id: first.id, slot: first.next_fire });
+    await until(() => view.getSnapshot().root?.cursor === '11');
+    if (recovery === 'reconnect') { host.notify('reconnecting'); host.notify('connected'); }
+    else await view.refresh();
+    await until(() => !!view.getSnapshot().error);
+    assert.equal(view.getSnapshot().status, 'stale');
+    assert.equal(view.getSnapshot().root?.cursor, '11');
+    assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, []);
+    assert.equal(host.streams.length, 1, 'backward snapshot never opens a new subscription');
+    host.root.cursor = '11';
+    host.root.upcoming_schedules = [];
+    host.root.upcoming_schedule_count = 0;
+    await view.refresh();
+    assert.equal(view.getSnapshot().status, 'live');
+    assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, []);
+  });
+}
+
+test('fired one-shot stays absent across inbox lifecycle, reconnect and remount', async t => {
+  const host = new Host();
+  const first = wake();
+  host.root.upcoming_schedules = [first];
+  host.root.upcoming_schedule_count = 1;
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.streams[0]!.push('11', 'schedule.fired', { schedule_id: first.id, slot: first.next_fire });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  let seq = 11;
+  for (const kind of ['inbox.running', 'turn.started', 'inbox.removed', 'turn.completed']) {
+    host.streams[0]!.push(String(++seq), kind, { agent_id: 'root', inbox_seq: '1', turn_id: 'turn' });
+    await until(() => view.getSnapshot().root?.cursor === String(seq));
+    assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, []);
+  }
+  host.root.cursor = String(seq);
+  host.root.upcoming_schedules = [];
+  host.root.upcoming_schedule_count = 0;
+  host.notify('reconnecting');
+  assert.equal(view.getSnapshot().status, 'stale');
+  host.notify('connected');
+  await until(() => view.getSnapshot().status === 'live');
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, []);
+  view.dispose();
+  const remounted = createSessionView(host.session());
+  t.after(() => remounted.dispose());
+  await remounted.start();
+  assert.deepEqual(remounted.getSnapshot().root?.upcoming_schedules, []);
+});
+
+test('upcoming schedules rehydrate creation and deletion through the existing lifecycle refresh', async t => {
+  const host = new Host();
+  host.root.upcoming_schedules = [];
+  host.root.upcoming_schedule_count = 0;
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  host.root.cursor = '11';
+  host.root.upcoming_schedules = [wake()];
+  host.root.upcoming_schedule_count = 1;
+  host.streams[0]!.push('11', 'schedule.created', { schedule_id: 1 });
+  await until(() => view.getSnapshot().root?.upcoming_schedules?.length === 1);
+  host.root.cursor = '12';
+  host.root.upcoming_schedules = [];
+  host.root.upcoming_schedule_count = 0;
+  host.streams.at(-1)!.push('12', 'schedule.deleted', { schedule_id: 1 });
+  await until(() => view.getSnapshot().root?.upcoming_schedules?.length === 0);
+  assert.equal(host.streams.length, 3);
+});
+
+test('unsupported and partial schedule projections stay distinct and inspector pages cannot restore occurrences', async t => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().root?.upcoming_schedules, undefined);
+  host.root.upcoming_schedules = [{ ...wake(), prompt: 'preview', prompt_truncated: true }];
+  host.root.upcoming_schedule_count = 3;
+  host.root.omitted = { upcoming_schedules: true };
+  await view.refresh();
+  assert.equal(view.getSnapshot().root?.upcoming_schedules?.[0]?.prompt_truncated, true);
+  assert.equal(view.getSnapshot().root?.omitted?.upcoming_schedules, true);
+  const original = host.call.bind(host);
+  let resolvePage!: (page: unknown) => void;
+  host.call = async (method, params, options) => method === 'root.collection'
+    ? new Promise(resolve => { resolvePage = resolve; }) : original(method, params, options);
+  const loading = view.loadCollection('schedules');
+  host.streams.at(-1)!.push('11', 'schedule.fired', { schedule_id: 1, slot: wake().next_fire });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  resolvePage({ root_id: 'root', collection: 'schedules', revision: '1', event_cursor: '10',
+    items: [{ schedule: { ...wake(), schedule: '@at 2026-09-21T01:00:00Z' } }], has_more: false });
+  await loading;
+  assert.deepEqual(view.getSnapshot().root?.upcoming_schedules, []);
+  assert.equal(view.getSnapshot().root?.upcoming_schedule_count, undefined);
+  assert.equal(view.getSnapshot().root?.omitted?.upcoming_schedules, true);
+});
 
 test('a long committed turn recovers the interior history interval and its five observed executions', async t => {
   const host = new Host();
@@ -447,6 +620,102 @@ for (const change of ['root ended', 'child ended', 'turn changed', 'revision cha
     assert.equal(view.getSnapshot().root?.agent_presentations?.child?.length ?? 0,
       change === 'root ended' || change === 'turn changed' ? 1 : 0);
     if (change === 'root ended') assert.equal(view.getSnapshot().history.root?.messages[0]?.message?.content, 'root live');
+  });
+}
+
+for (const agentId of ['root', 'child']) for (const recovery of ['reconnect', 'subscription failure']) {
+  test(`${agentId}: ${recovery} replays the missing active-turn text without losing its prefix`, async t => {
+    const host = new Host();
+    host.root.active_turns = { [agentId]: 'turn' };
+    const text = (seq: string, value: string): SdkEvent => ({ root_id: 'root', seq, kind: 'stream.text',
+      payload: { text: value, turn_id: 'turn', part_id: 'part', agent_id: agentId }, unknown: false } as SdkEvent);
+    const rows = [text('10', '1. Prefix ')];
+    if (agentId === 'root') host.root.presentation = rows;
+    else host.root.agent_presentations = { child: rows };
+    const view = createSessionView(host.session());
+    t.after(() => view.dispose());
+    await view.start();
+    host.root.cursor = '12';
+    host.root.omitted = { presentation_prefix: true };
+    if (agentId === 'root') host.root.presentation = [text('12', 'end.')];
+    else host.root.agent_presentations = { child: [text('12', 'end.')] };
+    host.replay = async () => ({ events: [text('11', 'middle '), text('12', 'end.')], latest: '12' });
+    if (recovery === 'reconnect') { host.notify('reconnecting'); host.notify('connected'); }
+    else { host.streams[0]!.fail(); await until(() => view.getSnapshot().status === 'stale'); await view.refresh(); }
+    await until(() => view.getSnapshot().root?.cursor === '12');
+    const root = view.getSnapshot().root!;
+    const recovered = agentId === 'root' ? root.presentation : root.agent_presentations.child;
+    assert.deepEqual(recovered?.map(row => (row.payload as StreamEvent).text), ['1. Prefix middle end.']);
+    assert.equal(host.streams.at(-1)?.cursor, '12');
+  });
+}
+
+test('recovery excludes replay events beyond the snapshot and healthy refreshes do not replay', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn' };
+  const text = (seq: string, value: string) => ({ root_id: 'root', seq, kind: 'stream.text',
+    payload: { text: value, turn_id: 'turn' }, unknown: false } as SdkEvent);
+  host.root.presentation = [text('10', 'A')];
+  let reads = 0;
+  host.replay = async () => { reads++; return { events: [text('11', 'B'), text('12', 'C')], latest: '12' }; };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  await view.refresh();
+  assert.equal(reads, 0);
+  host.root.cursor = '11'; host.root.presentation = [text('11', 'B')];
+  host.notify('reconnecting'); host.notify('connected');
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  assert.equal(reads, 1);
+  assert.equal((view.getSnapshot().root!.presentation![0]!.payload as StreamEvent).text, 'AB');
+  host.streams.at(-1)!.push('12', 'stream.text', { text: 'C', turn_id: 'turn' });
+  await until(() => view.getSnapshot().root?.cursor === '12');
+  assert.equal((view.getSnapshot().root!.presentation![0]!.payload as StreamEvent).text, 'ABC');
+});
+
+test('a replay result arriving after disconnect cannot publish an obsolete snapshot', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn' };
+  const view = createSessionView(host.session());
+  t.after(() => view.dispose());
+  await view.start();
+  let finish!: (value: { events: SdkEvent[]; latest: string }) => void;
+  let reading = false;
+  host.replay = () => { reading = true; return new Promise(resolve => { finish = resolve; }); };
+  host.root.cursor = '11';
+  host.notify('reconnecting'); host.notify('connected');
+  await until(() => reading);
+  host.notify('reconnecting');
+  finish({ events: [{ root_id: 'root', seq: '11', kind: 'stream.text', payload: { text: 'obsolete' }, unknown: false } as SdkEvent], latest: '11' });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(view.getSnapshot().status, 'stale');
+  assert.equal(view.getSnapshot().root?.cursor, '10');
+  assert.equal(host.streams.length, 1);
+});
+
+for (const invalid of ['expired', 'gap', 'truncated', 'discard', 'failed']) {
+  test(`reconnect replay handles ${invalid} without silently joining unverified text`, async t => {
+    const host = new Host();
+    host.root.active_turns = { root: 'turn' };
+    host.root.presentation = [{ seq: '10', kind: 'stream.text', payload: { text: 'old', turn_id: 'turn' } }];
+    const view = createSessionView(host.session());
+    t.after(() => view.dispose());
+    await view.start();
+    host.root.cursor = '12';
+    host.root.omitted = { presentation_prefix: true };
+    const suffix = { root_id: 'root', seq: '12', kind: 'stream.text', payload: { text: 'new', turn_id: 'turn' }, unknown: false } as SdkEvent;
+    host.root.presentation = [suffix];
+    const boundary = { root_id: 'root', seq: '11', kind: invalid === 'discard' ? 'stream.discard' : 'stream.text',
+      payload: { text: 'missing', turn_id: 'turn', ...(invalid === 'truncated' ? { truncated: true } : {}) }, unknown: false } as SdkEvent;
+    host.replay = async () => {
+      if (invalid === 'failed') throw new Error('Replay unavailable');
+      return { events: invalid === 'gap' ? [suffix] : [boundary, suffix], latest: '12', expired: invalid === 'expired' };
+    };
+    host.notify('reconnecting'); host.notify('connected');
+    await until(() => view.getSnapshot().root?.cursor === '12');
+    const rows = view.getSnapshot().root!.presentation!;
+    assert.deepEqual(rows.map(row => row.kind), invalid === 'discard' ? ['stream.text', 'stream.discard', 'stream.text'] : ['stream.text']);
+    assert.equal((rows.at(-1)!.payload as StreamEvent).text, 'new');
   });
 }
 
@@ -1417,6 +1686,7 @@ test('trace pages cannot regress live spans or advance the durable cursor from l
   assert.equal(view.getSnapshot().trace!.spans['span-1']!.updatedSeq, '11');
   assert.equal(view.getSnapshot().trace!.pageCursor, '1');
   host.trace = async params => { assert.equal(params.after_seq, '1'); return recordedTracePage('11'); };
+  host.root.cursor = '11';
   host.notify('disconnected');
   host.notify('connected');
   await until(() => view.getSnapshot().status === 'live');
