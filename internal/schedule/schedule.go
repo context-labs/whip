@@ -75,9 +75,8 @@ func (s Schedule) NextAfter(anchor, t time.Time) (time.Time, bool) {
 		for !next.After(t) {
 			// Jump whole intervals rather than walking the elapsed grid. Sub
 			// saturates for spans over ~292 years; repeating handles those
-			// spans without overflowing the duration product.
-			steps := t.Sub(next) / s.Every
-			next = next.Add(steps * s.Every).Add(s.Every)
+			// spans without overflowing a single duration.
+			next = next.Add(t.Sub(next).Truncate(s.Every)).Add(s.Every)
 		}
 		return next, true
 	}

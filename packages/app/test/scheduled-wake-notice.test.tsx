@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
@@ -63,6 +63,111 @@ it('describes overdue unclaimed work without pretending it fired', () => {
   expect(heading().textContent).toContain('Scheduled wake-up was due at');
   fireEvent.click(heading());
   expect(screen.getByText('Message to be sent')).toBeTruthy();
+});
+
+
+it('updates due wording from wall time alone without claiming or removing the fixed occurrence', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-21T01:29:59.500Z'));
+  const snapshot = state();
+  const options = props({ state: snapshot });
+  render(<ScheduledWakeNotice {...options} />);
+  const button = heading();
+  fireEvent.click(button);
+  expect(button.textContent).toContain('This session is scheduled to wake up at');
+
+  act(() => vi.advanceTimersByTime(1000));
+
+  expect(heading()).toBe(button);
+  expect(button.textContent).toContain('Scheduled wake-up was due at');
+  expect(button.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('region', { name: 'Scheduled messages' }).textContent).toContain(wake.prompt);
+  expect(snapshot.root!.upcoming_schedules).toEqual([wake]);
+  expect(options.onSchedules).not.toHaveBeenCalled();
+});
+
+it.each([0, 1])('updates calendar-day formatting across local midnight for day offset %s', dayOffset => {
+  vi.useFakeTimers();
+  const before = new Date(2026, 8, 20, 23, 59, 59, 500);
+  const after = new Date(before.getTime() + 1000);
+  const next_fire = new Date(2026, 8, 20 + dayOffset, dayOffset ? 0 : 23, 30).toISOString();
+  vi.setSystemTime(before);
+  const snapshot = state({ upcoming_schedules: [{ ...wake, next_fire }] });
+  const { container } = render(<ScheduledWakeNotice {...props({ state: snapshot })} />);
+  const time = container.querySelector('time')!;
+  expect(time.textContent).toBe(wakeTimestamp(next_fire, before).label);
+  expect(wakeTimestamp(next_fire, before).label).not.toBe(wakeTimestamp(next_fire, after).label);
+
+  act(() => vi.advanceTimersByTime(1000));
+
+  expect(time.textContent).toBe(wakeTimestamp(next_fire, after).label);
+  expect(time.getAttribute('datetime')).toBe(next_fire);
+});
+
+it('pauses its display clock while hidden, refreshes immediately on return, and cleans up on unmount', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-21T01:29:59.500Z'));
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const add = vi.spyOn(document, 'addEventListener');
+  const remove = vi.spyOn(document, 'removeEventListener');
+  const { unmount } = render(<ScheduledWakeNotice {...props()} />);
+  const button = heading();
+  expect(vi.getTimerCount()).toBe(1);
+  const listener = add.mock.calls.find(([type]) => type === 'visibilitychange')![1];
+
+  hidden.mockReturnValue(true);
+  fireEvent(document, new Event('visibilitychange'));
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => vi.advanceTimersByTime(2000));
+  expect(button.textContent).toContain('This session is scheduled to wake up at');
+
+  hidden.mockReturnValue(false);
+  fireEvent(document, new Event('visibilitychange'));
+  expect(button.textContent).toContain('Scheduled wake-up was due at');
+  expect(vi.getTimerCount()).toBe(1);
+  fireEvent(document, new Event('visibilitychange'));
+  expect(vi.getTimerCount()).toBe(1);
+
+  unmount();
+  expect(remove).toHaveBeenCalledWith('visibilitychange', listener);
+  expect(vi.getTimerCount()).toBe(0);
+  fireEvent(document, new Event('visibilitychange'));
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('starts a clock mounted while hidden only after returning to the visible document', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-21T01:29:59.500Z'));
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  render(<ScheduledWakeNotice {...props()} />);
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => vi.advanceTimersByTime(2000));
+  hidden.mockReturnValue(false);
+  fireEvent(document, new Event('visibilitychange'));
+  expect(heading().textContent).toContain('Scheduled wake-up was due at');
+  expect(vi.getTimerCount()).toBe(1);
+});
+
+it.each([
+  { connected: false }, { agentId: 'child' },
+  { state: state({}, 'stale') },
+  { state: state({ upcoming_schedules: undefined }) },
+  { state: state({ upcoming_schedules: [], upcoming_schedule_count: 0 }) },
+  { state: state({ upcoming_schedules: [], upcoming_schedule_count: 2, omitted: { upcoming_schedules: true } }) },
+])('retires the display clock without live occurrence details and restarts it fresh: %j', overrides => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-21T01:29:59.500Z'));
+  const options = props();
+  const { rerender } = render(<ScheduledWakeNotice {...options} />);
+  expect(vi.getTimerCount()).toBe(1);
+  rerender(<ScheduledWakeNotice {...options} {...overrides} />);
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => vi.advanceTimersByTime(2000));
+  fireEvent(document, new Event('visibilitychange'));
+  expect(vi.getTimerCount()).toBe(0);
+  rerender(<ScheduledWakeNotice {...options} />);
+  expect(heading().textContent).toContain('Scheduled wake-up was due at');
+  expect(vi.getTimerCount()).toBe(1);
 });
 
 it('groups host-ordered occurrences and resets expansion for a new recurring slot without replacing the header', () => {

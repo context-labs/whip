@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DeepReadonly, SessionViewSnapshot } from '@whip/sdk/state';
 import { Button } from '@whip/ui';
 import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
@@ -46,6 +46,23 @@ export function ScheduledWakeNotice({ state, agentId, connected, onSchedules }: 
   const partial = supported && !!root.omitted?.upcoming_schedules;
   const total = supported ? root.upcoming_schedule_count : undefined;
   const first = wakes[0];
+  const [clock, setClock] = useState(Date.now);
+  const ticking = !!first;
+  // Local time only refreshes labels; the host alone claims or advances occurrences.
+  useEffect(() => {
+    if (!ticking) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const update = () => {
+      clearInterval(timer);
+      if (!document.hidden) {
+        setClock(Date.now());
+        timer = setInterval(() => setClock(Date.now()), 1000);
+      }
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [ticking]);
   const occurrence = first ? JSON.stringify([root!.root_id, first.id, first.next_fire])
     : partial && total != null && total > 0 ? JSON.stringify([root!.root_id, 'partial']) : undefined;
   const expanded = !!occurrence && expandedOccurrence === occurrence;
@@ -58,7 +75,7 @@ export function ScheduledWakeNotice({ state, agentId, connected, onSchedules }: 
   }, [expanded, occurrence]);
   if (!occurrence) return null;
   const more = total != null ? Math.max(0, total - 1) : partial ? undefined : wakes.length - 1;
-  const now = new Date();
+  const now = new Date(clock);
   return <section aria-label="Scheduled wake-ups" data-scheduled-wake {...stylex.props(styles.notice)}>
     <button ref={heading} type="button" {...stylex.props(styles.heading)}
       aria-expanded={expanded} aria-controls={contentId}
