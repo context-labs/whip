@@ -32,30 +32,42 @@ type EventEnvelope struct {
 }
 
 type RootSnapshot struct {
-	CollectionRevision int64             `json:"collection_revision,omitempty,string"`
-	ActiveTurns        map[string]string `json:"active_turns"`
-	view               *SnapshotViewOptions
-	Omitted            map[string]bool            `json:"omitted,omitempty"`
-	MessageSeqs        []int                      `json:"message_seqs"`
-	FirstMessageSeq    int                        `json:"first_message_seq,omitempty"`
-	HistoryRevision    int64                      `json:"history_revision,string"`
-	RootID             string                     `json:"root_id"`
-	Cursor             int64                      `json:"cursor,string"`
-	Meta               Meta                       `json:"meta"`
-	Messages           []llm.Message              `json:"messages"`
-	Presentation       []SnapshotEvent            `json:"presentation"`
-	AgentPresentations map[string][]SnapshotEvent `json:"agent_presentations"`
-	Agents             []RuntimeAgent             `json:"agents"`
-	Inbox              []InboxItem                `json:"inbox"`
-	Blackboard         []StateValue               `json:"blackboard"`
-	Budgets            []SnapshotBudget           `json:"budgets"`
-	Accounting         ModelAccounting            `json:"accounting,omitempty"` //nolint:modernize // Preserve the existing wire contract, which always includes the accounting object.
-	Capabilities       []CapabilityRecord         `json:"capabilities"`
-	Schedules          []Schedule                 `json:"schedules"`
-	Permissions        []PermissionSnapshot       `json:"permissions"`
-	Questions          []LifecycleEvent           `json:"questions"` // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
+	CollectionRevision    int64             `json:"collection_revision,omitempty,string"`
+	ActiveTurns           map[string]string `json:"active_turns"`
+	view                  *SnapshotViewOptions
+	Omitted               map[string]bool            `json:"omitted,omitempty"`
+	MessageSeqs           []int                      `json:"message_seqs"`
+	FirstMessageSeq       int                        `json:"first_message_seq,omitempty"`
+	HistoryRevision       int64                      `json:"history_revision,string"`
+	RootID                string                     `json:"root_id"`
+	Cursor                int64                      `json:"cursor,string"`
+	Meta                  Meta                       `json:"meta"`
+	Messages              []llm.Message              `json:"messages"`
+	Presentation          []SnapshotEvent            `json:"presentation"`
+	AgentPresentations    map[string][]SnapshotEvent `json:"agent_presentations"`
+	Agents                []RuntimeAgent             `json:"agents"`
+	Inbox                 []InboxItem                `json:"inbox"`
+	Blackboard            []StateValue               `json:"blackboard"`
+	Budgets               []SnapshotBudget           `json:"budgets"`
+	Accounting            ModelAccounting            `json:"accounting,omitempty"` //nolint:modernize // Preserve the existing wire contract, which always includes the accounting object.
+	Capabilities          []CapabilityRecord         `json:"capabilities"`
+	Schedules             []Schedule                 `json:"schedules"`
+	UpcomingSchedules     *[]UpcomingSchedule        `json:"upcoming_schedules,omitempty"`
+	UpcomingScheduleCount *int                       `json:"upcoming_schedule_count,omitempty"`
+	Permissions           []PermissionSnapshot       `json:"permissions"`
+	Questions             []LifecycleEvent           `json:"questions"` // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
 	// PermissionMode is the saved consent mode for this session tree.
 	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// UpcomingSchedule identifies an unclaimed occurrence. Truncated prompts can be
+// recovered through the existing schedules collection and content reads. NextFire
+// uses the same fixed-precision UTC slot string as schedule.fired.
+type UpcomingSchedule struct {
+	ID              int    `json:"id"`
+	NextFire        string `json:"next_fire"`
+	Prompt          string `json:"prompt"`
+	PromptTruncated bool   `json:"prompt_truncated,omitempty"`
 }
 
 // SnapshotEvent is presentation-only state that has been durably observed but
@@ -264,6 +276,9 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 		snapshot.Accounting = ModelAccounting{RootID: rootID, Scope: "subtree", Revision: snapshot.Cursor}
 	}
 	if err := readSnapshotCapabilities(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := readSnapshotUpcomingSchedules(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
 	if err := readSnapshotSchedules(ctx, tx, rootID, &snapshot); err != nil {

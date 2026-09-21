@@ -435,6 +435,10 @@ func (s *Store) PageSpans(ctx context.Context, rootID, traceID string, afterSeq 
 	}
 	defer func() { _ = rows.Close() }()
 	page := SpanPage{RootID: rootID, NextSeq: afterSeq, ServerTimeNS: time.Now().UnixNano(), Spans: []SpanRecord{}}
+	// Leave room for page metadata and the RPC envelope within the 1 MiB frame.
+	// Count serialized bytes: attributes and JSON escaping vary widely per span.
+	const maxPageBytes = 512 << 10
+	pageBytes := 0
 	for rows.Next() {
 		record, err := scanSpan(rows)
 		if err != nil {
@@ -444,6 +448,18 @@ func (s *Store) PageSpans(ctx context.Context, rootID, traceID string, afterSeq 
 			page.HasMore = true
 			break
 		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			return SpanPage{}, err
+		}
+		if pageBytes+len(encoded)+1 > maxPageBytes {
+			if len(page.Spans) == 0 {
+				return SpanPage{}, errors.New("span exceeds trace page byte limit; export the trace to read it")
+			}
+			page.HasMore = true
+			break
+		}
+		pageBytes += len(encoded) + 1
 		page.Spans = append(page.Spans, record)
 		page.NextSeq = record.UpdatedSeq
 	}

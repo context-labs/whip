@@ -78,6 +78,7 @@ export function Composer({
   modelControl,
   active = false,
   pending = false,
+  notice,
   agents,
   queue,
   queueEnabled = false,
@@ -86,6 +87,7 @@ export function Composer({
 }: {
   onAccepted?(): void;
   dropTarget?: RefObject<HTMLElement | null>;
+  notice?: ReactNode;
   agents?: ReactNode;
   queue?: ReactNode;
   queueEnabled?: boolean;
@@ -287,6 +289,7 @@ export function Composer({
           )}
         </>} />
       )}
+      {notice}
       {agents}
       {queue}
       <div {...stylex.props(styles.box)}>

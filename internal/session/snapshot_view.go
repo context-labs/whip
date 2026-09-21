@@ -197,6 +197,7 @@ func boundSnapshot(snapshot *RootSnapshot) error {
 		case len(snapshot.Schedules) > 0:
 			snapshot.Schedules = nil
 			snapshot.Omitted["schedules"] = true
+		case trimUpcomingSchedule(snapshot):
 		case len(snapshot.Budgets) > 0:
 			snapshot.Budgets = nil
 			snapshot.Omitted["budgets"] = true

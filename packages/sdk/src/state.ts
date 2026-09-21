@@ -324,15 +324,40 @@ export class SessionView {
     this.stream = undefined;
     this.set({ ...this.current, status: continuous ? 'live' : this.current.root ? 'stale' : 'loading' }, true);
     // Capture after publishing so reconciliation cannot restore evicted rows.
-    const previous = continuous ? this.current.root : undefined;
+    const retained = this.current.root;
+    let recovered = continuous ? retained : undefined;
     try {
       await oldStream?.dispose();
       const snapshot = await this.session.client.call('root.snapshot', { root_id: this.session.rootId }, { signal: this.lifetime.signal });
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       if (snapshot.root_id !== this.session.rootId) throw new Error('Snapshot belongs to a different root');
-      if (previous && BigInt(snapshot.cursor) < BigInt(previous.cursor)) {
+      // A reconnect must not undo already observed lifecycle events either.
+      if (retained && BigInt(snapshot.cursor) < BigInt(retained.cursor)) {
         throw new WhipError('resynchronization_required', 'Snapshot cursor moved backwards');
       }
+      // A reconnect snapshot is only a suffix. Reuse cached activity only when
+      // one bounded replay proves no intervening discard or other event was lost.
+      let replay: SdkEvent[] | undefined;
+      if (!continuous && retained?.history_revision === snapshot.history_revision
+        && Object.entries(snapshot.active_turns).some(([id, turn]) => turn && retained.active_turns[id] === turn)) {
+        const distance = BigInt(snapshot.cursor) - BigInt(retained.cursor);
+        if (distance === 0n) recovered = retained;
+        else if (distance > 0n && distance <= 1000n) {
+          try {
+            const page = await this.session.client.events.replay(snapshot.root_id, retained.cursor, { limit: 1000, signal: this.lifetime.signal });
+            const events = page.events.filter(event => BigInt(event.seq) <= BigInt(snapshot.cursor));
+            if (!page.expired && BigInt(events.length) === distance && events.every((event, index) =>
+              event.root_id === snapshot.root_id && !event.unknown
+              && BigInt(event.seq) === BigInt(retained.cursor) + BigInt(index + 1)
+              && !(event.payload as { truncated?: boolean } | undefined)?.truncated)) {
+              recovered = retained;
+              replay = events;
+            }
+          } catch { /* Expired/unavailable replay falls back to the bounded snapshot. */ }
+          if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+        }
+      }
+      const previous = recovered;
       const gaps = new Set<string>();
       const omitted = { ...snapshot.omitted };
       const partial = !!(snapshot.omitted?.presentation || snapshot.omitted?.presentation_prefix);
@@ -344,6 +369,10 @@ export class SessionView {
             if (previous.omitted?.[key]) omitted[key] = true;
           }
         }
+        if (sameTurn && replay) events = replay.filter(event => {
+          const owner = (event.payload as { agent_id?: string } | undefined)?.agent_id || snapshot.root_id;
+          return owner === agentId && (event.kind.startsWith('stream.') || event.kind === 'inbox.running');
+        });
         let rows = sameTurn ? (agentId === snapshot.root_id ? previous.presentation : previous.agent_presentations?.[agentId]) ?? [] : [];
         let cursor = sameTurn ? BigInt(previous.cursor) : 0n;
         let gap = sameTurn && this.presentationGaps.has(agentId);
@@ -351,6 +380,7 @@ export class SessionView {
           const seq = BigInt(event.seq);
           // Filter raw events before grouping: a grouped row keeps its FIRST seq.
           if (seq <= cursor) continue;
+          if (event.kind === 'inbox.running') { gap = true; cursor = seq; continue; }
           gap ||= partial && seq !== cursor + 1n;
           gap ||= (snapshot.inbox ?? []).some(item => item.agent_id === agentId && !!item.delivery_seq
             && BigInt(item.delivery_seq) > cursor && BigInt(item.delivery_seq) < seq);
@@ -487,6 +517,14 @@ export class SessionView {
       if (typeof payload.permission_mode === 'string') root = { ...root, permission_mode: payload.permission_mode };
     } else {
       const lifecycle = payload as LifecycleEvent;
+      if (event.kind === 'schedule.fired' && root.upcoming_schedules) {
+        // Both slots use the host's canonical UTC timestamp, preserving nanoseconds.
+        // Match occurrences, not IDs: a delayed fire must leave a newer slot.
+        root = { ...root,
+          upcoming_schedules: root.upcoming_schedules.filter(item => item.id !== lifecycle.schedule_id || item.next_fire !== lifecycle.slot),
+          // A recurring or omitted occurrence may already have a new pending slot.
+          upcoming_schedule_count: undefined, omitted: { ...root.omitted, upcoming_schedules: true } };
+      }
       if (/^(agent\.)?turn\./.test(event.kind)) {
         const agentId = lifecycle.agent_id || root.root_id;
         root.active_turns = { ...root.active_turns };

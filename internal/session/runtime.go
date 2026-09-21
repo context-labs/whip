@@ -795,18 +795,12 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 	if err != nil {
 		return InboxSequence{}, err
 	}
-	var expected time.Time
-	if parsed.Every > 0 {
-		if lastFire.IsZero() {
-			expected = anchor
-		} else {
-			expected, _ = parsed.NextAfter(anchor, lastFire)
-		}
-	} else {
+	expected, ok := parsed.NextSlot(anchor, lastFire)
+	if !ok {
 		if !lastFire.IsZero() {
 			return InboxSequence{}, ErrScheduleClaimed
 		}
-		expected = parsed.At
+		return InboxSequence{}, ErrInvalidScheduleSlot
 	}
 	if !claim.Slot.UTC().Equal(expected.UTC()) {
 		return InboxSequence{}, ErrInvalidScheduleSlot

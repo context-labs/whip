@@ -183,6 +183,24 @@ describe('session inspector controls', () => {
     }
     expect(f.client.submit).not.toHaveBeenCalled();
   });
+  it('recovers schedule prompts beyond the 4096-byte notice preview through collection content', async () => {
+    const f = fixture();
+    const full = JSON.stringify({ id: 11, schedule: '@every 1h', prompt: 'x'.repeat(4096) + ' RECOVERED FULL PROMPT' });
+    const readText = vi.fn(async () => full);
+    const content = vi.fn(() => ({ readText }));
+    Object.assign(f.client, { content });
+    f.root.omitted = { schedules: true };
+    f.render(<Goals {...f.props} />);
+    expect(content).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(f.view.loadCollection).toHaveBeenCalledWith('schedules', { more: false }));
+    act(() => f.update({ collections: { schedules: { root_id: 'root', collection: 'schedules', revision: '1', event_cursor: '1', has_more: false, items: [{ body: { reference_id: 'full-schedule', digest: 'digest', size: String(full.length), media_type: 'application/json' } }] } } }));
+    expect(content).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Read large collection entry' }));
+    await waitFor(() => expect(document.body.textContent).toContain('RECOVERED FULL PROMPT'));
+    expect(content).toHaveBeenCalledWith(expect.objectContaining({ reference_id: 'full-schedule' }), { rootId: 'root', agentId: 'root' });
+    expect(readText).toHaveBeenCalledWith(expect.objectContaining({ maxBytes: 1 << 20 }));
+  });
   it('keeps oversized collection entries explicit without fetching their content', () => {
     const f = fixture();
     f.update({

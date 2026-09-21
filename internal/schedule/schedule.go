@@ -50,6 +50,22 @@ func (s Schedule) String() string {
 	return "@at " + s.At.Format(time.RFC3339)
 }
 
+// NextSlot returns the next unclaimed occurrence, including overdue slots.
+// A recurring schedule first fires at its anchor; claiming a slot, not the
+// passage of time, advances the schedule.
+func (s Schedule) NextSlot(anchor, lastFire time.Time) (time.Time, bool) {
+	if lastFire.IsZero() {
+		if s.Every > 0 {
+			return anchor, !anchor.IsZero()
+		}
+		return s.At, !s.At.IsZero()
+	}
+	if s.Every <= 0 {
+		return time.Time{}, false
+	}
+	return s.NextAfter(anchor, lastFire)
+}
+
 // NextAfter returns the next fire time strictly after t, anchored so
 // recurring fires land on the grid (anchor + n×interval). (0, false) means
 // the schedule is done (a fired one-shot).
@@ -57,7 +73,10 @@ func (s Schedule) NextAfter(anchor, t time.Time) (time.Time, bool) {
 	if s.Every > 0 {
 		next := anchor
 		for !next.After(t) {
-			next = next.Add(s.Every)
+			// Jump whole intervals rather than walking the elapsed grid. Sub
+			// saturates for spans over ~292 years; repeating handles those
+			// spans without overflowing a single duration.
+			next = next.Add(t.Sub(next).Truncate(s.Every)).Add(s.Every)
 		}
 		return next, true
 	}
