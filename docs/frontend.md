@@ -1003,8 +1003,11 @@ persisted sessions. Reads survive ordinary root snapshot refreshes, coalesce
 concurrent callers, and cancel on disconnect/disposal/runtime replacement. The
 view catches up from its durable page cursor on reconnect; failures expose Retry.
 Each load reads at most eight pages; `hasMore` exposes Load more spans rather than
-leaving the loading indicator running. An empty completed read means no recorded
-spans, not a pending fetch: sessions predating tracing are not backfilled with
+leaving the loading indicator running. The daemon bounds each page by span count
+and 512 KiB of serialized span data, leaving room under the shared connection’s
+1 MiB frame limit. A single oversized span returns a trace read error directing
+the caller to export, rather than disconnecting every view on that host. An empty
+completed read means no recorded spans, not a pending fetch: sessions predating tracing are not backfilled with
 invented timings. Live `span.started` / `span.ended` events upsert by id, so the
 root span appears the moment a turn is admitted and no snapshot refresh is
 needed per span. `traceSpans(state, traceId)`
@@ -1092,9 +1095,18 @@ reasoning part. Gaps and standalone notices still separate fragments; the chat
 projection gives each retained fragment a unique row key while keeping its
 durable part identity as a reading alias. React, Markdown caches and virtualizer
 measurements must never share a key between separate fragments.
-Initial attachment, reconnect, subscription failure/gaps, history revision changes,
-and an agent's ended or replaced turn use snapshot replacement. This retains
-received activity; it does not recover events absent from the bounded snapshot.
+On reconnect or subscription failure/gaps, a retained view attempts one replay
+page (at most 1,000 events) from its last observed cursor when an agent is still
+running the same turn and history revision. Only a complete, contiguous,
+untruncated replay through the new snapshot cursor can preserve that agent's
+observed prefix. Replayed discard events invalidate failed output normally;
+inbox delivery boundaries and unverified presentation gaps never join text.
+An unchanged cursor needs no replay. Expired, incomplete, unavailable or oversized
+replay ranges fall back to snapshot replacement, with the existing omission
+indicators. Initial attachment, history revision changes, and an agent's ended
+or replaced turn also use snapshot replacement. This recovery cannot restore
+activity evicted from the view or missing from both its cache and the snapshot;
+completed turns recover through durable history instead.
 
 ## Mutations, acceptance, and permissions
 
@@ -1519,6 +1531,30 @@ status; deleted children lose their actions. Offline updates are labeled
 paused and omitted metadata never produces a false complete count. The inspector
 remains the paged full agent directory. No roster-only child history subscriptions,
 polling, parallel SDK collections or duplicate approval controls are added.
+
+Root chats show upcoming scheduled wake-ups as a quiet, collapsed disclosure
+inside that same composer-width region, before the agent and queue panels. The
+heading gives the next wake time in the viewer's local timezone (with a date when
+needed); expansion reveals plain, wrapping prompt text in a height-bounded area.
+Multiple schedules share one disclosure. Recurring schedules display their next
+unclaimed occurrence; fired one-shots disappear even while their admitted input
+is queued or running. Schedule inbox entries never use the generic accepted-input
+panel. Child chats, REPL and trace panes do not display the root's wake notice.
+
+The host supplies the optional bounded `upcoming_schedules` snapshot projection
+and exact `upcoming_schedule_count`, independently of historical schedule paging.
+The scheduler and projection share the same anchored occurrence calculation.
+The SDK reconciles `schedule.fired` by schedule identity and occurrence slot, then
+uses its existing snapshot refresh to obtain the next occurrence. Local time never
+claims or advances work. Overdue unclaimed slots are labeled as due; stale or
+disconnected state does not present a confident upcoming-wake claim. Older hosts
+without the projection simply omit this notice. If all occurrence details are
+omitted but the host confirms a positive pending count, a count-only disclosure
+links to schedule inspection without inventing a wake time. Empty, unknown-count
+state after a fire remains hidden until refreshed. Prompt previews and omitted rows
+are explicit: the existing Schedules inspector provides paged collection/content
+reads for full inspection and management, without a second schedule cache or
+subscription.
 
 Both dock and inline child links use `openChildChat`: focus an already-visible
 matching child chat, reuse this source's still-valid right-hand companion view,

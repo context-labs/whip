@@ -74,6 +74,25 @@ function fixture() {
   return { drafts, waits, app, session, runtime, snapshot, onAccepted };
 }
 
+it('keeps the wake notice, agent dock, and queue in the composer region in that order', () => {
+  const f = fixture();
+  render(f.app('root', undefined, false, undefined, {
+    notice: <div data-testid="wake-slot">Upcoming wake</div>,
+    agents: <div data-testid="agent-slot">Agents</div>,
+    queue: <div data-testid="queue-slot">Queue</div>,
+  }));
+  const wake = screen.getByTestId('wake-slot');
+  const agents = screen.getByTestId('agent-slot');
+  const queue = screen.getByTestId('queue-slot');
+  const input = screen.getByRole('textbox');
+  expect(wake.parentElement).toBe(agents.parentElement);
+  expect(wake.parentElement).toBe(queue.parentElement);
+  expect(wake.parentElement?.contains(input)).toBe(true);
+  expect(wake.compareDocumentPosition(agents) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(agents.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(queue.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
 it.each(['root', 'a'])('notifies only the sending composer on admission for %s, including queued messages', async agentId => {
   const f = fixture();
   f.runtime.setDraft(`runtime:root:${agentId}`, 'Send this');

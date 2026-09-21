@@ -1441,6 +1441,41 @@
         "additionalProperties": false
       }
     },
+    "upcoming_schedules": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "next_fire": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "prompt_truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "next_fire",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "upcoming_schedule_count": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
     "permissions": {
       "type": [
         "null",

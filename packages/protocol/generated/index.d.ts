@@ -3332,6 +3332,15 @@ export interface RootSnapshot {
         anchor: string;
         last_fire: string;
       }[];
+  upcoming_schedules?:
+    | null
+    | {
+        id: number;
+        next_fire: string;
+        prompt: string;
+        prompt_truncated?: boolean;
+      }[];
+  upcoming_schedule_count?: null | number;
   permissions:
     | null
     | {

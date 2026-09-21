@@ -145,6 +145,28 @@ test('model budgets preserve explicit unlimited and exact uncertainty', () => {
   assert.equal(validate('BudgetState', { ...state, uncertain: 23883863 }), false);
 });
 
+test('upcoming schedules are optional, typed, and preserve explicit preview evidence', async () => {
+  const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
+  const snapshot = structuredClone(fixtures.find(fixture => fixture.type === 'RootSnapshot').value);
+  delete snapshot.upcoming_schedules;
+  delete snapshot.upcoming_schedule_count;
+  assertValid('RootSnapshot', snapshot, 'response');
+  snapshot.upcoming_schedules = [];
+  snapshot.upcoming_schedule_count = 0;
+  assertValid('RootSnapshot', snapshot, 'response');
+  const occurrence = { id: 14, next_fire: '2026-09-20T23:00:00Z', prompt: 'preview', prompt_truncated: true };
+  snapshot.upcoming_schedules = [occurrence];
+  snapshot.upcoming_schedule_count = 3;
+  snapshot.omitted = { upcoming_schedules: true };
+  assertValid('RootSnapshot', snapshot, 'response');
+  for (const invalid of [{ ...occurrence, id: '14' }, { ...occurrence, next_fire: 123 }, { ...occurrence, prompt_truncated: 'yes' }]) {
+    assert.equal(validate('RootSnapshot', { ...snapshot, upcoming_schedules: [invalid] }, 'response'), false);
+  }
+  const missingSlot = { ...occurrence };
+  delete missingSlot.next_fire;
+  assert.equal(validate('RootSnapshot', { ...snapshot, upcoming_schedules: [missingSlot] }, 'response'), false);
+});
+
 test('session usage remains valid without optional provenance', async () => {
   const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
   for (const type of ['RootSnapshot', 'AgentTranscriptResult', 'BoundedTranscriptPage', 'CompactionResult', 'StreamEvent']) {

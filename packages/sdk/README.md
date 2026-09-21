@@ -284,6 +284,33 @@ and paginated collections. Stale state remains visible during recovery. Root and
 child presentation remains separate from committed transcript entries. Inspecting
 a child never adds its transcript to another agent's model context.
 
+When a retained view reconnects during the same active turn and history revision,
+it tries one `events.replay` page of at most 1,000 events. A complete, contiguous,
+untruncated replay through the snapshot cursor preserves already observed text
+and applies missed deltas and discards without duplication. An unchanged cursor
+needs no replay. Expired, incomplete, failed or larger ranges fall back to the
+bounded snapshot; this cannot restore an evicted prefix or a cold view's missing
+active output. Completed output continues to recover through durable history.
+
+`snapshot.root.upcoming_schedules` is the optional host-owned projection of
+unclaimed wake occurrences, ordered by `next_fire` then schedule `id`. Render it
+only while `snapshot.status === 'live'`; absence means unsupported, not an empty
+queue. When provided, `upcoming_schedule_count` reports the host's exact pending
+total even when `omitted.upcoming_schedules` marks partial row coverage. Without
+that count, never infer an exact total from retained rows. A row's
+`prompt_truncated` marks a preview; the existing schedules inspector/collection
+reads remain the path to full prompt evidence.
+
+`schedule.fired` removes the matching ID **and** occurrence slot immediately,
+using the host's canonical UTC timestamp (including nanoseconds), without
+waiting for admitted work to run, and the existing coalesced snapshot
+refresh obtains the next recurring slot. Between fire and refresh, coverage is
+marked partial and the count becomes unknown: the event cannot establish whether
+a recurring or omitted occurrence has another pending slot. Backward snapshot
+cursors are rejected on reconnect as well as continuous refresh; historical
+schedule collection pages do not populate this projection. No polling or extra
+subscription is needed.
+
 `snapshot.history[agentId].gaps` describes missing raw records between retained
 sections as inclusive `fromSeq`/`toSeq` ranges with `pending`, `loading`, `paused`
 or `error` status. Offloaded message bodies are present records, not gaps.
@@ -299,7 +326,7 @@ requested page within the existing 512-record / 8-MiB bounds. If navigation evic
 newer history, `history.latestMissing` is true: call `await view.loadLatest(agentId)`
 before jumping to the newest content. Keep gap state scoped to agent and revision;
 never concatenate response prose or activity groups across an unresolved gap.
-All recovery uses the existing root subscription and `history.page`, with no
+All history recovery uses the existing root subscription and `history.page`, with no
 implicit body reads or child transcript subscriptions.
 
 Pass the displayed revision to `session.history.clear(revision)` just as with

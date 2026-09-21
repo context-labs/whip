@@ -35,12 +35,13 @@ import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
 import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
 import { AgentDock } from './agent-dock';
+import { ScheduledWakeNotice } from './scheduled-wake-notice';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionTopBar } from './session-top-bar';
 import { openChildChat, openSessionView } from './session-tab-routing';
 import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
-import { admittedText, isChatInput, queuedInputRows } from './input-presentation';
+import { admittedText, isAcceptedInputNotice, queuedInputRows } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
@@ -234,7 +235,7 @@ export function SessionContent({
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
   const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current, activeTurn), [rows, executions, activeTurn]);
   useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
-  const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
+  const admitted = root?.inbox?.filter(item => item.agent_id === agentId && isAcceptedInputNotice(item)) ?? [];
   const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
   const pendingInputIds = pendingInputs.map(item => item.id).join(',');
   useEffect(() => {
@@ -409,6 +410,7 @@ export function SessionContent({
         dropTarget={dropTarget}
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}
+        notice={<ScheduledWakeNotice state={state} agentId={agentId} connected={connected} onSchedules={() => setPanel('goals')} />}
         agents={<AgentDock key={`agents:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
           openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
