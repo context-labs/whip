@@ -24,6 +24,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui"
 )
@@ -188,6 +189,44 @@ func runCLI(args []string) error {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, *timeoutFlag)
 		defer cancel()
+	}
+
+	// MCP: same wiring as the TUI/ACP paths — merged config servers,
+	// background connect, live tool swap on settle. Headless runs deserve
+	// the same tools as interactive ones.
+	mcpMgr := mcp.NewManager(acpBaseMCP(cfg))
+	mcpMgr.SetOnChange(func() { ag.SetMCPTools(mcpMgr.Tools()) })
+	mcpMgr.Start(ctx)
+	defer mcpMgr.Close()
+
+	// Headless has no UI keeping the process alive while servers connect:
+	// wait (bounded) for every server to leave "connecting" so the very
+	// first turn already sees the MCP tool set.
+	{
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			pending := false
+			for _, s := range mcpMgr.Statuses() {
+				if s.Status == mcp.StatusConnecting {
+					pending = true
+				}
+			}
+			if !pending {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		ag.SetMCPTools(mcpMgr.Tools())
+		if ib := mcpMgr.InstructionsBlock(); ib != "" {
+			ag.Messages[0].Content += ib
+		}
+		if !*quietFlag {
+			for _, s := range mcpMgr.Statuses() {
+				if s.Status != mcp.StatusReady {
+					fmt.Fprintf(os.Stderr, "whip: mcp %s: %s %s\n", s.Name, s.Status, s.Err)
+				}
+			}
+		}
 	}
 
 	ev := agent.Events{}
