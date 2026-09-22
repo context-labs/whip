@@ -499,3 +499,69 @@ func TestRunJSONReasoning(t *testing.T) {
 		t.Fatalf("want a text event too, got:\n%s", out)
 	}
 }
+
+// TestMCPHelperProcess is not a real test: re-invoked as a child process
+// (WHIP_TEST_MCP_HELPER=1) it becomes a whip binary running `mcp serve`, so
+// runCLI tests get a real stdio MCP server without a separate build step.
+func TestMCPHelperProcess(t *testing.T) {
+	if os.Getenv("WHIP_TEST_MCP_HELPER") != "1" {
+		t.Skip("helper process")
+	}
+	os.Args = []string{"whip", "mcp", "serve"}
+	main()
+	os.Exit(0)
+}
+
+// Headless runs must wire MCP servers (the TUI/ACP paths always did): the
+// FIRST request to the model must already advertise the server's tools.
+func TestRunWiresMCPServers(t *testing.T) {
+	var reqs []llm.Request
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		reqs = append(reqs, req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	// The helper process serves whip's own tools (read/bash/edit/write)
+	// over stdio as the "self" MCP server.
+	cfg := fmt.Sprintf(`{
+		"defaultModel": "test",
+		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
+		"models": {"test": {"providers": ["testprov"], "maxOut": 100}},
+		"mcp": {"self": {"command": [%q, "-test.run=TestMCPHelperProcess"], "env": {"WHIP_TEST_MCP_HELPER": "1"}}}
+	}`, srv.URL, exe)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCapture(t, "", "go"); err != nil {
+		t.Fatal(err)
+	}
+	if len(reqs) == 0 {
+		t.Fatal("model was never called")
+	}
+	var found bool
+	for _, tool := range reqs[0].Tools {
+		if strings.HasPrefix(tool.Function.Name, "mcp__self__") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		names := make([]string, 0, len(reqs[0].Tools))
+		for _, tool := range reqs[0].Tools {
+			names = append(names, tool.Function.Name)
+		}
+		t.Fatalf("first request missing mcp__self__* tools; got %v", names)
+	}
+}
