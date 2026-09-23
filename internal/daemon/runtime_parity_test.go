@@ -14,6 +14,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -52,7 +53,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 		"provider.catalogs": {`{}`, false}, "agent.control": {`{"id":"missing"}`, true}, "agent.delete": {`{"id":"missing"}`, true},
 		"budget.cap": {`{"id":"$ROOT","kind":"tokens","limit":"100"}`, false}, "capability.revoke": {`{"id":"missing"}`, true},
 		"shell.run": {`{"command":"echo"}`, true}, "context.audit": {`{}`, true},
-		"mcp.status": {`{}`, false}, "mcp.reconnect": {`{"name":"alpha"}`, false}, "mcp.enable": {`{"name":"alpha"}`, false}, "mcp.disable": {`{"name":"alpha"}`, false},
+		"mcp.refresh": {`{}`, false}, "mcp.status": {`{}`, false}, "mcp.reconnect": {`{"name":"alpha"}`, false}, "mcp.enable": {`{"name":"alpha"}`, false}, "mcp.disable": {`{"name":"alpha"}`, false},
 		"mcp.import.status": {`{}`, false}, "mcp.import.configure": {`{"source":"claude","enabled":false}`, false},
 		"lsp.status": {`{}`, false}, "browser.status": {`{}`, false}, "browser.set_driver": {`{"driver":"rod"}`, true},
 		"computer.status": {`{}`, false}, "computer.allow": {`{"app":"Terminal"}`, true}, "computer.deny": {`{"app":"Terminal"}`, true},
@@ -87,7 +88,14 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 				t.Fatal(err)
 			}
 			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-				return Components{Runner: &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: home}, MCP: &controlSurfaceMCP{}}, nil
+				components := Components{Runner: &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: home}, MCP: &controlSurfaceMCP{}}
+				if operation.Name == "mcp.refresh" {
+					components.MCP = nil
+					components.LoadMCP = func(context.Context) (mcp.Filtered, error) {
+						return mcp.Filtered{Merged: map[string]mcp.ServerConfig{"late": {Enabled: new(false)}}}, nil
+					}
+				}
+				return components, nil
 			})
 			if err != nil {
 				t.Fatal(err)

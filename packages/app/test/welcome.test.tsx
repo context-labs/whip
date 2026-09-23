@@ -332,16 +332,16 @@ it('offers the MCP import once a provider is ready and returns the composer afte
 });
 
 it('does not offer the import before a provider is ready, after it was answered, or on a daemon without it', async () => {
-  const notReady = fixture(false, false); const pending = withMCPImport(notReady); notReady.render();
+  const notReady = fixture(false, false); const pending = withMCPImport(notReady); const pendingView = notReady.render();
   await screen.findByRole('region', { name: 'Provider setup' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
   expect(pending.candidates).not.toHaveBeenCalled();
-  notReady.runtime.dispose();
-  const answered = fixture(); const done = withMCPImport(answered, true); answered.render();
+  pendingView.unmount(); notReady.runtime.dispose();
+  const answered = fixture(); const done = withMCPImport(answered, true); const answeredView = answered.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
   expect(done.candidates).not.toHaveBeenCalled();
-  answered.runtime.dispose();
+  answeredView.unmount(); answered.runtime.dispose();
   const older = fixture(); const unsupported = withMCPImport(older); Object.assign(older.raw, { supports: () => false }); older.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(unsupported.candidates).not.toHaveBeenCalled();

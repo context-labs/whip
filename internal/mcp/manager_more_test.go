@@ -483,7 +483,7 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 }
 
 // TestRunRefusesReconnectWhenDisabled: /mcp reconnect on a disabled server
-// re-asserts disabled instead of resurrecting it behind the user's back.
+// refuses the request instead of resurrecting it behind the user's back.
 func TestRunRefusesReconnectWhenDisabled(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var connects atomic.Int64
@@ -499,8 +499,8 @@ func TestRunRefusesReconnectWhenDisabled(t *testing.T) {
 		if !m.Disable("dead") {
 			t.Fatal("disable returned false")
 		}
-		if !m.Reconnect("dead") {
-			t.Fatal("reconnect returned false")
+		if m.Reconnect("dead") {
+			t.Fatal("reconnect accepted a disabled server")
 		}
 		synctest.Wait()
 		if st := m.Statuses()[0]; st.Status != StatusDisabled {

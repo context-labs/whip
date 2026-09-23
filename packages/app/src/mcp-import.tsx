@@ -10,10 +10,12 @@ import { useRuntime } from './context';
 import { ErrorNotice } from './error-feedback';
 import { MCPBrandIcon, useBrandIcons, useBrandMarks } from './mcp-brand';
 import { layout } from './styles';
+import { mcpRefreshNotice } from './mcp-refresh';
 
 // The import screen: the servers other agents configured on a host, one flat
 // list, tick what you want, and they become Whip's own (trusted) servers. The
-// daemon reads files only; nothing here dials or launches a server.
+// discovery reads files only. After persistence, Settings can refresh its
+// current session, which may dial or launch the newly configured servers.
 
 /** One row of the daemon's answer; the generated contract inlines it. */
 export type MCPImportCandidate = NonNullable<MCPImportCandidatesResult['candidates']>[number];
@@ -68,8 +70,11 @@ export function caveat(candidate: MCPImportCandidate, included: boolean) {
   }
 }
 
-export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
-  client: WhipClient; hostName: string; cwd?: string; onDone?: (result: MCPImportApplyResult) => void;
+export interface MCPImportRefresh { notice: string; error?: unknown }
+
+export function MCPImportScreen({ client, hostName, cwd = '', refreshRootId, onDone }: {
+  client: WhipClient; hostName: string; cwd?: string; refreshRootId?: string;
+  onDone?: (result: MCPImportApplyResult, refresh?: MCPImportRefresh) => void;
 }) {
   const runtime = useRuntime();
   const { query, runtimeId, supported } = useMCPImportCandidates(client, { enabled: true, cwd });
@@ -97,7 +102,24 @@ export function MCPImportScreen({ client, hostName, cwd = '', onDone }: {
       runtime.queries.setQueryData(candidatesQueryKey(runtimeId, cwd), (old: MCPImportCandidatesResult | undefined) => old && { ...old, offered: true });
       // Other cwd variants refetch on their next use; no burst of file reads now.
       void runtime.queries.invalidateQueries({ queryKey: ['mcp-import-candidates', runtimeId], refetchType: 'none' });
-      onDone?.(result);
+      // Persistence already succeeded. A live refresh failure must not invite a
+      // second import or erase that success. The root is captured at submission,
+      // not looked up after the host has finished writing its configuration.
+      let refresh: MCPImportRefresh | undefined;
+      if (result.imported?.length && refreshRootId) {
+        if (!client.supports('runtime', 'mcp.refresh')) {
+          refresh = { notice: 'This host cannot refresh an existing session. Update its daemon or start a new session to use the imported servers.' };
+        } else {
+          try {
+            const outcome = await runtime.run(client.session(refreshRootId).mcp.refresh(), 'MCP configuration refreshed');
+            refresh = { notice: mcpRefreshNotice(outcome.result) };
+          } catch (error) {
+            refresh = { notice: 'The servers were saved, but refreshing the current session did not complete. Check Integrations before retrying the refresh.', error };
+          }
+        }
+      }
+      if (refresh) onDone?.(result, refresh);
+      else onDone?.(result);
     } catch (value) { setError(value); } finally { setBusy(false); }
   }
   if (!supported) return <p role="status" {...stylex.props(layout.muted)}>{hostName} runs an older daemon without MCP import. Update whipcode there, or run <code>whip mcp import</code> on that machine.</p>;

@@ -56,6 +56,21 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 	applyWireTags(schema, t)
+	if t == reflect.TypeFor[HostSkillCompletionParams]() {
+		// Keep the full typed object separate from the scope variants so generated
+		// clients retain its properties as well as the conditional cwd requirement.
+		properties := *schema
+		*schema = jsonschema.Schema{AllOf: []*jsonschema.Schema{&properties, {OneOf: []*jsonschema.Schema{
+			{Type: "object", Required: []string{"cwd"}, Properties: map[string]*jsonschema.Schema{
+				"scope": {Type: "string", Enum: []any{""}},
+				"cwd":   {Type: "string", Pattern: `^[\s\S]+$`},
+			}},
+			{Type: "object", Required: []string{"scope"}, Properties: map[string]*jsonschema.Schema{
+				"scope": {Type: "string", Enum: []any{"global"}},
+				"cwd":   {Type: "string", Enum: []any{""}},
+			}},
+		}}}}
+	}
 	if t == reflect.TypeFor[SessionSummariesParams]() {
 		// A Unicode pattern keeps standalone validators browser-native; Ajv's
 		// min/maxLength keywords otherwise emit a CommonJS UCS-2 helper import.

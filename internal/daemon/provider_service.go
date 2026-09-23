@@ -17,6 +17,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // RuntimeConfiguration contains settings safe to send to clients. Credentials
@@ -164,6 +165,7 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 	return RuntimeConfiguration{
 		DisabledProviders:      &disabled,
 		DefaultExecutionEngine: c.RLM.Engine(),
+		DefaultPermissionMode:  defaultPermissionMode(c),
 		RemoteHosts:            &hosts,
 		ImportClaude:           claude, ImportCodex: codex, MCPImportOffered: c.MCPImport != nil && c.MCPImport.Offered,
 		BrandIcons: c.BrandIcons == nil || *c.BrandIcons,
@@ -258,6 +260,13 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		}
 		if p.DefaultEffort != nil {
 			c.DefaultEffort = *p.DefaultEffort
+		}
+		if p.DefaultPermissionMode != nil {
+			mode := *p.DefaultPermissionMode
+			if mode != session.PermissionModePrompt && mode != session.PermissionModeAutomatic {
+				return fmt.Errorf("invalid default permission mode %q", mode)
+			}
+			c.DefaultPermissionMode = mode
 		}
 		if p.CompactModel != nil {
 			c.CompactModel = *p.CompactModel

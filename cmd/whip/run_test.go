@@ -564,7 +564,9 @@ func TestRunJSONReasoning(t *testing.T) {
 
 func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
 	runFixture(t, "done", nil)
-	_, err := runCapture(t, "", "--rlm-engine", "quickjs", "--permission-mode", "automatic", "--max-tokens", "10000", "select language")
+	// This fixture omits usage, so both turns reserve the full prompt estimate.
+	// Keep engine/resume coverage independent of small guide-size changes.
+	_, err := runCapture(t, "", "--rlm-engine", "quickjs", "--permission-mode", "automatic", "--max-tokens", "20000", "select language")
 	if err != nil {
 		t.Fatal(err)
 	}

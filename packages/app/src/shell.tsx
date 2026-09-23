@@ -11,7 +11,7 @@ import {
 import { workspacePanelId } from '@whip/ui/workspace-layout';
 import { WorkspaceDragScope } from '@whip/ui/workspace-tabs';
 import { selectedSessionTab } from './session-tabs';
-import { openBrowserTab, openNewChat } from './session-tab-routing';
+import { openBrowserTab, openNewChat, reopenClosedTab } from './session-tab-routing';
 import {
   PanelLeft,
 } from 'lucide-react';
@@ -70,6 +70,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
   const [commands, setCommands] = useState(false);
   const tabActions = useRef<SessionTabActions>(null);
+  useEffect(() => runtime.platform.onNewSession?.(() => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    openNewChat(runtime, navigate);
+  }), [runtime, navigate]);
+  useEffect(() => runtime.platform.onReopenClosedTab?.(() => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    if (tabActions.current) tabActions.current.reopen();
+    else reopenClosedTab(runtime, navigate);
+  }), [runtime, navigate]);
   useEffect(() => runtime.platform.onCloseTab?.(() => {
     if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
     if (settingsRef.current) { void navigate(settingsBackDestination(runtime)); return; }
@@ -82,7 +91,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     else if (event.shortcut === 'close') { tabActions.current?.close(event.tabId); }
     else if (event.shortcut === 'tab-next') { runtime.tabs.activate(event.tabId); tabActions.current?.next(1); }
     else if (event.shortcut === 'tab-previous') { runtime.tabs.activate(event.tabId); tabActions.current?.next(-1); }
-    else if (event.shortcut === 'new-browser') void openBrowserTab(runtime, navigate);
   }), [runtime, navigate]);
   useEffect(() => { if (settings) setNavigation(false); }, [settings]);
   useEffect(() => {
@@ -105,6 +113,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', refresh);
   }, [runtime]);
   const notices = <>
+{settings && <ErrorNotice type="action" owner="workspace" title="Could not update the workspace" error={state.workspaceError} onDismiss={() => runtime.clearWorkspaceError()} />}
 {state.hosts.map(host => <HostNotice key={host.id} host={host} onManage={manageServers} />)}
 {focusedHost?.progress && <p role="status" {...stylex.props(layout.notice)}>{focusedHost.progress}</p>}
 {runtime.connections.getSnapshot().notice && <div role="status" {...stylex.props(layout.notice)}>{runtime.connections.getSnapshot().notice} <Button variant="ghost" onClick={manageServers}>Manage servers</Button></div>}

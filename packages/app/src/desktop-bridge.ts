@@ -27,6 +27,8 @@ export type DesktopEvent =
   | { kind: 'close-request'; id: string; reason: 'quit' | 'reload' | 'update' }
   | { kind: 'navigate'; path: string }
   | { kind: 'close-tab' }
+  | { kind: 'new-session' }
+  | { kind: 'reopen-closed-tab' }
   | { kind: 'attention-wakeup' }
   | { kind: 'system-contrast'; highContrast: boolean }
   | { kind: 'update'; state: 'checking' | 'available' | 'downloaded' | 'current' | 'error'; version?: string; error?: string };

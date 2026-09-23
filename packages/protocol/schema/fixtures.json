@@ -9,6 +9,14 @@
     }
   },
   {
+    "type": "HostSkillCompletionParams",
+    "value": {
+      "scope": "global",
+      "prefix": "",
+      "limit": 1024
+    }
+  },
+  {
     "type": "SubscribeParams",
     "value": {
       "root_id": "root-fixture",
@@ -333,6 +341,12 @@
     }
   },
   {
+    "type": "GatewayStatus",
+    "value": {
+      "state": ""
+    }
+  },
+  {
     "type": "HistoryPageParams",
     "value": {
       "root_id": "",
@@ -398,6 +412,13 @@
     "type": "HostDirectoryPickResult",
     "value": {
       "cancelled": false
+    }
+  },
+  {
+    "type": "CompletionResult",
+    "value": {
+      "candidates": [],
+      "truncated": false
     }
   },
   {
@@ -1032,13 +1053,6 @@
     }
   },
   {
-    "type": "CompletionResult",
-    "value": {
-      "candidates": [],
-      "truncated": false
-    }
-  },
-  {
     "type": "IDParams",
     "value": {
       "id": ""
@@ -1326,6 +1340,17 @@
       "codex": false,
       "project": false,
       "opencode": false
+    }
+  },
+  {
+    "type": "MCPRefreshResult",
+    "value": {
+      "added": [],
+      "existing": [],
+      "changed": [],
+      "servers": [],
+      "blocked": [],
+      "source_errors": []
     }
   },
   {

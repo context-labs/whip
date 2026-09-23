@@ -109,6 +109,12 @@ export const layout = stylex.create({
     letterSpacing: '-0.035em',
     margin: 0,
   },
+  setupPage: {
+    display: 'flex', flex: 1, minHeight: 0, flexDirection: 'column', alignItems: 'center', overflowY: 'auto',
+    paddingInline: { default: scale.space8, [scale.phone]: scale.space4 },
+    paddingTop: { default: 'clamp(32px, 24vh, 216px)', [scale.phone]: scale.space8 }, paddingBottom: scale.space8,
+  },
+  setupColumn: { width: 'min(100%, 620px)', minWidth: 0, flexShrink: 0, marginBlock: 0, textAlign: 'start' },
   empty: {
     display: 'flex',
     flexDirection: 'column',

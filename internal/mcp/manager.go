@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -192,9 +193,10 @@ type Manager struct {
 
 	// blocked holds servers an mcpImport policy filtered out. They never
 	// connect, but stay visible in the status view so a gated import isn't
-	// silent. Set at startup; read via Blocked.
-	blocked      []Server
-	sourceErrors []Server
+	// silent. Discovery replaces its rows; attachment refusals persist.
+	blocked           []Server
+	attachmentBlocked map[string]bool
+	sourceErrors      []Server
 
 	// connectTransport builds the transport for a server config. A var so
 	// tests can substitute in-process transports without spawning processes.
@@ -305,21 +307,70 @@ func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID
 	}
 }
 
+// ServerStatus is the JSON-facing status snapshot used by live recovery.
+type ServerStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Note   string `json:"note,omitempty"`
+	Error  string `json:"error,omitempty"`
+	Tools  int    `json:"tools,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+// ServerStatuses converts live state to wire-safe status strings.
+func ServerStatuses(servers []Server) []ServerStatus {
+	result := make([]ServerStatus, 0, len(servers))
+	for _, server := range servers {
+		result = append(result, ServerStatus{
+			Name: server.Name, Status: server.Status.String(), Note: server.Note,
+			Error: server.Err, Tools: server.Tools, Source: server.Source,
+		})
+	}
+	return result
+}
+
+// RefreshResult reports additive discovery, not successful connection. Changed
+// names retain their current configuration and require an explicit update.
+type RefreshResult struct {
+	Added        []string       `json:"added"`
+	Existing     []string       `json:"existing"`
+	Changed      []string       `json:"changed"`
+	Servers      []ServerStatus `json:"servers"`
+	Blocked      []ServerStatus `json:"blocked"`
+	SourceErrors []ServerStatus `json:"source_errors"`
+}
+
 // AddServers folds new configs into a running manager and kicks connects for
 // the enabled ones — the live half of toggling an import source on
 // (LoadMergedFiltered re-discovers; the manager absorbs). A name that already
 // exists is left alone: whip-owned entries and existing sessions win.
-func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
+func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) (RefreshResult, error) {
+	result := RefreshResult{Added: []string{}, Existing: []string{}, Changed: []string{}}
 	m.mu.Lock()
-	if m.closed {
+	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
-		return
+		return result, err
+	}
+	if m.closed || m.runCtx.Err() != nil {
+		m.mu.Unlock()
+		return result, errors.New("MCP manager is closed")
 	}
 	var fresh []*server
 	for name, cfg := range cfgs {
-		if _, exists := m.servers[name]; exists {
+		if current, exists := m.servers[name]; exists {
+			current.mu.Lock()
+			unchanged := reflect.DeepEqual(current.cfg, cfg)
+			current.mu.Unlock()
+			if unchanged {
+				result.Existing = append(result.Existing, name)
+			} else {
+				result.Changed = append(result.Changed, name)
+			}
 			continue
 		}
+		result.Added = append(result.Added, name)
+		m.blocked = slices.DeleteFunc(m.blocked, func(row Server) bool { return row.Name == name })
+		delete(m.attachmentBlocked, name)
 		s := newServer(name, cfg)
 		s.owner = m
 		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
@@ -333,6 +384,11 @@ func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 	for _, s := range fresh {
 		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
+	slices.Sort(result.Added)
+	slices.Sort(result.Existing)
+	slices.Sort(result.Changed)
+	result.Servers = ServerStatuses(m.Statuses())
+	return result, nil
 }
 
 // RemoveServers tears down and forgets servers by name — the live half of
@@ -380,11 +436,13 @@ func (m *Manager) Start(ctx context.Context) {
 	m.stopStart = context.AfterFunc(ctx, cancelStart)
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
-		if s.status == StatusConnecting {
+		s.mu.Lock()
+		if s.status == StatusConnecting && !s.running {
 			s.running = true
 			s.runCtx, s.stop = context.WithCancel(startCtx) //nolint:fatcontext // each server stores an independent child context
 			servers = append(servers, s)
 		}
+		s.mu.Unlock()
 	}
 	m.mu.Unlock()
 	for _, s := range servers {
@@ -1011,13 +1069,16 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 	return res
 }
 
-// SetBlocked records the servers an import policy filtered out (already
-// disabled+noted ServerConfigs). Called once at startup, before Start.
+// SetBlocked replaces the discovery policy snapshot (disabled+noted configs),
+// preserving attachment refusals recorded separately by AddBlocked.
 func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.blocked = make([]Server, 0, len(cfgs))
+	m.blocked = slices.DeleteFunc(m.blocked, func(row Server) bool { return !m.attachmentBlocked[row.Name] })
 	for name, c := range cfgs {
+		if m.attachmentBlocked[name] {
+			continue
+		}
 		m.blocked = append(m.blocked, Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source})
 	}
 	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
@@ -1025,8 +1086,7 @@ func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 
 // SetSourceErrors records discovery sources that could not be read or
 // parsed, as failed rows named by source. "No tools" and "the config failed
-// to parse" must not look the same in /mcp. Called once at startup, before
-// Start.
+// to parse" must not look the same in /mcp. Replaced on each discovery.
 func (m *Manager) SetSourceErrors(errs map[string]error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1043,7 +1103,11 @@ func (m *Manager) SetSourceErrors(errs map[string]error) {
 func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.attachmentBlocked == nil {
+		m.attachmentBlocked = make(map[string]bool)
+	}
 	for name, c := range cfgs {
+		m.attachmentBlocked[name] = true
 		row := Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source}
 		if i := slices.IndexFunc(m.blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
 			m.blocked[i] = row
@@ -1101,22 +1165,36 @@ func (m *Manager) Statuses() []Server {
 }
 
 // Reconnect requests a fresh connect for a server (drops a live session
-// first). Returns false for unknown names.
+// first). Returns false for unknown, disabled, invalid, or closed servers.
 func (m *Manager) Reconnect(name string) bool {
 	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.mu.Unlock()
-	if !ok {
+	if !ok || m.closed || m.runCtx.Err() != nil {
+		m.mu.Unlock()
 		return false
 	}
 	s.mu.Lock()
+	if s.cfg.Disabled() || s.cfg.Valid() != "" {
+		s.mu.Unlock()
+		m.mu.Unlock()
+		return false
+	}
+	start := !s.running
+	if start {
+		s.runCtx, s.stop = context.WithCancel(m.runCtx)
+		s.running = true
+	}
 	old := s.retireLocked()
 	s.status = StatusConnecting
 	s.gen++
 	s.autoTries = 0 // a human asked: the automatic budget starts over
 	s.mu.Unlock()
+	m.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
+	}
+	if start {
+		return m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
 	select {
 	case s.reconnect <- struct{}{}:

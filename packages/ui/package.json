@@ -26,6 +26,7 @@
     "build:storybook": "storybook build",
     "test": "node --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
+    "test:suggestions": "node tests/textarea-suggestions.mjs",
     "test:tabs": "node tests/workspace-tabs.mjs",
     "test:layout": "node tests/workspace-layout.mjs",
     "test:csp": "node tests/csp.mjs",

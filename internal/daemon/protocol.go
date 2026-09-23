@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/protocoltransport"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -18,7 +18,7 @@ const (
 	ProtocolMajor        = protocol.Major
 	ProtocolMinor        = protocol.Minor
 	MaxSubscriptions     = 16
-	MaxFrameSize         = 1 << 20
+	MaxFrameSize         = protocoltransport.MaxFrameSize
 	MaxContentChunk      = 256 << 10
 	MaxConnections       = 64
 	MaxInFlight          = 32
@@ -27,16 +27,9 @@ const (
 	MaxUploadSize        = session.MaxInputPayloadBytes
 )
 
-var ErrFrameTooLarge = errors.New("protocol frame exceeds 1 MiB")
+var ErrFrameTooLarge = protocoltransport.ErrFrameTooLarge
 
-type rpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  any             `json:"result,omitempty"`
-	Error   *RPCError       `json:"error,omitempty"`
-}
+type rpcMessage = protocoltransport.Message
 
 type RPCError = protocol.RPCError
 
@@ -146,39 +139,5 @@ func requestDigest(scope, rootID, operation string, payload json.RawMessage) (st
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func marshalFrame(message rpcMessage) ([]byte, error) {
-	message.JSONRPC = "2.0"
-	if message.Error != nil {
-		message.Result = nil
-	} else if message.Method == "" && len(message.ID) != 0 && message.Result == nil {
-		message.Result = json.RawMessage("null")
-	}
-	data, err := json.Marshal(message)
-	if err != nil {
-		return nil, err
-	}
-	if len(data)+1 > MaxFrameSize {
-		return nil, ErrFrameTooLarge
-	}
-	return append(data, '\n'), nil
-}
-
-func decodeFrame(data []byte) (rpcMessage, error) {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 {
-		return rpcMessage{}, errors.New("empty protocol frame")
-	}
-	var message rpcMessage
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&message); err != nil {
-		return rpcMessage{}, err
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return rpcMessage{}, errors.New("invalid trailing protocol data")
-	}
-	if message.JSONRPC != "2.0" {
-		return rpcMessage{}, fmt.Errorf("unsupported jsonrpc version %q", message.JSONRPC)
-	}
-	return message, nil
-}
+func marshalFrame(message rpcMessage) ([]byte, error) { return protocoltransport.MarshalFrame(message) }
+func decodeFrame(data []byte) (rpcMessage, error)     { return protocoltransport.DecodeFrame(data) }

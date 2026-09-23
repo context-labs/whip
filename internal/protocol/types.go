@@ -241,6 +241,16 @@ type ContextAuditResult struct {
 	Rows             []ContextAuditRow `json:"rows"`
 }
 
+// MCPRefreshResult reports accepted discovery separately from connection readiness.
+type MCPRefreshResult struct {
+	Added        []string          `json:"added"`
+	Existing     []string          `json:"existing"`
+	Changed      []string          `json:"changed"`
+	Servers      []MCPStatusResult `json:"servers"`
+	Blocked      []MCPStatusResult `json:"blocked"`
+	SourceErrors []MCPStatusResult `json:"source_errors"`
+}
+
 type MCPStatusResult struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
@@ -358,11 +368,13 @@ type RuntimeConfiguration struct {
 	DefaultModel    string `json:"default_model"`
 	DefaultProvider string `json:"default_provider"`
 	DefaultEffort   string `json:"default_effort"`
-	CompactModel    string `json:"compact_model"`
-	CompactProvider string `json:"compact_provider"`
-	CompactPercent  int    `json:"compact_percent"`
-	GoalMaxRounds   int    `json:"goal_max_rounds"`
-	MaxRetries      int    `json:"max_retries"`
+	// DefaultPermissionMode is omitted by older hosts; new hosts always resolve it.
+	DefaultPermissionMode string `json:"default_permission_mode,omitempty"`
+	CompactModel          string `json:"compact_model"`
+	CompactProvider       string `json:"compact_provider"`
+	CompactPercent        int    `json:"compact_percent"`
+	GoalMaxRounds         int    `json:"goal_max_rounds"`
+	MaxRetries            int    `json:"max_retries"`
 }
 
 type ConfigurationUpdate struct {
@@ -376,6 +388,7 @@ type ConfigurationUpdate struct {
 	DefaultModel           *string              `json:"default_model,omitempty"`
 	DefaultProvider        *string              `json:"default_provider,omitempty"`
 	DefaultEffort          *string              `json:"default_effort,omitempty"`
+	DefaultPermissionMode  *string              `json:"default_permission_mode,omitempty"`
 	CompactModel           *string              `json:"compact_model,omitempty"`
 	CompactProvider        *string              `json:"compact_provider,omitempty"`
 	CompactPercent         *int                 `json:"compact_percent,omitempty"`

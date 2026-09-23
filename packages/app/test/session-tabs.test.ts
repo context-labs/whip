@@ -875,3 +875,17 @@ describe('terminal tabs', () => {
     expect(() => terminal(state, 'term-full')).toThrow('32 open session tabs');
   });
 });
+
+it('round-trips inherited permissions and preserves explicit legacy draft choices', () => {
+  const disk = storage(), tabs = new SessionTabs(disk);
+  const inherited = tabs.openNew({ runtimeId: 'host-a' });
+  const ask = tabs.openNew({ permissionMode: 'prompt' });
+  const full = tabs.openNew({ permissionMode: 'automatic' });
+  expect(inherited.permissionMode).toBeUndefined();
+  const restored = new SessionTabs(disk);
+  expect(restored.workspace().tabs.find(tab => tab.id === inherited.id)).toMatchObject({ permissionMode: undefined });
+  expect(restored.workspace().tabs.find(tab => tab.id === ask.id)).toMatchObject({ permissionMode: 'prompt' });
+  expect(restored.workspace().tabs.find(tab => tab.id === full.id)).toMatchObject({ permissionMode: 'automatic' });
+  restored.updateNew(inherited.id, { runtimeId: 'host-b' });
+  expect(restored.workspace().tabs.find(tab => tab.id === inherited.id)).toMatchObject({ runtimeId: 'host-b', permissionMode: undefined });
+});

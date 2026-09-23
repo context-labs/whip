@@ -1,4 +1,6 @@
 export * from './actions';
+export { useTextareaSuggestions } from './textarea-suggestions';
+export type { TextareaSuggestion, TextareaSuggestionsOptions } from './textarea-suggestions';
 export { NativeSurfaceProvider, useNativeOverlay, useNativeSurfacePresence } from './native-surfaces';
 export type { NativeSurfaceHold, AcquireNativeSurfaceHold } from './native-surfaces';
 export {ActivityIndicator} from './activity-indicator';

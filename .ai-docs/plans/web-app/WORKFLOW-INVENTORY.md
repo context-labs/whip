@@ -32,10 +32,12 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:events.unsubscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:executor.bind` | SDK-only | Headless custom-tool execution through client.agents.serve; claims a connection lease for a registered definition revision and tool set. The desktop renderer does not serve tools. |
 | `rpc:executor.pending` | SDK-only | Headless executor recovery through client.agents.serve after reconnect; drains pending invocations for its current lease generation. No desktop action. |
+| `rpc:gateway.status` | Internal | Local/headless CLI discovery of the daemon-owned gateway state, ready endpoint and failure separately from daemon health. Foreground gateways do not overwrite managed status; this query neither starts a process nor adds a web UI action. |
 | `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
 | `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
 | `rpc:host.directory.pick` | Web | Welcome native OS folder picker; falls back to the web directory browser where the host has no desktop picker. |
+| `rpc:host.skills.complete` | Web | Read-only New Chat slash skill suggestions for the selected host and agent definition before a session exists: negotiated global-only discovery without a folder, or the selected project's initial scope plus globals. |
 | `rpc:host.themes.list` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
 | `rpc:host.themes.resolve` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
 | `rpc:initialize` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
@@ -116,6 +118,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `runtime:mcp.import.configure` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
 | `runtime:mcp.import.status` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
 | `runtime:mcp.reconnect` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.refresh` | Web | Inspector → Integrations → MCP: additive refresh from host settings for this session; Settings MCP import also refreshes the focused conversation on the matching host. |
 | `runtime:mcp.status` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
 | `runtime:permission.forget` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |
 | `runtime:permission.mode` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |

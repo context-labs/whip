@@ -124,14 +124,14 @@ async function firstMessageScenario() {
     const page = await electron.firstWindow();
     page.on('pageerror', error => errors.push(error.message));
     const input = page.getByRole('textbox', { name: 'Your first message', exact: true });
-    await expect(input).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('region', { name: 'Provider setup' })).toBeVisible({ timeout: 30_000 });
+    await expect(input).toHaveCount(0);
     const current = await status();
     client = createWhipClient({ endpoint: unixSocket(current.socket), clientId: `first-message-${crypto.randomUUID()}`, clientKind: 'human' });
     await client.connect();
     assert.equal((await client.providers.list()).providers.find(entry => entry.id === 'openrouter').status.available, false);
     assert.equal((await client.sessions.list()).items.length, 0);
     const started = performance.now();
-    await input.fill(prompt);
     await page.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
     const connection = page.getByRole('dialog', { name: 'OpenRouter', exact: true });
     await expect(connection.getByLabel('API key', { exact: true })).toHaveAttribute('type', 'password');
@@ -139,8 +139,9 @@ async function firstMessageScenario() {
     await connection.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(connection).toHaveCount(0);
     await page.getByRole('button', { name: `Use ${alias}`, exact: true }).click();
-    await expect(input).toHaveValue(prompt);
+    await expect(input).toBeVisible();
     await expect(input).toBeFocused();
+    await input.fill(prompt);
     const selected = await client.configuration.get();
     assert.equal(selected.default_model, alias); assert.equal(selected.default_provider, 'openrouter');
     assert.equal(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }).includes('fixture-only-key')), false);

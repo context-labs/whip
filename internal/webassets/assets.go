@@ -56,7 +56,7 @@ func newHandler(files fs.FS) http.Handler {
 		}
 		if _, err := fs.Stat(files, "index.html"); err != nil {
 			http.Error(w, "WHIP web assets are not embedded. From source, run npm ci followed by task build, "+
-				"then explicitly restart the daemon.", http.StatusServiceUnavailable)
+				"then start the web gateway again.", http.StatusServiceUnavailable)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-cache")

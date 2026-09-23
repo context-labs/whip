@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Session } from '@whip/sdk';
 import { Composer } from '../src/composer';
 import { RuntimeContext } from '../src/context';
@@ -25,7 +26,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function fixture() {
+function fixture(catalog = false) {
   const onAccepted = vi.fn();
   const drafts = new Map<string, string>([
     ['runtime:root:a', 'same draft'],
@@ -47,15 +48,17 @@ function fixture() {
     run: (_handle: unknown, _label: string, accepted: () => void) =>
       new Promise((resolve, reject) => waits.push({ accepted, reject, finish: () => resolve({ result: { inbox_seq: String(waits.length) } }) })),
   } as unknown as AppRuntime;
+  const connection = { state: 'connected', info: { runtime_id: 'runtime', negotiated_capabilities: ['workspace_completion', ...(catalog ? ['skill_catalog_completion'] : [])] } };
   const session = {
     rootId: 'root',
-    client: { clientId: 'composer-test' },
+    client: { clientId: 'composer-test', getSnapshot: () => connection, subscribe: () => () => {}, call: vi.fn(async () => ({ candidates: [{ text: '$ponytail', description: 'Least code that works.' }] })) },
     command: vi.fn(() => ({})),
     submit: vi.fn(() => ({})),
   } as unknown as Session;
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 10_000 } } });
   const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn'], extra: Partial<ComponentProps<typeof Composer>> = {}) => (
     <RuntimeContext.Provider value={runtime}>
-      <UIProvider>
+      <QueryClientProvider client={queries}><UIProvider>
         <Composer
           key={viewId ?? agentId}
           viewId={viewId}
@@ -68,7 +71,7 @@ function fixture() {
           onAccepted={onAccepted}
           {...extra}
         />
-      </UIProvider>
+      </UIProvider></QueryClientProvider>
     </RuntimeContext.Provider>
   );
   return { drafts, waits, app, session, runtime, snapshot, onAccepted };
@@ -393,7 +396,7 @@ for (const outcome of ['cancelled', 'interrupted']) {
 it('switches from Send to Stop after accepting an active-turn draft', async () => {
   const f = fixture();
   const session = { ...f.session, cancelTurn: vi.fn(), agents: { cancelTurn: vi.fn() } } as unknown as Session;
-  render(<RuntimeContext.Provider value={f.runtime}><UIProvider><Composer session={session} agentId="a" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></RuntimeContext.Provider>);
+  render(<RuntimeContext.Provider value={f.runtime}><QueryClientProvider client={new QueryClient()}><UIProvider><Composer session={session} agentId="a" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></QueryClientProvider></RuntimeContext.Provider>);
   expect(screen.queryByLabelText('Message delivery')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
@@ -432,4 +435,62 @@ it('stacks agent and queue slots below submission notices without remounting the
     expect(screen.getByLabelText('Message this agent')).toBe(input);
     expect(input.value).toBe('same draft');
   }
+});
+
+it.each(['root', 'a'])('inserts a skill for %s without sending/queuing, including repeated Enter', async agentId => {
+  const f = fixture(); render(f.app(agentId, undefined, true, undefined, { queueEnabled: true, activeTurn: 'working' }));
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  act(() => input.focus());
+  fireEvent.change(input, { target: { value: 'Use /po' } });
+  await screen.findByRole('option', { name: /ponytail/ });
+  expect(f.session.client.call).toHaveBeenCalledWith('workspace.complete', { root_id: 'root', agent_id: agentId, kind: 'skill', prefix: 'po', limit: 32 }, { signal: expect.any(AbortSignal) });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(input.value).toBe('Use $ponytail ');
+  fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+  expect(f.session.submit).not.toHaveBeenCalled(); expect(f.waits).toHaveLength(0);
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(f.waits).toHaveLength(1);
+  await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
+});
+
+it('does not resurrect dismissed skills after another composer overlay or an inactive-view roundtrip', async () => {
+  const f = fixture(); const mounted = render(f.app('a', 'view', true));
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  act(() => input.focus()); fireEvent.change(input, { target: { value: '/po' } });
+  await screen.findByRole('option', { name: /ponytail/ });
+  mounted.rerender(f.app('a', 'view', false));
+  expect(screen.queryByRole('listbox')).toBeNull();
+  mounted.rerender(f.app('a', 'view', true));
+  expect(screen.queryByRole('listbox')).toBeNull();
+  expect(input.value).toBe('/po');
+});
+it('compatibility IME Enter does not send an existing draft even with no popup', () => {
+  const f = fixture(); render(f.app('a', undefined, true));
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', keyCode: 229, isComposing: false });
+  expect(f.waits).toHaveLength(0);
+});
+it('Add context dialog roundtrip does not resurrect the inline picker', async () => {
+  const f = fixture(); render(f.app('a', undefined, true));
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  act(() => input.focus()); fireEvent.change(input, { target: { value: '/po' } });
+  await screen.findByRole('option', { name: /ponytail/ });
+  fireEvent.click(screen.getByRole('button', { name: 'Add context' }));
+  await screen.findByRole('dialog', { name: 'Insert host context' });
+  expect(screen.queryByRole('listbox', { name: 'Skills' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.queryByRole('listbox', { name: 'Skills' })).toBeNull();
+  expect(input.value).toBe('/po');
+});
+
+it.each(['root', 'a'])('preloads and locally filters the active %s composer catalog', async agentId => {
+  const f = fixture(true); render(f.app(agentId, 'view', true));
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  act(() => input.focus());
+  await waitFor(() => expect(f.session.client.call).toHaveBeenCalledWith('workspace.complete', expect.objectContaining({ root_id: 'root', agent_id: agentId, prefix: '', limit: 1024 }), { signal: expect.any(AbortSignal) }));
+  fireEvent.change(input, { target: { value: '/' } }); await screen.findByRole('option', { name: /ponytail/ });
+  for (const value of ['/p', '/po', '/p']) {
+    fireEvent.change(input, { target: { value } }); expect(screen.getByRole('option', { name: /ponytail/ })).toBeTruthy();
+  }
+  expect(f.session.client.call).toHaveBeenCalledTimes(1); expect(f.session.submit).not.toHaveBeenCalled();
 });

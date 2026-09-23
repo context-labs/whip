@@ -6,7 +6,8 @@ import { ToggleGroup as BaseToggleGroup } from '@base-ui/react/toggle-group';
 import { Toggle as BaseToggle } from '@base-ui/react/toggle';
 import { mergeProps } from '@base-ui/react/merge-props';
 import { LoaderCircle, Copy, Check } from 'lucide-react';
-import { useState } from 'react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
+import { ClipboardContext } from './clipboard';
 import type { ComponentPropsWithRef, ReactElement, ReactNode } from 'react';
 import { styles } from './styles.stylex';
 import { scale } from './tokens.stylex';
@@ -39,11 +40,37 @@ export function ToggleGroup({value, onValueChange, items, label, size = 'md', mu
 }
 export function Link({xstyle, ...props}: ComponentPropsWithRef<'a'> & Styled) {return <a {...mergeProps(stylex.props(styles.link, xstyle), props)}/>;}
 export function Kbd({children, xstyle}: {children: ReactNode} & Styled) {return <kbd {...stylex.props(styles.kbd, xstyle)}>{children}</kbd>;}
-export function CopyButton({text, label = 'Copy', showLabel = false, copy, onError, xstyle}: Styled & {text: string; label?: string; showLabel?: boolean; copy?: (text: string) => Promise<void>; onError?: (error: unknown) => void}) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const currentLabel = error ? 'Could not copy. Try again.' : copied === text ? 'Copied' : label;
-  const icon = copied === text ? <Check size={14}/> : <Copy size={14}/>;
-  const props: ButtonProps = { xstyle, variant: 'ghost', onBlur: () => {setCopied(null); setError(false);}, onClick: () => {void Promise.resolve().then(() => (copy ?? (value => navigator.clipboard.writeText(value)))(text)).then(() => {setCopied(text); setError(false);}, error => {setCopied(null); setError(true); onError?.(error);});} };
-  return showLabel ? <Button {...props}>{icon}{currentLabel}</Button> : <IconButton {...props} label={currentLabel}>{icon}</IconButton>;
+const copyStyles = stylex.create({
+  feedback: {display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: 0},
+  error: {maxWidth: 240, overflowWrap: 'anywhere', fontSize: 'inherit'},
+});
+export function CopyButton({text, label = 'Copy', showLabel = false, showError = false, copy, onError, xstyle}: Styled & {text: string; label?: string; showLabel?: boolean; showError?: boolean; copy?: (text: string) => Promise<void>; onError?: (error: unknown) => void}) {
+  const platformCopy = useContext(ClipboardContext);
+  const [feedback, setFeedback] = useState<{text: string; error?: string} | null>(null);
+  const request = useRef(0);
+  useLayoutEffect(() => {
+    setFeedback(null);
+    // Retire pending feedback when streaming changes the text or the button unmounts.
+    return () => {request.current++;};
+  }, [text]);
+  const current = feedback?.text === text ? feedback : null;
+  const copied = current !== null && !current.error;
+  const currentLabel = current?.error ? 'Could not copy. Try again.' : copied ? 'Copied' : label;
+  const icon = copied ? <Check size={14}/> : <Copy size={14}/>;
+  const props: ButtonProps = {
+    xstyle, variant: 'ghost',
+    onBlur: () => setFeedback(previous => showError && previous?.error ? previous : null),
+    onClick: () => {
+      const id = ++request.current;
+      void Promise.resolve().then(() => (copy ?? platformCopy)(text)).then(() => {
+        if (id === request.current) setFeedback({text});
+      }, error => {
+        if (id !== request.current) return;
+        setFeedback({text, error: error instanceof Error && error.message ? error.message : 'Select the text to copy it manually.'});
+        onError?.(error);
+      });
+    },
+  };
+  const button = showLabel ? <Button {...props}>{icon}{currentLabel}</Button> : <IconButton {...props} label={currentLabel}>{icon}</IconButton>;
+  return showError ? <div {...stylex.props(copyStyles.feedback)}>{button}{current?.error && <span role="alert" {...stylex.props(copyStyles.error)}>Could not copy. {current.error} Try again using the copy button.</span>}</div> : button;
 }

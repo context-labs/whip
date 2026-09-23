@@ -15,7 +15,7 @@ import type { RootSnapshot } from '@whip/protocol';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
-import { PermissionModePicker } from '../src/permission-mode';
+import { PermissionModeControl, PermissionModePicker } from '../src/permission-mode';
 
 function fixture(permissionMode: string, agentId = 'root', activeTurns: Record<string, string> = {}) {
   const setPermissionMode = vi.fn(() => ({}));
@@ -85,4 +85,19 @@ it('keeps a failed mode change at the picker and clears it after retry', async (
   expect(f.runtime.report).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('option', { name: /Full Access/ }));
   await screen.findByRole('button', { name: 'Permission approval mode' });
+});
+
+it('reuses the shared choices and warning explanation with a labelled settings trigger', async () => {
+  const change = vi.fn();
+  render(<ThemeProvider initialTheme="light"><UIProvider><PermissionModeControl presentation="settings" label="Default permission level" value="automatic" onChange={change} /></UIProvider></ThemeProvider>);
+  const trigger = screen.getByRole('button', { name: 'Default permission level' });
+  expect(trigger.textContent).toContain('Full Access');
+  expect(trigger.querySelector('.lucide-shield-alert')).not.toBeNull();
+  trigger.focus(); expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  const option = await screen.findByRole('option', { name: /Full Access/ });
+  expect(option.textContent).toContain('Access files outside this project and approve actions automatically');
+  expect(option.getAttribute('aria-selected')).toBe('true');
+  fireEvent.click(screen.getByRole('option', { name: /Ask for approval/ }));
+  expect(change).toHaveBeenCalledWith('prompt');
 });

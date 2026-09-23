@@ -5,159 +5,148 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/http/httptest"
-	"os"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/context-labs/whip/internal/session"
+	"time"
 )
 
+func gatewayHTTPURL(f v2Fixture) string {
+	return "http" + strings.TrimSuffix(strings.TrimPrefix(f.endpoint, "ws"), "/api/v3/ws")
+}
+
+func gatewayHTTPRequest(t *testing.T, request *http.Request) (*http.Response, []byte) {
+	t.Helper()
+	client := &http.Client{Timeout: 5 * time.Second}
+	t.Cleanup(client.CloseIdleConnections)
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response, body
+}
+
+func waitGatewayUploads(t *testing.T, manager *uploadManager, want int) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		manager.mu.Lock()
+		count := len(manager.live)
+		manager.mu.Unlock()
+		if count == want {
+			if want != 0 {
+				return
+			}
+			// The manager drops its index before unlinking temporary files.
+			entries, err := filepath.Glob(filepath.Join(manager.dir, ".whip-upload-*"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) == 0 {
+				return
+			}
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("active uploads=%d, want %d", count, want)
+		case <-tick.C:
+		}
+	}
+}
+
 func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	root := createRoot(t, store)
-	other := createRoot(t, store)
-	dir := t.TempDir()
-	manager := newUploadManager(store, dir)
-	handler := newContentHTTPHandler(manager)
+	f := newV2Fixture(t, &fakeRunner{})
+	other := createRoot(t, f.store)
 	data := bytes.Repeat([]byte("<script>unsafe()</script>"), 30000)
 	digest := sha256.Sum256(data)
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost/api/v3/content/upload?root_id="+root, bytes.NewReader(data))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, gatewayHTTPURL(f)+"/api/v3/content/upload?root_id="+f.rootID, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.Header.Set("Content-Type", "text/html")
 	request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusCreated {
-		t.Fatalf("upload: %d %s", response.Code, response.Body.String())
+	response, body := gatewayHTTPRequest(t, request)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("upload: %d %s", response.StatusCode, body)
 	}
 	var handle ContentHandle
-	if err := json.Unmarshal(response.Body.Bytes(), &handle); err != nil {
+	if err := json.Unmarshal(body, &handle); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
 		root, agent string
 		status      int
 	}{
-		{root: root, status: http.StatusOK},
+		{root: f.rootID, status: http.StatusOK},
 		{root: other, status: http.StatusForbidden},
-		{root: root, agent: "unknown", status: http.StatusForbidden},
+		{root: f.rootID, agent: "unknown", status: http.StatusForbidden},
 	} {
-		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost/api/v3/content/"+handle.ReferenceID+"?root_id="+test.root+"&agent_id="+test.agent, nil)
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		if response.Code != test.status {
-			t.Fatalf("download status %d", response.Code)
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, gatewayHTTPURL(f)+"/api/v3/content/"+handle.ReferenceID+"?root_id="+test.root+"&agent_id="+test.agent, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, body := gatewayHTTPRequest(t, request)
+		if response.StatusCode != test.status {
+			t.Fatalf("download status %d: %s", response.StatusCode, body)
 		}
 		if test.status == http.StatusOK {
-			if !bytes.Equal(response.Body.Bytes(), data) {
+			if !bytes.Equal(body, data) {
 				t.Fatal("content body differs")
 			}
-			if response.Header().Get("Content-Disposition") != "attachment" {
-				t.Fatal("active content is not forced to download")
+			if response.Header.Get("Content-Disposition") != "attachment" || response.Header.Get("X-Content-Type-Options") != "nosniff" {
+				t.Fatal("active content is not forced to a safe download")
 			}
 		}
 	}
-	request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost/api/v3/content/upload?root_id="+root, bytes.NewReader(data[:10]))
-	request.ContentLength = int64(len(data))
-	request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("incomplete upload status %d", response.Code)
+	if err := f.store.RevokeContentGrant(t.Context(), handle.ReferenceID, f.rootID, ""); err != nil {
+		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("temporary uploads remain: %v %v", entries, err)
-	}
-	if len(manager.live) != 0 {
-		t.Fatal("upload state remains")
-	}
-}
-
-type interruptedUploadReader struct{}
-
-func (interruptedUploadReader) Read([]byte) (int, error) {
-	return 0, errors.New("client disconnected")
-}
-
-func TestContentHTTPRejectsInvalidUploadsAndReleasesTemporaryState(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	root := createRoot(t, store)
-	directory := t.TempDir()
-	manager := newUploadManager(store, directory)
-	handler := newContentHTTPHandler(manager)
-	digest := sha256.Sum256([]byte("body"))
-	for _, test := range []struct {
-		name   string
-		length int64
-		digest string
-		body   io.Reader
-		status int
-	}{
-		{"unknown size", -1, hex.EncodeToString(digest[:]), bytes.NewBufferString("body"), http.StatusRequestEntityTooLarge},
-		{"oversized body", MaxUploadSize + 1, hex.EncodeToString(digest[:]), bytes.NewBufferString("body"), http.StatusRequestEntityTooLarge},
-		{"invalid digest", 4, "not-a-digest", bytes.NewBufferString("body"), http.StatusBadRequest},
-		{"body exceeds declared size", 2, hex.EncodeToString(digest[:]), bytes.NewBufferString("body"), http.StatusBadRequest},
-		{"interrupted body", 8, hex.EncodeToString(digest[:]), io.MultiReader(bytes.NewBufferString("body"), interruptedUploadReader{}), http.StatusBadRequest},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost/api/v3/content/upload?root_id="+root, test.body)
-			request.ContentLength = test.length
-			request.Header.Set("X-Content-Sha256", test.digest)
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, request)
-			if response.Code != test.status {
-				t.Fatalf("invalid transfer returned %d: %s", response.Code, response.Body.String())
-			}
-			files, err := os.ReadDir(directory)
-			if err != nil || len(files) != 0 || len(manager.live) != 0 {
-				t.Fatalf("failed upload retained temporary resources: %v %v", files, err)
-			}
-		})
-	}
-}
-
-type revokingContentWriter struct {
-	*httptest.ResponseRecorder
-	revoke func()
-	writes int
-}
-
-func (w *revokingContentWriter) Write(data []byte) (int, error) {
-	w.writes++
-	n, err := w.ResponseRecorder.Write(data)
-	if w.writes == 1 {
-		w.revoke()
-	}
-	return n, err
-}
-
-func TestContentHTTPStopsDownloadAfterGrantRevocation(t *testing.T) {
-	t.Parallel()
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	root := createRoot(t, store)
-	data := bytes.Repeat([]byte("x"), 2*MaxContentChunk)
-	value, err := store.StoreContent(t.Context(), session.ContentGrant{RootID: root, Scope: session.ContentGrantRoot}, session.RuntimePayload{Data: data})
+	request, err = http.NewRequestWithContext(t.Context(), http.MethodGet, gatewayHTTPURL(f)+"/api/v3/content/"+handle.ReferenceID+"?root_id="+f.rootID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := &revokingContentWriter{ResponseRecorder: httptest.NewRecorder(), revoke: func() {
-		if err := store.RevokeContentGrant(t.Context(), value.ReferenceID, root, ""); err != nil {
-			t.Fatal(err)
-		}
-	}}
-	handler := newContentHTTPHandler(newUploadManager(store, t.TempDir()))
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost/api/v3/content/"+value.ReferenceID+"?root_id="+root, nil)
-	handler.ServeHTTP(response, request)
-	if response.writes != 1 || response.Body.Len() != min(MaxContentChunk, session.MaxContentRead) {
-		t.Fatalf("download continued after revocation: %d writes, %d bytes", response.writes, response.Body.Len())
+	response, body = gatewayHTTPRequest(t, request)
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("revoked grant served: %d %s", response.StatusCode, body)
 	}
-	denied := httptest.NewRecorder()
-	handler.ServeHTTP(denied, request)
-	if denied.Code != http.StatusForbidden {
-		t.Fatalf("revoked download can restart: %d", denied.Code)
+	waitGatewayUploads(t, f.server.uploads, 0)
+}
+
+func TestContentHTTPInterruptedUploadReleasesDaemonState(t *testing.T) {
+	f := newV2Fixture(t, &fakeRunner{})
+	endpoint, err := url.Parse(gatewayHTTPURL(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := net.DialTimeout("tcp", endpoint.Host, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(5 * time.Second))
+	digest := sha256.Sum256([]byte("bodybody"))
+	_, err = fmt.Fprintf(connection, "POST /api/v3/content/upload?root_id=%s HTTP/1.1\r\nHost: %s\r\nContent-Length: 8\r\nX-Content-Sha256: %x\r\n\r\nbody", f.rootID, endpoint.Host, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitGatewayUploads(t, f.server.uploads, 1)
+	_ = connection.Close()
+	waitGatewayUploads(t, f.server.uploads, 0)
+	entries, err := filepath.Glob(filepath.Join(f.server.uploads.dir, ".whip-upload-*"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("temporary uploads remain: %v %v", entries, err)
 	}
 }

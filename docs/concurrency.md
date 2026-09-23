@@ -210,6 +210,36 @@ Shell and kernel subprocesses run in managed process groups. This is
 operational containment, not a security sandbox against another hostile
 process already running as the same OS user.
 
+## Gateway process ownership
+
+The socket-only daemon owns execution; `internal/webgateway` owns HTTP/WS
+listeners and adapters, not runtime lifetime. `whip web` runs it in the
+foreground. Daemon launch orchestration may start the same implementation as
+one owned child per daemon generation when `WHIP_NETWORK=1` is explicit.
+Neither browser disconnect nor gateway failure cancels accepted daemon work.
+
+The gateway owns its listener, upgraded WebSockets, upstream connections and
+relay workers. Each browser gets a separate bounded protocol connection;
+HTTP content transfers use request-scoped chunk RPCs and release their resources
+on cancellation. All upstream connections require acknowledged restrict-only
+network initialization. A slow client is disconnected, not given unbounded
+buffers or local-client privileges. HTTP shutdown alone does not close hijacked
+WebSockets; the gateway explicitly owns and closes them.
+
+Managed startup uses bounded readiness/error reporting plus a lifetime pipe.
+The parent reaps the child; cancellation closes the lifetime channel and bounded
+graceful shutdown escalates to a kill. Parent death produces EOF without relying
+on a signal handler, and descendants must not retain ownership descriptors.
+Daemon readiness is separate from gateway readiness. Only a ready child for the
+selected generation is advertised through `gateway.status` and
+`init.network_endpoint`; exit clears that endpoint. Foreground instances never
+publish over managed status. The gateway also watches its selected daemon and
+exits on loss instead of following a replacement generation.
+
+There is no automatic child restart loop. A managed failure leaves the daemon
+usable and is reported independently; a foreground gateway is the non-disruptive
+recovery path. See [web setup](web-app.md#optional-managed-startup).
+
 ## V2 connections and views
 
 Adapters own framing, deadlines and connection cancellation. Every WebSocket

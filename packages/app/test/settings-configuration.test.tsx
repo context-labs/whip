@@ -182,3 +182,84 @@ it('classifies invalid defaults as validation and preserves the draft without wr
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
+
+async function choosePermission(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Default permission level' }));
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(name) }));
+}
+
+it('places the shared permission control below effort and saves it only on Save host defaults', async () => {
+  const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' });
+  const view = f.render('providers');
+  const control = await screen.findByRole('button', { name: 'Default permission level' });
+  expect(control.textContent).toContain('Ask for approval');
+  const rows = [...view.container.querySelectorAll('[role="group"]')].map(row => row.id);
+  expect(rows.indexOf('default_permission_mode')).toBe(rows.indexOf('default_effort') + 1);
+  await choosePermission('Full Access');
+  await waitFor(() => expect(control.textContent).toContain('Full Access'));
+  expect(f.update).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).toEqual({ revision: 'v1', default_model: 'model-a', default_provider: 'openrouter', default_effort: 'high', default_permission_mode: 'automatic' });
+  expect(f.queries.getQueryData(['runtime-configuration', 'host-a'])).toMatchObject({ default_permission_mode: 'automatic' });
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+});
+
+it('keeps legacy hosts on Ask without offering an unsupported setting save', async () => {
+  const f = fixture(); f.render('providers');
+  expect(await screen.findByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval');
+  await chooseModel('model-b');
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('default_permission_mode');
+});
+
+it('retains a permission draft through revision conflicts and resets only when requested', async () => {
+  const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' }); f.render('providers');
+  await choosePermission('Full Access');
+  f.changeServer({ ...initial, revision: 'v2', default_permission_mode: 'prompt' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Configuration revision conflict');
+  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Full Access');
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard edits and load current defaults' }));
+  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval');
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+});
+
+it('does not include permissions in execution patches', async () => {
+  const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'automatic' }); f.render('execution');
+  fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '4' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('default_permission_mode');
+  expect(f.queries.getQueryData(['runtime-configuration', 'host-a'])).toMatchObject({ default_permission_mode: 'automatic' });
+});
+
+it('isolates permission drafts and saved defaults when switching execution hosts', async () => {
+  const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' });
+  const view = f.render('providers');
+  await choosePermission('Full Access');
+  const hostB = { ...f.client, getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-b' } }),
+    configuration: { get: vi.fn(async () => ({ ...initial, revision: 'b1', default_permission_mode: 'prompt' })), update: vi.fn() } } as unknown as WhipClient;
+  view.rerender(f.wrapper(<ConfigurationSettings client={hostB} enabled category="providers" />));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval'));
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+  expect(hostB.configuration.update).not.toHaveBeenCalled();
+  expect(f.update).not.toHaveBeenCalled();
+  view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval'));
+});
+
+it('disables permission changes while disconnected or saving', async () => {
+  const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' });
+  const view = f.render('providers'); await choosePermission('Full Access');
+  view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled={false} category="providers" />));
+  expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+  view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
+  f.update.mockImplementationOnce(() => new Promise(() => {}));
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await waitFor(() => expect(f.update).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+});

@@ -8,17 +8,19 @@ import { Button, Input, Select, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { CatalogModelPicker, catalogModels, effortLabel, modelEfforts, useProviderCatalog } from '../model-selection';
 import { useRuntime } from '../context';
+import { PermissionModeControl } from '../permission-mode';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 import { useSettingsEdits } from './unsaved';
 
 type Category = 'providers' | 'execution';
-const providerFields = ['default_model', 'default_provider', 'default_effort'] as const;
+const providerFields = ['default_model', 'default_provider', 'default_effort', 'default_permission_mode'] as const;
 const executionFields = ['default_execution_engine', 'compact_model', 'compact_provider', 'compact_percent', 'goal_max_rounds', 'max_retries', 'import_claude', 'import_codex'] as const;
 type Values = Pick<RuntimeConfiguration, typeof providerFields[number] | typeof executionFields[number]>;
 function values(config: RuntimeConfiguration): Values {
   return {
     default_model: config.default_model, default_provider: config.default_provider, default_effort: config.default_effort,
+    default_permission_mode: config.default_permission_mode,
     default_execution_engine: config.default_execution_engine,
     compact_model: config.compact_model, compact_provider: config.compact_provider, compact_percent: config.compact_percent,
     goal_max_rounds: config.goal_max_rounds, max_retries: config.max_retries, import_claude: config.import_claude, import_codex: config.import_codex,
@@ -29,6 +31,7 @@ function values(config: RuntimeConfiguration): Values {
 export function configurationPatch(category: Category, value: Values, revision: string): ConfigurationUpdate {
   if (category === 'providers') return {
     revision, default_model: value.default_model, default_provider: value.default_provider, default_effort: value.default_effort,
+    ...(value.default_permission_mode === undefined ? {} : { default_permission_mode: value.default_permission_mode }),
   };
   return {
     default_execution_engine: value.default_execution_engine,
@@ -145,6 +148,9 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
               ...(!isDefault && !levels.includes(current) ? [{ value: current, label: `${effortLabel(current)} (unavailable)`, disabled: true }] : [])]} />
         </SettingRow>;
       }}</form.Field>
+      <form.Field name="default_permission_mode">{field => <SettingRow id="default_permission_mode" label="Default permission level" description={base.default_permission_mode === undefined ? 'This host does not support saving a default permission level. New sessions ask for approval.' : 'Choose how permissions are approved for new sessions.'}>
+        <PermissionModeControl presentation="settings" label="Default permission level" value={field.state.value ?? 'prompt'} disabled={!enabled || submitting || base.default_permission_mode === undefined} onChange={field.handleChange} />
+      </SettingRow>}</form.Field>
     </SettingsGroup> : <>
       <SettingsGroup title="Defaults for new sessions">
         <form.Field name="default_execution_engine">{field => <SettingRow id="default_execution_engine" label="Execution language" description="Used for future sessions and all their child agents. Existing sessions keep their language.">

@@ -152,6 +152,68 @@ try {
   await reattach();
   checks.push('reload restores the tab and reattaches the same shell');
 
+  // Exercise the production New session menu/IPC path without replacing or
+  // stopping the terminal. OS accelerator routing still needs real-key acceptance.
+  await view.click();
+  await electron.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'New session');
+    if (item.accelerator !== 'CmdOrCtrl+T') throw new Error('Missing New session accelerator');
+    item.click();
+  });
+  await eventually(() => /\/new\//.test(page.url()), 'New Chat from terminal focus');
+  const closedDraftURL = page.url();
+  await electron.evaluate(({ Menu }) => {
+    Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'Close tab').click();
+  });
+  await live();
+  assert.equal(await view.getAttribute('data-terminal-view'), terminalId, 'New session preserved the terminal');
+  await replay('paste-55');
+  await reattach();
+  checks.push('New session native menu opens a draft and preserves the running terminal');
+
+  // Restore that exact draft via the production menu, including from a hidden window.
+  await electron.evaluate(({ BrowserWindow, Menu }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.close();
+    if (window.isVisible()) throw new Error('Closed window should be hidden');
+    const item = Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'Reopen closed tab');
+    if (item.accelerator !== 'CmdOrCtrl+Shift+T') throw new Error('Missing Reopen closed tab accelerator');
+    item.click();
+    if (!window.isVisible() || !window.webContents.isFocused()) throw new Error('Reopen must reveal and focus the window');
+  });
+  await eventually(() => page.url() === closedDraftURL, 'Reopen restored the original draft identity');
+  await electron.evaluate(({ Menu }) => {
+    Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'Close tab').click();
+  });
+  await live();
+  assert.equal(await view.getAttribute('data-terminal-view'), terminalId, 'Reopen preserved the terminal');
+  await replay('paste-55');
+  await reattach();
+  checks.push('Reopen closed tab native menu restores the same draft from a hidden window and preserves the running terminal');
+
+  // Closing the native window hides it without destroying the workspace.
+  // New session must reveal that same window instead of creating an invisible draft.
+  await electron.evaluate(({ BrowserWindow, Menu }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.close();
+    if (window.isVisible()) throw new Error('Closed window should be hidden');
+    Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'New session').click();
+    if (!window.isVisible() || !window.webContents.isFocused()) throw new Error('New session must reveal and focus the window');
+  });
+  await eventually(() => /\/new\//.test(page.url()), 'New Chat from hidden window');
+  await electron.evaluate(({ Menu }) => {
+    Menu.getApplicationMenu().items.find(item => item.label === 'File')
+      .submenu.items.find(item => item.label === 'Close tab').click();
+  });
+  await live();
+  assert.equal(await view.getAttribute('data-terminal-view'), terminalId);
+  checks.push('New session reveals a previously closed native window');
+
   // Cmd+W is a native menu accelerator; synthesized renderer keys never reach it,
   // so click the real File > Close tab item in the main process.
   await view.click();

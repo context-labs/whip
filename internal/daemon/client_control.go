@@ -136,7 +136,7 @@ func isClientOperation(operation string) bool {
 		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel", "question.answer",
 		"provider.catalogs",
 		"agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
-		"context.audit", "mcp.status", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.import.status", "mcp.import.configure", "lsp.status", "browser.status", "browser.set_driver", "computer.status", "computer.allow", "computer.deny", "terminal.input",
+		"context.audit", "mcp.status", "mcp.refresh", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.import.status", "mcp.import.configure", "lsp.status", "browser.status", "browser.set_driver", "computer.status", "computer.allow", "computer.deny", "terminal.input",
 		"tool.configure", "tool.schema", "tool.call", "permission.mode", "permission.rules", "permission.forget", "mcp.attach":
 		return true
 	default:
@@ -519,7 +519,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		}
 		return finish(nil)
 	}
-	if operation == "mcp.reconnect" || operation == "mcp.enable" || operation == "mcp.disable" || operation == "browser.set_driver" {
+	if operation == "mcp.refresh" || operation == "mcp.reconnect" || operation == "mcp.enable" || operation == "mcp.disable" || operation == "browser.set_driver" {
 		if s.clientPreparing {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("runtime replacement is preparing"), &result))
 		}
@@ -528,7 +528,9 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 		}
 		var work func() (string, error)
-		if operation == "browser.set_driver" {
+		if operation == "mcp.refresh" {
+			work = func() (string, error) { return s.clientMCP(s.supervisor.ctx, operation, action) }
+		} else if operation == "browser.set_driver" {
 			runner, ok := s.runner.(*AgentSession)
 			if !ok || runner.browserManager() == nil {
 				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("browser automation is unavailable"), &result))
@@ -1224,7 +1226,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("terminal input requires an active terminal and at most 4 KiB")
 		}
 		return "input delivered", runner.SendTerminalInput(payload.ID, payload.Bytes)
-	case "mcp.status", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.import.status", "mcp.import.configure":
+	case "mcp.status", "mcp.refresh", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.import.status", "mcp.import.configure":
 		return s.clientMCP(ctx, operation, payload)
 	case "lsp.status":
 		runner, ok := s.runner.(*AgentSession)
@@ -1248,6 +1250,10 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 }
 
 func (s *Session) clientMCP(ctx context.Context, operation string, payload clientActionPayload) (string, error) {
+	if operation == "mcp.refresh" {
+		result, err := s.refreshMCP(ctx)
+		return marshalClientOutput(result, err)
+	}
 	manager, ok := s.currentMCP().(clientMCPManager)
 	if operation == "mcp.import.status" || operation == "mcp.import.configure" {
 		return s.clientMCPImport(ctx, operation, payload.Source, payload.Enabled)
@@ -1282,6 +1288,11 @@ func applyMCPAction(manager clientMCPManager, operation, name string) (string, e
 	var changed bool
 	switch action {
 	case "reconnect":
+		for _, status := range manager.Statuses() {
+			if status.Name == name && status.Status == mcp.StatusDisabled {
+				return "", fmt.Errorf("MCP server %q is disabled; enable it explicitly before reconnecting", name)
+			}
+		}
 		changed = manager.Reconnect(name)
 	case "enable":
 		changed = manager.Enable(name)
@@ -1291,6 +1302,13 @@ func applyMCPAction(manager clientMCPManager, operation, name string) (string, e
 		return "", errors.New("mcp action must be reconnect, enable, or disable")
 	}
 	if !changed {
+		if action == "reconnect" {
+			for _, status := range manager.Statuses() {
+				if status.Name == name {
+					return "", fmt.Errorf("MCP server %q cannot reconnect (status %s); check its configuration and session lifecycle", name, status.Status)
+				}
+			}
+		}
 		return "", fmt.Errorf("no MCP server named %s", name)
 	}
 	return name + ": " + action, nil
@@ -1518,7 +1536,12 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 	}
 	s.definition = effectiveDefinition(components)
 	oldRunner, oldRuntime := s.runner, s.runtime
-	oldMCP := s.swapMCP(components.MCP)
+	s.mcpMu.Lock()
+	oldMCP := s.mcp
+	s.mcp, s.loadMCP = components.MCP, components.LoadMCP
+	s.mcpServers = slices.Clone(s.definition.MCP.Servers)
+	s.mcpGeneration++
+	s.mcpMu.Unlock()
 	s.runner, s.runtime = components.Runner, components.Runtime
 	replacement.installed = true
 	s.meta.Model, s.meta.Provider, s.meta.Effort = model, provider, meta.Effort

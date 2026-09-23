@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { WhipClient } from '@whip/sdk';
 import type { HostConnection } from '../src/hosts';
 import type { AppRuntime } from '../src/runtime';
+import { SessionTabs } from '../src/session-tabs';
 import { RuntimeContext } from '../src/context';
 import { Settings } from '../src/settings';
 import { validateSettingsSearch } from '../src/settings/navigation';
@@ -26,7 +27,7 @@ function fixture(loading = false) {
     preferences: { commandShortcut: 'Mod+K', composerShortcut: 'Mod+Shift+L', attentionAnnouncements: true, desktopNotifications: false, toolDensity: 'compact' } } as unknown as ReturnType<AppRuntime['getSnapshot']>;
   const listeners = new Set<() => void>();
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const runtime = { queries, platform: {}, lastSession: () => ({ runtimeId: 'runtime-remote', rootId: 'a' }),
+  const runtime = { queries, tabs: new SessionTabs(), platform: {}, lastSession: () => ({ runtimeId: 'runtime-remote', rootId: 'a' }),
     getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, report: vi.fn() } as unknown as AppRuntime;
   const root = createRootRoute({ component: () => <Outlet /> });
   const settings = createRoute({ getParentRoute: () => root, path: '/settings', validateSearch: validateSettingsSearch, component: () => <Settings {...settings.useSearch()} /> });

@@ -8,6 +8,16 @@ type CompletionParams struct {
 	Limit   int    `json:"limit"`
 }
 
+// HostSkillCompletionParams previews initial skill metadata without creating a session.
+type HostSkillCompletionParams struct {
+	Scope          string `json:"scope,omitempty"`
+	CWD            string `json:"cwd,omitempty"`
+	Definition     string `json:"definition,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+	Prefix         string `json:"prefix"`
+	Limit          int    `json:"limit"`
+}
+
 type CompletionCandidate struct {
 	Text        string `json:"text"`
 	Description string `json:"description"`

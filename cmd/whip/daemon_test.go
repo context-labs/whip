@@ -23,6 +23,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 func init() {
@@ -80,9 +81,20 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	if client.InitializeResult().Generation != 1 {
 		t.Fatalf("initial generation = %+v", client.InitializeResult())
 	}
-	endpoint := client.InitializeResult().NetworkEndpoint
+	if endpoint := client.InitializeResult().NetworkEndpoint; endpoint != "" {
+		t.Fatalf("ordinary daemon startup exposed a web listener: %q", endpoint)
+	}
+	gateway, err := webgateway.Start(t.Context(), webgateway.Options{
+		Address: "127.0.0.1:0", SocketPath: paths.Socket,
+		Open: func(ctx context.Context) (webgateway.Client, error) { return dialGatewayClient(ctx, paths) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = gateway.Close() }()
+	endpoint := gateway.Endpoint()
 	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") {
-		t.Fatalf("default listener is not loopback: %q", endpoint)
+		t.Fatalf("gateway is not loopback: %q", endpoint)
 	}
 	httpClient := &http.Client{Timeout: 2 * time.Second}
 	for _, test := range []struct {

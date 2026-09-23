@@ -37,6 +37,7 @@ export const settingEntries: readonly SettingEntry[] = [
   { id: 'providers', section: 'providers', label: 'Provider connections', keywords: 'login credentials api key openai anthropic codex claude openrouter inference' },
   { id: 'default_model', section: 'providers', label: 'Default model', keywords: 'default provider model route' },
   { id: 'default_effort', section: 'providers', label: 'Default reasoning effort', keywords: 'thinking low medium high' },
+  { id: 'default_permission_mode', section: 'providers', label: 'Default permission level', keywords: 'permissions approval ask full access automatic prompt' },
   { id: 'compact_model', section: 'execution', label: 'Compaction model', keywords: 'context summary' },
   { id: 'compact_provider', section: 'execution', label: 'Compaction provider', keywords: 'context summary' },
   { id: 'compact_percent', section: 'execution', label: 'Compaction threshold', keywords: 'context percentage' },

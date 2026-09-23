@@ -3,11 +3,11 @@ import { TLSSocket } from 'node:tls';
 import type { ProxyOptions } from 'vite';
 
 /** The dev server is a same-origin API facade for a local browser, not an open relay. */
-export function daemonProxy(target = process.env.WHIP_WEB_DAEMON || 'http://127.0.0.1:8080'): ProxyOptions {
+export function daemonProxy(target = process.env.WHIP_WEB_DAEMON || 'http://127.0.0.1:4444'): ProxyOptions {
   const upstream = new URL(target);
   if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password
     || upstream.pathname !== '/' || upstream.search || upstream.hash) {
-    throw new Error('WHIP_WEB_DAEMON must be an HTTP(S) daemon origin, without credentials or a path.');
+    throw new Error('WHIP_WEB_DAEMON must be an HTTP(S) gateway origin, without credentials or a path.');
   }
   return {
     target: upstream.origin, ws: true, changeOrigin: true,
@@ -27,7 +27,7 @@ export function daemonProxy(target = process.env.WHIP_WEB_DAEMON || 'http://127.
     },
     configure(proxy) {
       // Rewrite only after bypass has admitted the request, for both scoped
-      // content transfers and WebSockets. The daemon's allowlist stays intact.
+      // content transfers and WebSockets. The gateway's allowlist stays intact.
       const origin = (request: ClientRequest) => request.setHeader('Origin', upstream.origin);
       proxy.on('proxyReq', origin);
       proxy.on('proxyReqWs', origin);

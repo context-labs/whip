@@ -1,6 +1,7 @@
 package rlm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -225,13 +226,33 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 // LoadPromptSkills discovers the same authorized catalog used by ComposePrompt,
 // without reading project instructions or replacing an explicit system prompt.
 func LoadPromptSkills(options PromptOptions) ([]skills.Skill, error) {
+	return LoadPromptSkillsContext(context.Background(), options)
+}
+
+// LoadGlobalPromptSkillsContext discovers only configured user skill roots,
+// preserving definition discovery policy without resolving a working directory.
+func LoadGlobalPromptSkillsContext(ctx context.Context, discovery bool) ([]skills.Skill, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return loadPromptSkillsContext(ctx, PromptOptions{
+		SkillDiscovery:          discovery,
+		ProjectDirectoryAllowed: func(string) (bool, error) { return false, nil },
+	}, nil)
+}
+
+// LoadPromptSkillsContext is cancellable metadata-only catalog discovery.
+func LoadPromptSkillsContext(ctx context.Context, options PromptOptions) ([]skills.Skill, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cwd, err := filepath.Abs(options.WorkingDirectory)
 	if err != nil {
 		return nil, err
 	}
 	cwd, err = filepath.EvalSymlinks(cwd)
 	if errors.Is(err, fs.ErrNotExist) {
-		return loadPromptSkills(options, nil)
+		return loadPromptSkillsContext(ctx, options, nil)
 	}
 	if err != nil {
 		return nil, err
@@ -240,7 +261,7 @@ func LoadPromptSkills(options PromptOptions) ([]skills.Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadPromptSkills(options, chain)
+	return loadPromptSkillsContext(ctx, options, chain)
 }
 
 func authorizedProjectChain(cwd string, options PromptOptions) ([]string, error) {
@@ -262,6 +283,10 @@ func authorizedProjectChain(cwd string, options PromptOptions) ([]string, error)
 }
 
 func loadPromptSkills(options PromptOptions, chain []string) ([]skills.Skill, error) {
+	return loadPromptSkillsContext(context.Background(), options, chain)
+}
+
+func loadPromptSkillsContext(ctx context.Context, options PromptOptions, chain []string) ([]skills.Skill, error) {
 	dirs := options.SkillDirs
 	if dirs == nil && !options.SkillDiscovery {
 		dirs = []string{}
@@ -273,12 +298,15 @@ func loadPromptSkills(options PromptOptions, chain []string) ([]skills.Skill, er
 			return nil, err
 		}
 	}
-	var allowRead func(string) (bool, error)
-	if options.ProjectDirectoryAllowed != nil {
-		allowRead = func(path string) (bool, error) {
-			_, allowed, err := ResolvePromptSkill(path, options.ProjectDirectoryAllowed)
-			return allowed, err
+	allowRead := func(path string) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
+		if options.ProjectDirectoryAllowed == nil {
+			return true, nil
+		}
+		_, allowed, err := ResolvePromptSkill(path, options.ProjectDirectoryAllowed)
+		return allowed, err
 	}
 	return skills.LoadPromptCatalogWithAccess(allowRead, dirs...)
 }

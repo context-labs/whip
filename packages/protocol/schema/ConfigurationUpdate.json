@@ -89,6 +89,12 @@
         "string"
       ]
     },
+    "default_permission_mode": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
     "compact_model": {
       "type": [
         "null",

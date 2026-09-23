@@ -27,6 +27,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/webassets"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 // TestV2SDKBridge runs only as a subprocess of the shared integration fixture. Its
@@ -150,7 +151,7 @@ func TestV2SDKBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Browser fixtures are network clients; they exercise terminals through the same gate operators use.
-	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}, Terminals: true}
+	network := webgateway.Options{AllowedOrigins: []string{frontend}}
 	// Multi-host browser fixtures explicitly trust the local fixture's origin.
 	// Production network defaults and origin validation remain authoritative.
 	if raw := os.Getenv("WHIP_SDK_FIXTURE_ALLOWED_ORIGINS"); raw != "" {
@@ -172,7 +173,7 @@ func TestV2SDKBridge(t *testing.T) {
 		// the test port first so both exact Hosts are known before Serve starts.
 		// A competing bind fails fixture startup rather than attaching elsewhere.
 		if network.Address == "" {
-			reserved, err := network.listen(t.Context())
+			reserved, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +185,7 @@ func TestV2SDKBridge(t *testing.T) {
 		network.AllowedOrigins = append(network.AllowedOrigins, externalOrigin)
 		network.AllowedHosts = []string{network.Address, parsed.Host}
 	}
-	server, err := NewServer(owner, ServerOptions{Generation: previous.Generation + 1, BuildID: "sdk-fixture", RuntimeDir: paths.Runtime, Network: network})
+	server, err := NewServer(owner, ServerOptions{Generation: previous.Generation + 1, BuildID: "sdk-fixture", RuntimeDir: paths.Runtime, NetworkTerminals: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +203,7 @@ func TestV2SDKBridge(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	gateway := startTestGateway(t, paths, network)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
@@ -211,7 +213,7 @@ func TestV2SDKBridge(t *testing.T) {
 	initialized := probe.InitializeResult()
 	_ = probe.Close()
 	info := sdkBridgeInfo{
-		Frontend: frontend, Endpoint: "ws" + strings.TrimPrefix(initialized.NetworkEndpoint, "http") + "/api/v3/ws",
+		Frontend: frontend, Endpoint: "ws" + strings.TrimPrefix(gateway.Endpoint(), "http") + "/api/v3/ws",
 		RootID: rootID, Socket: paths.Socket, RuntimeID: initialized.RuntimeID,
 		Generation: previous.Generation + 1, Directory: directory,
 	}
@@ -220,7 +222,7 @@ func TestV2SDKBridge(t *testing.T) {
 	mux := http.NewServeMux()
 	// Test wrappers, including the actual Safari runner, use the same-origin
 	// attachment that production assets use. Keep the browser Origin intact.
-	daemonURL, err := url.Parse(initialized.NetworkEndpoint)
+	daemonURL, err := url.Parse(gateway.Endpoint())
 	if err != nil {
 		t.Fatal(err)
 	}

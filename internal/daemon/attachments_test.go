@@ -10,7 +10,6 @@ import (
 	"image"
 	"image/png"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,16 +162,17 @@ func TestAttachmentChildUploadAndInboxAcrossTransports(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				handler := newContentHTTPHandler(newUploadManager(f.store, t.TempDir()))
-				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v3/content/upload?root_id="+f.rootID+"&agent_id=child", bytes.NewReader(data))
+				request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, gatewayHTTPURL(f)+"/api/v3/content/upload?root_id="+f.rootID+"&agent_id=child", bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
 				request.Header.Set("Content-Type", "text/plain")
 				request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
-				response := httptest.NewRecorder()
-				handler.ServeHTTP(response, request)
-				if response.Code != http.StatusCreated {
-					t.Fatalf("child upload: %d %s", response.Code, response.Body.String())
+				response, body := gatewayHTTPRequest(t, request)
+				if response.StatusCode != http.StatusCreated {
+					t.Fatalf("child upload: %d %s", response.StatusCode, body)
 				}
-				if err := json.Unmarshal(response.Body.Bytes(), &handle); err != nil {
+				if err := json.Unmarshal(body, &handle); err != nil {
 					t.Fatal(err)
 				}
 			}

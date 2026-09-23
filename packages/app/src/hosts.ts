@@ -1,7 +1,7 @@
 import { createWhipClient, type ConnectionState, type RecoveryStorage, type WhipClient } from '@whip/sdk';
 import { createSessionListView, type SessionListView } from '@whip/sdk/state';
 import type { RuntimeConfiguration } from '@whip/protocol';
-import { errorMessage, readPreference, type AppPlatform } from './platform';
+import { errorMessage, readPreference, type AppPlatform, type LocalRuntimeStatus } from './platform';
 import { daemonEndpoint, readConnections, saveConnections, urlProfile, validateProfile, type ConnectionProfile, type ResolvedConnection } from './connections';
 
 export type HostProfile = NonNullable<RuntimeConfiguration['remote_hosts']>[number];
@@ -19,6 +19,7 @@ export interface HostConnection {
   readonly profile: ConnectionProfile;
   readonly device: boolean;
   readonly progress?: string;
+  readonly localRuntime?: LocalRuntimeStatus;
 }
 interface ConnectionRecord {
   profile: HostProfile;
@@ -27,6 +28,7 @@ interface ConnectionRecord {
   resolved?: ResolvedConnection;
   setup?: { controller: AbortController; promise: Promise<void> };
   progress?: string;
+  localRuntime?: LocalRuntimeStatus;
   client?: WhipClient;
   list?: SessionListView;
   verified: boolean;
@@ -46,6 +48,14 @@ interface HostsSnapshot {
 }
 
 export { daemonEndpoint } from './connections';
+
+/** Expected native-local setup requirement, not a failed connection. */
+export class LocalRuntimeSetupRequiredError extends Error {
+  constructor() {
+    super('Set up this Mac before connecting.');
+    this.name = 'LocalRuntimeSetupRequiredError';
+  }
+}
 
 function normalizeProfiles(profiles: readonly HostProfile[]): HostProfile[] {
   const ids = new Set<string>();
@@ -112,7 +122,7 @@ export class HostConnections {
       id: record.profile.id, name: record.profile.name, endpoint: record.profile.url, local: record.profile.id === 'local',
       runtimeId: record.profile.runtime_id || undefined, connectOnLaunch: record.profile.connect_on_launch,
       state: record.client?.getSnapshot().state ?? (record.setup ? 'connecting' : 'closed'),
-      profile: record.target, device: record.device, progress: record.progress,
+      profile: record.target, device: record.device, progress: record.progress, localRuntime: record.localRuntime,
       client: record.verified ? record.client : undefined, list: record.verified ? record.list : undefined,
       error: record.error ?? record.client?.getSnapshot().error?.message,
     }))) });
@@ -150,6 +160,14 @@ export class HostConnections {
     const connect = async () => {
       try {
         if (!record.client) {
+          if (record.target.target.kind === 'local' && this.platform.localRuntime) {
+            const status = await this.platform.localRuntime.test();
+            controller.signal.throwIfAborted();
+            if (record.setup !== setup || this.closed) throw new Error('Connection setup was retired');
+            record.localRuntime = Object.freeze({ ...status });
+            this.publish();
+            if (status.state === 'missing') throw new LocalRuntimeSetupRequiredError();
+          }
           let endpoint: ResolvedConnection['endpoint'] = record.profile.url;
           if (this.platform.resolveConnection) {
             const resolved = await this.platform.resolveConnection(record.target, { signal: controller.signal, onProgress: message => {
@@ -171,7 +189,10 @@ export class HostConnections {
         this.connectionChanged(record, client);
         if (!record.verified || record.client !== client) throw new Error(record.error ?? 'Host was disconnected while connecting');
       } catch (error) {
-        if (record.setup === setup) { record.error = errorMessage(error); this.detach(record); this.publish(); }
+        if (record.setup === setup) {
+          if (!(error instanceof LocalRuntimeSetupRequiredError)) record.error = errorMessage(error);
+          this.detach(record); this.publish();
+        }
         throw error;
       } finally {
         if (record.setup === setup) { record.setup = undefined; record.progress = undefined; this.publish(); }

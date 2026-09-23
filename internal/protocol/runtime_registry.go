@@ -63,6 +63,7 @@ var runtimeOperations = []Operation{
 	action[ShellParams, TextResult]("shell.run", Command, "tool-permissions", false),
 	action[EmptyParams, ContextAuditResult]("context.audit", Query, "root-association", false),
 	action[EmptyParams, MCPListResult]("mcp.status", Query, "root-association", false),
+	action[EmptyParams, MCPRefreshResult]("mcp.refresh", Command, "root-association", false),
 	action[MCPServerParams, Empty]("mcp.reconnect", Command, "delegated-mcp-authority", false),
 	action[MCPServerParams, Empty]("mcp.enable", Command, "delegated-mcp-authority", false),
 	action[MCPServerParams, Empty]("mcp.disable", Command, "delegated-mcp-authority", false),

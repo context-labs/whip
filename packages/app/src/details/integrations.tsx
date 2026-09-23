@@ -4,6 +4,7 @@ import { Badge, Button, CodeBlock, Field, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
+import { mcpRefreshNotice } from '../mcp-refresh';
 import {
   Action,
   Empty,
@@ -77,12 +78,23 @@ export function MCP(props: InspectorProps) {
   const runtime = useRuntime();
   const query = useDetailQuery(props, 'mcp.status', {}, true);
   const imports = useDetailQuery(props, 'mcp.import.status', {});
+  const [refreshNotice, setRefreshNotice] = useState('');
   return (
     <>
       <Section
         title="MCP servers"
         description="Server processes, credentials, and delegated authority belong to the execution host. Enable and disable apply to this session only; add or remove servers on the host with whip mcp add and whip mcp remove."
       >
+        {props.view.session.client.supports('runtime', 'mcp.refresh') ? (
+          <Action disabled={!props.connected} run={async () => {
+            setRefreshNotice('');
+            const outcome = await runtime.run(props.view.session.mcp.refresh(), 'MCP configuration refreshed');
+            setRefreshNotice(mcpRefreshNotice(outcome.result));
+          }}>
+            Refresh MCP configuration for this session
+          </Action>
+        ) : <p {...stylex.props(layout.muted)}>This host does not support live MCP refresh. Update its daemon or start a new session after changing server configuration.</p>}
+        {refreshNotice && <p role="status" {...stylex.props(layout.muted)}>{refreshNotice}</p>}
         <QueryFeedback query={query} view={props.view} />
         {query.data?.result?.length === 0 && (
           <Empty>No MCP servers are configured for this session.</Empty>

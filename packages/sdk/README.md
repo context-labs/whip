@@ -6,8 +6,10 @@ the app combines SDK views with TanStack Query and local state. This README owns
 the SDK's public usage contract.
 
 Private, ESM client package for Node 24, browsers, React Native and future Electron clients.
-The SDK attaches to an existing WHIP v6 daemon. Execution, credentials, SQLite,
-model context, permissions and schedules remain on the execution host.
+The SDK attaches to an existing WHIP v6 daemon: directly over a local Unix
+socket, or through its separate web gateway for HTTP/WebSocket endpoints.
+Execution, credentials, SQLite, model context, permissions and schedules remain
+on the execution host. Ordinary daemon startup opens no TCP listener.
 Protocol 6 adds immutable session execution-engine identity and result format 2. Update
 the daemon and clients together; older majors fail during initialization.
 
@@ -33,7 +35,7 @@ React 19. Both packages remain private; package-archive installation is tested.
 import { createWhipClient } from '@whip/sdk';
 
 const client = createWhipClient({
-  endpoint: 'http://127.0.0.1:8080', // accepts a WS URL or daemon HTTP base URL
+  endpoint: 'http://127.0.0.1:8080', // accepts a WS URL or gateway HTTP base URL
   clientId: 'my-application',       // persist this namespace to recover commands
   clientKind: 'automation',        // default; interactive apps explicitly use human
 });
@@ -53,14 +55,16 @@ try {
 }
 ```
 
-Node scripts can attach with networking disabled:
+Node scripts can attach directly without starting any gateway:
 
 ```ts
 import { createWhipClient, unixSocket } from '@whip/sdk/node';
 const client = createWhipClient({ endpoint: unixSocket('/path/to/daemon.sock'), clientId: 'my-script' });
 ```
 
-Run the included script with either transport:
+Run the included script with either transport. The HTTP example assumes a
+gateway already running at that origin, such as
+`WHIP_LISTEN=127.0.0.1:8080 whip web --no-open` against a compatible daemon:
 
 ```sh
 node examples/client/node.mjs /path/to/daemon.sock /host/project 'Review the changes'
@@ -171,6 +175,23 @@ An input supports 16 attachments totaling 20 MiB; text excerpts are at most
 256 KiB each. Text excerpts do not expand `@file` or `$skill` references. An
 interrupted upload never attaches itself to future work. Inspecting an existing
 content reference is separate from explicitly submitting it as model input.
+
+## Refresh MCP configuration in an existing session
+
+```ts
+if (client.supports('runtime', 'mcp.refresh')) {
+  const outcome = await client.session(rootId).mcp.refresh().result();
+  console.log(outcome.result);
+}
+```
+
+This root-bound durable command rereads host MCP configuration and adds newly
+eligible servers without replacing existing connections or session-disabled
+entries. It does not save configuration. New servers may still be connecting;
+use `session.query('mcp.status', {})` for their current status. Changed existing
+configurations require a runtime reload. Gate this action on the advertised
+operation rather than daemon build strings; older daemons can still persist
+imports for future sessions.
 
 ## Reconnect and recovery
 
@@ -698,16 +719,36 @@ inspect inter-agent mail without changing delivery state or model context.
 Bodies are bounded text or scoped content references. This is separate from the
 execution command inbox, and message revisions remain decimal strings.
 
-Start a daemon with `WHIP_NETWORK=1` and
-`WHIP_ALLOWED_ORIGINS=http://localhost:3000`, then read its endpoint from
-`whip daemon status --json`. Start the example with:
+Start a compatible daemon, then keep a gateway running in a separate terminal:
+
+```sh
+whip daemon start
+WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip web --no-open
+```
+
+Use the printed gateway origin. `--no-open` runs in the foreground; it does not
+print and exit. The gateway never starts or restarts the daemon. Alternatively,
+`WHIP_NETWORK=1 WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip daemon start`
+opts a new daemon launch into the same gateway as an owned child; only that ready
+managed endpoint appears in `whip daemon status --json`. `WHIP_LISTEN` alone
+is not an opt-in, and `WHIP_NETWORK=0` does not forbid explicit `whip web`.
+
+The gateway defaults to `127.0.0.1:4444`, falling back to an ephemeral loopback
+port only on address-in-use. Explicit binds never silently move. Its upstream
+socket requires the daemon's acknowledged `network-client-v1` capability; old
+daemons fail closed rather than treating browser connections as local clients.
+Host/Origin checks remain exact, not authentication; remote access requires a
+trusted network or authenticated proxy. The whipcode distribution uses
+`WHIPCODE_*`. See [web setup](../../docs/web-app.md).
+
+Start the example with:
 
 ```sh
 npm run build
 npm start -w @whip/client-example
 ```
 
-Open http://localhost:3000 and enter the reported endpoint. The example supplies
+Open http://localhost:3000 and enter the gateway origin. The example supplies
 its own metadata-only localStorage recovery adapter and sessionStorage drafts.
 Pending permissions expose Allow once and Deny whenever the client is connected.
 This remains a minimal example of the SDK primitives.

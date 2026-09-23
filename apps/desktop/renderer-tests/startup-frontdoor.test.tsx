@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 import { JSDOM } from 'jsdom';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { manifest } from '@whip/protocol';
 import type { TransportFactory, TransportHandlers } from '@whip/sdk';
-import { localProfile } from '@whip/app/platform';
+import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '@whip/app/platform';
 import { mountApplication } from '../../web/src/bootstrap';
 
 const script = readFileSync('apps/desktop/src/startup-probe.ts', 'utf8').match(/const snapshotScript = String.raw`([\s\S]*?)`;/)![1]!;
@@ -19,8 +19,10 @@ function storage() {
 
 // Only the daemon transport is fake. Identity verification, SDK attachment,
 // queries, routing, tab state, StartupScreen and bootstrap are production code.
-function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolean; configured?: boolean } = {}) {
+function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolean; configured?: boolean; globalSkills?: boolean } = {}) {
   const methods: string[] = [], unexpected: string[] = [];
+  const skillRequests: unknown[] = [];
+  const capabilities = options.globalSkills ? ['host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion'] : [];
   let handlers: TransportHandlers;
   const factory: TransportFactory = async current => {
     handlers = current;
@@ -34,7 +36,7 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
           if (options.fail) { handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'Test handshake failure' } })); return; }
           result = {
           protocol_major: manifest.major + (options.incompatible ? 1 : 0), protocol_minor: manifest.minor, runtime_id: 'host', connection_id: 'connection', generation: '1',
-          host_platform: 'darwin', host_architecture: 'arm64', build_id: 'test', capabilities: [], negotiated_capabilities: [],
+          host_platform: 'darwin', host_architecture: 'arm64', build_id: 'test', capabilities, negotiated_capabilities: capabilities,
           execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }], default_execution_engine: 'starlark',
           operations: manifest.operations.map(operation => ({ ...operation })),
           limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024, outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 256 << 10, upload_bytes: String(64 << 20) },
@@ -44,6 +46,10 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
         case 'provider.list': result = { revision: '1', selection: { ready: !!options.configured, model: options.configured ? 'gpt-6-astra' : '', provider: options.configured ? 'openai' : '', reason: options.configured ? '' : 'not configured' }, providers: [{ id: 'openai', name: 'OpenAI', custom: false, methods: ['api_key'], suggested_model: 'gpt-6-astra', status: { provider: 'openai', configured: !!options.configured, available: !!options.configured, key_source: options.configured ? 'literal' : 'none', warnings: [] } }] }; break;
         case 'host.attention': result = { items: [], has_more: false, truncated: false }; break;
         case 'definitions.list': result = { items: [] }; break;
+        case 'host.skills.complete':
+          expect(options.globalSkills).toBe(true);
+          skillRequests.push(request.params);
+          result = { candidates: [{ text: '$global-fixture', description: 'Host-global fixture skill' }], truncated: false }; break;
         case 'provider.login.list': result = { flows: [] }; break;
         case 'sessions.revision': result = { revision: '1' }; break;
         case 'sessions.list': result = { revision: '1', items: [], has_more: false }; break;
@@ -58,7 +64,7 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
       handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
     } };
   };
-  return { factory, methods, unexpected, disconnect: () => { options.held = true; handlers.close(new Error('Test disconnect')); } };
+  return { factory, methods, unexpected, skillRequests, disconnect: () => { options.held = true; handlers.close(new Error('Test disconnect')); } };
 }
 
 beforeEach(() => {
@@ -75,10 +81,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function boot(options: { held?: boolean; incompatible?: boolean; fail?: boolean; configured?: boolean } = {}, ready = true) {
+async function boot(options: { held?: boolean; incompatible?: boolean; fail?: boolean; configured?: boolean; globalSkills?: boolean } = {}, ready = true, localRuntime?: AppLocalRuntime) {
   const server = daemon(options);
   const platform = { storage: storage(), windowStorage: storage(), defaultConnection: localProfile,
-    resolveConnection: async () => ({ endpoint: server.factory, dispose() {} }),
+    localRuntime, resolveConnection: vi.fn(async () => ({ endpoint: server.factory, dispose() {} })),
     copy: async () => {}, download: async () => {}, openExternal: async () => {} };
   expect(platform.storage.keys()).toEqual([]); expect(platform.windowStorage.keys()).toEqual([]);
   let app!: ReturnType<typeof mountApplication>;
@@ -88,8 +94,53 @@ async function boot(options: { held?: boolean; incompatible?: boolean; fail?: bo
     await waitFor(() => expect(document.querySelector('[data-startup-phase]')?.getAttribute('data-startup-phase')).toBe('visible'));
     expect(app.runtime.queries.getQueryCache().getAll().filter(query => query.state.error).map(query => query.queryKey)).toEqual([]);
   }
-  return { app, server };
+  return { app, server, platform };
 }
+
+it.each([false, true])('sets up a clean Mac without an error and enters the existing new-chat flow (configured=%s)', async configured => {
+  let status: LocalRuntimeStatus = { state: 'missing', executable: '/tmp/whip-onboarding/bin/whipcode', repairRequired: false,
+    home: '/Users/test/.whipcode', canInstall: true, message: 'No installation.' };
+  const installed: LocalRuntimeStatus = { ...status, state: 'stopped', executable: '/Users/test/.local/bin/whipcode', canInstall: false, message: 'Installed.' };
+  let finishInstall!: (value: LocalRuntimeStatus) => void;
+  const installation = new Promise<LocalRuntimeStatus>(resolve => { finishInstall = resolve; });
+  const api: AppLocalRuntime = {
+    test: vi.fn(async () => status), installDefault: vi.fn(() => installation),
+    choose: vi.fn(async () => installed), install: vi.fn(async () => installed), restart: vi.fn(async () => installed),
+  };
+  const { app, server, platform } = await boot({ configured }, false, api);
+  const panel = await screen.findByRole('region', { name: 'This Mac runtime' });
+  const setup = within(panel).getByRole('button', { name: 'Set up this Mac', exact: true });
+  expect(within(panel).getByRole('heading', { name: 'Set up Whip on this Mac' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Repair this Mac', exact: true })).toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Set up this Mac', exact: true })).toHaveLength(2);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(app.runtime.getSnapshot().home?.error).toBeUndefined();
+  expect(platform.resolveConnection).not.toHaveBeenCalled();
+  expect(api.test).toHaveBeenCalledOnce();
+  expect(api.installDefault).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('button', { name: 'Advanced', exact: true })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-expanded')).toBe('false');
+  await act(async () => { fireEvent.click(setup); });
+  expect(screen.getByRole('button', { name: /Setting up…/ })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+  expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-expanded')).toBe('false');
+  expect(platform.resolveConnection).not.toHaveBeenCalled();
+  await act(async () => { status = installed; finishInstall(installed); });
+  if (configured) await screen.findByRole('textbox', { name: 'Your first message' });
+  else {
+    await screen.findByRole('button', { name: 'Connect OpenAI', exact: true });
+    expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project folder' })).toBeNull();
+  }
+  expect(api.installDefault).toHaveBeenCalledOnce();
+  expect(api.install).not.toHaveBeenCalled();
+  expect(api.restart).not.toHaveBeenCalled();
+  expect(platform.resolveConnection).toHaveBeenCalledOnce();
+  expect(app.runtime.tabs.workspace().tabs).toHaveLength(1);
+  expect(server.methods).not.toContain('sessions.create');
+  expect(server.unexpected).toEqual([]);
+});
 
 async function observe(mutate?: (document: Document, view: JSDOM['window']) => void) {
   // JSDOM has no layout/font renderer. Only those browser primitives are supplied;
@@ -124,7 +175,11 @@ it.each([false, true])('enters actual onboarding after the real New session acti
   const action = document.querySelector<HTMLButtonElement>('[data-empty-workspace="frontdoor"] button[aria-label="New session"]')!;
   await act(async () => { fireEvent.click(action); });
   if (configured) await screen.findByRole('textbox', { name: 'Your first message' });
-  else await screen.findByRole('button', { name: 'Connect OpenAI', exact: true });
+  else {
+    await screen.findByRole('button', { name: 'Connect OpenAI', exact: true });
+    expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project folder' })).toBeNull();
+  }
   const tab = app.runtime.tabs.workspace().tabs[0]!;
   expect(tab.kind).toBe('new');
   expect(app.router.state.location.pathname).toBe(`/new/${tab.id}`);
@@ -193,4 +248,27 @@ it('retains notice, font and frame-wait rejection after a real successful bootst
     .toMatchObject({ noNotice: false, painted: false });
   expect(await observe(d => Object.assign(d.fonts, { status: 'loading' }))).toMatchObject({ fonts: false, painted: false });
   expect(await observe((_d, view) => { view.requestAnimationFrame = () => 1; })).toMatchObject({ painted: false });
+});
+
+it('discovers global skills after New session with a ready provider without choosing a project', async () => {
+  const { app, server } = await boot({ globalSkills: true, configured: true });
+  expect(app.runtime.tabs.workspace().tabs).toEqual([]);
+  expect(server.skillRequests).toEqual([]);
+  const action = document.querySelector<HTMLButtonElement>('[data-empty-workspace="frontdoor"] button[aria-label="New session"]')!;
+  await act(async () => { fireEvent.click(action); });
+  const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
+  expect(app.runtime.tabs.workspace().tabs[0]).toMatchObject({ kind: 'new', cwd: '' });
+  act(() => input.focus());
+  await waitFor(() => expect(server.skillRequests).toEqual([{
+    scope: 'global', definition: 'coding', permission_mode: 'prompt', prefix: '', limit: 1024,
+  }]));
+  fireEvent.change(input, { target: { value: '/global' } });
+  await screen.findByRole('option', { name: /global-fixture/ });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(input.value).toBe('$global-fixture ');
+  expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(server.methods).not.toContain('sessions.create');
+  expect(server.methods).not.toContain('root.snapshot');
+  expect(server.unexpected).toEqual([]);
+  expect(server.skillRequests).toHaveLength(1);
 });

@@ -19,7 +19,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { canSplitSessionPane, browserDestination, openBrowserTab, draftDestination, openChatView, openAfterLastClose, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { canSplitSessionPane, browserDestination, openBrowserTab, draftDestination, openChatView, openAfterLastClose, openNewChat, reopenClosedTab, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(viewId?: string): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
@@ -156,8 +156,9 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     });
   };
   const reopen = () => {
-    try { const id = runtime.tabs.reopenView(); if (id) go(id); setNotice(''); }
-    catch (error) { runtime.reportWorkspace(error); }
+    reopenClosedTab(runtime, navigate);
+    setPicker(false);
+    setNotice('');
   };
   const split = (tab: SessionTab, edge: SplitEdge) => {
     try {

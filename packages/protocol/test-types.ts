@@ -6,6 +6,17 @@ import {
 } from './generated/index.js';
 
 const initialize: InitializeParams = { protocol_major: manifest.major, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
+const globalSkills: RpcMethods['host.skills.complete']['params'] = { scope: 'global', prefix: '', limit: 1024 };
+const globalEmptyCwd: RpcMethods['host.skills.complete']['params'] = { scope: 'global', cwd: '', prefix: '', limit: 32 };
+const projectSkills: RpcMethods['host.skills.complete']['params'] = { cwd: '/project', prefix: '', limit: 32 };
+const emptyScope: RpcMethods['host.skills.complete']['params'] = { scope: '', cwd: '/project', prefix: '', limit: 32 };
+// @ts-expect-error Global scope cannot carry a selected project.
+const ambiguousSkills: RpcMethods['host.skills.complete']['params'] = { scope: 'global', cwd: '/project', prefix: '', limit: 32 };
+// @ts-expect-error A legacy project request still requires cwd.
+const missingSkillCwd: RpcMethods['host.skills.complete']['params'] = { prefix: '', limit: 32 };
+// @ts-expect-error There is no separate project alias.
+const projectAlias: RpcMethods['host.skills.complete']['params'] = { scope: 'project', cwd: '/project', prefix: '', limit: 32 };
+void [globalSkills, globalEmptyCwd, projectSkills, emptyScope, ambiguousSkills, missingSkillCwd, projectAlias];
 const subscription: SubscribeParams = { root_id: 'root', subscription_id: 'view', cursor: '9007199254740993' };
 assertValid('InitializeParams', initialize);
 assertValid('SubscribeParams', subscription);

@@ -44,6 +44,17 @@ export function tabDestination(tab: SessionTab) {
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
 }
 
+/** Reuse closed-tab history from any route, including Settings where the strip is unmounted. */
+export function reopenClosedTab(runtime: AppRuntime, navigate: AnyRouter['navigate']) {
+  try {
+    const id = runtime.tabs.reopenView();
+    if (!id) return;
+    const tab = runtime.tabs.workspace().tabs.find(tab => tab.id === id)!;
+    runtime.clearWorkspaceError();
+    void navigate(tabDestination(tab)).catch(error => runtime.reportWorkspace(error));
+  } catch (error) { runtime.reportWorkspace(error); }
+}
+
 /** Sidebar drag and menu intent always opens another view, never another session. */
 export function openChatView(runtime: AppRuntime, navigate: AnyRouter['navigate'], runtimeId: string, rootId: string, titleHint = '', target?: ChatViewTarget) {
   try {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocoltransport"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/gobwas/ws"
 )
 
 func TestResponseEnvelopeHasExactlyOneOutcomeOnBothTransports(t *testing.T) {
@@ -39,10 +39,7 @@ func TestResponseEnvelopeHasExactlyOneOutcomeOnBothTransports(t *testing.T) {
 					var receiver messageTransport = newUnixMessageTransport(clientConn)
 					if transportName == "websocket" {
 						sender = newWebsocketMessageTransport(serverConn, serverConn)
-						client := newWebsocketMessageTransport(clientConn, clientConn)
-						client.clientSide = true
-						client.reader.State = ws.StateClientSide
-						receiver = client
+						receiver = protocoltransport.NewWebSocketClient(clientConn, clientConn)
 					}
 					written := make(chan error, 1)
 					go func() {

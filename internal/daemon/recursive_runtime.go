@@ -1650,6 +1650,9 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 }
 
 func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	if operation == "refresh" || operation == "reconnect" {
+		return host.mcpRecovery(ctx, operation, arguments)
+	}
 	manager := host.session.root.mcpManager()
 	if manager == nil {
 		return nil, errors.New("no MCP servers are configured")
@@ -1739,6 +1742,38 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 	default:
 		return nil, fmt.Errorf("unknown mcp operation %q", operation)
 	}
+}
+
+// Recovery changes the root-owned connections, not just the caller's view.
+// Children retain the MCP grant snapshot they received at spawn.
+func (host *recursiveHost) mcpRecovery(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	if node.id != node.root.AgentID() {
+		return nil, errors.New("MCP recovery is only available to the root agent")
+	}
+	if _, _, err := node.root.store.MCPSelectors(ctx, node.root.ID(), node.id, node.authority.MCP); err != nil {
+		return nil, fmt.Errorf("MCP recovery requires an active mcp capability: %w", err)
+	}
+	for key := range arguments {
+		if operation != "reconnect" || key != "server" {
+			return nil, fmt.Errorf("mcp.%s: unexpected argument %q", operation, key)
+		}
+	}
+	if operation == "refresh" {
+		return node.root.refreshMCP(ctx)
+	}
+	server, ok := arguments["server"].(string)
+	if !ok || strings.TrimSpace(server) == "" {
+		return nil, errors.New("mcp.reconnect: server must be a non-empty string")
+	}
+	status, err := node.root.reconnectMCP(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"name": status.Name, "status": status.Status.String(), "error": status.Err,
+		"tools": status.Tools, "source": status.Source, "note": status.Note,
+	}, nil
 }
 
 func (host *recursiveHost) state(ctx context.Context, operation string, arguments map[string]any) (any, error) {

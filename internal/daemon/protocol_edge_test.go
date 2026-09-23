@@ -174,8 +174,14 @@ func TestClientConnectionAndReadLoopFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			client.conn.(*unixMessageTransport).reader = bufio.NewReader(strings.NewReader(string(frame)))
+			written := make(chan struct{})
+			go func() {
+				defer close(written)
+				defer serverSide.Close()
+				_, _ = serverSide.Write(frame)
+			}()
 			client.readLoop()
+			<-written
 			if client.Err() == nil {
 				t.Fatal("read loop exited without a terminal error")
 			}

@@ -224,6 +224,28 @@ root prompt (`evals/rlm`).
   connect past a two-second grace, and its events still arrive if the stream
   completes later (`TestStandaloneStreamWithoutHeaderTerminatorDoesNotStallConnect`,
   `TestStandaloneStreamCompletingLateStillDeliversNotifications`).
+- Live MCP refresh is additive and session-scoped: root agents can call
+  `mcp.refresh()` to discover newly configured host servers without rebuilding
+  their runtime, and `mcp.reconnect(server="paper")` to retry an existing
+  enabled server. Both require an active MCP capability; children cannot mutate
+  root-owned connections and retain their original tool-grant snapshots.
+  Refresh keeps healthy and disabled connections, applies the definition's
+  server filter, and reports added/existing/changed names with current server
+  states, blocked entries, and source errors. Each refresh replaces stale
+  discovery diagnostics while preserving attachment refusals. Changed existing
+  configuration needs a runtime reload; reconnect does not adopt it. Connection requests do
+  not imply readiness or replay earlier calls, and call approval stays enforced
+  (`internal/daemon/mcp.go`, `internal/mcp/manager.go`,
+  `internal/daemon/recursive_runtime.go`).
+  The SDK exposes `session.mcp.refresh()`. Settings imports refresh the focused
+  conversation only when it belongs to the selected execution host; imports
+  remain saved if refresh fails. Integrations also offers manual refresh for
+  CLI/external additions. Other live conversations are untouched, and older
+  daemons retain the import-only flow (`packages/app/src/mcp-import.tsx`,
+  `packages/app/src/details/integrations.tsx`). Regression coverage includes
+  `TestMCPRefreshSessionIsolationAndFiltering`,
+  `TestMCPRefreshReplacesDiscoveryDiagnostics`, the both-engine recursive-host
+  refresh tests, and the settings MCP import/inspector component tests.
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
   reconnect generation guards, complete cursor-paged tool discovery, and
@@ -257,8 +279,11 @@ root prompt (`evals/rlm`).
   reconnects and session switches. Full Access allows filesystem operations and
   working directories outside the project under the execution host's OS user.
   Explicit child path and operation limits still apply. Ask retains the original
-  project file boundary; changing cwd never grants access. New sessions, including
-  forks, default to Ask; upgrades preserve an existing saved choice. Explicit terminal launch flags update the initial
+  project file boundary; changing cwd never grants access. Fresh sessions inherit
+  the execution host's Default permission level from Settings alongside model
+  and effort, unless explicitly overridden. Existing configurations default to
+  Ask; forks keep their separate Ask default. Changing host defaults and upgrades
+  preserve existing saved session choices. Explicit terminal launch flags update the initial
   session; ACP loading preserves the saved mode and follows other clients'
   changes. Remembered allow rules and headless/deny execution policies remain
   separate. Implementation: `internal/session/permission_mode.go`, daemon
@@ -409,7 +434,7 @@ and [integrated TUI completion](../.ai-docs/plans/provider-onboarding/TUI-INTEGR
 and embedded web server at `localhost:4000`. Both clients share an empty runtime
 home; quitting removes test state while retaining build caches. The launcher also
 supports dirty linked worktrees without copying Git internals. See
-[fresh onboarding in Docker](../README.md#test-fresh-onboarding-in-docker).
+[fresh onboarding in Docker](setup.md#test-fresh-onboarding-in-docker).
 Code: `scripts/onboarding-docker.mjs`, `scripts/docker/onboarding.Dockerfile`,
 `scripts/docker/onboarding-entrypoint.sh`, and `scripts/renderer-artifact.mjs`.
 Tests: `scripts/onboarding-docker.test.mjs` and `scripts/renderer-artifact.test.mjs`.
@@ -520,13 +545,37 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - WHIP v5 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
-- CLI daemon startup enables the loopback HTTP/WebSocket listener by default.
-  `WHIP_NETWORK=0` disables it even with `WHIP_LISTEN` configured; whipcode uses
-  the `WHIPCODE_` prefix. Port selection remains automatic unless configured.
-  Exact Host and Origin checks remain in force. Code: `cmd/whip/daemon.go`;
-  tests: `TestDaemonNetworkEnvironment`,
-  `TestRunDaemonPublishesProtocolAndStopsCleanly`, and
-  `TestNetworkHandlerValidatesHostOriginAndUpgrade`.
+- The daemon core is always socket-only. Ordinary startup opens no web listener.
+  `whip web` requires a compatible running daemon and owns a separate foreground
+  gateway; it opens the browser and waits. `--no-open` still waits; `--url` checks
+  and opens an existing gateway without starting any server or local daemon.
+  `WHIP_NETWORK=1` opts daemon launch paths into the same gateway as an owned
+  child after socket readiness. Unset/`0` means no automatic gateway, not a ban
+  on explicit `whip web`; `WHIP_LISTEN` alone is not opt-in. Whipcode uses
+  `WHIPCODE_*`. The implicit bind is `127.0.0.1:4444`, with ephemeral fallback
+  only on address-in-use; explicit binds never silently move. Code:
+  `cmd/whip/{web,daemon,gateway_process}.go`, `internal/webgateway`.
+  Validation sources: `cmd/whip/{web_test,daemon_network_test,gateway_process_test}.go` and
+  the gateway package tests; migration acceptance remains tracked in the
+  [gateway plan](../.ai-docs/plans/web-gateway/README.md), not inferred from this map.
+- Gateway HTTP content uses existing bounded upload/read RPCs, never direct
+  store access; each browser WebSocket gets its own upstream socket. Exact
+  Host/Origin checks remain at the gateway and are not authentication. The
+  gateway forces `network-client-v1` and requires the daemon's negotiated
+  acknowledgement before forwarding traffic, failing closed against old daemons.
+  Terminal authorization stays daemon-owned for these restricted socket clients.
+  Code: `internal/webgateway`, `internal/protocol/gateway.go`,
+  `internal/daemon/{server,terminal_rpc}.go`; validation:
+  `internal/webgateway/{server,websocket,content}_test.go`,
+  `internal/daemon/{server_gateway,gateway_ownership,terminal_rpc}_test.go`.
+- Managed web status is independent of daemon health: `gateway.status` and a
+  ready-only `init.network_endpoint` never describe foreground instances. A
+  gateway crash leaves daemon work alive; owner/daemon loss stops the gateway.
+  Bounded readiness/lifetime pipes and process reaping prevent owned-child
+  leaks. There is no automatic restart loop; foreground `whip web` is the
+  non-disruptive recovery path. Code: `cmd/whip/gateway_process.go` and
+  `internal/daemon/server.go`; validation: `cmd/whip/gateway_process_test.go`,
+  `internal/daemon/server_gateway_test.go`, and the gateway acceptance plan.
 - Command submission returns committed acceptance. Stable client/command IDs
   deduplicate retries; changed payloads conflict. Status exposes queued, running,
   waiting and terminal outcomes. Disconnecting does not cancel accepted execution.
@@ -536,8 +585,8 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - Recent transcripts bootstrap quickly; older root/child messages are pageable.
   Large values use granted content references. HTTP transfers reuse the content
   store and limits. Raw human transcript inspection never changes model context.
-- Omitted session model/provider routes resolve from host defaults after command
-  deduplication. Provider readiness determines setup even when daemon startup has
+- Omitted session model/provider routes and permission mode resolve from host
+  defaults after command deduplication. Provider readiness determines setup even when daemon startup has
   already created configuration (`session_defaults_test.go`, `setup_test.go`).
 - TUI startup, initial host queries, the first prompt and automatic title delivery
   run against both transports in release acceptance (`client_integration_test.go`).
@@ -545,7 +594,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
 - Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
-  transport,network,provider_service,completion}.go`, `internal/session`, and
+  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/session`, and
   `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the
   generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
@@ -653,7 +702,7 @@ provider message passed; see the
 | Composer image previews before sending, including the first message of a New Chat: multiple cropped thumbnails, local decode/upload indicators, full-image dialog, independent removal, file/paste/drop input, and bounded draft-owned preview lifetimes. New Chat stages files locally until Send and preserves failed uploads in the created session. | `packages/app/src/{composer,composer-attachments,welcome}.tsx`, `packages/app/src/compositions.ts` | `packages/app/test/{composer-attachments,compositions,welcome}.test.ts*`, `apps/web/scripts/new-chat-tabs.mjs`, `composer-attachments.mjs` and `composer-reading.mjs` via `WHIP_CHAT_COMPOSER_ONLY=1 node apps/web/scripts/chat-activity.mjs` |
 | One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
 | Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
-| One-command local source update of the signed app and shared backend; verify before quit, wait through macOS deferred quit, retain previous binaries, gracefully restart and check the running build | `scripts/update-local.mjs`, `Taskfile.yaml` (`update:local`), `cmd/whip/desktop_runtime_sync.go`; [usage](../README.md#update-your-local-installation-from-source) | `scripts/update-local.test.mjs` (deferred quit, cancellation, real filesystem staging and failure preservation), `TestDesktopCompiledUpdate` (real backend handoff) |
+| One-command local source update of the signed app and shared backend; verify before quit, wait through macOS deferred quit, retain previous binaries, gracefully restart and check the running build | `scripts/update-local.mjs`, `Taskfile.yaml` (`update:local`), `cmd/whip/desktop_runtime_sync.go`; [usage](setup.md#update-your-local-installation-from-source) | `scripts/update-local.test.mjs` (deferred quit, cancellation, real filesystem staging and failure preservation), `TestDesktopCompiledUpdate` (real backend handoff) |
 | Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
 | Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
 | Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |
@@ -708,9 +757,12 @@ behavior to its owning code and repeatable validation.
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
 | Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
 | Drag saved sidebar sessions into any pane's tab strip or split left/right/up/down at its content edges, or use Open in new tab; always another root chat view, never a fork; atomic four-pane/32-view limits; normal clicks still reuse views | `packages/app/src/{session-sidebar,session-actions,session-tabs,session-tab-routing,session-tab-strip,shell}.ts*`, `packages/ui/src/{workspace-drag,workspace-tab-drag,workspace-tabs,workspace-layout}.tsx` | App store/routing/action/sidebar tests; UI external-source layout Chromium/Firefox strict-CSP fixture; `apps/web/scripts/workspace-layout.mjs` |
+| Desktop File > New session / `CmdOrCtrl+T` opens an independent draft in the focused pane, including from Settings and guest website focus; modal/capacity guards preserve existing work. Web shortcuts are unchanged. | `apps/desktop/src/{main,browser-manager}.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform}.ts`, `packages/app/src/shell.tsx` | `packages/app/test/{desktop-adapter,desktop-close-tab}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
+| Desktop File > Reopen closed tab / `CmdOrCtrl+Shift+T` restores the last closed tab through existing bounded history, including from Settings or a hidden window; repeated presses restore earlier tabs. No web shortcut. | `apps/desktop/src/main.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform,session-tab-routing,shell,session-tab-strip}.ts*` | `packages/app/test/{desktop-adapter,desktop-close-tab,session-tabs,session-tab-routing}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
 | Independent New Chat tabs, host/setup persistence, and in-place promotion on first-message acceptance, or after session creation when files need uploading | `packages/app/src/{session-tabs,session-tab-routing,welcome,runtime}.ts*` | App tab/routing/Welcome/runtime/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Shared session top bar with single-selection Chat/REPL/Trace navigation within the current tab, Details open-state toggle and narrow-pane controls | `packages/app/src/{session-top-bar,conversation,session-tab-strip,session-tab-routing,session-tabs}.ts*`, `packages/ui/src/actions.tsx` | App top-bar, tab and routing tests; `apps/web/scripts/{browser-toolbar,repl-viewer}.mjs` |
+| Every shared web/desktop code block has a top-right copy button, platform clipboard routing, exact loaded-source copying (including raw REPL output), and local retryable failure feedback | `packages/ui/src/{code-block,actions,presentation}.tsx`, `clipboard.ts`; `packages/app/src/{index,repl-view}.tsx` | `packages/app/test/{code-block-copy,clipboard-provider,repl-view}.test.tsx`; `packages/ui/tests/csp.mjs` (keyboard/touch, bounded source, narrow layout, failures) |
 | Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
 | Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
@@ -723,7 +775,7 @@ behavior to its owning code and repeatable validation.
 | Host-scoped configuration, login cleanup and unsaved-edit guards | `packages/app/src/settings/{configuration,providers,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
 | Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
 | Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
-| Packaged same-origin web assets and explicit `whip web` launch | `internal/webassets`, `cmd/whip/web.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, `cmd/whip/web_test.go`, `scripts/pack-web.test.mjs`, isolated packed-source consumer builds |
+| Packaged same-origin web assets, foreground `whip web`, and optional same-implementation managed gateway; socket-only daemon default | `internal/{webassets,webgateway}`, `cmd/whip/{web,gateway_process}.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, gateway tests, `cmd/whip/web_test.go`, lifecycle/process tests, `scripts/pack-web.test.mjs`; migration acceptance tracked separately in the gateway plan |
 
 React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI owns
 accessible component interactions; StyleX extracts authored CSS. Source UI/app
@@ -932,8 +984,18 @@ the conversation.
 
 ## Skills
 
-SKILL.md skills load from `.agents/skills` in the working directory,
-`~/.whip/skills`, and `~/.agents/skills` (`skills.DirsFor`).
+The agent prompt and skill suggestions use the authorized catalog: `.agents/skills`
+in the working directory and applicable ancestors within project boundaries, the
+configured Whip user directory's `skills` folder (normally `~/.whip/skills`), and
+`~/.agents/skills`. With no project selected, New Chat discovers only those two
+user-global roots on the selected execution host; after folder selection it
+previews the initial selected-project boundary plus globals. The Desktop
+Whipcode distribution uses `$WHIPCODE_HOME/skills` (normally
+`~/.whipcode/skills`) for its application-owned root. That override does not
+relocate the daemon user's `~/.agents/skills`. Discovery does not implicitly
+choose the daemon's launch directory or import another harness's skill folders.
+The CLI listing/import helpers retain `skills.DirsFor` discovery (working-directory
+and user locations). Skill instructions are loaded on demand, not all at startup.
 
 CLI: `whip skills list` (names, sources, warnings) and `whip skills import
 [--dry-run]` — copies skills from other harnesses' user dirs
@@ -948,6 +1010,48 @@ hyphens), description ≤1024 chars (a *validity* ceiling, not a prompt budget),
 `disable-model-invocation: true` skills excluded from the catalog but still
 invocable via `$name`. Violations load with a `Warning` (surfaced in the
 startup report), never silently disappear. Tests: `skills/spec_test.go`.
+
+**Desktop/web slash skill suggestions:** type `/` at a word boundary in a chat
+or New Chat composer to browse skills on the selected execution host. Typing
+filters by the existing case-sensitive name prefix. Up/Down navigates; Enter or
+click inserts `$name` and closes the panel without sending. Escape dismisses
+without editing; Shift+Enter still inserts a newline. The existing Add context
+picker and direct `$name` references remain available.
+
+New Chat requires a connected host and resolved effective permission mode, but
+not a project, ready model/provider, or session. Its read-only
+`host.skills.complete` query uses `scope: 'global'` without cwd when both
+`host_skill_completion` and `host_global_skill_completion` are negotiated. After
+a folder is selected, the existing cwd request previews the selected definition's
+initial project-plus-global skill scope. Older hosts without global discovery
+require a folder for New Chat suggestions; no implicit-folder fallback occurs.
+Browsing and selecting neither create a session nor grant access. Sending still
+requires a project and the normal first-message readiness checks; invocation
+resolves and authorizes the reference in that final session context.
+Older hosts can still offer existing-session suggestions via
+`workspace.complete`/`workspace_completion`. Hosts advertising
+`skill_catalog_completion` preload up to 1,024 metadata entries when the active
+composer gains focus (or becomes ready while focused). Warm typing filters locally
+and immediately before the 32-row display cap, without per-character requests.
+Metadata stays in the current composer's in-memory Query scope; fresh reopen
+reuses it, stale focus/open refreshes in the background, and reconnect uses the
+normal runtime invalidation. Cold loading labels wait 150 ms, not the request.
+Refresh errors retain existing matches with a visible retry action. Older hosts
+and incomplete catalogs use the bounded server-prefix fallback; host warnings
+remain visible, without count/insertion or narrowing helper text. Scope changes
+cancel obsolete reads; cached globals are not merged client-side with project
+results. Metadata discovery returns no skill instructions and authorizes no
+invocation; its bounded file-prefix parser may read body bytes while extracting
+metadata. Existing user-root trust and duplicate-name precedence are unchanged.
+
+Implementation: `packages/app/src/skill-completion.ts`,
+`use-skill-completion.tsx`, `composer.tsx`, `welcome.tsx`;
+`packages/ui/src/textarea-suggestions.tsx`; `internal/daemon/skill_completion.go`.
+Host coverage: `internal/daemon/skill_completion_test.go`. Catalog lifecycle and
+instant filtering: `packages/app/test/skill-catalog.test.tsx`, plus both composer
+component suites. The reusable textarea
+interaction has Storybook fixtures and a repeatable browser probe at
+`packages/ui/tests/textarea-suggestions.mjs`.
 
 ## Themes
 
@@ -1080,12 +1184,14 @@ and attention show source hosts, filters, separate bounded pages and partial
 failures. Responses open their owning sessions; neither index hydrates roots.
 Remote listener/proxy setup and exact browser Origin allowlists remain explicit
 trusted-network configuration; automatic stable-Origin handling is deferred.
-The local loopback listener is enabled by default.
+The local daemon is socket-only by default; `whip web` starts its foreground
+gateway without a daemon restart, or `WHIP_NETWORK=1` opts into managed startup.
 The desktop origin `whip-app://bundle` can be explicitly allowed through
 `WHIP_ALLOWED_ORIGINS` (`WHIPCODE_ALLOWED_ORIGINS` for the whipcode distribution).
 Other custom origins, wildcards, suffixes, ports and paths remain rejected.
-`internal/daemon/network_test.go:TestNetworkDesktopOriginIsExplicitAndExact`
-checks validation, explicit opt-in and CORS response headers.
+`internal/webgateway/server_test.go:TestDesktopOriginExplicitAndExact` covers
+validation, explicit opt-in and CORS response headers; the daemon no longer
+hosts HTTP handlers.
 
 Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
 `packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
@@ -1128,7 +1234,7 @@ that home; renaming a binary does not switch its identity.
 `install-whipcode.sh` verifies complete, versioned prerelease assets and SHA-256
 checksums before atomic replacement. `whipcode update` stays in its channel,
 replaces the invoked installation, and requests only its daemon's restart.
-Stable `whip` release discovery remains unchanged. See [installation](../README.md#whipcode-branch-builds).
+Stable `whip` release discovery remains unchanged. See [installation](setup.md#whipcode-branch-builds).
 
 Code: `internal/buildinfo`, `internal/config`, `internal/update/whipcode.go`,
 `cmd/whip/update.go`, `install-whipcode.sh`, `scripts/publish-whipcode.sh`, and

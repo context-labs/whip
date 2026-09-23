@@ -395,7 +395,15 @@ async function start() {
   powerMonitor.on('resume', () => emit({ kind: 'attention-wakeup' }));
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { role: 'appMenu' }, { role: 'editMenu' },
-    { label: 'File', submenu: [{ label: 'Close tab', accelerator: 'CmdOrCtrl+W', click: () => emit({ kind: 'close-tab' }) }] },
+    { label: 'File', submenu: [
+      { label: 'New session', accelerator: 'CmdOrCtrl+T', click: () => {
+        window.show(); window.focus(); window.webContents.focus(); emit({ kind: 'new-session' });
+      } },
+      { label: 'Close tab', accelerator: 'CmdOrCtrl+W', click: () => emit({ kind: 'close-tab' }) },
+      { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => {
+        window.show(); window.focus(); window.webContents.focus(); emit({ kind: 'reopen-closed-tab' });
+      } },
+    ] },
     { label: 'View', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => { void requestClose('reload'); } }, { role: 'togglefullscreen' }] },
     { role: 'windowMenu' },
   ]));

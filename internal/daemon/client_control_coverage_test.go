@@ -40,6 +40,7 @@ func TestClientCommandsSettleWhenWorkerAdmissionCloses(t *testing.T) {
 		payload   string
 	}{
 		{"session.reload", `{}`},
+		{"mcp.refresh", `{}`},
 		{"mcp.reconnect", `{"name":"alpha"}`},
 		{"tool.call", `{"tool":"files.list","arguments":{}}`},
 		{"shell.run", `{"command":"printf never"}`},

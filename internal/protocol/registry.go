@@ -97,6 +97,7 @@ func rpc[P, R any](name string, execution Execution, permission string, sensitiv
 }
 
 var rpcOperations = []Operation{
+	rpc[HostSkillCompletionParams, CompletionResult]("host.skills.complete", Query, "host-runtime", false),
 	rpc[HostDirectoryParams, HostDirectoryResult]("host.directories.list", Query, "host-runtime", false),
 	rpc[HostDirectoryPickParams, HostDirectoryPickResult]("host.directory.pick", Query, "host-runtime", false),
 	rpc[HostAttentionParams, HostAttentionResult]("host.attention", Query, "host-runtime", false),
@@ -126,6 +127,7 @@ var rpcOperations = []Operation{
 	rpc[ProviderNameParams, ProviderStatus]("provider.key.rotate", Ephemeral, "host-configuration", true),
 	rpc[InitializeParams, InitializeResult]("initialize", Query, "none", false),
 	rpc[Empty, PingResult]("daemon.ping", Query, "none", false),
+	rpc[Empty, GatewayStatus]("gateway.status", Query, "none", false),
 	rpc[DefinitionRegisterParams, DefinitionRegisterResult]("definitions.register", Ephemeral, "host-runtime", false),
 	rpc[DefinitionParams, DefinitionRecord]("definitions.get", Query, "host-runtime", false),
 	rpc[Empty, DefinitionList]("definitions.list", Query, "host-runtime", false),

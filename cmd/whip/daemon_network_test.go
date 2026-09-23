@@ -8,9 +8,9 @@ func TestDaemonNetworkEnvironment(t *testing.T) {
 		want                  bool
 		bad                   bool
 	}{
-		{name: "enabled by default", want: true},
+		{name: "disabled by default"},
 		{name: "loopback", enabled: "1", want: true},
-		{name: "trusted bind", listen: "192.168.1.10:8080", want: true},
+		{name: "listen does not opt in", listen: "192.168.1.10:8080"},
 		{name: "zero disables", enabled: "0"},
 		{name: "zero overrides listen", enabled: "0", listen: "127.0.0.1:8080"},
 		{name: "explicit disable", enabled: "false", listen: "127.0.0.1:8080"},

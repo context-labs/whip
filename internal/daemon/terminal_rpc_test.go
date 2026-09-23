@@ -15,7 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-func terminalTestServer(t *testing.T, network NetworkOptions) *Server {
+func terminalTestServer(t *testing.T, networkTerminals bool) *Server {
 	t.Helper()
 	t.Setenv("SHELL", "/bin/sh")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
@@ -25,7 +25,7 @@ func terminalTestServer(t *testing.T, network NetworkOptions) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(value, ServerOptions{BuildID: "test-build", Network: network})
+	server, err := NewServer(value, ServerOptions{BuildID: "test-build", NetworkTerminals: networkTerminals})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func outputUntil(t *testing.T, conn *serverConn, marker string) (string, int64) 
 }
 
 func TestTerminalRPCOpenWriteOutputClose(t *testing.T) {
-	server := terminalTestServer(t, NetworkOptions{})
+	server := terminalTestServer(t, false)
 	conn := terminalTestConn(t, server, false)
 	dir := t.TempDir()
 	var opened protocol.TerminalOpenResult
@@ -153,7 +153,7 @@ func TestTerminalRPCOpenWriteOutputClose(t *testing.T) {
 }
 
 func TestTerminalRPCExitIsReportedAfterOutput(t *testing.T) {
-	server := terminalTestServer(t, NetworkOptions{})
+	server := terminalTestServer(t, false)
 	conn := terminalTestConn(t, server, false)
 	var opened protocol.TerminalOpenResult
 	if failure := terminalCall(t, server, conn, "terminal.open", protocol.TerminalOpenParams{Cwd: t.TempDir(), Cols: 80, Rows: 24}, &opened); failure != nil {
@@ -188,7 +188,7 @@ func TestTerminalRPCExitIsReportedAfterOutput(t *testing.T) {
 }
 
 func TestTerminalRPCDisconnectDetachesAndReattachReplays(t *testing.T) {
-	server := terminalTestServer(t, NetworkOptions{})
+	server := terminalTestServer(t, false)
 	first := terminalTestConn(t, server, false)
 	var opened protocol.TerminalOpenResult
 	if failure := terminalCall(t, server, first, "terminal.open", protocol.TerminalOpenParams{Cwd: t.TempDir(), Cols: 80, Rows: 24}, &opened); failure != nil {
@@ -250,7 +250,7 @@ func TestTerminalRPCDisconnectDetachesAndReattachReplays(t *testing.T) {
 }
 
 func TestTerminalRPCNetworkClientsAreGated(t *testing.T) {
-	closed := terminalTestServer(t, NetworkOptions{})
+	closed := terminalTestServer(t, false)
 	conn := terminalTestConn(t, closed, true)
 	failure := terminalCall(t, closed, conn, "terminal.open", protocol.TerminalOpenParams{Cwd: t.TempDir(), Cols: 80, Rows: 24}, nil)
 	if failure == nil || failure.Code != -32012 || !strings.Contains(failure.Message, "NETWORK_TERMINALS") {
@@ -259,14 +259,14 @@ func TestTerminalRPCNetworkClientsAreGated(t *testing.T) {
 	if failure := terminalCall(t, closed, terminalTestConn(t, closed, false), "terminal.open", protocol.TerminalOpenParams{Cwd: t.TempDir(), Cols: 80, Rows: 24}, nil); failure != nil {
 		t.Fatalf("unix open on the same daemon = %+v", failure)
 	}
-	open := terminalTestServer(t, NetworkOptions{Terminals: true})
+	open := terminalTestServer(t, true)
 	if failure := terminalCall(t, open, terminalTestConn(t, open, true), "terminal.open", protocol.TerminalOpenParams{Cwd: t.TempDir(), Cols: 80, Rows: 24}, nil); failure != nil {
 		t.Fatalf("network open with the switch = %+v", failure)
 	}
 }
 
 func TestTerminalRPCValidatesInputAndResolvesCwd(t *testing.T) {
-	server := terminalTestServer(t, NetworkOptions{})
+	server := terminalTestServer(t, false)
 	conn := terminalTestConn(t, server, false)
 	for name, params := range map[string]protocol.TerminalOpenParams{
 		"zero columns": {Cwd: t.TempDir(), Cols: 0, Rows: 24},

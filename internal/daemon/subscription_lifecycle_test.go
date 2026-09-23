@@ -1,12 +1,10 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"net"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/protocol"
@@ -18,9 +16,15 @@ func TestClientIgnoresFailureFromReplacedSubscription(t *testing.T) {
 	stale, _ := marshalFrame(rpcMessage{Method: "subscription.failed", Params: mustJSON(t, protocol.SubscriptionFailure{RootID: "root", SubscriptionID: "old", Error: rpcFailure(-32010, "expired old stream")})})
 	current, _ := marshalFrame(rpcMessage{Method: "event", Params: mustJSON(t, eventNotification{Event: ProtocolEvent{RootID: "root", SubscriptionID: "new", Seq: 4, Kind: "turn.started", Payload: []byte(`{}`)}})})
 	transport := newUnixMessageTransport(clientSide)
-	transport.reader = bufio.NewReaderSize(strings.NewReader(string(stale)+string(current)), MaxFrameSize)
+	written := make(chan struct{})
+	go func() {
+		defer close(written)
+		defer serverSide.Close()
+		_, _ = serverSide.Write(append(stale, current...))
+	}()
 	client := &Client{conn: transport, pending: make(map[string]chan callResponse), subscriptions: map[string]string{"root": "new"}, events: make(chan ProtocolEvent, 2), commandChanged: make(chan struct{}), done: make(chan struct{})}
 	client.readLoop()
+	<-written
 	if _, ok := errors.AsType[*RPCError](client.Err()); ok {
 		t.Fatalf("stale failure closed current stream: %v", client.Err())
 	}

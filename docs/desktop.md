@@ -7,8 +7,37 @@ which checks have passed and which still require a notarized release or hardware
 Intel, Windows and Linux desktop packages are not part of this first release.
 
 For the routine source-build/install/restart workflow, use `task update:local`;
-see [local update instructions](../README.md#update-your-local-installation-from-source).
+see [local update instructions](setup.md#update-your-local-installation-from-source).
 It updates the existing app and shared backend together from the current checkout.
+
+## New session shortcut
+
+Press **Command+T** or choose **File > New session** to open a fresh New Chat tab
+in the focused pane, reopening the desktop window if it was closed. This works
+from Settings and with a composer, terminal or
+embedded website focused. It preserves existing drafts and running work; the
+session starts through the existing first-message flow. Open dialogs block the
+action, and the existing 32-tab limit still applies.
+
+Command+T always means New session, not New Browser tab. Use the existing Browser
+UI or command palette action for a Browser tab. The web app has no new shortcut;
+browser-owned Command+T remains native New Tab.
+
+## Reopen closed tab shortcut
+
+Press **Shift+Command+T** or choose **File > Reopen closed tab** to restore and
+select the most recently closed tab. Repeated presses walk backwards through
+the existing history (up to 20 tabs); with no history, nothing happens. This also
+works from Settings and reveals a hidden window. Open dialogs block the action,
+and existing workspace/Browser tab limits still apply without consuming history.
+
+Restoration uses the existing Reopen action for sessions, unfinished drafts and
+Browser tabs. It restores the original pane when it still exists, otherwise the
+focused pane. Closed terminals are excluded from history because closing them
+ends their shells; Browser tabs receive a fresh native identity. Deleted sessions
+stay deleted.
+On Windows/Linux the equivalent is **Ctrl+Shift+T**. The web app has no added
+shortcut; the browser's reopen-tab shortcut remains native.
 
 ## One UI, one renderer artifact
 
@@ -54,8 +83,8 @@ ASAR integrity, ASAR-only loading and cookie encryption are enabled.
   `whipcode` use their own home environment variables. Whip may start a
   stopped remote daemon but never installs or upgrades one remotely. A private
   control connection forwards its Unix socket without exposing a remote web port.
-- **URL:** connect to an explicitly configured reachable daemon. Its network
-  configuration must allow the exact `whip-app://bundle` origin; an ordinary
+- **URL:** connect to a daemon through an explicitly running reachable gateway.
+  The gateway must allow the exact `whip-app://bundle` origin; an ordinary
   browser connection retains its existing same-origin rules. See [web setup](web-app.md).
 
 Open **Execution hosts → This Mac** to configure the local installation. On this
@@ -107,32 +136,35 @@ creating an absent runtime home. Expand diagnostics to see the executable, home,
 client build and daemon build. **Restart daemon** is a separate confirmed action
 because it interrupts work shared with CLI and web clients.
 
-Desktop supplies `WHIPCODE_LISTEN=127.0.0.1:8080` when starting a local daemon,
-unless explicitly overridden. To make a CLI-first start use the same fixed web
-endpoint, set it in that invocation as well:
+Desktop and ordinary CLI startup open no web listener. Desktop connects over
+the private Unix socket, so occupied TCP ports must not prevent local startup.
+To serve the same running daemon in a browser, start a separate foreground gateway:
 
 ```sh
-WHIPCODE_LISTEN=127.0.0.1:8080 /usr/local/bin/whipcode daemon start
+WHIPCODE_LISTEN=127.0.0.1:8080 /usr/local/bin/whipcode web
 ```
 
-The browser can then open `http://127.0.0.1:8080`, while desktop still uses the
-private Unix socket. Attaching to an already running daemon does not change its
-network settings. If it was started without the desired listener, restart it
-explicitly with that setting after accounting for active work. Tests and local
-development use `WHIPCODE_NETWORK=0` with isolated homes.
+This opens `http://127.0.0.1:8080` and stays running; Ctrl+C stops only that
+gateway. Omit `WHIPCODE_LISTEN` to try `127.0.0.1:4444`, with an ephemeral
+loopback fallback only when that port is occupied. Explicit addresses never
+silently fall back. No daemon restart is needed to enable web access.
 
-If a URL works in a browser but the desktop app reports a WebSocket connection
-failure, check the daemon's origin allowlist. The desktop renderer sends
-`Origin: whip-app://bundle`; the browser sends the daemon URL as its origin.
-Set `WHIPCODE_ALLOWED_ORIGINS=whip-app://bundle` for a whipcode daemon, or
-`WHIP_ALLOWED_ORIGINS=whip-app://bundle` for a legacy remote whip daemon, when
-starting a build that includes desktop-origin validation. Preserve other required
-origins. A
-separately built daemon may still reject every non-HTTP origin even when listed;
-update that daemon's origin validation before restarting it. Protocol 4.1
-compatibility alone does not establish that this origin is supported. Network
-settings are read at startup, so editing the invoking shell does not change an
-already running daemon. Schedule its restart around accepted work.
+For automatic managed web startup, opt in with `WHIPCODE_NETWORK=1` when the
+daemon starts; `WHIPCODE_LISTEN` alone is not an opt-in. The same gateway runs
+as an owned child after the socket is ready. Gateway failure leaves the daemon
+usable; it is not a reason for Desktop to start a second daemon. An already
+running daemon retains its launch settings. Tests and local development use
+isolated homes; with `WHIPCODE_NETWORK` unset or `0`, no gateway is auto-started.
+
+If a URL host works in a browser but Desktop reports a WebSocket connection
+failure, check the **gateway's** origin allowlist. Desktop sends
+`Origin: whip-app://bundle`; the browser sends the web app's origin. Include
+`whip-app://bundle` in `WHIPCODE_ALLOWED_ORIGINS` (or `WHIP_ALLOWED_ORIGINS` for
+whip) when starting the remote gateway, preserving other required origins.
+These exact Host/Origin checks are not authentication. Remote URL hosts still
+need a trusted network or authenticated proxy. Gateway settings are read at
+startup, not live from the invoking shell. A foreground replacement can change
+web settings without restarting the daemon or interrupting accepted work.
 
 Host profiles keep stable IDs and verified runtime identities rather than socket
 addresses. Local, SSH and URL hosts stay connected independently while you switch
@@ -280,9 +312,10 @@ not host the PTY; the daemon does, over the same connection as the conversation,
 reloading or hiding the window keeps the shell and replays what was missed. Closing
 the tab ends the shell. Open one from a pane's actions menu, a session tab's **Open
 terminal here**, the command palette, or the terminal shortcut (Control+` by default,
-in Settings → General). Network listeners refuse terminals unless the daemon started
-with `WHIPCODE_NETWORK_TERMINALS=1`; the desktop's Unix-socket and SSH connections are
-always allowed. Paste uses the renderer's native paste event; the window denies
+in Settings → General). The daemon refuses terminals for gateway-marked network
+connections unless it started with `WHIPCODE_NETWORK_TERMINALS=1`; ordinary
+Desktop Unix-socket and SSH connections retain local terminal access. The
+gateway's socket hop does not bypass this daemon-owned policy. Paste uses the renderer's native paste event; the window denies
 clipboard-read permission, so there is no programmatic paste path.
 
 ## Open a session in an editor
@@ -392,6 +425,11 @@ Local commands never publish. Unsigned local builds use ad-hoc native signatures
 they are not distributable Developer ID releases.
 
 ## Package, signing and canonical installation
+
+The README and Desktop share `apps/desktop/resources/Whip.png` as the logo source.
+After replacing it, run `node apps/desktop/scripts/icon.mjs` on macOS to regenerate
+`apps/desktop/resources/Whip.icns`; commit both assets. Forge uses that icon for
+both stable and beta app bundles. This does not change an already installed app.
 
 ```text
 Whip.app/Contents/

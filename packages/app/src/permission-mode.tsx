@@ -40,6 +40,7 @@ const styles = stylex.create({
   title: { display: 'block', paddingBlock: scale.space1, paddingInline: scale.space2 },
   options: { display: 'flex', flexDirection: 'column', gap: scale.space1, minWidth: 0 },
   trigger: { gap: 6, maxWidth: 200 },
+  settingsTrigger: { width: { default: 220, [scale.phone]: '100%' }, maxWidth: '100%', minWidth: 0, justifyContent: 'space-between' },
   chevron: { color: surface.secondaryText, flexShrink: 0 },
   danger: { color: colors.warning },
   option: {
@@ -75,8 +76,11 @@ export function PermissionModePicker({ view, root, connected, agentId }: Props) 
     onChange={mode => runtime.run(view.session.setPermissionMode(mode === 'prompt'), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts')} />;
 }
 
-/** Shared session/new-session control; the caller owns persistence. */
-export function PermissionModeControl({ value: current, disabled, onChange }: { value: string; disabled?: boolean; onChange(mode: string): void | Promise<unknown> }) {
+/** Shared session, new-session and settings control; the caller owns persistence. */
+export function PermissionModeControl({ value: current, disabled, onChange, presentation = 'composer', label = 'Permission approval mode', inherited = false }: {
+  value: string; disabled?: boolean; onChange(mode: string): void | Promise<unknown>;
+  presentation?: 'composer' | 'settings'; label?: string; inherited?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
@@ -86,7 +90,8 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
   const TriggerIcon = active?.danger ? ShieldAlert : ShieldCheck;
   const pick = async (mode: Mode) => {
     if (disabled || pending) return;
-    if (mode.value === current) { setOpen(false); return; }
+    // Choosing the displayed host default can still pin an explicit draft override.
+    if (mode.value === current && !inherited) { setOpen(false); return; }
     const id = ++generation.current;
     setError(undefined); setPending(true);
     try { await onChange(mode.value); if (id === generation.current) setOpen(false); }
@@ -101,11 +106,11 @@ export function PermissionModeControl({ value: current, disabled, onChange }: { 
       xstyle={styles.popup}
       trigger={
         <Button
-          variant="ghost"
-          aria-label="Permission approval mode"
+          variant={presentation === 'settings' ? 'secondary' : 'ghost'}
+          aria-label={label}
           disabled={disabled || pending}
           title={active ? `Permissions: ${active.label}` : 'Permission approval mode'}
-          xstyle={[styles.trigger, active?.danger && styles.danger]}
+          xstyle={[styles.trigger, presentation === 'settings' && styles.settingsTrigger, active?.danger && styles.danger]}
         >
           <TriggerIcon size={14} {...stylex.props(active?.danger ? undefined : styles.chevron)} />
           <span {...stylex.props(layout.ellipsis)}>

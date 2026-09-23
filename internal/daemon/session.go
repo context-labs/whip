@@ -15,6 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
@@ -32,8 +33,10 @@ type Runner interface {
 type Closeable interface{ Close() }
 
 type Components struct {
-	Runner  Runner
-	MCP     Closeable
+	Runner Runner
+	MCP    Closeable
+	// LoadMCP reloads host configuration; the session applies its definition filter.
+	LoadMCP func(context.Context) (mcp.Filtered, error)
 	Runtime Closeable
 	Bind    func(context.Context, *Session) error
 	// Definition is the root agent's effective definition. The zero value
@@ -285,6 +288,9 @@ type Session struct {
 	runner           Runner
 	mcpMu            sync.RWMutex
 	mcp              Closeable
+	loadMCP          func(context.Context) (mcp.Filtered, error) // guarded by mcpMu
+	mcpServers       []string                                    // definition filter, guarded by mcpMu
+	mcpGeneration    uint64                                      // changes when the runtime/loader is replaced
 	runtime          Closeable
 	factory          Factory
 	supervisor       *supervisor
@@ -342,7 +348,7 @@ func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority cap
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	root := &Session{
-		store: store, meta: meta, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, runtime: components.Runtime,
+		store: store, meta: meta, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, loadMCP: components.LoadMCP, mcpServers: slices.Clone(effectiveDefinition(components).MCP.Servers), runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
 	}
