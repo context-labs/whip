@@ -122,6 +122,25 @@ def assert_saved_session(home, session_id):
         assert saved == ('agent', 'fixture', 'fixture'), saved
 
 
+def wait_for_gateway(status, version, previous_generation=None, timeout=15):
+    # The daemon's local socket can report its new build while its managed
+    # gateway child is still starting. Build identity alone is not readiness.
+    # In-place exec keeps the PID, so generation identifies a restarted daemon.
+    deadline = time.monotonic() + timeout
+    observed = None
+    while time.monotonic() < deadline:
+        observed = status()
+        gateway = observed.get('gateway', {})
+        endpoint = observed.get('network_endpoint')
+        if (observed.get('state') == 'running' and observed.get('daemon_build') == version
+                and gateway.get('state') == 'ready' and endpoint
+                and gateway.get('endpoint') == endpoint
+                and (previous_generation is None or observed.get('generation', 0) > previous_generation)):
+            return observed
+        time.sleep(0.1)
+    raise AssertionError(f'daemon {version} did not reach managed gateway readiness: {observed}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path)
@@ -223,17 +242,14 @@ else:
 
         try:
             run(binary, 'daemon', 'start', env=env)
-            initial = status()
-            assert initial['state'] == 'running' and initial['daemon_build'] == args.version, initial
-            assert initial['gateway']['state'] == 'ready', initial
+            initial = wait_for_gateway(status, args.version)
             assert (app_home / 'config.json').stat().st_mode & 0o777 == 0o600
             assert (app_home / 'runtime-v2/sessions.db').is_file()
             renderer_smoke(initial['network_endpoint'], manifest)
             session_id = create_session(initial['socket'], home)
             assert_saved_session(app_home, session_id)
             run(binary, 'daemon', 'restart', env=env)
-            restarted = status()
-            assert restarted['pid'] != initial['pid'], restarted
+            restarted = wait_for_gateway(status, args.version, previous_generation=initial['generation'])
             assert_saved_session(app_home, session_id)
             renderer_smoke(restarted['network_endpoint'], manifest)
 
@@ -251,14 +267,7 @@ else:
                 # executable, not blindly trust an inherited destination override.
                 env['WHIPCODE_BIN_DIR'] = str(root / 'wrong-destination')
                 run(binary, 'update', env=env)
-                deadline = time.monotonic() + 15
-                while time.monotonic() < deadline:
-                    updated = status()
-                    if updated.get('daemon_build') == args.update_version:
-                        break
-                    time.sleep(0.1)
-                else:
-                    raise AssertionError(f'updated daemon did not restart: {updated}')
+                updated = wait_for_gateway(status, args.update_version, previous_generation=restarted['generation'])
                 assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.update_version
                 assert not (root / 'wrong-destination').exists()
                 assert_saved_session(app_home, session_id)

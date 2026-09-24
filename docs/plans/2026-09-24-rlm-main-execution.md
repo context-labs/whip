@@ -66,14 +66,19 @@ Follow-up branch: `cutover/clean-whipcode-20260924`.
   failed-update safety, Chromium and restricted SDK/gateway handshake. A stable
   candidate fixture also passed. No real user installation was modified.
 - Desktop tests: 138 pass / 10 real-SSH-dependent skips; focused Node tests green.
-- Full portable Go race suite is running; its first snapshot hit an MCP test
-  rename compile regression, since fixed and verified with targeted vet/race tests.
+- Full portable Go race suite passed at 18:18 UTC after the MCP test rename fix.
+  Final integrated lint v2.13.1 reports zero issues; ACP/update race and complete
+  TUI short suites passed. Protocol/SDK, themes and Desktop type checks passed.
 - TUI short suite initially found intentional text snapshot drift and a report
   label mismatch. Thirteen one-line golden updates and the label fix passed the
   complete short suite. Golden padding is intentional.
 - Independent review found/fixed channel-sensitive update cache behavior, exact
   asset discovery parity, alpha install notes, and immediate Desktop source/state
-  rechecks before public writes. Desktop Linux version ownership is under review.
+  rechecks before public writes. Desktop Linux uses canonical v-prefixed semver
+  with strict matching candidate evidence; 8 candidate contract tests passed.
+- Hosted PR #164 Linux acceptance found post-update endpoint readiness racing
+  daemon version readiness. The test is being corrected to wait for the healthy
+  gateway and endpoint with bounded diagnostics; renderer verification stays intact.
 
 ## Publication permission blocker
 
