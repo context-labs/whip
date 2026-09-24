@@ -14,12 +14,12 @@ import (
 )
 
 func TestFullScreenLayoutFitsTerminal(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	m := fullModel()
 	m.cfg = &config.Config{}
 	m.termWidth = 200
 	m.applyOpencodeStyles()
-	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whip anything") || !m.leftVisible() {
+	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whipcode anything") || !m.leftVisible() {
 		t.Fatalf("input/sidebar prompt=%q placeholder=%q left=%t", m.input.Prompt, m.input.Placeholder, m.leftVisible())
 	}
 	m.layout()

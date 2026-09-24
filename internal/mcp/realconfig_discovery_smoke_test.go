@@ -11,7 +11,7 @@ import (
 )
 
 // Live check of discovery against the developer's configured HTTP servers.
-// Opt-in with WHIP_TEST_REAL_MCP=1: it reads $WHIP_HOME/config.json and
+// Opt-in with WHIP_TEST_REAL_MCP=1: it reads $WHIPCODE_HOME/config.json and
 // reaches the network. It logs server names, counts and byte sizes only,
 // never header values. WHIP_TEST_REAL_MCP_QUERY overrides the search.
 func TestRealConfigDiscoverySmoke(t *testing.T) {

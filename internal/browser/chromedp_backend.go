@@ -39,7 +39,7 @@ type chromedpBackend struct {
 // openChromedp connects per mode: live attaches via the discovered WS URL
 // (remote allocator), falling back hermes-style to a launched dedicated
 // instance when none is debuggable; dedicated/headless reattach to a
-// still-running whip Chrome for the profile, else launch via the default
+// still-running whipcode Chrome for the profile, else launch via the default
 // allocator (chromedp's own launcher, headed off in headless mode).
 func openChromedp(ctx context.Context, mode Mode, sessionName string, env []string) (*chromedpBackend, error) {
 	b := &chromedpBackend{mode: mode}

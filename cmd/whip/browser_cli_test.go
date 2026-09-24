@@ -12,7 +12,7 @@ import (
 
 func TestBrowserCLIDispatch(t *testing.T) {
 	if err := browserCLI(nil); err == nil {
-		t.Error("bare `whip browser` should print usage")
+		t.Error("bare `whipcode browser` should print usage")
 	}
 	if err := browserCLI([]string{"bogus"}); err == nil {
 		t.Error("unknown subcommand should error")
@@ -24,7 +24,7 @@ func TestBrowserCLIDispatch(t *testing.T) {
 // chrome://extensions can never launch anything on the test machine.
 func TestBrowserInstall(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", "")
+	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir()) // xdg-open/open not found: Start fails silently
 
@@ -65,11 +65,11 @@ func TestBrowserInstall(t *testing.T) {
 }
 
 // install can't proceed without a home directory, and reports the write
-// failure (rather than a partial install) when the whip dir can't be made.
+// failure (rather than a partial install) when the whipcode dir can't be made.
 func TestBrowserInstallHomeErrors(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	t.Setenv("WHIP_HOME", "")
+	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", "")
 	if err := browserCLI([]string{"install"}); err == nil {
 		t.Error("install without a home directory should error")
@@ -79,7 +79,7 @@ func TestBrowserInstallHomeErrors(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("WHIP_HOME", "")
+	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", file)
 	err := browserCLI([]string{"install"})
 	if err == nil || !strings.Contains(err.Error(), "write extension") {
@@ -91,7 +91,7 @@ func TestBrowserInstallHomeErrors(t *testing.T) {
 // install fails loudly rather than leaving an extension with no token.
 func TestBrowserInstallRelayStateError(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", "")
+	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
 

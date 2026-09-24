@@ -14,11 +14,8 @@ import (
 )
 
 func TestDesktopRuntimeInfoDoesNotInitializeHome(t *testing.T) {
-	for _, distribution := range []string{"whip", "whipcode"} {
+	for _, distribution := range []string{buildinfo.Name} {
 		t.Run(distribution, func(t *testing.T) {
-			previous := buildinfo.Name
-			buildinfo.Name = distribution
-			t.Cleanup(func() { buildinfo.Name = previous })
 			testDesktopRuntimeInfoDoesNotInitializeHome(t)
 		})
 	}

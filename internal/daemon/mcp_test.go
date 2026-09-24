@@ -225,7 +225,7 @@ func TestMCPChildInheritanceAndNarrowing(t *testing.T) {
 // manager swap), stays untrusted, and invalidates a child whose grant was
 // bound to the earlier definition.
 func TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	firstURL, firstEffects := localMCPFixture(t, "old instructions")
 	_, root, runtime := mcpRuntimeFixture(t, firstURL, false)
 	before := root.mcpManager()
@@ -288,7 +288,7 @@ func TestMCPAttachmentReplacesSameNameAttachmentAndInvalidatesChild(t *testing.T
 // stay out of a definition's explicit server list, and never take a native
 // name. Refusals are visible as blocked rows.
 func TestMCPAttachmentIsAdditiveAndBounded(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	nativeURL, nativeEffects := localMCPFixture(t, "native")
 	_, root, runtime := mcpRuntimeFixture(t, nativeURL, true)
 	extraURL, _ := localMCPFixture(t, "extra")
@@ -347,7 +347,7 @@ func TestMCPAttachmentIsAdditiveAndBounded(t *testing.T) {
 // as a content handle the calling agent can read back, and the call's text
 // names that handle instead of dropping the image.
 func TestMCPImageResultsBecomeHandles(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, _ := localMCPFixture(t, "native")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
 	value, err := runtime.rootNode.host.Call(t.Context(), "mcp", "call", map[string]any{"server": "local", "tool": "image", "arguments": map[string]any{}})
@@ -369,7 +369,7 @@ func TestMCPImageResultsBecomeHandles(t *testing.T) {
 }
 
 func TestMCPAttachmentCannotOverrideNativeConfiguration(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, effects := localMCPFixture(t, "native")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
 	cfg := config.Default()
@@ -451,7 +451,7 @@ func TestMCPDurableConsentAndLifecycleWaiters(t *testing.T) {
 	for _, engine := range []string{"starlark", "quickjs"} {
 		for _, action := range []string{"remember", "reject", "revoke", "replace", "disable"} {
 			t.Run(engine+"/"+action, func(t *testing.T) {
-				t.Setenv("WHIP_HOME", t.TempDir())
+				t.Setenv("WHIPCODE_HOME", t.TempDir())
 				url, effects := localMCPFixture(t, "imported guidance")
 				store, root, runtime := mcpRuntimeFixture(t, url, false, engine)
 				runtime.SetExternalPermissions(true)

@@ -51,7 +51,7 @@ func typeStr(t *testing.T, m *model, value string) *model {
 
 func authTestModel(t *testing.T) *model {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	m := compactCmdModel()
 	cfg, err := config.Load()
 	if err != nil {

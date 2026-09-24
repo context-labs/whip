@@ -10,17 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	"golang.org/x/term"
 
 	"github.com/context-labs/whip/internal/config"
 )
 
-// authCLI implements `whip auth …`: turn a provider API key into a ready
+// authCLI implements `whipcode auth …`: turn a provider API key into a ready
 // provider entry + pre-fetched model catalog, so `/model` just works.
 //
-//	whip auth openrouter [--env] [<key>]
+//	whipcode auth openrouter [--env] [<key>]
 //
 // The key comes from (first hit): the positional arg, OPENROUTER_API_KEY in
 // the environment, or a masked prompt. The host discovers compatible models
@@ -28,12 +26,12 @@ import (
 // public catalog cannot verify a key; inference is tested on the user's first send.
 //
 // Storage: by default the key is written as a literal apiKey in
-// ~/.whip/config.json (0600). --env instead records apiKeyEnv:
+// ~/.whipcode/config.json (0600). --env instead records apiKeyEnv:
 // OPENROUTER_API_KEY. --env resolves that named key on the host from its
 // inherited environment or declared providerKeySources without a terminal prompt.
 func authCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New(buildinfo.Text("usage: whip auth <provider> [<args>]\n  providers: openai-codex (login | status | logout), inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]"))
+		return errors.New("usage: whipcode auth <provider> [<args>]\n  providers: openai-codex (login | status | logout), inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]")
 	}
 	switch args[0] {
 	case "inference-net", "inference":
@@ -78,7 +76,7 @@ func authOpenRouterCLI(args []string) error {
 
 	fmt.Println("openrouter provider configured.")
 	fmt.Println("  the API key and inference have not been verified by the public model catalog.")
-	fmt.Println(buildinfo.Text("  run `whip`, then /model to choose a supported chat model and send a prompt."))
+	fmt.Println("  run `whipcode`, then /model to choose a supported chat model and send a prompt.")
 	return nil
 }
 

@@ -43,7 +43,7 @@ func desktopSSHCLI(args []string) int {
 		return exitErr.ExitCode()
 	}
 	// Never include SSH arguments, environment, or prompt text in diagnostics.
-	fmt.Fprintln(os.Stderr, "whip desktop: SSH process ended or could not be started")
+	fmt.Fprintln(os.Stderr, "whipcode desktop: SSH process ended or could not be started")
 	return 1
 }
 

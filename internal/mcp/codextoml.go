@@ -203,7 +203,7 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		// connect time via config.ResolveSecret (defaultTransport). Expanding
 		// here would bake a var that's missing at import time into an empty
 		// literal (the customer.io "failed to auth" report) and persist the
-		// resolved secret into ~/.whip/config.json on `whip mcp import`.
+		// resolved secret into ~/.whipcode/config.json on `whipcode mcp import`.
 		out[name] = c
 	}
 	return out, nil

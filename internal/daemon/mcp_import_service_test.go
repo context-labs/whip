@@ -18,7 +18,7 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-// mcpImportFixture isolates WHIP_HOME with a healthy config that already
+// mcpImportFixture isolates WHIPCODE_HOME with a healthy config that already
 // owns "ahrefs", points discovery at a Codex file with three servers and an
 // empty OpenCode slot, and returns the service plus a project directory. The
 // state rules themselves are pinned in internal/mcp; these tests cover what
@@ -26,7 +26,7 @@ import (
 func mcpImportFixture(t *testing.T) (*ProviderService, string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{
   "defaultModel": "m1",
   "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
@@ -144,8 +144,8 @@ func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
 	if err != nil || !strings.HasPrefix(got.Icons["exa.ai"], "data:image/png;base64,") || len(got.Icons) != 1 || hits.Load() != 1 {
 		t.Fatalf("default resolve = %v, %v, hits %d", got.Icons, err, hits.Load())
 	}
-	if entries, _ := os.ReadDir(filepath.Join(os.Getenv("WHIP_HOME"), "icons")); len(entries) != 1 {
-		t.Errorf("the cache lives under WHIP_HOME/icons, found %d entries", len(entries))
+	if entries, _ := os.ReadDir(filepath.Join(os.Getenv("WHIPCODE_HOME"), "icons")); len(entries) != 1 {
+		t.Errorf("the cache lives under WHIPCODE_HOME/icons, found %d entries", len(entries))
 	}
 	snapshot, err := service.ReadConfiguration()
 	if err != nil || !snapshot.BrandIcons {

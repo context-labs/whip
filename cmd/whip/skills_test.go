@@ -22,7 +22,7 @@ func writeSkill(t *testing.T, root, name, desc string) {
 	}
 }
 
-// TestSkillsImportDedup pins the core contract: a skill name whip already
+// TestSkillsImportDedup pins the core contract: a skill name whipcode already
 // loads (project or user dir) is never overwritten, a name duplicated across
 // the foreign sources imports once (codex wins over claude), and a genuinely
 // new skill copies into ~/.agents/skills with its contents intact.
@@ -32,7 +32,7 @@ func TestSkillsImportDedup(t *testing.T) {
 	wd := t.TempDir()
 	t.Chdir(wd)
 
-	// whip already has "linear" at user level.
+	// whipcode already has "linear" at user level.
 	writeSkill(t, filepath.Join(home, ".agents", "skills"), "linear", "whip's copy")
 	// codex has "linear" (dup) and "codex-only" (new).
 	writeSkill(t, filepath.Join(home, ".codex", "skills"), "linear", "codex copy")
@@ -165,7 +165,7 @@ func TestSkillsImportContinuesPastFailure(t *testing.T) {
 	}
 }
 
-// TestSkillsListCLI: `whip skills list` renders loaded skills and their
+// TestSkillsListCLI: `whipcode skills list` renders loaded skills and their
 // source dirs without error.
 func TestSkillsListCLI(t *testing.T) {
 	home := t.TempDir()

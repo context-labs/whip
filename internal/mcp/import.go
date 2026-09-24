@@ -14,7 +14,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 )
 
-// CandidateState says what the import screen (or `whip mcp import`) can do
+// CandidateState says what the import screen (or `whipcode mcp import`) can do
 // with a discovered server.
 type CandidateState string
 
@@ -30,7 +30,7 @@ const (
 	// CandidateExcluded is named by an only/exclude list in mcpImport. It can
 	// still be imported after an explicit "include".
 	CandidateExcluded CandidateState = "excluded"
-	// CandidateUnsupported needs something whip does not have (a browser
+	// CandidateUnsupported needs something whipcode does not have (a browser
 	// sign-in, the legacy sse transport). Never imported.
 	CandidateUnsupported CandidateState = "unsupported"
 )
@@ -159,7 +159,7 @@ func brandKey(cfg ServerConfig) string {
 }
 
 // Apply copies the named candidates into cfg.MCPServers as native entries:
-// import provenance dropped (so they load trusted, like `whip mcp import` has
+// import provenance dropped (so they load trusted, like `whipcode mcp import` has
 // always written them) and Enabled cleared, because choosing a server is the
 // decision to run it even when its source had it off. A name no source
 // defines is an error before anything is written; names already native or

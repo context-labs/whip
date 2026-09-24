@@ -2,7 +2,7 @@ version: "3"
 
 vars:
   VERSION:
-    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+    sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
 
 tasks:
@@ -11,34 +11,17 @@ tasks:
     silent: true
 
   run:
-    desc: "Run whip locally from source (pass flags via CLI_ARGS: task run -- -m glm-5.2-fast)"
+    desc: "Run whipcode locally from source (pass flags via CLI_ARGS: task run -- -m glm-5.2-fast)"
     interactive: true
+    deps: [web-assets]
     cmds:
       - go run -ldflags "{{.LDFLAGS}}" ./cmd/whip {{.CLI_ARGS}}
 
   build:
-    desc: Build the whip binary with the web app into ./whip (run npm ci first)
-    deps: [web-assets]
-    cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o whip ./cmd/whip
-
-  build:whipcode:
     desc: Build whipcode with the web app into ./whipcode (run npm ci first)
     deps: [web-assets]
-    vars:
-      WHIPCODE_VERSION: '{{default "dev" .WHIPCODE_VERSION}}'
     cmds:
-      - go build -ldflags "-X main.version={{.WHIPCODE_VERSION}} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" -o whipcode ./cmd/whip
-
-  install:whipcode:
-    desc: Install whipcode with the web app to GOBIN or GOPATH/bin
-    deps: [build:whipcode]
-    cmds:
-      - |
-        dest=$(go env GOBIN)
-        if [ -z "$dest" ]; then dest="$(go env GOPATH)/bin"; fi
-        mkdir -p "$dest"
-        install -m 755 whipcode "$dest/whipcode"
+      - go build -ldflags "{{.LDFLAGS}}" -o whipcode ./cmd/whip
 
   update:local:
     desc: Build, sign and install local macOS Desktop + whipcode, then restart the shared daemon
@@ -62,10 +45,14 @@ tasks:
       - node --test scripts/onboarding-docker.test.mjs scripts/renderer-artifact.test.mjs
 
   install:
-    desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
-    deps: [web-assets]
+    desc: Install whipcode with the web app to GOBIN or GOPATH/bin
+    deps: [build]
     cmds:
-      - go install -ldflags "{{.LDFLAGS}}" ./cmd/whip
+      - |
+        dest=$(go env GOBIN)
+        if [ -z "$dest" ]; then dest="$(go env GOPATH)/bin"; fi
+        mkdir -p "$dest"
+        install -m 755 whipcode "$dest/whipcode"
 
   web-assets:
     desc: Build and package the production web app for go:embed
@@ -91,9 +78,9 @@ tasks:
     cmds:
       - |
         if command -v hyperfine >/dev/null 2>&1; then
-          hyperfine -N --warmup 5 './whip --version' './whip -bench'
+          hyperfine -N --warmup 5 './whipcode --version' './whipcode -bench'
         else
-          for cmd in "./whip --version" "./whip -bench"; do
+          for cmd in "./whipcode --version" "./whipcode -bench"; do
             start=$(date +%s%N)
             for i in $(seq 1 50); do $cmd >/dev/null; done
             end=$(date +%s%N)

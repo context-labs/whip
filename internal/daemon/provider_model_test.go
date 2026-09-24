@@ -22,7 +22,7 @@ import (
 )
 
 func TestPresetDiscoveryFallbackAndPublicCatalog(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "fixture")
 	defer service.Close()
 	for _, preset := range config.ProviderPresets() {
@@ -59,7 +59,7 @@ func (f catalogTransport) RoundTrip(r *http.Request) (*http.Response, error) { r
 func TestOpenRouterSetupAuthenticatesBeforeSavingKey(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusOK} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			cfg := config.Default()
 			cfg.UpsertOpenRouter("previous-key", false)
 			if err := cfg.Save(); err != nil {
@@ -157,7 +157,7 @@ func TestProviderValidationKeepsCustomAndOtherRoutesOnModels(t *testing.T) {
 }
 
 func TestCerebrasLiveCatalogConnectRefreshAndRestart(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "catalog-fixture")
 	defer service.Close()
 	// Cerebras documents this sparse /v1/models shape. Include a future model
@@ -251,7 +251,7 @@ func TestCerebrasLiveCatalogConnectRefreshAndRestart(t *testing.T) {
 }
 
 func TestEmptyLiveCatalogDoesNotInsertBundledModels(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "catalog-fixture")
 	defer service.Close()
 	service.validate = func(context.Context, string, string) ([]llm.ModelInfo, error) { return nil, nil }
@@ -263,7 +263,7 @@ func TestEmptyLiveCatalogDoesNotInsertBundledModels(t *testing.T) {
 }
 
 func TestPresetDiscoveryDoesNotBypassRejectionOrCustomRoute(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "fixture")
 	defer service.Close()
 	provider := config.Provider{BaseURL: config.OpenRouterBaseURL, API: "openai-completions"}
@@ -300,7 +300,7 @@ func TestPresetDiscoveryDoesNotBypassRejectionOrCustomRoute(t *testing.T) {
 }
 
 func TestProviderKeySetupPersistsWithHonestFallback(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "fixture")
 	defer service.Close()
 	service.validate = func(context.Context, string, string) ([]llm.ModelInfo, error) {
@@ -335,7 +335,7 @@ func TestProviderKeySetupPersistsWithHonestFallback(t *testing.T) {
 }
 
 func TestProviderKeySetupSelectsAvailableEnvironmentAlias(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("DEEPINFRA_API_KEY", "")
 	t.Setenv("DEEPINFRA_TOKEN", "fixture-key")
 	service := NewProviderService(t.Context(), "fixture")
@@ -363,7 +363,7 @@ func TestProviderKeySetupSelectsAvailableEnvironmentAlias(t *testing.T) {
 func TestRefreshCatalogReplacesPriorMembershipWithEmptyLiveResponse(t *testing.T) {
 	for _, kind := range []string{"empty", "all incompatible"} {
 		t.Run(kind, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			cfg := config.Default()
 			provider := config.Provider{Name: "Cerebras", BaseURL: "https://api.cerebras.ai/v1", API: "openai-completions", APIKey: "fixture-key"}
 			cfg.Providers["cerebras"] = provider
@@ -398,7 +398,7 @@ func TestRefreshCatalogReplacesPriorMembershipWithEmptyLiveResponse(t *testing.T
 }
 
 func TestSetProviderKeyDoesNotCacheModelsAfterNamedFileRotation(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("CEREBRAS_API_KEY", "")
 	filename := filepath.Join(t.TempDir(), "cerebras.key")
 	if err := os.WriteFile(filename, []byte("first-fixture"), 0o600); err != nil {
@@ -448,7 +448,7 @@ func TestSetProviderKeyDoesNotCacheModelsAfterNamedFileRotation(t *testing.T) {
 }
 
 func TestModelClientUsesSuppliedConfigurationSnapshot(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("SNAPSHOT_FIXTURE_KEY", "")
 	directory := t.TempDir()
 	oldFile, newFile := filepath.Join(directory, "old.key"), filepath.Join(directory, "new.key")

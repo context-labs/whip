@@ -49,7 +49,7 @@ func TestWebEndpointValidation(t *testing.T) {
 
 func TestWebCLIExplicitURLNeverStartsRuntime(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "missing-home")
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v3/web" {
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -92,7 +92,7 @@ func TestWebDiscoveryRejectsMissingAndIncompatibleAssets(t *testing.T) {
 	}{
 		{name: "not packaged", code: 200, body: fmt.Sprintf(`{"available":false,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, daemon.ProtocolMajor), errorText: "without web assets"},
 		{name: "old endpoint", code: 404, errorText: "check the URL"},
-		{name: "host rejected", code: 403, errorText: "WHIP_ALLOWED_HOSTS"},
+		{name: "host rejected", code: 403, errorText: "WHIPCODE_ALLOWED_HOSTS"},
 		{name: "major mismatch", code: 200, body: `{"available":true,"protocol_major":1}`, errorText: "incompatible"},
 		{name: "malformed", code: 200, body: `<html>`, errorText: "invalid gateway web discovery"},
 	} {
@@ -108,9 +108,9 @@ func TestWebDiscoveryRejectsMissingAndIncompatibleAssets(t *testing.T) {
 
 func TestWebStoppedDaemonIsNotStarted(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "missing")
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	err := runWeb(t.Context(), []string{"--no-open"})
-	if err == nil || !strings.Contains(err.Error(), "whip daemon start") {
+	if err == nil || !strings.Contains(err.Error(), "whipcode daemon start") {
 		t.Fatalf("error %v", err)
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
@@ -199,7 +199,7 @@ func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 func startWebTestDaemon(t *testing.T) daemon.RuntimePaths {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -235,8 +235,8 @@ func startWebTestDaemon(t *testing.T) daemon.RuntimePaths {
 }
 
 func TestForegroundGatewayCancellationLeavesDaemonAndDiscoveryAlone(t *testing.T) {
-	t.Setenv("WHIP_NETWORK", "0")
-	t.Setenv("WHIP_LISTEN", "127.0.0.1:0")
+	t.Setenv("WHIPCODE_NETWORK", "0")
+	t.Setenv("WHIPCODE_LISTEN", "127.0.0.1:0")
 	paths := startWebTestDaemon(t)
 	oldAssets := gatewayAssetsAvailable
 	gatewayAssetsAvailable = func() bool { return true }
@@ -293,7 +293,7 @@ func TestForegroundGatewayCancellationLeavesDaemonAndDiscoveryAlone(t *testing.T
 }
 
 func TestGatewayMissingAssetsAndExplicitPortFailureLeaveDaemonAlive(t *testing.T) {
-	t.Setenv("WHIP_NETWORK", "0")
+	t.Setenv("WHIPCODE_NETWORK", "0")
 	paths := startWebTestDaemon(t)
 	oldAssets := gatewayAssetsAvailable
 	t.Cleanup(func() { gatewayAssetsAvailable = oldAssets })
@@ -308,7 +308,7 @@ func TestGatewayMissingAssetsAndExplicitPortFailureLeaveDaemonAlive(t *testing.T
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	t.Setenv("WHIP_LISTEN", listener.Addr().String())
+	t.Setenv("WHIPCODE_LISTEN", listener.Addr().String())
 	if err := runGateway(t.Context(), paths, nil, report); err == nil {
 		t.Fatal("occupied explicit port accepted")
 	}

@@ -49,7 +49,7 @@ func scriptedModel(t *testing.T, responses ...string) (*llm.Client, func() []llm
 // text; a second mismatch fails the turn.
 func TestOutputContractValidatesTheFinalMessage(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	client, requests := scriptedModel(t,
 		"Here you go: the summary is fine.",                  // turn 1, attempt 1: not JSON
 		"```json\n{\"summary\": \"ticket 42 is open\"}\n```", // turn 1, attempt 2: valid, fenced

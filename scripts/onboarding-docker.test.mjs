@@ -46,7 +46,7 @@ else if (args[0] === 'info') {
 `, { mode: 0o755 });
   const env = { ...process.env, PATH: bin + path.delimiter + process.env.PATH,
     DOCKER_CONTEXT: 'fixture', WHIP_DOCKER_TEST_LOG: log, WHIP_DOCKER_TEST_MODE: mode,
-    INFERENCE_API_KEY: 'must-not-be-forwarded', WHIP_HOME: '/host/state', TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+    INFERENCE_API_KEY: 'must-not-be-forwarded', WHIPCODE_HOME: '/host/state', TERM: 'xterm-256color', COLORTERM: 'truecolor' };
   return { root, git, env, options: { root, env, interactive: true, ensurePort: () => checkPort(0) },
     calls: async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)) };
 }
@@ -114,4 +114,19 @@ test('port checks reject an occupied listener without closing it', async t => {
   await assert.rejects(checkPort(server.address().port), /unavailable/);
   assert.equal(server.listening, true);
   await checkPort(0);
+});
+
+test('Docker onboarding builds and runs the sole canonical packaged CLI', async () => {
+  const dockerfile = await readFile(new URL('./docker/onboarding.Dockerfile', import.meta.url), 'utf8');
+  const entrypoint = await readFile(new URL('./docker/onboarding-entrypoint.sh', import.meta.url), 'utf8');
+  assert(dockerfile.includes('-o /out/whipcode ./cmd/whip'));
+  assert(dockerfile.includes('COPY --from=build /out/whipcode /usr/local/bin/whipcode'));
+  assert(dockerfile.includes('COPY --from=web /src/internal/webassets/dist ./internal/webassets/dist'));
+  for (const name of ['HOME', 'NETWORK', 'LISTEN', 'ALLOWED_HOSTS', 'ALLOWED_ORIGINS']) {
+    assert(dockerfile.includes(`WHIPCODE_${name}=`));
+    assert(!dockerfile.includes(`WHIP_${name}=`));
+  }
+  for (const command of ['daemon start', 'daemon stop', 'web --no-open', '--version', '<&0'])
+    assert(entrypoint.includes(`whipcode ${command}`));
+  assert(!entrypoint.includes('whip '));
 });

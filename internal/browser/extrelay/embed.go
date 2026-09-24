@@ -1,4 +1,4 @@
-// embed.go embeds the unpacked extension so `whip browser install` can
+// embed.go embeds the unpacked extension so `whipcode browser install` can
 // materialize it with no network fetch and no repo checkout.
 package extrelay
 
@@ -14,7 +14,7 @@ import (
 //go:embed extension
 var extensionFS embed.FS
 
-// ExtensionDir is where `whip browser install` materializes the unpacked
+// ExtensionDir is where `whipcode browser install` materializes the unpacked
 // extension (and relay.json) for the user to load.
 func ExtensionDir(home string) string {
 	return filepath.Join(buildinfo.Home(home), "browser", "extension")

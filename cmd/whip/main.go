@@ -1,4 +1,4 @@
-// whip is a minimal coding agent harness.
+// whipcode is a minimal coding agent harness.
 package main
 
 import (
@@ -29,7 +29,7 @@ func cwd() string {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "_desktop-runtime-sync" {
 		if err := desktopRuntimeSyncCLI(os.Args[2:], os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "whip desktop:", err)
+			fmt.Fprintln(os.Stderr, "whipcode desktop:", err)
 			os.Exit(1)
 		}
 		return
@@ -39,7 +39,7 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_desktop-runtime-info" {
 		if err := desktopRuntimeInfo(os.Args[2:], os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "whip desktop: could not read runtime build metadata")
+			fmt.Fprintln(os.Stderr, "whipcode desktop: could not read runtime build metadata")
 			os.Exit(1)
 		}
 		return
@@ -49,26 +49,26 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_kernel" {
 		if err := kernelCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip kernel:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode kernel:", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_web-gateway" {
 		if err := gatewayChildCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip gateway:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode gateway:", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
 		if err := daemonCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip daemon:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode daemon:", err)
 			os.Exit(1)
 		}
 		return
 	}
-	modelFlag := flag.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
+	modelFlag := flag.String("m", "", "model name from ~/.whipcode/config.json (default: defaultModel)")
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	engineFlag := flag.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
@@ -79,57 +79,57 @@ func main() {
 	yoloFlag := flag.Bool("yolo", false, "allow files outside the project, approve automatically, and save this mode for the initial session")
 	flag.Parse()
 	if *cautiousFlag && *yoloFlag {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: --cautious and --yolo are mutually exclusive"))
+		fmt.Fprintln(os.Stderr, "whipcode: --cautious and --yolo are mutually exclusive")
 		os.Exit(2)
 	}
 
 	if *versionFlag {
-		fmt.Println(buildinfo.Name, buildinfo.Version(version))
+		fmt.Println(buildinfo.Name, version)
 		return
 	}
 
-	// `whip daemon ...` — inspect and manage the local runtime daemon.
+	// `whipcode daemon ...` — inspect and manage the local runtime daemon.
 	if flag.NArg() > 0 && flag.Arg(0) == "daemon" {
 		if err := daemonManageCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip web` serves the foreground gateway above an existing socket daemon.
+	// `whipcode web` serves the foreground gateway above an existing socket daemon.
 	if flag.NArg() > 0 && flag.Arg(0) == "web" {
 		if err := webCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip mcp ...` — server management and the MCP server mode.
+	// `whipcode mcp ...` — server management and the MCP server mode.
 	if flag.NArg() > 0 && flag.Arg(0) == "mcp" {
 		if err := mcpCLI(flag.Args()[1:], version); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip skills ...` — list and import SKILL.md skills (incl. from other
-	// harnesses' dirs, deduped against what whip already loads).
+	// `whipcode skills ...` — list and import SKILL.md skills (incl. from other
+	// harnesses' dirs, deduped against what whipcode already loads).
 	if flag.NArg() > 0 && flag.Arg(0) == "skills" {
 		if err := skillsCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip run ...` — non-interactive one-turn mode for scripting; no TTY required.
-	// `whip acp` — ACP agent over stdio for editors (Zed et al.).
+	// `whipcode run ...` — non-interactive one-turn mode for scripting; no TTY required.
+	// `whipcode acp` — ACP agent over stdio for editors (Zed et al.).
 	if flag.NArg() > 0 && flag.Arg(0) == "acp" {
 		if err := acpCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip acp:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode acp:", err)
 			os.Exit(1)
 		}
 		return
@@ -137,17 +137,17 @@ func main() {
 
 	if flag.NArg() > 0 && flag.Arg(0) == "run" {
 		if err := runCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip browser ...` — browser tooling (install the drive-my-tab extension).
-	// `whip sessions` — list stored sessions (the scriptable companion to run).
+	// `whipcode browser ...` — browser tooling (install the drive-my-tab extension).
+	// `whipcode sessions` — list stored sessions (the scriptable companion to run).
 	if flag.NArg() > 0 && flag.Arg(0) == "sessions" {
 		if err := sessionsCLI(); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
@@ -155,32 +155,32 @@ func main() {
 
 	if flag.NArg() > 0 && flag.Arg(0) == "browser" {
 		if err := browserCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip update` — re-run the install script to get the latest release.
+	// `whipcode update` — re-run the install script to get the latest release.
 	if flag.NArg() > 0 && flag.Arg(0) == "update" {
 		if err := updateCLI(); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip auth ...` — provider key onboarding (openrouter).
+	// `whipcode auth ...` — provider key onboarding (openrouter).
 	if flag.NArg() > 0 && flag.Arg(0) == "auth" {
 		if err := authCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// `whip up <words...>`: flag.Parse stops at "up", so flags go before it
-	// (whip -m kimi up …) and the prompt may start with "-" untouched.
+	// `whipcode up <words...>`: flag.Parse stops at "up", so flags go before it
+	// (whipcode -m kimi up …) and the prompt may start with "-" untouched.
 	initialPrompt := ""
 	if flag.NArg() > 0 && flag.Arg(0) == "up" {
 		initialPrompt = strings.Join(flag.Args()[1:], " ")
@@ -188,14 +188,14 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+		fmt.Fprintln(os.Stderr, "whipcode:", err)
 		os.Exit(1)
 	}
 
 	if *benchFlag {
 		prov, _, _, err := cfg.Resolve(*modelFlag, *providerFlag)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
 			os.Exit(1)
 		}
 		_ = prov.Key(cfg)
@@ -209,10 +209,10 @@ func main() {
 	tui.Version = version // /report names the build in the bug-report bundle
 	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt, *engineFlag, *agentFlag)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
+		fmt.Fprintln(os.Stderr, "whipcode:", err)
 		os.Exit(1)
 	}
 	if sessionID != "" {
-		fmt.Printf(buildinfo.Text("session %s — resume with: whip --resume %s\n"), sessionID, sessionID)
+		fmt.Printf("session %s — resume with: whipcode --resume %s\n", sessionID, sessionID)
 	}
 }

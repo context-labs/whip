@@ -11,7 +11,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-// unusableHome points WHIP_HOME at a path nested inside a regular file, so
+// unusableHome points WHIPCODE_HOME at a path nested inside a regular file, so
 // every config.Dir/config.Load call fails the way a broken install does.
 func unusableHome(t *testing.T) {
 	t.Helper()
@@ -19,13 +19,13 @@ func unusableHome(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("WHIP_HOME", filepath.Join(f, "whip"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(f, "whip"))
 }
 
-// whip sessions lists stored sessions newest-first with id, title, model, age.
+// whipcode sessions lists stored sessions newest-first with id, title, model, age.
 func TestSessionsCLI(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 
 	st := openRuntimeTestStore(t, dir)
 	id, _ := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
@@ -53,7 +53,7 @@ func TestSessionsCLI(t *testing.T) {
 // with no first user message yet renders as "(untitled)".
 func TestSessionsCLIEmptyAndUntitled(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	useTestDaemon(t)
 
 	out := captureStdout(t, func() {
@@ -89,7 +89,7 @@ func TestSessionsCLIEmptyAndUntitled(t *testing.T) {
 // A long title is truncated to the column width with an ellipsis.
 func TestSessionsCLITruncatesTitle(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 
 	st := openRuntimeTestStore(t, dir)
 	id, _ := st.Create(session.SessionKindAgent, "/tmp", "m", "p")
@@ -115,11 +115,11 @@ func TestSessionsCLITruncatesTitle(t *testing.T) {
 func TestSessionsCLIStoreErrors(t *testing.T) {
 	unusableHome(t)
 	if err := sessionsCLI(); err == nil {
-		t.Error("an unusable WHIP_HOME should error")
+		t.Error("an unusable WHIPCODE_HOME should error")
 	}
 
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, "runtime-v2"), 0o700); err != nil {
 		t.Fatal(err)
 	}

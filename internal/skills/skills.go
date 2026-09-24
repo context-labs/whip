@@ -37,7 +37,7 @@ type ScanProblem struct {
 }
 
 // DefaultDirs returns whip's skill locations: project .agents/skills, then
-// user ~/.whip/skills and ~/.agents/skills.
+// user ~/.whipcode/skills and ~/.agents/skills.
 func DefaultDirs() []string {
 	wd, _ := os.Getwd()
 	return DirsFor(wd)
@@ -307,7 +307,7 @@ var specNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // ValidName reports whether name matches the spec's name charset (lowercase
 // a-z, 0-9, hyphens only). Callers that turn a skill name into a filesystem
-// path (e.g. `whip skills import`) must gate on this — validate() only warns,
+// path (e.g. `whipcode skills import`) must gate on this — validate() only warns,
 // and a name with separators is a path-traversal primitive.
 func ValidName(name string) bool {
 	return specNameRe.MatchString(name)

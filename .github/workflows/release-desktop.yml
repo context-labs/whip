@@ -13,7 +13,9 @@ permissions:
 
 jobs:
   metadata:
-    if: github.repository == 'context-labs/whip'
+    if: >-
+      github.repository == 'context-labs/whip' &&
+      vars.WHIP_RELEASE_ENABLED == 'true' && vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -24,12 +26,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Require an immutable release tag on the release branch
+      - name: Require an immutable release tag at clean current main
         id: release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
         run: |
-          git merge-base --is-ancestor HEAD origin/whip-rlm
+          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" HEAD
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           node --input-type=module <<'NODE'
           import { execFileSync } from 'node:child_process';
           import { appendFileSync } from 'node:fs';
@@ -41,20 +46,20 @@ jobs:
 
   ci:
     needs: metadata
-    uses: ./.github/workflows/ci-whipcode.yml
+    uses: ./.github/workflows/ci.yml
 
   security:
     needs: metadata
     permissions:
       contents: read
       security-events: write
-    uses: ./.github/workflows/security-whipcode.yml
+    uses: ./.github/workflows/security.yml
 
   desktop:
     needs: [metadata, ci, security]
     uses: ./.github/workflows/desktop-release.yml
     with:
-      renderer-artifact: whipcode-ci-renderer
+      renderer-artifact: ci-renderer
       version: ${{ needs.metadata.outputs.version }}
       channel: ${{ needs.metadata.outputs.channel }}
     secrets: inherit
@@ -82,7 +87,7 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: whipcode-ci-renderer
+          name: ci-renderer
           path: apps/web
       - run: node scripts/pack-web.mjs --release
       - name: Build the matching standalone Linux backend
@@ -90,7 +95,7 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           mkdir -p dist/desktop-linux
-          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" -o dist/desktop-linux/whipcode-linux-x64 ./cmd/whip
+          go build -trimpath -ldflags "-s -w -X main.version=v$RELEASE_VERSION" -o dist/desktop-linux/whipcode-linux-x64 ./cmd/whip
           dist/desktop-linux/whipcode-linux-x64 _desktop-runtime-info > dist/desktop-linux/linux-runtime.json
       - name: Verify the Linux payload and its embedded renderer
         run: node apps/desktop/scripts/linux-smoke.mjs dist/desktop-linux/whipcode-linux-x64
@@ -149,6 +154,7 @@ jobs:
     secrets: inherit
     permissions:
       contents: write
+      actions: read
       attestations: read
 
   promote:
@@ -161,4 +167,5 @@ jobs:
     secrets: inherit
     permissions:
       contents: write
+      actions: read
       attestations: read

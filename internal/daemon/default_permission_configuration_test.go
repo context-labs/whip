@@ -13,7 +13,7 @@ import (
 
 func TestConfigurationDefaultPermissionMode(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := config.Default()
 	cfg.Theme = "preserved-theme"
 	if err := cfg.Save(); err != nil {

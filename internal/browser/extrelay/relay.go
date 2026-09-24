@@ -1,5 +1,5 @@
 // Package extrelay turns the user's real, logged-in Chrome tab into a
-// browser_exec backend: the whip browser extension holds an outbound
+// browser_exec backend: the whipcode browser extension holds an outbound
 // WebSocket to this loopback relay and pipes raw CDP through chrome.debugger
 // on the tab the user pinned. rod connects to the relay's /cdp endpoint and
 // drives the tab unchanged — no second driver.
@@ -10,8 +10,8 @@
 // page target) and forwards everything else verbatim to the tab.
 //
 // Security: loopback only, and the extension must present the per-process
-// bearer token (written to ~/.whip/browser/extension/relay.json by
-// `whip browser install`, 0600). Only a tab the user explicitly activated
+// bearer token (written to ~/.whipcode/browser/extension/relay.json by
+// `whipcode browser install`, 0600). Only a tab the user explicitly activated
 // by clicking the extension icon is drivable.
 package extrelay
 
@@ -308,7 +308,7 @@ func (r *Relay) serveCDP(c *conn) {
 		ext := r.ext
 		r.mu.Unlock()
 		if ext == nil {
-			r.replyErr(c, msg, "no browser tab attached — click the whip extension icon on a tab")
+			r.replyErr(c, msg, "no browser tab attached — click the whipcode extension icon on a tab")
 			continue
 		}
 		_ = ext.writeText(msg)
@@ -458,7 +458,7 @@ func (r *Relay) WaitAttached(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("no tab attached: click the whip extension icon on the tab to drive")
+			return errors.New("no tab attached: click the whipcode extension icon on the tab to drive")
 		case <-t.C:
 		}
 	}

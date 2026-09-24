@@ -7,10 +7,7 @@ import (
 )
 
 func TestDistributionChildEnvironment(t *testing.T) {
-	other := "WHIPCODE_HOME"
-	if buildinfo.Name == "whipcode" {
-		other = "WHIP_HOME"
-	}
+	other := "WHIP_HOME"
 	if !allowedBaseEnvironment(buildinfo.Env("HOME")) {
 		t.Fatal("child loses its distribution home")
 	}

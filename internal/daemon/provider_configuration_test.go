@@ -20,7 +20,7 @@ import (
 
 func customProviderService(t *testing.T) *ProviderService {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	s := NewProviderService(t.Context(), "provider-configuration")
 	t.Cleanup(s.Close)
 	return s

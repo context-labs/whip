@@ -180,7 +180,7 @@ func ResetShared() {
 	shared.h, shared.err = nil, nil
 }
 
-// helperPath resolves the binary: embedded copy extracted to ~/.whip/bin,
+// helperPath resolves the binary: embedded copy extracted to ~/.whipcode/bin,
 // or WHIP_COMPUTER_BIN / the driver build tree for dev.
 func helperPath() (string, error) {
 	if p := os.Getenv("WHIP_COMPUTER_BIN"); p != "" {

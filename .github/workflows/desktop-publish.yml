@@ -16,13 +16,15 @@ permissions:
 
 jobs:
   publish:
+    if: vars.WHIP_RELEASE_ENABLED == 'true' && vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Only promote environments require human review. Their deployment rules
-    # permit desktop-v* tags; the stage operation leaves the live feed unchanged.
+    # BOTH stage (public downloads) and promote (live feed) require approval.
+    # Deployment rules permit only desktop-v* tags from the clean main boundary.
     environment: desktop-${{ inputs.channel }}-${{ inputs.mode }}
     permissions:
       contents: write
+      actions: read
       attestations: read
     env:
       SOURCE_SHA: ${{ inputs.source }}
@@ -34,7 +36,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Recheck clean main after publication approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
+        run: |
+          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
@@ -60,16 +73,27 @@ jobs:
       - name: Stage or promote the complete verified GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node apps/desktop/scripts/publish-github.mjs candidate/*
+        run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-desktop.yml" --jq .state)" = active
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
+          node apps/desktop/scripts/publish-github.mjs candidate/*
       - name: Stage immutable public downloads without changing the feed
         env:
+          GH_TOKEN: ${{ github.token }}
           WHIP_DESKTOP_R2_ACCESS_KEY_ID: ${{ secrets.WHIP_DESKTOP_R2_ACCESS_KEY_ID }}
           WHIP_DESKTOP_R2_SECRET_ACCESS_KEY: ${{ secrets.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY }}
         if: inputs.mode == 'stage'
-        run: node apps/desktop/scripts/publish.mjs candidate
+        run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-desktop.yml" --jq .state)" = active
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
+          node apps/desktop/scripts/publish.mjs candidate
       - name: Promote and read back the live feed last
         env:
+          GH_TOKEN: ${{ github.token }}
           WHIP_DESKTOP_R2_ACCESS_KEY_ID: ${{ secrets.WHIP_DESKTOP_R2_ACCESS_KEY_ID }}
           WHIP_DESKTOP_R2_SECRET_ACCESS_KEY: ${{ secrets.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY }}
         if: inputs.mode == 'promote'
-        run: node apps/desktop/scripts/publish.mjs candidate
+        run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-desktop.yml" --jq .state)" = active
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
+          node apps/desktop/scripts/publish.mjs candidate

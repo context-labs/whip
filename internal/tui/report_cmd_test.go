@@ -34,7 +34,7 @@ func TestEnvReportCollectsWhitelist(t *testing.T) {
 		got[row.key] = row.val
 	}
 	want := map[string]string{
-		"whip":         "1.4.0-test",
+		"whipcode":     "1.4.0-test",
 		"model":        "gpt-5",
 		"provider":     "openai",
 		"TERM":         "xterm-256color",
@@ -119,12 +119,12 @@ func TestReportSnippetFenced(t *testing.T) {
 	if strings.ContainsRune(r.snippet, 0x1b) {
 		t.Error("snippet contains ESC — hyperlinks/styling must not leak into the paste form")
 	}
-	if !strings.Contains(r.snippet, "whip ") || !strings.Contains(r.snippet, "model") || !strings.Contains(r.snippet, "m1") {
+	if !strings.Contains(r.snippet, "whipcode ") || !strings.Contains(r.snippet, "model") || !strings.Contains(r.snippet, "m1") {
 		t.Errorf("snippet missing rows:\n%s", r.snippet)
 	}
 }
 
-// TestIssueURL: the link targets the whip repo's new-issue page, round-trips
+// TestIssueURL: the link targets the whipcode repo's new-issue page, round-trips
 // through url.Parse, and its body carries the skeleton plus the env bundle.
 func TestIssueURL(t *testing.T) {
 	snippet := "```\nwhip 1.2.3\nTERM xterm\n```"

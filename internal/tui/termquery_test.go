@@ -57,7 +57,7 @@ func TestFallbackScheme(t *testing.T) {
 // must NEVER query the tty: the raw-mode query flips the shared terminal to
 // VMIN=0 and bubbletea's concurrent input read then returns a spurious EOF —
 // its reader exits silently and the session stops seeing input forever (the
-// frozen-whip bug). Runtime detection reuses the startup query's answer, or
+// frozen-whipcode bug). Runtime detection reuses the startup query's answer, or
 // COLORFGBG, or the neutral theme.
 func TestRuntimeDetectionNeverQueriesTTY(t *testing.T) {
 	t.Cleanup(func() { SetLightTheme(false) })

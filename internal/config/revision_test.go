@@ -7,7 +7,7 @@ import (
 )
 
 func TestVersionedConfigurationRejectsConflictsAndPreservesOtherFields(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	c, revision, err := ReadVersioned()
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestVersionedConfigurationRejectsConflictsAndPreservesOtherFields(t *testin
 }
 
 func TestVersionedConfigurationSerializesCompetingUpdates(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	_, revision, err := ReadVersioned()
 	if err != nil {
 		t.Fatal(err)

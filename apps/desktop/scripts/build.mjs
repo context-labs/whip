@@ -58,7 +58,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   // placeholder or let a concurrent CLI build pick up desktop signing inputs.
   const overlay = path.join(stage, 'go-overlay.json');
   await writeFile(overlay, JSON.stringify({ Replace: { [path.join(repositoryRoot, 'internal/computer/bin/whip-computer')]: helper } }));
-  await command('go', ['build', '-overlay', overlay, '-trimpath', '-ldflags', `-s -w -X main.version=${buildId} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`, '-o', path.join(native, 'whipcode'), './cmd/whip'],
+  await command('go', ['build', '-overlay', overlay, '-trimpath', '-ldflags', `-s -w -X main.version=${buildId} -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`, '-o', path.join(native, 'whipcode'), './cmd/whip'],
     { env: { ...process.env, GOOS: 'darwin', GOARCH: 'arm64', CGO_ENABLED: '0' } });
   await command('/usr/bin/codesign', ['--force', '--sign', identity || '-', '--identifier', `${bundleId}.runtime`,
     ...(identity ? ['--options', 'runtime', '--timestamp', '--entitlements', path.join(desktop, 'resources/runtime.entitlements.plist')] : []), path.join(native, 'whipcode')]);

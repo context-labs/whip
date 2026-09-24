@@ -43,12 +43,12 @@ func TestDaemonKernelWorker(t *testing.T) {
 
 func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
-	t.Setenv("WHIP_NETWORK", "")
-	t.Setenv("WHIP_LISTEN", "")
-	t.Setenv("WHIP_ALLOWED_HOSTS", "")
-	t.Setenv("WHIP_ALLOWED_ORIGINS", "")
-	t.Setenv("WHIP_NETWORK_TERMINALS", "")
+	t.Setenv("WHIPCODE_HOME", home)
+	t.Setenv("WHIPCODE_NETWORK", "")
+	t.Setenv("WHIPCODE_LISTEN", "")
+	t.Setenv("WHIPCODE_ALLOWED_HOSTS", "")
+	t.Setenv("WHIPCODE_ALLOWED_ORIGINS", "")
+	t.Setenv("WHIPCODE_NETWORK_TERMINALS", "")
 	t.Setenv("INFERENCE_API_KEY", "test-key")
 	legacyPath := filepath.Join(home, "sessions.db")
 	legacyBytes := []byte("legacy store must remain completely untouched")
@@ -208,7 +208,7 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	defer provider.Close()
 
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	configData, err := json.Marshal(map[string]any{
 		"defaultModel": "test-model",
 		"rlm":          map[string]any{"enabled": false},
@@ -288,7 +288,7 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 }
 
 func TestResolveRuntimeModelUsesSelectedProviderPricing(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	alphaPrice := llm.Pricing{Prompt: "0.000002", Completion: "0.000004"}
 	betaPrice := llm.Pricing{Prompt: "0.000008", Completion: "0.000012", InputCacheRead: "0"}
 	freePrice := llm.Pricing{Prompt: "0", Completion: "0"}
@@ -372,7 +372,7 @@ func TestResolveRuntimeModelUsesSelectedProviderPricing(t *testing.T) {
 }
 
 func TestRuntimeModelDoesNotRouteBuiltinCompactionToAnotherProvider(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.InferenceNetEnvVar, "")
 	cfg := config.Default()
 	cfg.DefaultModel, cfg.DefaultProvider = "router-coding", "openrouter"
@@ -398,7 +398,7 @@ func TestRuntimeModelDoesNotRouteBuiltinCompactionToAnotherProvider(t *testing.T
 
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +421,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 
 func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 
 func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -522,7 +522,7 @@ func TestScreenshotPartsNormalizesOversizedCaptures(t *testing.T) {
 }
 
 func TestResolveRuntimeModelPreservesCatalogDefaultPair(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := &config.Config{
@@ -570,7 +570,7 @@ func TestRLMLimitsPreserveConfiguredUnitsAndDefaultOmissions(t *testing.T) {
 		t.Fatalf("default worker limit=%d, want 16", got)
 	}
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	writeConfig(t, home, `{"rlm":{"steps":1250,"hostRequests":3,"wallMillis":250,"memoryMiB":32,"outputBytes":1024,"frameBytes":2048,"maxWorkers":2}}`)
 	cfg, err := config.Load()
 	if err != nil {

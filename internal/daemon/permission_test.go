@@ -115,7 +115,7 @@ func TestDirectPermissionControlsStayRootScoped(t *testing.T) {
 }
 
 func TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {

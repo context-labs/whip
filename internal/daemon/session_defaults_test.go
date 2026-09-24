@@ -14,7 +14,7 @@ import (
 func TestV2CreateSessionUsesHostDefaults(t *testing.T) {
 	for _, transport := range []string{"unix", "websocket"} {
 		t.Run(transport, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			cfg := config.Default()
 			cfg.DefaultModel = "host-alias"
 			cfg.DefaultProvider = "host-provider"
@@ -66,7 +66,7 @@ func TestV2CreateSessionUsesHostDefaults(t *testing.T) {
 func TestV2CreatePermissionDefaultsWithExplicitRouting(t *testing.T) {
 	for _, transport := range []string{"unix", "websocket"} {
 		t.Run(transport, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			fixture := newV2Fixture(t, &fakeRunner{})
 			client := fixture.dial(transport, "permission-default-client")
 			for _, tc := range []struct {
@@ -117,7 +117,7 @@ func TestV2CreatePermissionDefaultsWithExplicitRouting(t *testing.T) {
 }
 
 func TestSessionPermissionDefaultRetrySurvivesRestart(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	database := filepath.Join(t.TempDir(), "sessions.db")
 	admission := session.CommandAdmission{
 		ClientID: "client", CommandID: "create", RequestDigest: "stable",
@@ -166,7 +166,7 @@ func TestSessionPermissionDefaultRetrySurvivesRestart(t *testing.T) {
 }
 
 func TestSessionDefaultsPermissionMode(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	for _, hostMode := range []string{"", "prompt", "automatic", "invalid"} {
 		cfg := config.Default()
 		cfg.DefaultPermissionMode = hostMode
@@ -202,7 +202,7 @@ func TestSessionDefaultsPermissionMode(t *testing.T) {
 }
 
 func TestSessionDefaultsPreserveRoutingChoices(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	cfg.DefaultModel = "alias"
 	cfg.DefaultProvider = "default"

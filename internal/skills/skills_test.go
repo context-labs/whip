@@ -24,7 +24,7 @@ func TestDefaultDirs(t *testing.T) {
 
 	want := []string{
 		filepath.Join(project, ".agents", "skills"),
-		filepath.Join(home, ".whip", "skills"),
+		filepath.Join(home, ".whipcode", "skills"),
 		filepath.Join(home, ".agents", "skills"),
 	}
 	if got := DefaultDirs(); !slices.Equal(got, want) {

@@ -1,4 +1,4 @@
-// Package config loads and saves whip's JSONC configuration from ~/.whip.
+// Package config loads and saves whip's JSONC configuration from ~/.whipcode.
 package config
 
 import (
@@ -42,8 +42,8 @@ func (p Provider) ResolveKey(cfg ...*Config) (string, error) {
 	return key, err
 }
 
-// whipInferenceNetKey reads the machine key from ~/.whip/inference-net.json
-// (written by `whip auth inference-net login`).
+// whipInferenceNetKey reads the machine key from ~/.whipcode/inference-net.json
+// (written by `whipcode auth inference-net login`).
 func whipInferenceNetKey() string {
 	dir, err := Dir()
 	if err != nil {
@@ -139,7 +139,7 @@ const DefaultCompactModel = "deepseek-v4-flash-0731"
 // 50% keeps compaction deterministic instead of letting the context bloat.
 const DefaultCompactPct = 50
 
-// Config is the root of ~/.whip/config.json (JSONC: comments allowed).
+// Config is the root of ~/.whipcode/config.json (JSONC: comments allowed).
 type Config struct {
 	RemoteHosts           []RemoteHost        `json:"remote_hosts,omitempty"`
 	DefaultPermissionMode string              `json:"defaultPermissionMode,omitempty"` // permission mode for new sessions; empty defaults to prompt
@@ -165,9 +165,9 @@ type Config struct {
 	Models                map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
-	// merged over imported claude/codex configs: whip always wins per name.
+	// merged over imported claude/codex configs: whipcode always wins per name.
 	MCPServers map[string]MCPServer `json:"mcp,omitempty"`
-	// MCPImport gates which imported MCP server definitions whip picks up
+	// MCPImport gates which imported MCP server definitions whipcode picks up
 	// (claude-style .mcp.json, codex-style ~/.codex/config.toml). nil imports
 	// both sources, preserving the pre-gating behavior.
 	MCPImport *MCPImport `json:"mcpImport,omitempty"`
@@ -229,7 +229,7 @@ type ComputerConfig struct {
 type BrowserConfig struct {
 	// Mode: "live" (attach to the user's running Chrome, default),
 	// "dedicated" (whip-owned profile), "headless", or "extension" (drive
-	// the user's real logged-in tab through the whip extension — the only
+	// the user's real logged-in tab through the whipcode extension — the only
 	// way onto the default profile on Chrome ≥ 136).
 	Mode string `json:"mode,omitempty"`
 	// Driver selects the implementation used by browser sessions. Empty uses
@@ -256,7 +256,7 @@ type LSPServer struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
-// MCPImport selects which imported MCP server definitions whip picks up.
+// MCPImport selects which imported MCP server definitions whipcode picks up.
 // Three sources: claude (the user's ~/.claude.json), codex (the user's
 // ~/.codex/config.toml) and project (the repository's .mcp.json in the
 // session cwd). A nil claude or codex entry (or nil Enabled) leaves that
@@ -305,12 +305,12 @@ type MCPServer struct {
 	ToolTimeout    int               `json:"toolTimeout,omitempty"`
 }
 
-// Dir returns the whip home directory (~/.whip), creating it if needed.
-// WHIP_HOME overrides the location — used by tests to keep fixture writes
+// Dir returns the whipcode home directory (~/.whipcode), creating it if needed.
+// WHIPCODE_HOME overrides the location — used by tests to keep fixture writes
 // far away from the real config.
 func Dir() (string, error) {
 	if d := os.Getenv(buildinfo.Env("HOME")); d != "" {
-		return d, os.MkdirAll(d, 0o700) //nolint:gosec // G703: WHIP_HOME is the user's own env override for the config dir
+		return d, os.MkdirAll(d, 0o700) //nolint:gosec // G703: WHIPCODE_HOME is the user's own env override for the config dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -320,7 +320,7 @@ func Dir() (string, error) {
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
-// Path is the config file location (~/.whip/config.json, or under WHIP_HOME),
+// Path is the config file location (~/.whipcode/config.json, or under WHIPCODE_HOME),
 // for surfaces that tell the person where a write went.
 func Path() (string, error) { return path() }
 
@@ -340,7 +340,7 @@ func (c *Config) fingerprint() string {
 		len(c.Providers), len(c.Models), c.DefaultModel, c.CompactModel)
 }
 
-// Load reads ~/.whip/config.json, writing a default config on first run. The
+// Load reads ~/.whipcode/config.json, writing a default config on first run. The
 // file is JSONC: comments and trailing commas are allowed.
 func Load() (*Config, error) {
 	configurationMu.Lock()
@@ -417,40 +417,10 @@ func loadUnlocked() (*Config, error) {
 		return def, def.saveUnlocked()
 	}
 	logf("config.load", "ok (%s)", cfg.fingerprint())
-	cfg.normalize()
 	return &cfg, nil
 }
 
-// normalize upgrades legacy config shapes in place. Today: the provider key
-// "inference" was renamed to "inference-net" — old configs (and model routes
-// pointing at it) are migrated transparently. No file write happens here;
-// the next Save persists the rename.
-func (c *Config) normalize() {
-	p, ok := c.Providers["inference"]
-	if !ok {
-		return
-	}
-	if _, clash := c.Providers["inference-net"]; !clash {
-		c.Providers["inference-net"] = p
-	}
-	delete(c.Providers, "inference")
-	for name, m := range c.Models {
-		for i, prov := range m.Providers {
-			if prov == "inference" {
-				m.Providers[i] = "inference-net"
-			}
-		}
-		c.Models[name] = m
-	}
-	if c.DefaultProvider == "inference" {
-		c.DefaultProvider = "inference-net"
-	}
-	if c.CompactProvider == "inference" {
-		c.CompactProvider = "inference-net"
-	}
-}
-
-// Save writes the config back to ~/.whip/config.json. The write is atomic
+// Save writes the config back to ~/.whipcode/config.json. The write is atomic
 // (temp file + rename) and the previous contents are kept in config.json.bak.
 // As a safety net, Save refuses to overwrite an existing healthy config (one
 // with providers/models) with a structurally empty one — that path has only
@@ -514,7 +484,7 @@ func marshalConfig(c *Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	header := "// whip configuration — JSONC: comments and trailing commas are allowed.\n" +
+	header := "// whipcode configuration — JSONC: comments and trailing commas are allowed.\n" +
 		"// providers: declare each API endpoint once. models: route each model to one or\n" +
 		"// more providers (first is the default). defaultModel/defaultProvider pick the route.\n" +
 		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex/project imports, e.g.\n" +
@@ -572,7 +542,7 @@ func (c *Config) ResolveRoute(model, provider string) (string, Provider, Model, 
 // UnknownModelError flags a Resolve miss the caller may recover from by
 // refreshing the provider catalogs and retrying: the model is absent from
 // both cfg.Models and every provider's cached /models list, which a stale
-// (or deleted) ~/.whip/models.json causes even for live models.
+// (or deleted) ~/.whipcode/models.json causes even for live models.
 type UnknownModelError struct {
 	Model string
 	known string // config model names, for the message

@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
@@ -230,7 +228,7 @@ type model struct {
 	startup       *sessionStartup
 	runContext    context.Context
 
-	// initialPrompt (whip up <words>) is submitted as the first turn from
+	// initialPrompt (whipcode up <words>) is submitted as the first turn from
 	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
 	initialPrompt string
 }
@@ -298,7 +296,7 @@ func (m *model) startupReport() {
 		m.append(dimStyle.Render("◐ shift+enter unavailable over mosh — mosh collapses it to enter (no keyboard-protocol support); use ctrl+j or alt+enter for a newline"))
 	} else if inTmuxEnv() && !tmuxExtKeysCheck() {
 		// tmux only forwards shift+enter when its server option extended-keys
-		// is on. whip never mutates the user's tmux server, so warn once and
+		// is on. whipcode never mutates the user's tmux server, so warn once and
 		// point at the one-line fix.
 		m.append(dimStyle.Render("◐ shift+enter needs tmux extended-keys on — add `set -s extended-keys on` to ~/.tmux.conf (meanwhile ctrl+j / alt+enter insert newlines)"))
 	}
@@ -306,7 +304,7 @@ func (m *model) startupReport() {
 	var warned bool
 	line := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	if m.updateLatest != "" {
-		line(buildinfo.Text("update available: %s (run: whip update)"), m.updateLatest)
+		line("update available: %s (run: whipcode update)", m.updateLatest)
 		warned = true
 	}
 	if b.Len() == 0 {
@@ -320,7 +318,7 @@ func (m *model) startupReport() {
 	}
 }
 
-// (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
+// (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whipcode — tmux's
 // factory MouseDrag1Pane binding checks mouse_any_flag, which our ?1002 sets,
 // and sends every press/motion/release into the pane (verified live). whip's
 // own selection (select.go) paints and copies, exactly like Claude Code. The
@@ -773,7 +771,7 @@ func (m *model) applyDetectedBackground(msg tea.BackgroundColorMsg) {
 	m.refreshVP()
 }
 
-// inTmuxEnv reports whether whip runs inside tmux/screen, where the terminal
+// inTmuxEnv reports whether whipcode runs inside tmux/screen, where the terminal
 // can't be queried directly.
 func inTmuxEnv() bool {
 	return os.Getenv("TMUX") != "" ||
@@ -783,7 +781,7 @@ func inTmuxEnv() bool {
 
 // tmuxExtendedKeysReady reports whether tmux's server option extended-keys is
 // on — the one setting tmux needs to forward shift+enter to the pane once
-// Bubble Tea v2 has requested modifyOtherKeys. Detection only: whip never
+// Bubble Tea v2 has requested modifyOtherKeys. Detection only: whipcode never
 // runs `tmux set` against the user's server (startupReport warns instead).
 func tmuxExtendedKeysReady() bool {
 	if !inTmuxEnv() {
@@ -845,14 +843,14 @@ var moshDetect = detectMosh
 // real server config. Reassigned in tests.
 var tmuxExtKeysCheck = tmuxExtendedKeysReady
 
-// inMoshEnv reports whether whip runs under mosh, via the test seam.
+// inMoshEnv reports whether whipcode runs under mosh, via the test seam.
 func inMoshEnv() bool { return moshDetect() }
 
 // detectMosh is the real mosh check behind inMoshEnv. Mosh runs its own
 // terminal emulator that re-renders input/output between the user's terminal
 // and the shell; it does NOT implement the kitty keyboard protocol or forward
 // modified-key CSI sequences, so shift+enter arrives as plain CR no matter
-// what whip or tmux request. Detected so whip can say so instead of failing
+// what whipcode or tmux request. Detected so whipcode can say so instead of failing
 // silently.
 //
 // Mosh leaks no env marker into the inner shell (MOSH_KEY stays on the
@@ -893,7 +891,7 @@ func detectColorScheme() string {
 	// query flips the shared tty to VMIN=0/VTIME, and if bubbletea's input
 	// reader issues a read in that window it gets a 0-byte result = io.EOF —
 	// the reader exits SILENTLY and the session never sees input again (the
-	// frozen-whip bug: /theme auto or a config-watcher sync re-ran detection
+	// frozen-whipcode bug: /theme auto or a config-watcher sync re-ran detection
 	// mid-session). Reuse the startup query's answer instead; env fallbacks
 	// below are read-only and stay available.
 	if tuiRunning {
@@ -1022,7 +1020,7 @@ func (m *model) growInput() {
 	val := m.input.Value()
 	ti := newInput()
 	// carry the CURRENT mode's chrome over: newInput bakes whip's defaults
-	// ("┃ " prompt, whip placeholder, plain styles), which in opencode mode
+	// ("┃ " prompt, whipcode placeholder, plain styles), which in opencode mode
 	// would draw a double bar, revert the element-bg fills, and — since the
 	// prompt eats 2 content cells — widen the box row past the frame
 	ti.Prompt = m.input.Prompt
@@ -1425,7 +1423,7 @@ func (m *model) viewBody() string {
 
 // inputPlaceholder is the idle input hint; syncInputPlaceholder re-uses it
 // when the busy state clears so the two sites never drift.
-var inputPlaceholder = buildinfo.Text("Ask whip anything… (/ commands, tab completes)")
+var inputPlaceholder = "Ask whipcode anything… (/ commands, tab completes)"
 
 // syncInputPlaceholder reflects the busy state into the input's placeholder:
 // while a turn runs, typed text steers it at the next loop boundary. Called from View so it tracks

@@ -209,8 +209,8 @@ func TestGatewayChildRejectsNonPrivateInvocations(t *testing.T) {
 }
 
 func TestManagedGatewayParentDeathClosesListener(t *testing.T) {
-	t.Setenv("WHIP_NETWORK", "0")
-	t.Setenv("WHIP_LISTEN", "127.0.0.1:0")
+	t.Setenv("WHIPCODE_NETWORK", "0")
+	t.Setenv("WHIPCODE_LISTEN", "127.0.0.1:0")
 	paths := startWebTestDaemon(t)
 	t.Setenv("WHIP_TEST_GATEWAY_HOME", filepath.Dir(paths.Home))
 	command := gatewayTestCommand(t, "parent")
@@ -290,7 +290,7 @@ func TestManagedGatewayParentDeathClosesListener(t *testing.T) {
 }
 
 func TestManagedGatewayStatusFailureAndRepeatedStart(t *testing.T) {
-	t.Setenv("WHIP_NETWORK", "1")
+	t.Setenv("WHIPCODE_NETWORK", "1")
 	t.Setenv("WHIP_TEST_GATEWAY_HELPER", "fail")
 	previousCommand := gatewayCommand
 	gatewayCommand = func(executable string) *exec.Cmd {
@@ -304,7 +304,7 @@ func TestManagedGatewayStatusFailureAndRepeatedStart(t *testing.T) {
 	previousLaunch := launchManagedDaemon
 	t.Cleanup(func() { launchManagedDaemon = previousLaunch })
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -364,9 +364,6 @@ func TestGatewayReadinessRejectsWrongRuntimeAndAllowsTrustedBind(t *testing.T) {
 }
 
 func TestGatewayEnvironmentDistributionAndTerminalIndependence(t *testing.T) {
-	oldName := buildinfo.Name
-	buildinfo.Name = "whipcode"
-	t.Cleanup(func() { buildinfo.Name = oldName })
 	t.Setenv("WHIP_NETWORK", "1")
 	t.Setenv("WHIP_LISTEN", "127.0.0.1:1234")
 	t.Setenv("WHIPCODE_NETWORK", "0")
@@ -386,8 +383,8 @@ func TestGatewayEnvironmentDistributionAndTerminalIndependence(t *testing.T) {
 }
 
 func TestGatewayChildSignalsDoNotStopDaemon(t *testing.T) {
-	t.Setenv("WHIP_NETWORK", "0")
-	t.Setenv("WHIP_LISTEN", "127.0.0.1:0")
+	t.Setenv("WHIPCODE_NETWORK", "0")
+	t.Setenv("WHIPCODE_LISTEN", "127.0.0.1:0")
 	paths := startWebTestDaemon(t)
 	t.Setenv("WHIP_TEST_GATEWAY_HOME", filepath.Dir(paths.Home))
 	client, err := dialGatewayClient(t.Context(), paths)
@@ -427,8 +424,8 @@ func TestGatewayChildSignalsDoNotStopDaemon(t *testing.T) {
 func TestManagedGatewayRealChildReadyCrashAndDaemonStop(t *testing.T) {
 	for _, action := range []string{"crash", "daemon stop"} {
 		t.Run(action, func(t *testing.T) {
-			t.Setenv("WHIP_NETWORK", "1")
-			t.Setenv("WHIP_LISTEN", "127.0.0.1:0")
+			t.Setenv("WHIPCODE_NETWORK", "1")
+			t.Setenv("WHIPCODE_LISTEN", "127.0.0.1:0")
 			t.Setenv("WHIP_TEST_GATEWAY_HELPER", "child")
 			pidPath := filepath.Join(t.TempDir(), "gateway.pid")
 			t.Setenv("WHIP_TEST_GATEWAY_PID", pidPath)

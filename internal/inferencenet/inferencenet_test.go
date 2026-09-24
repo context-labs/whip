@@ -149,7 +149,7 @@ func TestCompleteLoginCreateProjectOnTheSpot(t *testing.T) {
 }
 
 func TestAuthStoreRoundTrip(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	if a, _ := LoadAuth(); a != (Auth{}) {
 		t.Errorf("missing file should yield zero Auth, got %+v", a)
 	}

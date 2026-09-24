@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/protocol"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,7 +18,7 @@ type modelItem struct {
 	provider string
 	url      string
 	// fromCatalog marks routes advertised by the provider's /models catalog
-	// rather than configured in ~/.whip/config.json — rendered dim with a
+	// rather than configured in ~/.whipcode/config.json — rendered dim with a
 	// (new) marker.
 	fromCatalog bool
 }
@@ -289,7 +288,7 @@ func staleCatalogs(cfg *config.Config, cats map[string]config.Catalog) []string 
 func (m *model) openModelPicker(sessionOnly bool) {
 	items := buildModelItems(m.cfg, m.catalogs)
 	if len(items) == 0 {
-		m.append(errStyle.Render(buildinfo.Text("no models configured in ~/.whip/config.json")))
+		m.append(errStyle.Render("no models configured in ~/.whipcode/config.json"))
 		return
 	}
 	mp := &modelPicker{items: items, staleHints: staleCatalogs(m.cfg, m.catalogs), sessionOnly: sessionOnly}

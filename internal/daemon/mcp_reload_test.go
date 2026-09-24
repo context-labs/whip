@@ -16,7 +16,7 @@ import (
 func TestMCPReloadPreservesPermissionPolicyAndRetainedChildren(t *testing.T) {
 	for _, mode := range []string{"deny", "headless", "automatic", "ask"} {
 		t.Run(mode, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			url, effects := localMCPFixture(t, "guidance")
 			store, root, runtime := mcpRuntimeFixture(t, url, mode == "deny")
 			originalFactory := root.factory
@@ -136,7 +136,7 @@ func rejectMCPReloadCall(t *testing.T, store *session.Store, root *Session, node
 }
 
 func TestMCPSpawnCopiesDenialAppliedDuringAdmission(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, effects := localMCPFixture(t, "guidance")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
 	type spawnContextKey struct{}

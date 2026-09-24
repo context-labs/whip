@@ -76,7 +76,7 @@ ASAR integrity, ASAR-only loading and cookie encryption are enabled.
   that same executable if stopped; concurrent CLI and desktop starts share its
   owner lock. A proven unowned stale socket goes through normal daemon startup.
   An unhealthy live owner requires explicit attention. Discovery and reconnect
-  never install another runtime or fall back to legacy `whip`.
+  never install another runtime or silently fall back to a different executable.
 - **SSH:** use macOS `/usr/bin/ssh`, including configured aliases, keys, agents and
   jump hosts. The remote machine must already have a compatible Whip installed;
   optional executable/home overrides support other layouts. Remote `whip` and
@@ -94,7 +94,7 @@ known install locations. A successful choice or connection saves the absolute
 path in `native-local-runtime.json` under Electron user data (normally
 `~/Library/Application Support/Whip`). Finder and terminal launches then reuse
 that selection even if their PATH differs. `WHIPCODE_HOME` explicitly overrides
-the home; it is not a legacy `WHIP_HOME` migration or a setting in that JSON file.
+the home; it is not a setting in that JSON file. Pre-reset homes are not migrated.
 
 For local launches, desktop recovers the known providers' API-key variables
 alongside PATH from the user's interactive login shell. The names in
@@ -159,8 +159,8 @@ isolated homes; with `WHIPCODE_NETWORK` unset or `0`, no gateway is auto-started
 If a URL host works in a browser but Desktop reports a WebSocket connection
 failure, check the **gateway's** origin allowlist. Desktop sends
 `Origin: whip-app://bundle`; the browser sends the web app's origin. Include
-`whip-app://bundle` in `WHIPCODE_ALLOWED_ORIGINS` (or `WHIP_ALLOWED_ORIGINS` for
-whip) when starting the remote gateway, preserving other required origins.
+`whip-app://bundle` in `WHIPCODE_ALLOWED_ORIGINS` when starting the remote
+gateway, preserving other required origins.
 These exact Host/Origin checks are not authentication. Remote URL hosts still
 need a trusted network or authenticated proxy. Gateway settings are read at
 startup, not live from the invoking shell. A foreground replacement can change
@@ -459,8 +459,8 @@ and leave an unsigned app that only fails later resource-seal verification.
 The runtime manifest records `distribution: "whipcode"`, the app `version`, a
 separate backend `buildId`, arm64 architecture, signing team, renderer digest,
 source/lockfile provenance and protocol/schema compatibility. The backend is
-built with the link-time distribution name `whipcode`; renaming a legacy binary
-is insufficient. `WHIPCODE_VERSION` sets its build ID independently of
+always built with the canonical `whipcode` identity; update ownership is
+set to `desktop` at build time. `WHIPCODE_VERSION` sets its build ID independently of
 `WHIP_DESKTOP_VERSION`; it defaults to the app version when omitted. Packaging
 executes `_desktop-runtime-info` and verifies those fields against the manifest.
 

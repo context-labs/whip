@@ -84,7 +84,7 @@ func composedPrompt(t *testing.T, definition agentdef.Definition, engine string,
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("WHIP_HOME", filepath.Join(home, "whip"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(home, "whip"))
 	cwd, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

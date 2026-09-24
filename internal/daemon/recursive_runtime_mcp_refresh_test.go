@@ -14,7 +14,7 @@ import (
 func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *testing.T) {
 	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
 		t.Run(engine, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			url, effects := localMCPFixture(t, "guidance")
 			_, root, runtime := mcpRuntimeFixture(t, url, true, engine)
 			child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "before-refresh"})
@@ -97,7 +97,7 @@ func waitMCPRecoveryTool(t *testing.T, manager *mcp.Manager, server string) {
 }
 
 func TestRecursiveHostMCPRefreshCreatesFirstManager(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, _ := localMCPFixture(t, "guidance")
 	_, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	root.mcpMu.Lock()

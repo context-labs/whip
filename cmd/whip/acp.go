@@ -1,4 +1,4 @@
-// `whip acp` is an editor-facing protocol adapter. It owns the ACP stdio
+// `whipcode acp` is an editor-facing protocol adapter. It owns the ACP stdio
 // connection and reconnecting daemon clients, never agent execution or
 // persistence.
 package main
@@ -14,8 +14,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/acp"
@@ -29,11 +27,11 @@ import (
 
 func acpCLI(args []string) error {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
-	modelFlag := fs.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
+	modelFlag := fs.String("m", "", "model name from ~/.whipcode/config.json (default: defaultModel)")
 	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip acp [-m model] [-p provider]"))
-		fmt.Fprintln(os.Stderr, buildinfo.Text("serve whip as an ACP agent over stdio (for editors like Zed)"))
+		fmt.Fprintln(os.Stderr, "usage: whipcode acp [-m model] [-p provider]")
+		fmt.Fprintln(os.Stderr, "serve whipcode as an ACP agent over stdio (for editors like Zed)")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -68,7 +66,7 @@ func acpCLI(args []string) error {
 			return err
 		}
 		if key == "" && provider.Auth != "none" {
-			return fmt.Errorf(buildinfo.Text("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)"), providerName)
+			return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whipcode/config.json)", providerName)
 		}
 	}
 	backend := &acpDaemonBackend{

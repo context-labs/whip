@@ -8,7 +8,7 @@ import (
 
 // Some providers stream a tool call whose accumulated function.arguments
 // never closes into valid JSON — a provider emission bug, or a stream that
-// ended mid-call. whip persists the assistant message with its tool_calls
+// ended mid-call. whipcode persists the assistant message with its tool_calls
 // into history and replays them on the next turn, where strict providers
 // validate incoming history and reject the whole request before the first
 // token when an assistant tool_call carries malformed arguments.

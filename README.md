@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 license"></a>
-  <a href="https://github.com/context-labs/whip/releases/tag/desktop-v0.2.0-beta.6"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
+  <a href="https://github.com/context-labs/whip/releases?q=desktop-v"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
 </p>
 
 <p align="center">
@@ -25,7 +25,9 @@
 
 ## Quickstart
 
-**[Download Desktop Beta](https://github.com/context-labs/whip/releases/tag/desktop-v0.2.0-beta.6)** — Apple Silicon · macOS 14 or newer.
+**[Download Desktop Beta](https://github.com/context-labs/whip/releases?q=desktop-v)** — Apple Silicon · macOS 14 or newer.
+
+Use a release built after the clean-project reset; old Desktop releases are not an upgrade path.
 
 1. Open the DMG and drag **Whip Beta** into Applications.
 2. Launch it and choose **Set up this Mac** if prompted. The app includes its matching backend; no separate CLI installation is needed.
@@ -36,9 +38,13 @@ Bring an API key or use a supported subscription login. Provider access is separ
 Prefer the terminal? Install the standalone CLI on macOS or Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh | sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
 whipcode
 ```
+
+The new CLI track starts at `v1.0.0-alpha.N`. Prerelease installation is explicit;
+default stable installation becomes available with `v1.0.0`. Existing internal
+installs must follow the [manual reset checklist](docs/team-reset.md), not upgrade in place.
 
 Desktop-managed installations update through Desktop; standalone CLI installations use `whipcode update`. [Setup and upgrades →](docs/setup.md#desktop-installation-and-upgrades)
 
@@ -78,10 +84,10 @@ WhipCode solved **20 of 30 tasks (66.7%)** in a retained Frontier evaluation: 21
 Requires **Go 1.27+, Node.js 24, and [Task](https://taskfile.dev/)**.
 
 ```sh
-git clone --branch whip-rlm https://github.com/context-labs/whip.git
+git clone --branch main https://github.com/context-labs/whip.git
 cd whip
 npm ci
-task build:whipcode
+task build
 ```
 
 This builds locally without replacing an installed app or restarting its daemon. See the [development and setup guide](docs/setup.md), [Desktop guide](docs/desktop.md), and [contributor checks](CONTRIBUTING.md).

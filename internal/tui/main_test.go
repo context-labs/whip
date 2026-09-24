@@ -7,9 +7,9 @@ import (
 
 // TestMain is a safety net: several TUI code paths persist through
 // config.Save() (setEffort, switchModel, compactCommand, /mouse). Without
-// isolation those writes land in the REAL ~/.whip/config.json — this exact
+// isolation those writes land in the REAL ~/.whipcode/config.json — this exact
 // bug corrupted the config twice. Point the whole test binary at a scratch
-// WHIP_HOME so even a future test that forgets t.Setenv cannot clobber the
+// WHIPCODE_HOME so even a future test that forgets t.Setenv cannot clobber the
 // user's setup. Per-test overrides still apply on top.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "whip-test-home")
@@ -17,7 +17,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	defer os.RemoveAll(dir)
-	os.Setenv("WHIP_HOME", dir)
+	os.Setenv("WHIPCODE_HOME", dir)
 	// Style tests assert ANSI-dark markdown output; pin a known dark theme so a
 	// test-binary with no tty (where detection reports unknown → neutral) still
 	// renders the dark style they expect. Per-test overrides (SetLightTheme,

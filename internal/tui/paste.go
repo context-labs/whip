@@ -213,7 +213,7 @@ func pasteImageFileCmd(path string) tea.Msg {
 	return imageMsg{path: path, display: display}
 }
 
-// saveClipboardImage writes data to ~/.whip/pastes/ and returns the path.
+// saveClipboardImage writes data to ~/.whipcode/pastes/ and returns the path.
 func saveClipboardImage(ext string, data []byte) (string, error) {
 	// Bound the image before it hits disk or the daemon's size cap: a HiDPI
 	// screenshot is several times the pixels the model will be sent anyway.
@@ -254,7 +254,7 @@ func pasteImageCmd() tea.Msg {
 // to the on-disk copy when the text is sent.
 type pastedImage struct {
 	n       int    // 1-based session image number
-	path    string // stable on-disk copy under ~/.whip/pastes
+	path    string // stable on-disk copy under ~/.whipcode/pastes
 	display string // original basename for the chip; "" for an anonymous clipboard paste
 }
 

@@ -48,7 +48,7 @@ func TestDiscoveredFileKeyPersistsReferenceAndReachesInference(t *testing.T) {
 	if err != nil || managed.Credential.Mode != "environment" || managed.Credential.CredentialPath != filename {
 		t.Fatal("management lost the editable named reference")
 	}
-	data, err := os.ReadFile(filepath.Join(os.Getenv("WHIP_HOME"), "config.json"))
+	data, err := os.ReadFile(filepath.Join(os.Getenv("WHIPCODE_HOME"), "config.json"))
 	if err != nil || strings.Contains(string(data), "fixture-file-key") {
 		t.Fatal("configuration persisted resolved credential material")
 	}
@@ -60,7 +60,7 @@ func TestDiscoveredFileKeyPersistsReferenceAndReachesInference(t *testing.T) {
 	if err != nil || second.Revision != list.Revision {
 		t.Fatal("no-op discovery changed the revision")
 	}
-	unchanged, _ := os.ReadFile(filepath.Join(os.Getenv("WHIP_HOME"), "config.json"))
+	unchanged, _ := os.ReadFile(filepath.Join(os.Getenv("WHIPCODE_HOME"), "config.json"))
 	if string(unchanged) != string(data) {
 		t.Fatal("no-op discovery rewrote configuration")
 	}

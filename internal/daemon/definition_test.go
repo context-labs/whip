@@ -126,7 +126,7 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 // A definition's model defaults fill an omitted route before host defaults; an
 // explicit request still wins.
 func TestSessionDefaultsPreferDefinitionModel(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	cfg.DefaultModel, cfg.DefaultProvider = "host-alias", "host"
 	cfg.Models["host-alias"] = config.Model{Providers: []string{"host"}}

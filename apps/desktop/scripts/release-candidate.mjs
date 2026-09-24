@@ -46,7 +46,8 @@ export async function candidate(mode, directory, env = process.env) {
   assert.equal(evidence.version, match[1]); assert.equal(evidence.buildId, match[1]);
   assert.equal(evidence.source?.commit, env.SOURCE_SHA); assert.equal(evidence.source?.dirty, false);
   assert(evidence.signed && evidence.notarized && evidence.dmgNotary, 'Candidate must be signed and notarized');
-  assert.equal(linux.buildId, evidence.buildId); assert.equal(linux.distribution, 'whipcode'); assert.equal(linux.updateOwner, 'standalone');
+  // Preserve one exact semantic release while keeping the standalone CLI tag encoding.
+  assert.equal(linux.buildId, `v${evidence.buildId}`); assert.equal(linux.distribution, 'whipcode'); assert.equal(linux.updateOwner, 'standalone');
   assert.equal(linux.source?.commit, env.SOURCE_SHA); assert.equal(linux.source?.dirty, false);
   assert(linux.smoke?.embeddedRenderer && linux.smoke?.daemonReady, 'Linux acceptance is missing');
   assert.equal(linux.rendererDigest, evidence.rendererDigest);

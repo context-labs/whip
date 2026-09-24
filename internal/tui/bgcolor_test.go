@@ -12,7 +12,7 @@ import (
 // Bubble Tea's background reply resolves an unknown scheme, and only an
 // unknown one: whip's own pre-run query stays authoritative when it answered.
 func TestBackgroundColorMsgResolvesOnlyUnknownScheme(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	defer func() { SetLightTheme(false); bgCache = bgResult{} }()
 
 	SetUnknownTheme()

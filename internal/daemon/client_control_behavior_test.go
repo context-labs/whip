@@ -15,7 +15,7 @@ import (
 )
 
 func TestClientCompactionRetryRestoresHistoryOnceAndKeepsEarlierSummary(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	history := []llm.Message{{Role: "user", Content: "first", Authored: true}, {Role: "assistant", Content: "answer"}, {Role: "user", Content: "second", Authored: true}, {Role: "assistant", Content: "latest answer"}}
@@ -66,7 +66,7 @@ func TestClientCompactionRetryRestoresHistoryOnceAndKeepsEarlierSummary(t *testi
 }
 
 func TestClientModelDefaultPersistenceAndDeferredReload(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runtime := &reloadTestRuntime{}

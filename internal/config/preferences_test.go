@@ -9,7 +9,7 @@ import (
 
 func TestClientPreferencesCannotOverwriteFreshHostCredentials(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	stale, err := Load()
 	if err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// In-app drag selection. whip enables mouse reporting (?1002 button-motion;
+// In-app drag selection. whipcode enables mouse reporting (?1002 button-motion;
 // ?1003 all-motion inside tmux), and enabling ANY mouse mode makes most terminals
 // (Ghostty, kitty, …) hand the drag to the app instead of starting a native
 // selection — so with capture on there is no drag-to-copy unless the app
@@ -25,7 +25,7 @@ import (
 // The copy goes to the system clipboard via OSC 52 (works locally and over
 // SSH/tmux, subject to the terminal's clipboard-osc52 setting); pbcopy /
 // wl-copy / xclip is the fallback for terminals that ignore OSC 52
-// (Terminal.app). Inside tmux the drag reaches whip too (tmux forwards it
+// (Terminal.app). Inside tmux the drag reaches whipcode too (tmux forwards it
 // because mouse_any_flag is set), so this same selection works there — no
 // copy-mode override.
 //

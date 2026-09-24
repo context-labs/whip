@@ -68,7 +68,7 @@ func NormalizeImage(ext string, data []byte) (string, []byte) {
 	if w*h > NormalizeMaxPixels {
 		// A header can declare a canvas no real capture has (a 40-byte PNG
 		// claiming 100000²) and image.Decode would allocate for all of it.
-		// Pass it through untouched: the provider rejects it, whip stays up.
+		// Pass it through untouched: the provider rejects it, whipcode stays up.
 		return ext, data
 	}
 	src, err := decodeAny(data)

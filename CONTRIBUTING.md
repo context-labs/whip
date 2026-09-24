@@ -5,13 +5,14 @@ request and how to run the same checks locally before you push.
 
 ## Before you push
 
-Run the full local gate — it's exactly what CI runs:
+Run the local Go/runtime gate:
 
 ```sh
 task ci
 ```
 
-That composes four tasks:
+This composes four tasks. It is **not** a substitute for the complete hosted
+platform/frontend/package/security graph:
 
 | Task | What it runs | CI equivalent |
 | --- | --- | --- |
@@ -25,7 +26,9 @@ That composes four tasks:
 
 ## What CI checks on every PR
 
-Two workflows gate pull requests: **ci** and **security**.
+Two shared workflows gate pull requests: **ci** and **security**. The release
+callers reuse these definitions rather than maintaining product-specific copies.
+Target `main`; the archived branch is reference-only, not a maintenance target.
 
 ### `ci` — code health
 
@@ -56,16 +59,21 @@ Two workflows gate pull requests: **ci** and **security**.
 - **Swift driver build** (macOS) so a driver-breaking change fails the PR, not
   the next release.
 
-The required aggregate `go` job depends on lint, portable tests, every
-cross-build, both runtime platforms, and the Swift driver. A failure in any of
-them therefore blocks the aggregate even though the work runs in parallel.
+The graph also checks JavaScript production dependency vulnerabilities, SDK/web
+renderer provenance and tests, packaged
+installation and daemon/web acceptance for the sole `whipcode` product, Desktop
+(including native acceptance), and mobile. The required aggregate `go` fails
+closed when a required dependency fails or is skipped; it is not only a Go test
+status. Consult [ci.yml](.github/workflows/ci.yml) for exact platform/job coverage.
+Reusable workflow check-name prefixes must be verified against live branch rules.
 
 ### `security` — vulnerability & SAST
 
 - **govulncheck** — fails if your change makes the module depend on a *reachable*
   known vulnerability.
-- **CodeQL** (`security-and-quality` suite) — semantic analysis; findings land
-  in the repo's Security tab.
+- **CodeQL** (`security-and-quality` suite) — semantic analysis. Main requires
+  both the Actions `codeql` status and the separate **CodeQL** findings check
+  (App 57789); a successful scan is not equivalent to a clean findings gate.
 
 Dependabot keeps Go modules and GitHub Actions current (grouped weekly PRs).
 
@@ -84,3 +92,17 @@ Dependabot keeps Go modules and GitHub Actions current (grouped weekly PRs).
   `//nolint:gosec // why this is safe here` — which `nolintlint` enforces.
 - **Keep `go mod tidy` clean** and don't bump dependencies unless your change
   needs it (Dependabot handles routine upgrades).
+
+## Development and release boundaries
+
+Use `npm ci && task build` for the packaged `./whipcode`, or `task install` for
+GOBIN/GOPATH/bin. There is no separate `whip` build or identity-specific task.
+Read [setup](docs/setup.md) and [frontend architecture](docs/frontend.md) before
+changing the affected area. Run the focused workspace tests too; CI supplies the
+native/OS coverage unavailable on a single workstation.
+
+For publication, follow [CLI releases](docs/releases.md) and
+[Desktop releases](docs/desktop-releases.md). Publishing is disabled until the
+clean release baseline and explicit enablement are configured and verified.
+The new CLI track starts at `v1.0.0-alpha.N`, then intentionally approved `v1.0.0`.
+Old internal installs require the [manual reset](docs/team-reset.md), not migration.

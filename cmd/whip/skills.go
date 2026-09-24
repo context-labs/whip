@@ -9,26 +9,24 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	"github.com/context-labs/whip/internal/skills"
 )
 
-// skillsCLI implements `whip skills <list|import>`.
+// skillsCLI implements `whipcode skills <list|import>`.
 //
 //	list                    skill names, descriptions, and where they load from
 //	import [--dry-run]      copy skills from other harnesses' dirs (codex,
 //	                        claude-code) into ~/.agents/skills, skipping
-//	                        anything whip already has
+//	                        anything whipcode already has
 //
 // Skills are directories with a SKILL.md, so "import" is a recursive copy.
 // Dedup is by skill name: a name present in any of whip's dirs (project
-// .agents/skills, ~/.whip/skills, ~/.agents/skills) is never overwritten —
+// .agents/skills, ~/.whipcode/skills, ~/.agents/skills) is never overwritten —
 // the repo-level copy always wins at scan time too, so copying over a
 // user-level skill would silently shadow nothing and confuse everyone.
 func skillsCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New(buildinfo.Text("usage: whip skills <list|import>"))
+		return errors.New("usage: whipcode skills <list|import>")
 	}
 	switch args[0] {
 	case "list":
@@ -66,7 +64,7 @@ func skillsImportCLI(args []string) error {
 		if a == "--dry-run" {
 			dryRun = true
 		} else {
-			return errors.New(buildinfo.Text("usage: whip skills import [--dry-run]"))
+			return errors.New("usage: whipcode skills import [--dry-run]")
 		}
 	}
 
@@ -76,7 +74,7 @@ func skillsImportCLI(args []string) error {
 	}
 	dest := filepath.Join(home, ".agents", "skills")
 
-	// Names whip already loads (project + user dirs) are the dedup set.
+	// Names whipcode already loads (project + user dirs) are the dedup set.
 	existing := map[string]bool{}
 	for _, s := range skills.Scan(skills.DefaultDirs()...) {
 		existing[s.Name] = true
@@ -158,7 +156,7 @@ func skillsImportCLI(args []string) error {
 		fmt.Printf("✓ %-24s → %s\n", c.name, dst)
 		imported = append(imported, c.name)
 	}
-	fmt.Printf(buildinfo.Text("imported %d skill(s) into %s — available on next whip launch\n"), len(imported), dest)
+	fmt.Printf("imported %d skill(s) into %s — available on next whipcode launch\n", len(imported), dest)
 	if len(failed) > 0 {
 		return fmt.Errorf("%d skill(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
 	}

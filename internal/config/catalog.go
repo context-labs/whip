@@ -26,7 +26,7 @@ type Catalog struct {
 	Models           []ModelInfoLite `json:"models"`
 }
 
-// ModelInfoLite is the subset of the provider's /models entry whip uses.
+// ModelInfoLite is the subset of the provider's /models entry whipcode uses.
 type ModelInfoLite struct {
 	Pricing             llm.Pricing `json:"pricing,omitzero"` // Raw rates preserve absent versus explicitly free prices.
 	ID                  string      `json:"id"`
@@ -138,7 +138,7 @@ func catalogPath() (string, error) {
 	return filepath.Join(dir, "models.json"), nil
 }
 
-// LoadCatalogs reads ~/.whip/models.json. A missing or unreadable file is
+// LoadCatalogs reads ~/.whipcode/models.json. A missing or unreadable file is
 // not an error and yields an empty (non-nil) map, so callers can always write
 // into the result.
 var catalogMu sync.Mutex
@@ -165,7 +165,7 @@ func loadCatalogsUnlocked() map[string]Catalog {
 	return cats
 }
 
-// SaveCatalogs writes ~/.whip/models.json.
+// SaveCatalogs writes ~/.whipcode/models.json.
 func SaveCatalogs(cats map[string]Catalog) error {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()

@@ -27,7 +27,7 @@ func TestAcpCLIConfigErrors(t *testing.T) {
 	// A config that doesn't parse → config.Load errors.
 	t.Run("unparseable config", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("WHIP_HOME", home)
+		t.Setenv("WHIPCODE_HOME", home)
 		writeConfig(t, home, `{ not json`)
 		if err := acpCLI(nil); err == nil {
 			t.Error("want config.Load parse error")
@@ -37,7 +37,7 @@ func TestAcpCLIConfigErrors(t *testing.T) {
 	// Valid config, but -m names a model that doesn't exist → Resolve fails.
 	t.Run("unknown model", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("WHIP_HOME", home)
+		t.Setenv("WHIPCODE_HOME", home)
 		writeConfig(t, home, `{
 			"defaultModel": "test",
 			"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", "apiKey": "k"}},
@@ -51,7 +51,7 @@ func TestAcpCLIConfigErrors(t *testing.T) {
 	// Model resolves, but the provider has no key anywhere → key error.
 	t.Run("no api key", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("WHIP_HOME", home)
+		t.Setenv("WHIPCODE_HOME", home)
 		writeConfig(t, home, `{
 			"defaultModel": "test",
 			"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions"}},
@@ -87,7 +87,7 @@ func TestAcpCLIServeWithoutAuthentication(t *testing.T) {
 func testAcpCLIServeExitsOnEOF(t *testing.T, authentication string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	writeConfig(t, home, fmt.Sprintf(`{
 		"defaultModel": "test",
 		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", %s}},
@@ -338,7 +338,7 @@ func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 // flag; without a catalog entry the config flag is the answer.
 func TestAcpSupportsVision(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 
 	// Seed a catalog: "vis" advertises image input, "plain" advertises none.
 	catalogs := `{"testprov": {"baseUrl": "http://x", "models": [
@@ -373,7 +373,7 @@ func TestAcpSupportsVision(t *testing.T) {
 
 // With no catalog file at all, the config's per-model flag decides alone.
 func TestAcpSupportsVisionNoCatalog(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir()) // empty — LoadCatalogs returns an empty map
+	t.Setenv("WHIPCODE_HOME", t.TempDir()) // empty — LoadCatalogs returns an empty map
 	cfg := &config.Config{Models: map[string]config.Model{
 		"m": {Providers: []string{"p"}, Vision: true},
 	}}
@@ -386,7 +386,7 @@ func TestAcpSupportsVisionNoCatalog(t *testing.T) {
 // an empty (non-nil) map; a configured stdio server carries through.
 func TestAcpBaseMCP(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 
 	// Disable claude/codex imports so discovery only sees whip's own config
 	// (the test machine's ~/.codex/config.toml would otherwise leak in).

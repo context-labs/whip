@@ -11,7 +11,7 @@ import (
 )
 
 func TestRecursiveTreeMessagesAndSubscriptionsRespectRelativeScope(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	_, _, release, err := runtime.rootNode.kernel.AcquireTurn(t.Context())
 	if err != nil {
@@ -118,7 +118,7 @@ func TestRecursiveTreeMessagesAndSubscriptionsRespectRelativeScope(t *testing.T)
 }
 
 func TestRecursiveMalformedRequestsDoNotAdmitWork(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	_, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	host := runtime.rootNode.host
 	for _, test := range []struct {

@@ -17,11 +17,11 @@ func TestDaemonNetworkEnvironment(t *testing.T) {
 		{name: "invalid boolean", enabled: "maybe", bad: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("WHIP_NETWORK", test.enabled)
-			t.Setenv("WHIP_LISTEN", test.listen)
-			t.Setenv("WHIP_NETWORK_TERMINALS", "")
-			t.Setenv("WHIP_ALLOWED_ORIGINS", "http://localhost:3000, https://whip.example")
-			t.Setenv("WHIP_ALLOWED_HOSTS", "localhost:8080, 127.0.0.1:8080")
+			t.Setenv("WHIPCODE_NETWORK", test.enabled)
+			t.Setenv("WHIPCODE_LISTEN", test.listen)
+			t.Setenv("WHIPCODE_NETWORK_TERMINALS", "")
+			t.Setenv("WHIPCODE_ALLOWED_ORIGINS", "http://localhost:3000, https://whip.example")
+			t.Setenv("WHIPCODE_ALLOWED_HOSTS", "localhost:8080, 127.0.0.1:8080")
 			options, err := daemonNetworkEnvironment()
 			if test.bad {
 				if err == nil {

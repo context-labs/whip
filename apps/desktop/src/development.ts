@@ -50,8 +50,7 @@ export function developmentOptions(args: string[], desktop: string, inherited = 
   };
   for (const value of [env.WHIPCODE_HOME!, env.WHIP_DESKTOP_EXECUTABLE!])
     if (Buffer.byteLength(value) > 2048 || /[\u0000-\u001f\u007f]/.test(value)) throw new Error('Invalid development target path.');
-  for (const key of ['WHIP_HOME', 'WHIP_NETWORK', 'WHIP_LISTEN', 'WHIP_ALLOWED_HOSTS', 'WHIP_ALLOWED_ORIGINS',
-    'WHIPCODE_NETWORK', 'WHIPCODE_LISTEN', 'WHIPCODE_ALLOWED_HOSTS', 'WHIPCODE_ALLOWED_ORIGINS', 'WHIP_COMPUTER_BIN',
+  for (const key of ['WHIPCODE_NETWORK', 'WHIPCODE_LISTEN', 'WHIPCODE_ALLOWED_HOSTS', 'WHIPCODE_ALLOWED_ORIGINS', 'WHIP_COMPUTER_BIN',
     'WHIP_DESKTOP_ATTACH', 'WHIP_DESKTOP_FIXTURE']) delete env[key];
   env.WHIPCODE_NETWORK = '0';
   if (attach) {

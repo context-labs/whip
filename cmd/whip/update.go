@@ -22,19 +22,19 @@ import (
 // checksum, and swaps the binary in place.
 const installURL = "https://raw.githubusercontent.com/context-labs/whip/main/install.sh"
 
-// updateCLI implements `whip update`: re-run the install script to get the
+// updateCLI implements `whipcode update`: re-run the install script to get the
 // latest release.
 func updateCLI() error {
 	if buildinfo.UpdateOwner == "desktop" {
 		fmt.Println("This whipcode installation is updated by Whip desktop. Open Whip → Check for Updates to update the app and backend together.")
 		return nil
 	}
-	url := installURL
-	if buildinfo.Name == "whipcode" {
-		url = "https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh"
+	channel, err := update.Channel(version)
+	if err != nil {
+		return err
 	}
-	fmt.Printf("%s %s — updating via %s\n\n", buildinfo.Name, buildinfo.Version(version), url)
-	if err := runInstaller(url); err != nil {
+	fmt.Printf("%s %s — updating via %s\n\n", buildinfo.Name, version, installURL)
+	if err := runInstaller(installURL, channel); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 	update.Acknowledge()
@@ -46,7 +46,7 @@ func updateCLI() error {
 }
 
 // Download first: a failing curl piped into sh otherwise looks like success.
-func runInstaller(url string) error {
+func runInstaller(url, channel string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -66,11 +66,12 @@ sh "$script"`, buildinfo.Name+"-update", url)
 	key := buildinfo.Env("BIN_DIR") + "="
 	env := []string{}
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, key) {
+		if !strings.HasPrefix(value, key) && !strings.HasPrefix(value, "WHIPCODE_CHANNEL=") &&
+			!strings.HasPrefix(value, "WHIPCODE_VERSION=") {
 			env = append(env, value)
 		}
 	}
-	cmd.Env = append(env, key+filepath.Dir(self))
+	cmd.Env = append(env, key+filepath.Dir(self), "WHIPCODE_CHANNEL="+channel)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

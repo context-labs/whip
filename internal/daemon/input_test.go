@@ -52,7 +52,7 @@ func TestPrepareAuthoredInputExpandsSkillsAndWorkspaceMentions(t *testing.T) {
 
 func TestPrepareAuthoredInputOverrideSkillFallbackUsesCurrentAuthority(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	workspace := t.TempDir()
 	writeDaemonPromptFile(t, filepath.Join(workspace, ".agents", "skills", "broken", "SKILL.md"), "malformed metadata")
 	node := storeBackedInputSession(t, workspace)
@@ -66,7 +66,7 @@ func TestPrepareAuthoredInputOverrideSkillFallbackUsesCurrentAuthority(t *testin
 	}
 	outside := t.TempDir()
 	writeDaemonPromptFile(t, filepath.Join(outside, ".agents", "skills", "outside", "SKILL.md"), "malformed metadata")
-	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md"), "---\nname: global\ndescription: global rule\n---\nGLOBAL_SKILL_BODY")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "skills", "global", "SKILL.md"), "---\nname: global\ndescription: global rule\n---\nGLOBAL_SKILL_BODY")
 	node.agent.WorkingDir = outside
 	text, _, err := node.prepareAuthoredInput(t.Context(), "$global please", nil)
 	if err != nil || !strings.Contains(text, "GLOBAL_SKILL_BODY") {
@@ -81,7 +81,7 @@ func TestPrepareAuthoredInputRechecksCachedProjectSkills(t *testing.T) {
 	for _, change := range []string{"mode downgrade", "symlink retarget"} {
 		t.Run(change, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			workspace := t.TempDir()
 			outside := t.TempDir()
 			node := storeBackedInputSession(t, workspace)
@@ -322,7 +322,7 @@ func TestPrepareAuthoredInputFullAccessKeepsFuzzyMentionsInProject(t *testing.T)
 // capability and does not cover other outside images or regular files.
 func TestPrepareAuthoredInputAttachesPastedImagesOnly(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	pastes := filepath.Join(home, "pastes")
 	if err := os.Mkdir(pastes, 0o700); err != nil {
 		t.Fatal(err)

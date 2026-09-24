@@ -557,7 +557,7 @@ func (s *server) launch(m *Manager) bool {
 // run is the per-server lifecycle goroutine: one connect attempt, then it
 // services reconnect requests until the process exits (Close kills sessions;
 // the goroutine parks on reconnect thereafter — it has no work but also no
-// cost, and whip exits rather than idles servers). A reconnect queued while
+// cost, and whipcode exits rather than idles servers). A reconnect queued while
 // a connect was in flight is dropped when that connect just succeeded — the
 // user asked for a fresh connection and already has one.
 func (s *server) run(ctx context.Context, m *Manager) {
@@ -1059,7 +1059,7 @@ func (m *Manager) Enable(name string) bool {
 	return m.Reconnect(name)
 }
 
-// Probe connects a single server for `whip mcp test`: builds a throwaway
+// Probe connects a single server for `whipcode mcp test`: builds a throwaway
 // manager with just that entry, starts it, waits for the first settle, and
 // returns the outcome with tool names. A doctor visit, not a residency.
 type ProbeResult struct {
@@ -1373,7 +1373,7 @@ func (h headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // logf mirrors config.LogEvent for MCP lifecycle events (connect failures,
 // status transitions) so "why didn't my server come up?" is answerable from
-// ~/.whip/whip.log.
+// ~/.whipcode/whip.log.
 func logf(format string, args ...any) {
 	config.LogEvent("mcp", fmt.Sprintf(format, args...))
 }

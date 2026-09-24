@@ -33,7 +33,7 @@ func renderMarkdownAt(s string, width int, root string) string {
 	}
 	// Lip Gloss v2 (and glamour on top of it) emit the short reset \x1b[m; the
 	// link and path scanners below key on the canonical \x1b[0m form. glamour
-	// v2 also hyperlinks labels and hrefs itself; whip re-links them its own
+	// v2 also hyperlinks labels and hrefs itself; whipcode re-links them its own
 	// way (stripOSC8).
 	rendered := stripOSC8(bareSGR.Replace(stripLinePadding(strings.Trim(out, "\n"))))
 	exists := func(path string) bool { return realFileExistsAt(root, path) }

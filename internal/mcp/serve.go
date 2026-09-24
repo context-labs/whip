@@ -22,7 +22,7 @@ type ToolProvider interface {
 // direction of the integration: any MCP-capable harness (claude-code, codex,
 // another whip) can drive whip's read/bash/edit/write with
 //
-//	whip mcp serve
+//	whipcode mcp serve
 //
 // registered as a stdio server. The model-facing `rlm_exec` tool is not part
 // of this restricted protocol endpoint. Callers use the raw definitions.

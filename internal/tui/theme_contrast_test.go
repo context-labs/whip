@@ -194,7 +194,7 @@ func ansiColorToRGB(n int, light bool) color.RGBA {
 //	go test ./internal/tui/ -run TestThemeProbeImages
 func TestThemeProbeImages(t *testing.T) {
 	const cellW, cellH, cols = 8, 14, 72
-	sample := "I found the bug and **fixed** it.\n\n1. isolate `HOME` in tests\n2. add a `WHIP_HOME` override\n\n```go\nos.Setenv(\"WHIP_HOME\", dir)\n```\n\n| file | change |\n|---|---|\n| config.go | Dir() override |"
+	sample := "I found the bug and **fixed** it.\n\n1. isolate `HOME` in tests\n2. add a `WHIPCODE_HOME` override\n\n```go\nos.Setenv(\"WHIPCODE_HOME\", dir)\n```\n\n| file | change |\n|---|---|\n| config.go | Dir() override |"
 	for _, light := range []bool{false, true} {
 		SetLightTheme(light)
 		lines := strings.Split(renderMarkdown(sample, cols-4), "\n")

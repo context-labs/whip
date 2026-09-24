@@ -187,7 +187,7 @@ func TestMergePrecedence(t *testing.T) {
 	opencode := map[string]ServerConfig{"a": {Command: []string{"oc-a"}}, "e": {Command: []string{"oc-e"}}, "f": {Command: []string{"oc-f"}}}
 	m := Merge(opencode, global, codex, claude, whip)
 	if m["a"].Command[0] != "whip-a" {
-		t.Error("whip config must win over the project file and the user's imports")
+		t.Error("whipcode config must win over the project file and the user's imports")
 	}
 	if m["c"].Command[0] != "claude-c" {
 		t.Error("the project .mcp.json must win over the user's codex file")
@@ -397,13 +397,13 @@ func TestLoadMergedFilteredPolicy(t *testing.T) {
 		t.Error("exclude must win over only")
 	}
 
-	// A whip entry of the same name is never shadowed by a ghost row.
+	// A whipcode entry of the same name is never shadowed by a ghost row.
 	f = LoadMergedFiltered(dir, map[string]ServerConfig{"node_repl": {Command: []string{"mine"}}}, policy)
 	if f.Merged["node_repl"].Command[0] != "mine" {
-		t.Error("whip config must still win over a blocked import")
+		t.Error("whipcode config must still win over a blocked import")
 	}
 	if _, ok := f.Blocked["node_repl"]; ok {
-		t.Error("no ghost row when whip owns the name")
+		t.Error("no ghost row when whipcode owns the name")
 	}
 
 	// Nil policy == LoadMerged: the user's own files import wholesale, the

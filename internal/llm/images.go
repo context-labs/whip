@@ -5,7 +5,7 @@ import (
 	"image"
 	"math"
 
-	// Register the decoders image.DecodeConfig dispatches on. whip builds and
+	// Register the decoders image.DecodeConfig dispatches on. whipcode builds and
 	// sends these formats everywhere (paste.go, mentions, browser
 	// screenshots), so the blank imports carry no new dependency.
 	_ "image/gif"
@@ -21,7 +21,7 @@ import (
 const ImageTokenFloor = 85
 
 // imagePatch is the vision encoder's patch edge in pixels for the
-// moonshot/qwen-style models whip routes to. Token cost of an image is
+// moonshot/qwen-style models whipcode routes to. Token cost of an image is
 // ceil(w/patch)·ceil(h/patch) plus a small fixed wrapper.
 const imagePatch = 28
 

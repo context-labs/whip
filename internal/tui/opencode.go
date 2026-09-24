@@ -32,7 +32,7 @@ import (
 // terminal. When the background is unknown, each role falls back to a
 // terminal-palette-safe value (ANSI 0-15, or no fill) so nothing assumes
 // light or dark — mirroring the markdown neutralStyle.
-// ocThemeKnown reports whether whip resolved the terminal background — glyph
+// ocThemeKnown reports whether whipcode resolved the terminal background — glyph
 // art that depends on a bg-matched color (the prompt's ▀ shadow) must skip
 // rendering when it's unknown, or it draws in the default fg (a black bar on a
 // light terminal).
@@ -706,7 +706,7 @@ func (m *model) msgActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ocModeLabel is the left segment of the prompt meta row. whip has no named
+// ocModeLabel is the left segment of the prompt meta row. whipcode has no named
 // agents like opencode's "Build"; its closest analog is the reasoning effort.
 func (m *model) ocModeLabel() string {
 	eff := m.displayEffort()

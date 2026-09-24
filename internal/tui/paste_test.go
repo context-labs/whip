@@ -10,10 +10,10 @@ import (
 )
 
 // A macOS screenshot preview pastes the path of a temporary, extension-less
-// file. The paste must copy the image into ~/.whip/pastes and show a named
+// file. The paste must copy the image into ~/.whipcode/pastes and show a named
 // [Image N] chip in the input — not type the raw path.
 func TestPastedScreenshotPathAttachesImage(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 
 	source := filepath.Join(t.TempDir(), "Screenshot") // preview paths need not have an extension
 	image := []byte("\x89PNG\r\n\x1a\nimage-data")

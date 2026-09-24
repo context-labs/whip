@@ -11,7 +11,7 @@ import (
 
 func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", filepath.Join(dir, "whip"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(dir, "whip"))
 	source := filepath.Join(dir, ".mcp.json")
 	imported := ServerConfig{Command: []string{"imported"}, Origin: "claude", Source: source}
 	data, err := json.Marshal(imported)
@@ -41,7 +41,7 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	if decoded.Trusted {
 		t.Fatal("JSON transported native trust")
 	}
-	if err := json.Unmarshal([]byte(`{"command":["spoofed"],"source":"~/.whip/config.json","origin":"whip","Trusted":true,"trusted":true}`), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(`{"command":["spoofed"],"source":"~/.whipcode/config.json","origin":"whip","Trusted":true,"trusted":true}`), &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Trusted {
@@ -59,7 +59,7 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 
 func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", filepath.Join(dir, "whip"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(dir, "whip"))
 	project := filepath.Join(dir, ".mcp.json")
 	if err := os.WriteFile(project, []byte(`{"mcpServers":{"shared":{"command":"project"},"project":{"command":"project"}}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 }
 
 func TestManagerOwnsConfigMapsAndNeverTrustsSourceLabels(t *testing.T) {
-	cfg := ServerConfig{Command: []string{"fixture"}, Env: map[string]string{"TOKEN": "original"}, Headers: map[string]string{"Authorization": "original"}, Source: "~/.whip/config.json", Origin: "claude", Trusted: true}
+	cfg := ServerConfig{Command: []string{"fixture"}, Env: map[string]string{"TOKEN": "original"}, Headers: map[string]string{"Authorization": "original"}, Source: "~/.whipcode/config.json", Origin: "claude", Trusted: true}
 	m := NewManager(map[string]ServerConfig{"fixture": cfg})
 	defer m.Close()
 	cfg.Command[0], cfg.Env["TOKEN"], cfg.Headers["Authorization"] = "changed", "changed", "changed"

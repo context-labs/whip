@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // ValidateKey reports whether an API key is accepted by the inference
@@ -191,7 +189,7 @@ func (a *Auth) ArchiveMachineKey(ctx context.Context) error {
 
 func (a *Auth) mintMachineKey(ctx context.Context) (string, error) {
 	if a.SessionToken == "" || a.TeamID == "" || a.ProjectID == "" {
-		return "", errors.New(buildinfo.Text("run `whip auth inference-net login` first"))
+		return "", errors.New("run `whipcode auth inference-net login` first")
 	}
 	name := machineKeyName()
 	id, key, err := createAPIKey(ctx, a.SessionToken, a.TeamID, a.ProjectID, name)

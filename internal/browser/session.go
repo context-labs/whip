@@ -58,7 +58,7 @@ type Session struct {
 }
 
 // fallbackNotice is the one-line heads-up prepended to the first tool
-// output when a live-mode session fell back to a launched whip Chrome
+// output when a live-mode session fell back to a launched whipcode Chrome
 // (hermes /browser connect's "launched and listening" line, in-band so the
 // model relays it in context). Emitted once per session.
 const fallbackNotice = "[Note: no debuggable live browser found — using whip's dedicated Chrome (logins live in its own profile). To drive your everyday browser instead: chrome://inspect/#remote-debugging, or set browser.mode/cdpUrl in config.]\n\n"

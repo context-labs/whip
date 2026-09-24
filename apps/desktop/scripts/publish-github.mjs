@@ -30,7 +30,7 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   const tag = env.RELEASE_TAG; const repository = env.GITHUB_REPOSITORY;
   const mode = env.WHIP_DESKTOP_PUBLISH_MODE || 'publish';
   assert(['stage', 'promote', 'publish'].includes(mode), 'Invalid publication mode');
-  assert(/^(?:desktop-)?v\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(tag ?? '') && tag.length <= 128, 'Invalid release tag');
+  assert(/^desktop-v\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(tag ?? '') && tag.length <= 128, 'Invalid release tag');
   assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ''), 'Configure GITHUB_REPOSITORY');
   assert(env.GH_TOKEN?.trim(), 'Configure GH_TOKEN');
   assert(Array.isArray(filenames) && filenames.length > 0 && filenames.length <= 32, 'Invalid GitHub asset count');
@@ -44,13 +44,13 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   const api = async endpoint => JSON.parse((await run(['api', endpoint, '--hostname', 'github.com'])).stdout);
   const base = `repos/${repository}`;
   const prerelease = tag.replace(/^desktop-/, '').includes('-');
-  const latest = !tag.startsWith('desktop-') && !prerelease;
+  const latest = false;
   // A repository/auth failure must not be mistaken for an absent release.
   await api(base);
-  const verifySource = async () => { if (tag.startsWith('desktop-')) {
+  const verifySource = async () => {
     assert(/^[a-f0-9]{40}$/.test(env.SOURCE_SHA ?? ''), 'Configure the candidate SOURCE_SHA');
     assert.equal((await api(`${base}/commits/${encodeURIComponent(tag)}`)).sha, env.SOURCE_SHA, 'Release tag no longer identifies the candidate source');
-  } };
+  };
   await verifySource();
   const getRelease = async () => {
     try {

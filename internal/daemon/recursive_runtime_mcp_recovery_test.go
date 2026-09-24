@@ -9,7 +9,7 @@ import (
 )
 
 func TestRecursiveHostMCPRecoveryValidatesArguments(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	_, _, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	for _, tc := range []struct {
 		name, operation, want string
@@ -33,7 +33,7 @@ func TestRecursiveHostMCPRecoveryValidatesArguments(t *testing.T) {
 }
 
 func TestRecursiveHostMCPRecoveryRequiresRootAndCapability(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, effects := localMCPFixture(t, "guidance")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
 	child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "child"})

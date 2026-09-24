@@ -29,7 +29,7 @@ func openRuntimeTestStore(t *testing.T, home string) *session.Store {
 
 // useTestDaemon keeps command tests at the real protocol boundary while
 // running the owner in-process; the test binary cannot exec its hidden daemon
-// subcommand the way the installed whip binary can.
+// subcommand the way the installed whipcode binary can.
 func useTestDaemon(t *testing.T) {
 	t.Helper()
 	previous := connectDaemon

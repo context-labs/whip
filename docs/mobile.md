@@ -20,20 +20,20 @@ native build or TestFlight release.
    Substitute the host's actual Tailscale DNS name for `whip.example.ts.net`:
 
    ```sh
-   whip daemon start
-   WHIP_LISTEN=127.0.0.1:9876 \
-   WHIP_ALLOWED_HOSTS=127.0.0.1:9876,whip.example.ts.net \
-   WHIP_ALLOWED_ORIGINS=https://whip.example.ts.net \
-   whip web --no-open
+   whipcode daemon start
+   WHIPCODE_LISTEN=127.0.0.1:9876 \
+   WHIPCODE_ALLOWED_HOSTS=127.0.0.1:9876,whip.example.ts.net \
+   WHIPCODE_ALLOWED_ORIGINS=https://whip.example.ts.net \
+   whipcode web --no-open
    ```
 
    Keep the foreground gateway running; `--no-open` does not exit after printing
    the URL. Ctrl+C stops web access but leaves daemon work running. No restart
    is needed to add a gateway to a compatible running daemon. For an owned child
-   at daemon startup instead, set `WHIP_NETWORK=1` alongside the same gateway
-   settings on `whip daemon start`. `WHIP_LISTEN` alone is not an opt-in.
+   at daemon startup instead, set `WHIPCODE_NETWORK=1` alongside the same gateway
+   settings on `whipcode daemon start`. `WHIPCODE_LISTEN` alone is not an opt-in.
    Existing daemons keep their launch configuration; do not restart active work
-   merely to build or install the phone app. Whipcode uses `WHIPCODE_*` instead.
+   merely to build or install the phone app.
 3. Inspect existing Serve mappings with `tailscale serve status`. On an unused
    mapping, forward HTTPS to the loopback gateway:
 
@@ -78,8 +78,8 @@ The `whip-sam.service` system service starts at boot and runs
 The recorded deployment uses `127.0.0.1:9876`, with persistent Tailscale Serve
 proxying private HTTPS port 443 and exact Host/Origin allowlists in the service
 unit. **When upgrading this deployment to the gateway architecture**, the unit
-must also opt into the owned child with `WHIP_NETWORK=1` (or manage a separate
-foreground gateway). The daemon itself no longer binds TCP, and `WHIP_LISTEN`
+must also opt into the owned child with `WHIPCODE_NETWORK=1` (or manage a separate
+foreground gateway). The daemon itself no longer binds TCP, and `WHIPCODE_LISTEN`
 alone does not start a gateway. These instructions do not establish that this
 host has been migrated or device-tested. Manage the installation through systemd
 so its intended settings persist:
@@ -95,7 +95,7 @@ provider entry exists, but credentials have not been configured. To enable model
 execution, complete the provider's browser login using the remote CLI:
 
 ```sh
-ssh -t gpu-4090-sam '/home/sam/.local/bin/whip auth inference-net login'
+ssh -t gpu-4090-sam '/home/sam/.local/bin/whipcode auth inference-net login'
 ```
 
 Open the printed verification address locally and follow the account/project

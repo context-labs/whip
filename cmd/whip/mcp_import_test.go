@@ -11,12 +11,12 @@ import (
 	"github.com/context-labs/whip/internal/mcp"
 )
 
-// importFixture writes a healthy whip config plus a codex config with two
+// importFixture writes a healthy whipcode config plus a codex config with two
 // servers, and points CodexPath at the fixture.
 func importFixture(t *testing.T, mcpImport string) (wd string) {
 	t.Helper()
 	whipHome := t.TempDir()
-	t.Setenv("WHIP_HOME", whipHome)
+	t.Setenv("WHIPCODE_HOME", whipHome)
 	wd = t.TempDir()
 	cfgSrc := `{
   "defaultModel": "m1",

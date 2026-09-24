@@ -31,7 +31,7 @@ func TestDesktopSSHSubprocess(t *testing.T) {
 	if err := os.Remove(os.Getenv("HOME")); err != nil {
 		os.Exit(91)
 	}
-	os.Args = append([]string{"whip", "_desktop-ssh"}, args...)
+	os.Args = append([]string{"whipcode", "_desktop-ssh"}, args...)
 	main()
 }
 

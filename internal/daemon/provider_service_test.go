@@ -124,7 +124,7 @@ func TestProviderLoginCancellationExpiryAndRestart(t *testing.T) {
 }
 
 func TestProviderSetupRevisionAndSafeConfiguration(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	s := NewProviderService(t.Context(), "generation")
 	defer s.Close()
 	s.validate = func(ctx context.Context, url, key string) ([]llm.ModelInfo, error) {

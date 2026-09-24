@@ -12,7 +12,7 @@ import (
 )
 
 func TestModelSelectionAppliesAndPersistsEffortTogether(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	cfg.DefaultEffort = "high"
 	if err := cfg.Save(); err != nil {

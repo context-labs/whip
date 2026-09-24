@@ -14,12 +14,12 @@ import (
 // "type" is optional: entries with a command default to stdio, entries with a
 // url default to http. "sse" (legacy server-sent events transport) is
 // imported as disabled with a note — the ecosystem moved to streamable HTTP
-// and whip doesn't ship the legacy transport.
+// and whipcode doesn't ship the legacy transport.
 type claudeFile struct {
 	MCPServers map[string]claudeServer `json:"mcpServers"`
 }
 
-// SSENote marks a claude entry on the legacy sse transport, which whip does
+// SSENote marks a claude entry on the legacy sse transport, which whipcode does
 // not ship; discovery turns it off with this note and the import screen reads
 // it as unsupported.
 const SSENote = "claude sse transport is legacy and unsupported — switch the server to streamable http (type: \"http\")"
@@ -40,7 +40,7 @@ type claudeServer struct {
 // configs. "$VAR"/"${VAR}" references in env and header values are kept
 // VERBATIM (references, not resolved values) — they resolve at connect time
 // via config.ResolveSecret, so an import can never bake a missing-at-import
-// var into an empty literal or leak a resolved secret into ~/.whip/config.json.
+// var into an empty literal or leak a resolved secret into ~/.whipcode/config.json.
 func ParseClaude(data []byte) (map[string]ServerConfig, error) {
 	var f claudeFile
 	if err := json.Unmarshal(data, &f); err != nil {

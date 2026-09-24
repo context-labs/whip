@@ -11,7 +11,6 @@ import (
 func TestDistributionConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("WHIP_HOME", "")
 	t.Setenv("WHIPCODE_HOME", "")
 	want := filepath.Join(home, "."+buildinfo.Name)
 	dir, err := Dir()
@@ -24,10 +23,7 @@ func TestDistributionConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(want, "config.json")); err != nil {
 		t.Fatal(err)
 	}
-	other := "WHIPCODE_HOME"
-	if buildinfo.Name == "whipcode" {
-		other = "WHIP_HOME"
-	}
+	other := "WHIP_HOME"
 	t.Setenv(other, filepath.Join(home, "foreign"))
 	if got, err := Dir(); err != nil || got != want {
 		t.Fatalf("foreign home override affected Dir: %q %v", got, err)

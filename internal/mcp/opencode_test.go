@@ -38,10 +38,10 @@ func TestParseOpenCode(t *testing.T) {
 		t.Errorf("opencode timeout must be ignored, got %d", gsc.StartupTimeout)
 	}
 	if gsc.Env["KEYFILE"] != "{file:~/gsc.json}" {
-		t.Errorf("{file:} has no whip equivalent and must stay as written, got %q", gsc.Env["KEYFILE"])
+		t.Errorf("{file:} has no whipcode equivalent and must stay as written, got %q", gsc.Env["KEYFILE"])
 	}
 	if a := got["ahrefs"]; !a.Remote() || a.Headers["Authorization"] != "Bearer ${AHREFS_TOKEN}" || a.Disabled() {
-		t.Errorf("remote entry mis-parsed or {env:} not rewritten to a whip reference: %+v", a)
+		t.Errorf("remote entry mis-parsed or {env:} not rewritten to a whipcode reference: %+v", a)
 	}
 	for _, name := range []string{"figma", "linear"} {
 		if s := got[name]; !s.Disabled() || s.Note != SignInNote {

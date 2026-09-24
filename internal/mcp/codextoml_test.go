@@ -383,7 +383,7 @@ bearer_token_env_var = "BEARER_VAR"
 // TestParseCodexPreservesReferences is the regression test for "customerio
 // MCP failed to auth after importing from codex": references must NOT be
 // expanded at parse time, so a var that's unset during import (but set when
-// the server actually runs) still resolves — and `whip mcp import` persists
+// the server actually runs) still resolves — and `whipcode mcp import` persists
 // the reference, not a resolved/empty literal.
 func TestParseCodexPreservesReferences(t *testing.T) {
 	os.Unsetenv("WHIP_IMPORT_LATE_VAR")

@@ -1,7 +1,7 @@
-# whip manual
+# WhipCode manual
 
-Start with [installation and local development](setup.md) for Desktop, WhipCode,
-and the older `whip` distribution. [Benchmark notes](benchmarks.md) explain the
+Start with [installation and local development](setup.md) for Desktop and the
+sole `whipcode` CLI. [Benchmark notes](benchmarks.md) explain the
 README comparison and its limits.
 
 Everything that used to crowd the top-level README: full setup, config
@@ -19,29 +19,28 @@ signing and release setup, with the current acceptance limits.
 
 ## Install
 
-Prebuilt binaries (Linux/macOS, x64/arm64) from GitHub Releases — checksum-verified:
+For Linux/macOS x64/arm64, install the checksum-verified packaged CLI:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
 ```
 
-The script downloads the release asset for your platform, verifies it against the published `SHA256SUMS`, and drops `whip` into the first writable directory on your `PATH`. Pin a version with `WHIP_VERSION=v0.1.0`, force the install dir with `WHIP_BIN_DIR`.
-
-From source instead (requires Go ≥ 1.27; macOS arm64 builds also embed the computer-use Swift helper via `task driver`):
-
-```sh
-go install github.com/context-labs/whip/cmd/whip@latest
-```
-
-From a cloned repo, `task install` does the same with the version stamped from git.
+Before `v1.0.0`, opt into `v1.0.0-alpha.N` as shown. Stable is the default channel
+and fails clearly until a new-project stable release exists. `WHIPCODE_VERSION`
+pins an exact new-project tag; `WHIPCODE_BIN_DIR` overrides `~/.local/bin`.
+For prerequisites, source builds, and update ownership, see [setup](setup.md).
+Pre-reset internal installations require the [manual reset](team-reset.md).
+Maintainers should read [release operations](releases.md) and
+[Desktop releases](desktop-releases.md).
 
 ## Setup (with inference.net)
 
 whip defaults to inference.net models; the `inf` CLI provisions the key:
 
 ```sh
-git clone https://github.com/context-labs/whip && cd whip
-task install                        # builds + installs whip (version stamped from git)
+git clone --branch main https://github.com/context-labs/whip && cd whip
+npm ci
+task install                        # packaged whipcode; Go 1.27+, Node 24, Task
 
 bun add -g @inference/cli           # the inf CLI
 inf auth login                      # log in
@@ -59,9 +58,9 @@ drop a `.mcp.json` in the repo (MCP servers just appear — `/mcp` to see them).
 ```sh
 task run                 # run locally from source
 task run -- -m glm-5.2-fast          # pass flags after --
-whip                    # installed binary, default model
-whip -m kimi-k3-fast -p inference   # pick model AND provider
-whip run -cache-key repo/reviewer "prompt"   # headless; stable prompt cache across runs
+whipcode                # installed binary, default model
+whipcode -m kimi-k3-fast -p inference   # pick model AND provider
+whipcode run -cache-key repo/reviewer "prompt"   # headless; stable prompt cache across runs
 ```
 
 `task --list` shows the rest (build, test, acceptance, fmt, vet, tidy).
@@ -72,7 +71,7 @@ children with `agents.spawn` inside `rlm_exec`.
 
 See [features.md](features.md) for the full feature map and [concurrency.md](concurrency.md) for the channel design.
 
-## Config — `~/.whip/config.json`
+## Config — `~/.whipcode/config.json`
 
 RLM worker limits are configurable under the `rlm` block; there is no runtime
 mode switch. See [rlm-runtime.md](rlm-runtime.md#limits).
@@ -105,8 +104,8 @@ the provider's `max_completion_tokens`, else `context`. The old `maxTokens` fiel
 still parses (it always meant the context window) but is superseded by `context`.
 
 **Catalog models need no config entry.** whip caches each provider's
-`GET /models` (24h TTL in `~/.whip/models.json`), and any advertised model is
-usable directly — `whip -m deepseek-v4-pro` or `/model deepseek-v4-pro` — with
+`GET /models` (24h TTL in `~/.whipcode/models.json`), and any advertised model is
+usable directly — `whipcode -m deepseek-v4-pro` or `/model deepseek-v4-pro` — with
 context, vision, effort levels, and pricing taken from the catalog. Config
 entries are authoritative overrides when present. Newly announced models appear
 in the `/model` picker (dim, marked `(new)`) after `/model refresh` or the next
@@ -124,7 +123,7 @@ whip connects to MCP servers and exposes them through `mcp.search`,
 Starlark. Five sources feed one merged
 set; on a name conflict the earlier source in this list wins:
 
-- **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only
+- **whip-native**: an `"mcp"` block in `~/.whipcode/config.json`. The only
   trusted source: its servers skip per-call consent.
 - **project**: a `.mcp.json` in the session's working directory
   (`{"mcpServers": {...}}`). Repository-authored, so it is **off until you
@@ -140,7 +139,7 @@ set; on a name conflict the earlier source in this list wins:
   sign-in" note because whip has no browser sign-in for MCP servers).
 
 Each import source takes `enabled`, `only` and `exclude`. Servers a source
-gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
+gate filters out stay visible in `/mcp` as `blocked`. `whipcode mcp import`
 copies imported servers into the native block, where they become trusted. The
 web and desktop app offer the same import as a screen: once per host on New
 session when other agents have servers configured there, and any time from
@@ -148,7 +147,7 @@ Settings › Agents & execution › MCP servers. Tick what you want and
 Import writes it into the native block; Skip sets `mcpImport.offered` so the
 offer does not come back on its own. Each row shows the vendor's logo: the app
 bundles marks for the common MCP vendors, and the daemon looks the rest up on
-DuckDuckGo by the server's domain, once, caching under `~/.whip/icons`. Set
+DuckDuckGo by the server's domain, once, caching under `~/.whipcode/icons`. Set
 `"brandIcons": false` (or turn off "Server logos" in that Settings group) to
 keep every lookup on the host; unresolved rows show a monogram.
 
@@ -171,11 +170,11 @@ actionable message, and dropped sessions auto-reconnect with backoff).
 `/mcp` shows live status; `/mcp <name> reconnect|enable|disable` manages
 servers for the current session without restarting (host configuration is
 unchanged; `/mcp import <source> on|off` is the host-level switch). Server instructions teach the model how to use
-each server's tools automatically. CLI: `whip mcp list|add|remove|import`
+each server's tools automatically. CLI: `whipcode mcp list|add|remove|import`
 (`import [--dry-run]` copies imported servers into whip's own config, where
 they become trusted like hand-written entries), and
-`whip mcp test <name>` to doctor one server (status, timing, tool names,
-stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
+`whipcode mcp test <name>` to doctor one server (status, timing, tool names,
+stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whipcode mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
 other harnesses through a daemon-owned root; the stdio adapter never opens
 SQLite or invokes tool handlers directly. The bridge cannot obtain new
@@ -186,8 +185,8 @@ not forwarded as whip consent. Codex configs with `http_headers` and
 environment at connect), and codex's `[mcp_servers.X.tools.*]` per-tool
 approval tables are skipped — they're codex's config, not servers.
 
-`whip skills list` shows loaded skills and where they come from;
-`whip skills import [--dry-run]` copies skills from other harnesses'
+`whipcode skills list` shows loaded skills and where they come from;
+`whipcode skills import [--dry-run]` copies skills from other harnesses'
 user dirs (`~/.codex/skills`, `~/.claude/skills`) into `~/.agents/skills`,
 deduped by name against everything whip already loads — an existing
 skill is never overwritten, and a name duplicated across codex/claude
@@ -196,25 +195,25 @@ imports once.
 ## Browser — drive your real, logged-in Chrome
 
 `browser_exec` can drive your everyday browser (real cookies/sessions) four
-ways via `browser.mode` in `~/.whip/config.json`: `live` (attach to a
+ways via `browser.mode` in `~/.whipcode/config.json`: `live` (attach to a
 running Chrome with debugging on), `dedicated`/`headless` (a whip-owned
 Chrome, auto-launched as a fallback when nothing debuggable is running), and
 `extension` — the only one that works on Chrome ≥ 136's default profile,
 where direct CDP is blocked.
 
-Extension mode uses a tiny unpacked Chrome extension: whip runs a local
+Extension mode uses a tiny unpacked Chrome extension: whipcode runs a local
 relay, the extension pipes raw CDP through `chrome.debugger` on the tab you
 pin. Set it up once:
 
 ```
-whip browser install
+whipcode browser install
 ```
 
-That writes the extension to `~/.whip/browser/extension/`, mints the relay
+That writes the extension to `~/.whipcode/browser/extension/`, mints the relay
 token, and opens `chrome://extensions` + the folder. Then three clicks
 (Chrome forbids programmatic install): **Developer mode on → Load unpacked →
 select the folder**. Set `"browser": { "mode": "extension" }` in
-`~/.whip/config.json`, open the tab you want, and click the whip extension
+`~/.whipcode/config.json`, open the tab you want, and click the whip extension
 icon (a green ● appears) to let whip drive it; click again to detach. While
 pinned, Chrome shows a "whip is debugging this browser" bar — that's the
 mechanism doing the work.

@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/openaiauth"
 )
@@ -18,7 +17,7 @@ func authOpenAICLI(args []string) error {
 		operation = args[0]
 	}
 	if len(args) > 1 || (operation != "login" && operation != "status" && operation != "logout") {
-		return errors.New(buildinfo.Text("usage: whip auth openai-codex [login | status | logout]"))
+		return errors.New("usage: whipcode auth openai-codex [login | status | logout]")
 	}
 	if operation == "login" {
 		return providerDeviceLogin(openaiauth.Provider, openaiauth.DeviceLifetime)

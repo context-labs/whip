@@ -38,7 +38,7 @@ try {
   const manifest = JSON.parse(await readFile(path.join(application, 'runtime-manifest.json'), 'utf8'));
   const overlay = path.join(fixture, 'overlay.json');
   await writeFile(overlay, JSON.stringify({ Replace: { [path.join(repositoryRoot, 'internal/computer/bin/whip-computer')]: path.join(native, 'whip-computer') } }));
-  await execute('go', ['build', '-overlay', overlay, '-ldflags', `-X main.version=${manifest.buildId} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`,
+  await execute('go', ['build', '-overlay', overlay, '-ldflags', `-X main.version=${manifest.buildId} -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`,
     '-o', path.join(native, 'whipcode'), './cmd/whip'], { cwd: repositoryRoot, timeout: 120_000, maxBuffer: 1 << 20 });
   const info = JSON.parse((await execute(path.join(native, 'whipcode'), ['_desktop-runtime-info'])).stdout);
   manifest.rendererDigest = renderer.digest;

@@ -9,7 +9,7 @@ import (
 func isolateProviderEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	for _, name := range []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"} {

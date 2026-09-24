@@ -287,7 +287,7 @@ func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	})
 }
 
-// The caller's own deadline bounds the whole call including backoff; whip no
+// The caller's own deadline bounds the whole call including backoff; whipcode no
 // longer imposes a total of its own (only the per-attempt ceiling).
 func TestCallerDeadlineBoundsBackoff(t *testing.T) {
 	calls := 0

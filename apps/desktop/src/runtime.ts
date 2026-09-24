@@ -155,7 +155,6 @@ export class LocalRuntime {
     env.WHIPCODE_HOME = absolutePath(env.WHIPCODE_HOME || path.join(env.HOME || homedir(), '.whipcode'));
     // Desktop needs only the private socket; ordinary startup opens no web listener.
     // Explicit managed-gateway settings still pass through unchanged.
-    delete env.WHIP_HOME;
     delete env.WHIP_COMPUTER_BIN; // The installed distribution extracts its matching embedded helper.
     return env;
   }

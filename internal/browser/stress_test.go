@@ -127,7 +127,7 @@ func TestRecoverFromClosedBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("after crash: %v", err)
 	}
-	if !strings.Contains(out, "whip e2e") {
+	if !strings.Contains(out, "whipcode e2e") {
 		t.Fatalf("post-crash eval: %s", out)
 	}
 }

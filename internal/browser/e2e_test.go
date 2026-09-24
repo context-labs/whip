@@ -91,7 +91,7 @@ func testPage(t *testing.T) string {
 				cookie = c.Value
 			}
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!doctype html><html><head><title>whip e2e</title></head><body>
+			fmt.Fprintf(w, `<!doctype html><html><head><title>whipcode e2e</title></head><body>
 <h1 id="h">hello</h1><div id="q" contenteditable="true"></div><div id="b" onclick="document.title='clicked'" style="padding:8px">go</div>
 <div id="cookie">%s</div></body></html>`, cookie)
 		default:
@@ -185,7 +185,7 @@ func TestE2EDedicated(t *testing.T) {
 	defer cancel()
 
 	// Dedicated uses the whip-owned profile dir.
-	home := t.TempDir() // don't touch the real ~/.whip during tests
+	home := t.TempDir() // don't touch the real ~/.whipcode during tests
 	t.Setenv("HOME", home)
 
 	b, err := Open(ctx, ModeDedicated)
@@ -207,7 +207,7 @@ func TestE2EDedicated(t *testing.T) {
 		t.Fatalf("fill focus: %s %v", v, err)
 	}
 	// The whip-owned profile dir must exist (separate from the user's).
-	if _, err := os.Stat(filepath.Join(home, ".whip", "browser", "dedicated-profile")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".whipcode", "browser", "dedicated-profile")); err != nil {
 		t.Fatalf("dedicated profile dir missing: %v", err)
 	}
 }
@@ -355,7 +355,7 @@ func TestE2ELiveFallsBackToLaunched(t *testing.T) {
 	}
 }
 
-// TestE2EDedicatedReattach verifies a still-running whip Chrome is reused:
+// TestE2EDedicatedReattach verifies a still-running whipcode Chrome is reused:
 // close the backend's CDP connection (simulating a dead/stale backend)
 // while keeping the browser process alive, then Open again — it must
 // reattach to the SAME browser rather than spawn a duplicate, and the

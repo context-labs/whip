@@ -41,9 +41,8 @@ app opens. **Save and connect** verifies its runtime identity. The app connects
 directly from the browser; it does not install a daemon, open SSH tunnels, or
 change listeners.
 
-Saved profiles live in the local distribution's `config.json` under `remote_hosts`:
-`~/.whipcode/config.json` or `$WHIPCODE_HOME/config.json` for whipcode, and
-`~/.whip/config.json` or `$WHIP_HOME/config.json` for whip. Each entry contains an
+Saved profiles live in `~/.whipcode/config.json` or `$WHIPCODE_HOME/config.json`
+under `remote_hosts`. Each entry contains an
 ID, name, URL, verified `runtime_id`, and `connect_on_launch`. The existing config
 revision check protects concurrent edits. Browsers using the same Local daemon
 share profiles; tabs and split layouts remain separate per browser window.
@@ -177,33 +176,33 @@ ordinary daemon, CLI and Desktop startup open no web listener. Start the daemon,
 then run the separate foreground gateway:
 
 ```sh
-whip daemon start
-whip web
+whipcode daemon start
+whipcode web
 ```
 
-`whip web` checks the running daemon's compatibility and the packaged assets,
+`whipcode web` checks the running daemon's compatibility and the packaged assets,
 prints its ready URL, opens your default browser, and **stays running**. Ctrl+C
 stops this gateway, not the daemon or accepted runtime work. Browser-open failure
 leaves a usable gateway running with its URL printed. To skip opening a browser:
 
 ```sh
-whip web --no-open
+whipcode web --no-open
 ```
 
 **Migration:** `--no-open` no longer prints an existing URL and exits; it owns the
 same foreground lifecycle. To check/open an already running gateway without
-starting any server, use `whip web --url <origin>` (add `--no-open` to only check
+starting any server, use `whipcode web --url <origin>` (add `--no-open` to only check
 and print). This explicit URL mode needs no local daemon. A foreground command
 never silently attaches to a managed gateway;
 it owns an independent instance. Use `--url` when you want the existing one.
 
 With no explicit address, the gateway tries `127.0.0.1:4444`. Only an
 address-in-use error falls back to `127.0.0.1:0`; the actual bound URL is reported.
-For a fixed port, run `WHIP_LISTEN=127.0.0.1:9876 whip web`. Explicit addresses,
+For a fixed port, run `WHIPCODE_LISTEN=127.0.0.1:9876 whipcode web`. Explicit addresses,
 including port `0`, bind exactly as requested; failed fixed binds never silently
 move. The default does not expose a LAN interface or configure Tailscale.
 
-Without `--url`, `whip web` requires an already running compatible daemon. It never starts,
+Without `--url`, `whipcode web` requires an already running compatible daemon. It never starts,
 replaces, restarts or reconfigures one. A gateway needs the daemon's negotiated
 `network-client-v1` capability; an older daemon fails closed with upgrade guidance,
 not a fallback to trusted local privileges. Upgrade an incompatible daemon
@@ -213,14 +212,14 @@ to a compatible daemon never requires a restart.
 ### Optional managed startup
 
 ```sh
-WHIP_NETWORK=1 whip daemon start
-whip daemon status --json
+WHIPCODE_NETWORK=1 whipcode daemon start
+whipcode daemon status --json
 ```
 
-`WHIP_NETWORK=1` opts daemon launch paths into starting the **same gateway** as
+`WHIPCODE_NETWORK=1` opts daemon launch paths into starting the **same gateway** as
 an owned child after the socket is ready, without opening a browser. With
-`WHIP_NETWORK` unset or `0`, no gateway is auto-started; explicit `whip web` still
-works. `WHIP_LISTEN` configures the gateway bind but is not itself an opt-in.
+`WHIPCODE_NETWORK` unset or `0`, no gateway is auto-started; explicit `whipcode web` still
+works. `WHIPCODE_LISTEN` configures the gateway bind but is not itself an opt-in.
 The whipcode distribution uses the equivalent `WHIPCODE_*` settings.
 
 The `gateway.status` protocol query separates managed web state from daemon
@@ -229,11 +228,11 @@ only a ready managed endpoint, not foreground instances; foreground commands
 print their own URL. A managed failure clears the advertised endpoint, reports
 the web error, and leaves the daemon available. CLI JSON status includes
 `gateway: {state, endpoint?, error?}` and `gateway_log`;
-`whip daemon logs --web` reads the managed gateway's `runtime-v2/web.log` under
+`whipcode daemon logs --web` reads the managed gateway's `runtime-v2/web.log` under
 the selected distribution home, alongside `daemon.log` (use `gateway_log` for
 the exact path). A managed-start failure reports an unsuccessful web startup
 without making a healthy daemon unavailable. There is no automatic child
-restart loop: run a foreground `whip web` for non-disruptive recovery. The parent
+restart loop: run a foreground `whipcode web` for non-disruptive recovery. The parent
 reaps its child on orderly exit; lifetime-pipe EOF also stops the child after
 abrupt parent loss. A gateway never follows a replacement daemon.
 
@@ -246,8 +245,8 @@ executable, without a Node runtime.
 Host and Origin checks remain exact. With no configured allowlists, requests
 must use the listener's address as their Host, and browser requests must be
 same-origin. Native clients may omit Origin. For a trusted reverse proxy such as
-Tailscale Serve, explicitly include its hostname in `WHIP_ALLOWED_HOSTS` and its
-HTTPS origin in `WHIP_ALLOWED_ORIGINS`. Include the loopback address in the Host
+Tailscale Serve, explicitly include its hostname in `WHIPCODE_ALLOWED_HOSTS` and its
+HTTPS origin in `WHIPCODE_ALLOWED_ORIGINS`. Include the loopback address in the Host
 list too if local access is needed. See [mobile host setup](mobile.md).
 These checks protect against browser cross-origin access and DNS rebinding;
 they are not authentication for clients with direct network access. Keep remote
@@ -260,8 +259,8 @@ Use Node 24 and the Go version declared in `go.mod`:
 ```sh
 npm ci
 task build
-./whip daemon start
-./whip web
+./whipcode daemon start
+./whipcode web
 ```
 
 `task build` builds the web workspace, copies its output into `internal/webassets/dist`,
@@ -281,8 +280,8 @@ go build -o whip ./cmd/whip
 When replacing a running source-built daemon, use your rebuilt binary explicitly:
 
 ```sh
-./whip daemon restart
-./whip web
+./whipcode daemon restart
+./whipcode web
 ```
 
 ## Develop against an existing daemon
@@ -293,11 +292,10 @@ For UI iteration, run `npm run dev:web` from the repository root and open
 desktop app. Run `npm run build` after changing SDK source, since the renderer
 consumes its built output. Backend changes require a matching rebuilt daemon.
 
-`task run -- web` runs the source **whip** foreground gateway and serves packaged
-production assets; it does not start Vite or a daemon. Whip uses `~/.whip` and
-`WHIP_*`, while the installed **whipcode** uses `~/.whipcode` and `WHIPCODE_*`.
-Use the intended executable and home; restarting one distribution does not
-replace the other's daemon.
+`task run -- web` runs the source-built **whipcode** foreground gateway and serves
+packaged production assets; it does not start Vite or a daemon. Source and installed
+builds use `~/.whipcode` and `WHIPCODE_*`. Choose a fresh explicit `WHIPCODE_HOME`
+for isolated development; do not restart an active installed daemon casually.
 
 Vite is only a development asset server. Its API proxy defaults to
 `http://127.0.0.1:4444` and needs a running gateway, not the daemon's Unix socket. To develop against the installed whipcode runtime:
@@ -321,7 +319,6 @@ implicit-4444 bind fell back, override Vite's target with that printed origin. T
 `WHIP_WEB_DAEMON` name is retained for compatibility, but its target is the
 **gateway**. Starting Vite does not start or restart either process. A daemon
 launched with `WHIPCODE_NETWORK=0` needs no restart to use a foreground gateway.
-The source-built `whip` uses `WHIP_*` instead of `WHIPCODE_*` for gateway setup.
 
 The development proxy accepts only loopback clients using its exact browser
 origin, then forwards HTTP and WebSocket requests with the gateway's origin.
@@ -355,7 +352,7 @@ WebSocket upgrades and rejection before forwarding for invalid origins/hosts.
 
 ## Trusted-network and phone access
 
-Bind to an explicit host address with `WHIP_LISTEN`, and configure the exact Host
+Bind to an explicit host address with `WHIPCODE_LISTEN`, and configure the exact Host
 and Origin values clients will use. These are request-boundary checks, not an
 authentication scheme. Connected clients can approve or deny human permission
 requests; internal agent capabilities and content grants still apply.
@@ -369,18 +366,18 @@ upgrades) to the gateway. The certificate must be trusted by the phone. Example
 configuration when the proxy forwards the original Host:
 
 ```sh
-WHIP_NETWORK=1 WHIP_LISTEN=127.0.0.1:8080 \
-  WHIP_ALLOWED_HOSTS=whip.example,127.0.0.1:8080 \
-  WHIP_ALLOWED_ORIGINS=https://whip.example \
-  whip daemon start
-whip web --url https://whip.example
+WHIPCODE_NETWORK=1 WHIPCODE_LISTEN=127.0.0.1:8080 \
+  WHIPCODE_ALLOWED_HOSTS=whip.example,127.0.0.1:8080 \
+  WHIPCODE_ALLOWED_ORIGINS=https://whip.example \
+  whipcode daemon start
+whipcode web --url https://whip.example
 ```
 
 Replace the example host with your configured origin. Open that HTTPS URL on the
-phone. A proxy that rewrites Host must forward a value in `WHIP_ALLOWED_HOSTS`;
-its browser's HTTPS Origin still needs an exact `WHIP_ALLOWED_ORIGINS` entry.
+phone. A proxy that rewrites Host must forward a value in `WHIPCODE_ALLOWED_HOSTS`;
+its browser's HTTPS Origin still needs an exact `WHIPCODE_ALLOWED_ORIGINS` entry.
 Wildcard binds do not identify a usable browser URL. Run the gateway with
-`--no-open`, then use a separate `whip web --url https://whip.example` command
+`--no-open`, then use a separate `whipcode web --url https://whip.example` command
 to check/open the external origin, or bind the intended host address directly.
 `--url` itself never starts a listener.
 
@@ -397,7 +394,7 @@ from **Color theme**; it does not change WHIP's typography or layout. As with
 other themes, low-contrast text receives the browser's accessibility adjustment.
 
 While connected, **Custom themes** lists JSON themes from the execution host's
-`WHIP_HOME/themes` directory. **Import theme JSON** accepts the existing TUI format
+`WHIPCODE_HOME/themes` directory. **Import theme JSON** accepts the existing TUI format
 up to 64 KiB. The host resolves the colors and Chroma styles; the selected result
 is cached on the viewing device. Importing does not write a theme file or change
 the TUI's selected theme. Browser contrast adjustments preserve the source palette.
@@ -415,7 +412,7 @@ Release CI builds and packages the application before compiling each binary and
 smoke-tests discovery and HTML serving from an isolated temporary runtime.
 `task web` checks generated theme drift, frontend types/build and component tests.
 Go tests cover route fallback, missing assets, HTTP boundaries and the explicit
-runtime-management behavior of `whip web`.
+runtime-management behavior of `whipcode web`.
 
 ## Validation and measured behavior
 
@@ -684,8 +681,7 @@ whipcode web
 
 Use `WHIPCODE_LISTEN`, `WHIPCODE_ALLOWED_ORIGINS`, and `WHIPCODE_ALLOWED_HOSTS`
 for the corresponding trusted-network settings above, and `WHIPCODE_NETWORK=1`
-for managed gateway startup. Whipcode does not consume whip's `WHIP_*` network
-settings. Each foreground command reports its own endpoint; if 4444 is already
+for managed gateway startup. Each foreground command reports its own endpoint; if 4444 is already
 occupied, an implicit bind falls back to an ephemeral loopback port.
 Use `whipcode daemon status --json` to inspect a ready managed endpoint. Existing WHIP web
-branding and protocol/package names are shared across distributions.
+branding and protocol/package names remain unchanged.

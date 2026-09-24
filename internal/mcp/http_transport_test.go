@@ -33,7 +33,7 @@ type legacyHTTPFixture struct {
 
 func newLegacyHTTPFixture(t *testing.T, stallGET, stallDELETE bool) *legacyHTTPFixture {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	f := &legacyHTTPFixture{
 		getStarted: make(chan struct{}), getStopped: make(chan struct{}),
 		deleteStarted: make(chan struct{}), deleteStopped: make(chan struct{}),

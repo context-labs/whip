@@ -13,21 +13,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 )
 
-// authInferenceNetCLI implements `whip auth inference-net …`: first-class
+// authInferenceNetCLI implements `whipcode auth inference-net …`: first-class
 // Inference.net sign-in. The default path is a browser device-authorization
 // login that provisions a machine API key automatically — no key handling.
 // BYOK is supported via login --key / --env.
 //
-//	whip auth inference-net login [--key <apikey> | --env]
-//	whip auth inference-net status
-//	whip auth inference-net logout
-//	whip auth inference-net key rotate
+//	whipcode auth inference-net login [--key <apikey> | --env]
+//	whipcode auth inference-net status
+//	whipcode auth inference-net logout
+//	whipcode auth inference-net key rotate
 func authInferenceNetCLI(args []string) error {
 	sub := "login"
 	if len(args) > 0 {
@@ -45,7 +43,7 @@ func authInferenceNetCLI(args []string) error {
 		if len(args) > 0 && args[0] == "rotate" {
 			return inferenceNetKeyRotateCLI()
 		}
-		return errors.New(buildinfo.Text("usage: whip auth inference-net key rotate"))
+		return errors.New("usage: whipcode auth inference-net key rotate")
 	default:
 		return fmt.Errorf("unknown inference-net subcommand %q (login | status | logout | key rotate)", sub)
 	}
@@ -258,7 +256,7 @@ func providerAccountCLI(operation string) error {
 	if status.Email != "" {
 		fmt.Println("  Account     " + status.Email)
 	} else {
-		fmt.Println(buildinfo.Text("  Account     not signed in (whip auth inference-net login)"))
+		fmt.Println("  Account     not signed in (whipcode auth inference-net login)")
 	}
 	if status.ProjectID != "" {
 		fmt.Println("  Project     " + status.ProjectName + " (" + status.ProjectID + ")")
@@ -268,7 +266,7 @@ func providerAccountCLI(operation string) error {
 	}
 	fmt.Println("  Provider    " + status.KeySource)
 	for _, warning := range status.Warnings {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), warning)
+		fmt.Fprintln(os.Stderr, "whipcode:", warning)
 	}
 	return nil
 }
