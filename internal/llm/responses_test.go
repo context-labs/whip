@@ -37,6 +37,10 @@ func TestResponsesToolContinuationRoundTrip(t *testing.T) {
 	if err != nil || message.Content != "Checking." || text != message.Content || len(message.ToolCalls) != 1 {
 		t.Fatalf("decode: message=%+v text=%q err=%v", message, text, err)
 	}
+	if message.Continuation.AccountID != "account" || message.Continuation.Model != "model" ||
+		message.Continuation.Items != items {
+		t.Fatalf("continuation lost: %+v", message.Continuation)
+	}
 	if len(args) != 4 || args[1] != `{"code":` || args[2] != `{"code":"print(1)"}` {
 		t.Fatalf("tool arguments are not cumulative: %v", args)
 	}

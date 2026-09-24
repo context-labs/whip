@@ -317,3 +317,32 @@ func mustWd(t *testing.T) string {
 	}
 	return wd
 }
+
+func TestStripOSC8Terminators(t *testing.T) {
+	for _, tc := range []struct {
+		name, openEnd, closeEnd string
+	}{
+		{"BEL", "\x07", "\x07"},
+		{"ST", "\x1b\\", "\x1b\\"},
+		{"mixed", "\x07", "\x1b\\"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := "before \x1b]8;id=link;https://example.com" + tc.openEnd +
+				"\x1b[31mlabel\x1b[0m\x1b]8;;" + tc.closeEnd + " after"
+			want := "before \x1b[31mlabel\x1b[0m after"
+			if got := stripOSC8(input); got != want {
+				t.Fatalf("stripOSC8(%q) = %q, want %q", input, got, want)
+			}
+		})
+	}
+	for _, input := range []string{
+		"plain alphabetic text",
+		"\x1b]8;;https://example.com", // no terminator
+		"\x1b]0;window title\x07",     // another OSC command
+		"a\x07b",                      // BEL outside an OSC 8 command
+	} {
+		if got := stripOSC8(input); got != input {
+			t.Errorf("stripOSC8 changed non-hyperlink input: %q -> %q", input, got)
+		}
+	}
+}

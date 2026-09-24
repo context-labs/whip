@@ -228,3 +228,27 @@ func assertColors(t *testing.T, value theme.Resolved) {
 		t.Fatal("host wire must use snake_case")
 	}
 }
+
+func TestParseColorANSIIndexBounds(t *testing.T) {
+	for _, tc := range []struct {
+		input, hex string
+	}{
+		{"0", "#000000"},
+		{"15", "#ffffff"},
+		{"16", "#000000"},
+		{"255", "#eeeeee"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := theme.Hex(theme.ParseColor(tc.input)); got != tc.hex {
+				t.Fatalf("ParseColor(%q) = %q, want %q", tc.input, got, tc.hex)
+			}
+		})
+	}
+	for _, input := range []string{"", "-1", "256", "511", "999999999999999999999999", "invalid"} {
+		t.Run(input, func(t *testing.T) {
+			if got := theme.ParseColor(input); got != nil {
+				t.Fatalf("ParseColor(%q) = %v, want nil", input, got)
+			}
+		})
+	}
+}

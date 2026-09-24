@@ -81,7 +81,8 @@ type SurfaceColors struct{ Base, Panel, Element, Hover color.Color }
 // ParseColor uses the same reference ANSI palette as the TUI's lipgloss colors:
 // x/ansi's VGA-compatible first 16 entries, xterm's 6x6x6 cube, then grays.
 // Actual terminal ANSI overrides cannot be observed by browser clients.
-// An empty color means the terminal default; callers validate Specs first.
+// An empty color means the terminal default; invalid ANSI indexes return nil.
+// Callers validate Specs first.
 func ParseColor(s string) color.Color {
 	if s == "" {
 		return nil
@@ -90,11 +91,14 @@ func ParseColor(s string) color.Color {
 		n, _ := strconv.ParseUint(s[1:], 16, 32)
 		return color.RGBA{R: uint8((n >> 16) & 0xff), G: uint8((n >> 8) & 0xff), B: uint8(n & 0xff), A: 255}
 	}
-	n, _ := strconv.Atoi(s)
-	if n < 16 {
-		return ansi.BasicColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255; this branch selects 0..15.
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 255 {
+		return nil
 	}
-	return ansi.IndexedColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255.
+	if n < 16 {
+		return ansi.BasicColor(n)
+	}
+	return ansi.IndexedColor(n)
 }
 
 // Hex converts a color into an explicit browser color; nil remains empty.

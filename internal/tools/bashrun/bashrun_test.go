@@ -3,6 +3,7 @@ package bashrun
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -234,5 +235,24 @@ func TestKeyBytes(t *testing.T) {
 		if got := KeyBytes(name); got != want {
 			t.Errorf("KeyBytes(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestOpenDevNullIsReadOnlyStdin(t *testing.T) {
+	f := openDevNull()
+	if f == nil {
+		t.Fatal("openDevNull failed")
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var b [1]byte
+	if n, err := f.Read(b[:]); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("stdin read = %d, %v; want EOF", n, err)
+	}
+	if _, err := f.WriteString("not writable"); err == nil {
+		t.Fatal("stdin descriptor is writable")
 	}
 }

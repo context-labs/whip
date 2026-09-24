@@ -271,3 +271,54 @@ func TestHistoryFailedToolMetadataSurvivesRawCommitAndReload(t *testing.T) {
 		t.Fatalf("reload changed tool metadata or matching result: %+v", reloaded)
 	}
 }
+
+func TestHistoryReadOffsetBoundaries(t *testing.T) {
+	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
+	if err := store.Save(root.ID(), 1, []llm.Message{
+		{}, {Role: "user", Content: ""}, {Role: "user", Content: "aéz"},
+	}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name                string
+		seq, offset, length int
+		text                string
+		truncated           bool
+		wantErr             bool
+	}{
+		{name: "empty EOF", seq: 1, length: 1},
+		{name: "empty past EOF", seq: 1, offset: 1, length: 1, wantErr: true},
+		{name: "negative offset", seq: 2, offset: -1, length: 1, wantErr: true},
+		{name: "start", seq: 2, length: 1, text: "a", truncated: true},
+		{name: "rune start", seq: 2, offset: 1, length: 2, text: "é", truncated: true},
+		{name: "inside rune", seq: 2, offset: 2, length: 2, wantErr: true},
+		{name: "short rune buffer", seq: 2, offset: 1, length: 1, wantErr: true},
+		{name: "last byte", seq: 2, offset: 3, length: 1, text: "z"},
+		{name: "EOF", seq: 2, offset: 4, length: 1},
+		{name: "past EOF", seq: 2, offset: 5, length: 1, wantErr: true},
+		{name: "zero length", seq: 2, length: 0, wantErr: true},
+		{name: "oversize length", seq: 2, length: 8193, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := historyEdgeCall(t, runtime.rootNode.host, "history", map[string]any{
+				"seq": tc.seq, "field": "content", "offset": tc.offset, "length": tc.length,
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("invalid read succeeded: %+v", result)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result["text"] != tc.text || result["truncated"] != tc.truncated {
+				t.Fatalf("read = %+v, want text %q, truncated %t", result, tc.text, tc.truncated)
+			}
+			span := result["span"].(map[string]any)
+			if span["start"] != tc.offset || span["end"] != tc.offset+len(tc.text) {
+				t.Fatalf("span = %+v, want [%d, %d)", span, tc.offset, tc.offset+len(tc.text))
+			}
+		})
+	}
+}

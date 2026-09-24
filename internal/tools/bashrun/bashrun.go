@@ -564,9 +564,9 @@ func isCancelled(ctx context.Context, _ error) bool {
 	return errors.Is(ctx.Err(), context.Canceled)
 }
 
-// openDevNull returns /dev/null for a child's stdin, or nil on failure.
+// openDevNull returns read-only /dev/null for a child's stdin, or nil on failure.
 func openDevNull() *os.File {
-	f, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	f, err := os.Open(os.DevNull)
 	if err != nil {
 		return nil
 	}
