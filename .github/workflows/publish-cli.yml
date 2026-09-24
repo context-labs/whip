@@ -150,6 +150,9 @@ jobs:
   desktop:
     needs: [metadata, ci, security]
     uses: ./.github/workflows/desktop-release.yml
+    # Preserve the working reusable signing-secret transport. The called job
+    # still binds desktop-signing and exposes credentials only to its import step.
+    secrets: inherit
     with:
       renderer-artifact: ci-renderer
       version: ${{ needs.metadata.outputs.version }}
