@@ -263,7 +263,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('bash scripts/publish-whipcode.sh candidate', publish)
         self.assertIn('GH_TOKEN: ${{ github.token }}', publish)
         self.assertEqual(self.release.count('contents: write'), 1)
-        self.assertNotIn('secrets: inherit', self.release)
+        self.assertEqual(self.release.count('secrets: inherit'), 1)
+        self.assertIn('secrets: inherit', self.job(self.release, 'desktop'))
+        for name in ['ci', 'security', 'build', 'linux', 'candidate', 'publish']:
+            self.assertNotIn('secrets: inherit', self.job(self.release, name))
+        signing_env = self.desktop.split('    steps:')[0]
+        self.assertNotIn('secrets.', signing_env)
+        self.assertEqual(self.desktop.count('secrets.'), 3)
+        signing_step = self.desktop.split('      - name: Import temporary signing credentials')[1].split('      - name:')[0]
+        self.assertEqual(signing_step.count('secrets.'), 3)
+        self.assertNotIn('pull_request:', self.release)
         self.assertNotIn('desktop-stable-promote', self.release)
         self.assertNotIn('GH_TOKEN:', publish.split('    steps:')[0])
         self.assertEqual(publish.count('GH_TOKEN: ${{ github.token }}'), 2)
