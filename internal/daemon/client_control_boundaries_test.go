@@ -14,7 +14,7 @@ import (
 )
 
 func TestClientValidationFailuresAreDurableAndLeaveSettingsUntouched(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	cfg.DefaultEffort = "high"
 	cfg.Providers["provider"] = config.Provider{BaseURL: "https://example.test", APIKey: "fixture-key"}
@@ -85,7 +85,7 @@ func TestClientValidationFailuresAreDurableAndLeaveSettingsUntouched(t *testing.
 }
 
 func TestClientModelReplacementPersistsDefaultWithoutForgettingExplicitOff(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	cfg.Providers["provider"] = config.Provider{BaseURL: "https://example.test", APIKey: "fixture-key"}
 	cfg.Models["replacement"] = config.Model{ID: "replacement-api", Providers: []string{"provider"}}

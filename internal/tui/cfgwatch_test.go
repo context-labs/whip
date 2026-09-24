@@ -51,7 +51,7 @@ func TestThemeAutoNoteNamesSource(t *testing.T) {
 // within a poll tick, repainting without a terminal resize.
 func TestConfigSyncAppliesThemeFromFile(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestThemeAutoUnpinsSync(t *testing.T) {
 // refreshed to that save's mod time) don't echo back as syncs.
 func TestConfigSyncIgnoresOwnSaves(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	m := compactCmdModel()
 	if err := m.cfg.Save(); err != nil { // baseline write
 		t.Fatal(err)

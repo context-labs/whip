@@ -65,7 +65,7 @@ func TestClipboardPasteInsertsAnonymousChip(t *testing.T) {
 // A pasted file whose basename contains ] must not break chip resolution:
 // chipText turns brackets into parentheses so imageChipRe still matches.
 func TestChipDisplayNameSanitizesBrackets(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	img := filepath.Join(t.TempDir(), "a]b.png")
 	if err := os.WriteFile(img, []byte("\x89PNG\r\n\x1a\nfake"), 0o600); err != nil {
 		t.Fatal(err)

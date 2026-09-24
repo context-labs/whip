@@ -1,4 +1,4 @@
-// Run against an already-built binary: node scripts/web-gateway-smoke.mjs /path/to/whip
+// Run against an already-built binary: node scripts/web-gateway-smoke.mjs /path/to/whipcode
 // Add --browser for real Chromium bootstrap (installed Playwright browser required).
 // Every daemon uses a disposable home; no installed runtime is inspected or changed.
 import assert from 'node:assert/strict';
@@ -11,15 +11,15 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const binary = path.resolve(process.argv[2] || './whip');
+const binary = path.resolve(process.argv[2] || './whipcode');
 const directory = await mkdtemp(path.join(tmpdir(), 'whip-gateway-smoke-'));
 const execute = promisify(execFile);
 const homes = [], children = [];
 let browser;
 function environment(name, extra = {}) {
   const home = path.join(directory, name);
-  const env = { PATH: process.env.PATH, HOME: directory, WHIP_HOME: home,
-    WHIPCODE_HOME: home, WHIP_LISTEN: '127.0.0.1:0', WHIPCODE_LISTEN: '127.0.0.1:0', ...extra };
+  const env = { PATH: process.env.PATH, HOME: directory,
+    WHIPCODE_HOME: home, WHIPCODE_LISTEN: '127.0.0.1:0', ...extra };
   homes.push(env);
   return env;
 }
@@ -99,7 +99,7 @@ try {
   assert.equal(before.state, 'running');
   assert.equal(before.gateway.state, 'disabled');
   assert(!before.network_endpoint);
-  await run({ ...local, WHIP_NETWORK: '1', WHIPCODE_NETWORK: '1' }, 'daemon', 'start');
+  await run({ ...local, WHIPCODE_NETWORK: '1' }, 'daemon', 'start');
   assert.equal((await status(local)).gateway.state, 'disabled', 'start must not reconfigure an existing daemon');
   const one = await foreground(local);
   const two = await foreground(local);
@@ -144,14 +144,14 @@ try {
   assert.equal((await status(local)).pid, before.pid);
   assert.equal((await fetch(`${two.endpoint}/api/v3/web`)).status, 200);
   const busy = new URL(two.endpoint).host;
-  const failed = environment('failed', { WHIP_NETWORK: '1', WHIPCODE_NETWORK: '1', WHIP_LISTEN: busy, WHIPCODE_LISTEN: busy });
+  const failed = environment('failed', { WHIPCODE_NETWORK: '1', WHIPCODE_LISTEN: busy });
   await assert.rejects(run(failed, 'daemon', 'start'), /gateway failed/);
   const failure = await status(failed);
   assert.equal(failure.state, 'running');
   assert.equal(failure.gateway.state, 'failed');
   assert(!failure.network_endpoint);
   console.log('PASS socket-only startup, unchanged existing runtime, concurrent foreground, security, Ctrl+C, explicit conflict isolation');
-  const managed = environment('managed', { WHIP_NETWORK: '1', WHIPCODE_NETWORK: '1' });
+  const managed = environment('managed', { WHIPCODE_NETWORK: '1' });
   await run(managed, 'daemon', 'start');
   const ready = await status(managed);
   assert.equal(ready.gateway.state, 'ready');

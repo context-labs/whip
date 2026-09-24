@@ -1,4 +1,4 @@
-// `whip run` is a one-turn automation client for the daemon. It preserves the
+// `whipcode run` is a one-turn automation client for the daemon. It preserves the
 // text and NDJSON contracts while the daemon owns provider execution, tools,
 // persistence, permissions, schedules, and child processes.
 package main
@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -29,7 +28,7 @@ import (
 func runCLI(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	format := fs.String("format", "text", "output format: text (stream the reply) or json (newline-delimited event stream)")
-	modelFlag := fs.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
+	modelFlag := fs.String("m", "", "model name from ~/.whipcode/config.json (default: defaultModel)")
 	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
 	maxCostFlag := fs.Float64("max-cost", 0, "maximum whole-session model cost in USD (0 = unlimited)")
 	maxTokensFlag := fs.Int64("max-tokens", 0, "maximum whole-session model tokens (0 = unlimited)")
@@ -37,16 +36,16 @@ func runCLI(args []string) error {
 	permissionFlag := fs.String("permission-mode", "", "session permission mode: prompt or automatic")
 	engineFlag := fs.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
 	agentFlag := fs.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
-	resumeFlag := fs.String("resume", "", buildinfo.Text("continue this session id (see `whip sessions`) instead of starting fresh"))
+	resumeFlag := fs.String("resume", "", "continue this session id (see `whipcode sessions`) instead of starting fresh")
 	systemFlag := fs.String("system", "", "override the system prompt for this run")
 	systemFileFlag := fs.String("system-file", "", "read the system prompt from this file (wins over -system)")
 	maxTurnsFlag := fs.Int("max-turns", 0, "cap the tool-call loop at N rounds (0 = uncapped); on the cap, the model makes one final no-tools answer instead of erroring")
 	timeoutFlag := fs.Duration("timeout", 0, "wall-clock cap on the whole run (e.g. 30s, 5m); 0 = no timeout")
 	quietFlag := fs.Bool("quiet", false, "suppress the stderr tool/session notes (clean stdout for -format json piping)")
-	noSessionFlag := fs.Bool("no-session", false, buildinfo.Text("run without retaining a session (one-off jobs don't clutter whip sessions)"))
+	noSessionFlag := fs.Bool("no-session", false, "run without retaining a session (one-off jobs don't clutter whipcode sessions)")
 	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip run [--format text|json] [-m model] [-p provider] [-agent id] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\""))
+		fmt.Fprintln(os.Stderr, "usage: whipcode run [--format text|json] [-m model] [-p provider] [-agent id] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\"")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -284,7 +283,7 @@ func runCLI(args []string) error {
 			err = deleteErr
 		}
 	} else {
-		output.note(buildinfo.Text("session %s — resume with: whip run -resume %s \"…\" · or interactively: whip --resume %s"), rootID, rootID, rootID)
+		output.note("session %s — resume with: whipcode run -resume %s \"…\" · or interactively: whipcode --resume %s", rootID, rootID, rootID)
 	}
 	return err
 }
@@ -368,7 +367,7 @@ func (o *runOutput) finish(final string, err error) {
 
 func (o *runOutput) emit(value any) {
 	if err := o.enc.Encode(value); err != nil {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: json encode:"), err)
+		fmt.Fprintln(os.Stderr, "whipcode: json encode:", err)
 	}
 }
 

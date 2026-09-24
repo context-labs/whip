@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var ErrMaintenance = errors.New("whip is applying a backend update; retry after it finishes")
+var ErrMaintenance = errors.New("whipcode is applying a backend update; retry after it finishes")
 
 func maintenanceFile(paths RuntimePaths) (*os.File, error) {
 	name := filepath.Join(paths.Runtime, "maintenance.lock")

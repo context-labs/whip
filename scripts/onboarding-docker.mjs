@@ -101,7 +101,7 @@ export async function main(args = process.argv.slice(2), {
     const image = (await readFile(iidfile, 'utf8')).trim();
     if (!/^sha256:[a-f0-9]{64}$/.test(image)) throw new Error('Docker did not return a valid image ID.');
     await ensurePort();
-    console.log(`Image: ${image}\nContainer: ${container}\nLogs: docker exec ${container} whip daemon logs -n 60`);
+    console.log(`Image: ${image}\nContainer: ${container}\nLogs: docker exec ${container} whipcode daemon logs -n 60`);
     const terminalEnv = ['--env', `TERM=${env.TERM || 'xterm-256color'}`];
     if (env.COLORTERM) terminalEnv.push('--env', `COLORTERM=${env.COLORTERM}`);
     // Create separately so interruption during attachment cannot lose ownership

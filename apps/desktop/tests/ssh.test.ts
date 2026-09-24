@@ -160,7 +160,7 @@ process.stdout.write(output.subarray(0, split));
 setTimeout(() => process.stdout.write(output.subarray(split)), 150);
 `, { mode: 0o600 });
   await writeFile(remoteExecutable, `#!/bin/sh
-printf '%s|%s\\n' "$1 $2" "$WHIP_HOME" >> ${fixtureQuote(log)}
+printf '%s|%s\\n' "$1 $2" "$WHIPCODE_HOME" >> ${fixtureQuote(log)}
 printf '%s\\n' "$WHIPCODE_HOME" >> ${fixtureQuote(whipcodeHomeLog)}
 case "$1 $2" in
   'daemon status')

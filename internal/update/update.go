@@ -1,5 +1,5 @@
-// Package update checks GitHub for a newer whip release and leaves a
-// notice in ~/.whip for the next startup report.
+// Package update checks GitHub for a newer whipcode release and leaves a
+// notice in ~/.whipcode for the next startup report.
 //
 // The check is best-effort by design: any failure (offline, rate-limited,
 // corrupt state) is silent — a version check must never break startup.
@@ -10,18 +10,15 @@ package update
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/config"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -31,20 +28,17 @@ const (
 	checkTTL = 24 * time.Hour
 )
 
-// latestURL is the GitHub releases endpoint. A var so tests can point it at a
-// mock server.
-var latestURL = "https://api.github.com/repos/context-labs/whip/releases/latest"
-
 // fetchTimeout bounds the update check. A var so tests can relax it: the
 // hardcoded 2s is fine for a fire-and-forget startup check against GitHub, but
 // races under `-race -shuffle=on` on a loaded CI runner when the test server
 // is on the same box. Tests set this to a generous value.
 var fetchTimeout = 2 * time.Second
 
-// Notice is ~/.whip/update.json: the last check's outcome. Latest is set
-// only when a newer release exists; Acknowledged is flipped by `whip
+// Notice is ~/.whipcode/update.json: the last check's outcome. Latest is set
+// only when a newer release exists; Acknowledged is flipped by `whipcode
 // update` so an installed release stops nagging.
 type Notice struct {
+	Channel      string    `json:"channel"`
 	CheckedAt    time.Time `json:"checkedAt"`
 	Latest       string    `json:"latest,omitempty"`
 	Acknowledged bool      `json:"acknowledged,omitempty"`
@@ -55,24 +49,34 @@ type Notice struct {
 var fetchLatest = fetchLatestGitHub
 
 // Check runs the startup check: if a newer release than current exists, its
-// tag is recorded in ~/.whip/update.json and returned. "" means nothing to
+// tag is recorded in ~/.whipcode/update.json and returned. "" means nothing to
 // say (up to date, dev build, already noted, checked recently, or the check
 // failed). Never errors.
 func Check(current string) string {
-	if buildinfo.UpdateOwner == "desktop" {
+	if buildinfo.UpdateOwner == "desktop" || !validRelease(current) {
 		return ""
 	}
 	dir, err := config.Dir()
 	if err != nil {
 		return ""
 	}
-	return check(current, filepath.Join(dir, noticeFile), fetchLatest, time.Now())
+	channel, err := Channel(current)
+	if err != nil {
+		return ""
+	}
+	return check(current, channel, filepath.Join(dir, noticeFile), func() (string, error) {
+		return fetchLatest(channel)
+	}, time.Now())
 }
 
 // Pending reads a recorded notice: the latest tag if a newer-than-current
 // release is waiting to be acknowledged, else "".
 func Pending(current string) string {
-	if buildinfo.UpdateOwner == "desktop" {
+	if buildinfo.UpdateOwner == "desktop" || !validRelease(current) {
+		return ""
+	}
+	channel, err := Channel(current)
+	if err != nil {
 		return ""
 	}
 	dir, err := config.Dir()
@@ -80,13 +84,13 @@ func Pending(current string) string {
 		return ""
 	}
 	n, err := readNotice(filepath.Join(dir, noticeFile))
-	if err != nil || n.Acknowledged || !Newer(current, n.Latest) {
+	if err != nil || n.Channel != channel || !inChannel(n.Latest, channel) || n.Acknowledged || !Newer(current, n.Latest) {
 		return ""
 	}
 	return n.Latest
 }
 
-// Acknowledge marks any pending notice as acted on (called by `whip update`
+// Acknowledge marks any pending notice as acted on (called by `whipcode update`
 // after a successful install). Best-effort.
 func Acknowledge() {
 	dir, err := config.Dir()
@@ -103,12 +107,12 @@ func Acknowledge() {
 }
 
 // check is the pure core, I/O injected for tests.
-func check(current, noticePath string, fetch func() (string, error), now time.Time) string {
-	if current == "dev" || current == "" {
+func check(current, channel, noticePath string, fetch func() (string, error), now time.Time) string {
+	if !validRelease(current) || (channel != "stable" && channel != "prerelease") {
 		return "" // dev builds never nag
 	}
 	n, err := readNotice(noticePath)
-	if err == nil {
+	if err == nil && n.Channel == channel && (n.Latest == "" || inChannel(n.Latest, channel)) {
 		if n.Latest != "" && !n.Acknowledged {
 			if Newer(current, n.Latest) {
 				return "" // a release is already noted; don't nag twice
@@ -125,55 +129,20 @@ func check(current, noticePath string, fetch func() (string, error), now time.Ti
 		}
 	}
 	latest, err := fetch()
-	if err != nil || !Newer(current, latest) {
+	if err != nil || !inChannel(latest, channel) || !Newer(current, latest) {
 		// Record the check itself (even when current/unknown) so the TTL
 		// applies and an offline stretch doesn't retry every launch.
-		_ = writeNotice(noticePath, Notice{CheckedAt: now})
+		_ = writeNotice(noticePath, Notice{Channel: channel, CheckedAt: now})
 		return ""
 	}
-	_ = writeNotice(noticePath, Notice{CheckedAt: now, Latest: latest})
+	_ = writeNotice(noticePath, Notice{Channel: channel, CheckedAt: now, Latest: latest})
 	return latest
 }
 
-// Newer reports whether latest is a strictly newer semver than current.
-// A prerelease sorts before the same-numbered release ("v0.3.0-rc.1" <
-// "v0.3.0"). Non-semver strings ("dev", "", "v0.3") never compare newer.
+// Newer compares canonical post-reset releases using semantic version precedence.
+// Development builds and pre-reset release namespaces never produce notices.
 func Newer(current, latest string) bool {
-	if strings.HasPrefix(current, "whipcode-") || strings.HasPrefix(latest, "whipcode-") {
-		c, cok := whipcodeNumber(current)
-		l, lok := whipcodeNumber(latest)
-		return cok && lok && l > c
-	}
-	c, cpre, lok := parseSemver(current)
-	l, lpre, rok := parseSemver(latest)
-	if !lok || !rok {
-		return false
-	}
-	for i := range c {
-		if l[i] != c[i] {
-			return l[i] > c[i]
-		}
-	}
-	return cpre && !lpre
-}
-
-// parseSemver extracts the numeric major/minor/patch of a "v1.2.3" tag and
-// reports a "-prerelease" suffix.
-func parseSemver(v string) (nums [3]int, prerelease, ok bool) {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	base, suffix, _ := strings.Cut(v, "-")
-	parts := strings.SplitN(base, ".", 3)
-	if len(parts) != 3 {
-		return nums, false, false
-	}
-	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return nums, false, false
-		}
-		nums[i] = n
-	}
-	return nums, suffix != "", true
+	return validRelease(current) && validRelease(latest) && semver.Compare(latest, current) > 0
 }
 
 func readNotice(path string) (Notice, error) {
@@ -212,41 +181,11 @@ func writeNotice(path string, n Notice) error {
 
 // fetchLatestGitHub asks the releases API for the newest tag. Auth follows
 // install.sh: gh token → GH_TOKEN → anonymous.
-func fetchLatestGitHub() (string, error) {
-	// context.Background is deliberate: the check is fire-and-forget (fired
-	// from a detached goroutine in main), so there is no caller ctx to
-	// thread — the 2s timeout is the bound that matters.
+func fetchLatestGitHub(channel string) (string, error) {
+	// The startup check is detached from any request; this timeout bounds it.
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
-	if buildinfo.Name == "whipcode" {
-		return fetchWhipcode(ctx, ghToken())
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	if tok := ghToken(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("github: %s", resp.Status)
-	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return "", err
-	}
-	if rel.TagName == "" {
-		return "", errors.New("github: empty tag_name")
-	}
-	return rel.TagName, nil
+	return fetchReleases(ctx, ghToken(), channel)
 }
 
 // ghToken mirrors install.sh's auth order. Best-effort: no gh, no token.

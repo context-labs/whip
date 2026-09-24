@@ -37,7 +37,7 @@ func TestPromptRootCWDReloadAndRestorePreserveApplicableSources(t *testing.T) {
 	writeDaemonPromptFile(t, filepath.Join(secondDir, "AGENTS.md"), "SECOND_SUBTREE_RULE")
 	parentSkill := filepath.Join(workspace, ".agents", "skills", "parent-skill", "SKILL.md")
 	writeDaemonPromptFile(t, parentSkill, "---\nname: parent-skill\ndescription: PARENT_CATALOG_MARKER\n---\n")
-	standing := filepath.Join(os.Getenv("WHIP_HOME"), "me.md")
+	standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 	writeDaemonPromptFile(t, standing, "STANDING_BEFORE_EDIT")
 	owner, root, _ := openPromptRuntime(t, store, rootID, client)
 
@@ -117,8 +117,8 @@ func TestPromptFullAccessOutsideContextAndDowngrade(t *testing.T) {
 	outsideSkill := filepath.Join(outside, ".agents", "skills", "sibling", "SKILL.md")
 	writeDaemonPromptFile(t, outsideInstructions, "SIBLING_PROJECT_RULE")
 	writeDaemonPromptFile(t, outsideSkill, "---\ndescription: SIBLING_PROJECT_SKILL\n---\n")
-	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "GLOBAL_USER_RULE")
-	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "GLOBAL_USER_RULE")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "skills", "global", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID, err := store.Create(session.SessionKindAgent, workspace, "model", "provider")
 	if err != nil {
@@ -157,14 +157,14 @@ func TestPromptFullAccessOutsideContextAndDowngrade(t *testing.T) {
 
 func TestPromptExplicitChildScopeExcludesParentSources(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	workspace := canonicalPromptDirectory(t, t.TempDir())
 	allowed := filepath.Join(workspace, "allowed")
 	writeDaemonPromptFile(t, filepath.Join(workspace, "AGENTS.md"), strings.Repeat("X", 128<<10))
 	writeDaemonPromptFile(t, filepath.Join(workspace, ".agents", "skills", "parent", "SKILL.md"), "malformed metadata")
 	writeDaemonPromptFile(t, filepath.Join(allowed, "AGENTS.md"), "ALLOWED_CHILD_RULE")
 	writeDaemonPromptFile(t, filepath.Join(allowed, ".agents", "skills", "child", "SKILL.md"), "---\ndescription: ALLOWED_CHILD_SKILL\n---\n")
-	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "GLOBAL_USER_RULE")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "GLOBAL_USER_RULE")
 	root := storeBackedInputSession(t, workspace)
 	root.root.authority = root.authority
 	if err := root.root.store.SetPermissionMode(t.Context(), root.id, session.PermissionModeAutomatic); err != nil {
@@ -231,7 +231,7 @@ func TestPromptRetainedChildInheritsRulesCatalogAndNextTurnEdits(t *testing.T) {
 	writeDaemonPromptFile(t, parentSkill, "---\nname: parent-skill\ndescription: INHERITED_PARENT_CATALOG\n---\nINVOKED_PARENT_SKILL_BODY\n")
 	childSkill := filepath.Join(childDir, ".agents", "skills", "child-skill", "SKILL.md")
 	writeDaemonPromptFile(t, childSkill, "---\nname: child-skill\ndescription: CHILD_CATALOG\n---\n")
-	standing := filepath.Join(os.Getenv("WHIP_HOME"), "me.md")
+	standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 	writeDaemonPromptFile(t, standing, "CHILD_STANDING_BEFORE_EDIT")
 	owner, _, runtime := openPromptRuntime(t, store, rootID, client)
 	// A child's effective cwd may be narrower than the inherited workspace.
@@ -291,8 +291,8 @@ func TestPromptRetainedChildInheritsRulesCatalogAndNextTurnEdits(t *testing.T) {
 
 func TestPromptRunConfigurationAppliesOnlyAtTurnBoundary(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
-	standing := filepath.Join(os.Getenv("WHIP_HOME"), "me.md")
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
+	standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 	writeDaemonPromptFile(t, standing, "OLD_STANDING_POLICY")
 	requests := make(chan llm.Request, 8)
 	release := make(chan struct{})
@@ -366,7 +366,7 @@ func TestPromptRunConfigurationAppliesOnlyAtTurnBoundary(t *testing.T) {
 func promptRuntimeProvider(t *testing.T) (<-chan llm.Request, *llm.Client) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	requests := make(chan llm.Request, 16)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request llm.Request

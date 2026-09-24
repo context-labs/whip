@@ -5,7 +5,7 @@ import "strings"
 // OpenRouter is an OpenAI-compatible gateway: one key and one endpoint reach
 // every model in its catalog, and whip's catalog resolution (resolveFromCatalog)
 // makes each advertised model usable with no per-model config entry. These
-// helpers back `whip auth openrouter` and `/auth openrouter`.
+// helpers back `whipcode auth openrouter` and `/auth openrouter`.
 
 const (
 	// OpenRouterBaseURL is the OpenAI-compatible API root.

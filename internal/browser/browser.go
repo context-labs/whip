@@ -29,7 +29,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 )
 
-// Mode selects which browser whip drives.
+// Mode selects which browser whipcode drives.
 type Mode string
 
 const (
@@ -38,22 +38,22 @@ const (
 	// scan; never launches or closes the browser.
 	ModeLive Mode = "live"
 	// ModeDedicated launches a separate Chrome instance with a whip-owned
-	// user-data-dir (~/.whip/browser/dedicated-profile[-<session>]) and remote
+	// user-data-dir (~/.whipcode/browser/dedicated-profile[-<session>]) and remote
 	// debugging enabled from the start — no permission popups.
 	ModeDedicated Mode = "dedicated"
 	// ModeHeadless is ModeDedicated without a window.
 	ModeHeadless Mode = "headless"
 	// ModeExtension drives the user's real, logged-in Chrome tab through the
-	// whip extension (chrome.debugger CDP tunnel via extrelay). The only way
+	// whipcode extension (chrome.debugger CDP tunnel via extrelay). The only way
 	// to drive the default profile on Chrome ≥ 136, where direct CDP is
 	// blocked. Requires the unpacked extension loaded + a tab pinned via the
-	// toolbar icon (`whip browser install` sets it up).
+	// toolbar icon (`whipcode browser install` sets it up).
 	ModeExtension Mode = "extension"
 )
 
 // ErrPermissionBlocked reports Chrome 144+'s per-connection "Allow remote
 // debugging?" popup (or the chrome://inspect toggle being off) standing
-// between whip and a live browser. The user must act in Chrome; retry
+// between whipcode and a live browser. The user must act in Chrome; retry
 // after they confirm.
 var ErrPermissionBlocked = errors.New("chrome permission-blocked")
 
@@ -120,7 +120,7 @@ type Backend interface {
 	Mode() Mode
 	// Obtained reports how the connection was established: attached to the
 	// user's live browser, freshly launched, or reattached to a running
-	// whip Chrome. Live-mode sessions that fell back report launched, so
+	// whipcode Chrome. Live-mode sessions that fell back report launched, so
 	// the session layer can tell the model which browser it's driving.
 	Obtained() Obtained
 	// HandleDialog accepts or dismisses the next pending native JS dialog,
@@ -217,10 +217,10 @@ func openNamedWithOptions(ctx context.Context, mode Mode, sessionName, driver st
 //
 // Live mode falls back hermes-style (/browser connect): when no debuggable
 // browser is found (ErrNoLiveBrowser — includes a non-Chrome squatter on
-// the debug port), whip launches its dedicated Chrome for this session
+// the debug port), whipcode launches its dedicated Chrome for this session
 // instead of dead-ending the tool call. ErrPermissionBlocked still surfaces
 // — only the user can click Chrome's Allow popup. Dedicated/headless
-// reattach to an already-running whip Chrome for the same profile rather
+// reattach to an already-running whipcode Chrome for the same profile rather
 // than spawning a duplicate.
 func openRod(ctx context.Context, mode Mode, sessionName string, env []string, processes *capability.ProcessManager, rootID string) (*Browser, error) {
 	b := &Browser{mode: mode}
@@ -255,7 +255,7 @@ func openRod(ctx context.Context, mode Mode, sessionName string, env []string, p
 		}
 		profileDir := dedicatedProfileDir(home, sessionName)
 		b.profileDir = profileDir
-		// Reattach to a still-running whip Chrome for this profile (the
+		// Reattach to a still-running whipcode Chrome for this profile (the
 		// prior backend died or was closed without killing the browser).
 		if ws, ok := DiscoverWSForProfile(ctx, profileDir); ok {
 			b.browser = rod.New().ControlURL(ws)
@@ -397,7 +397,7 @@ func internalURL(u string) bool {
 
 // attachPage picks the controllable tab: the first real page, else a
 // reusable blank/new-tab page, else a fresh about:blank (daemon.py's
-// attach_first_page, simplified: whip owns the whole connection so
+// attach_first_page, simplified: whipcode owns the whole connection so
 // parallel agents fight over nothing — one Browser per caller).
 func (b *Browser) attachPage() error {
 	pages, err := b.browser.Pages()

@@ -1,4 +1,4 @@
-// Package inferencenet implements first-class Inference.net auth for whip:
+// Package inferencenet implements first-class Inference.net auth for whipcode:
 // the browser-based device-authorization login (bring-your-own-account, no key
 // handling) plus machine API-key provisioning over the relay's tRPC surface.
 // It mirrors the @inference/fast CLI's flow (apps/fast-cli/src/lib/auth.ts).

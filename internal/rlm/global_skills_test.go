@@ -44,12 +44,8 @@ func TestLoadGlobalPromptSkillsIsolatedRoots(t *testing.T) {
 func TestLoadGlobalPromptSkillsDistributionHome(t *testing.T) {
 	home, foreign, custom := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("WHIP_HOME", "")
 	t.Setenv("WHIPCODE_HOME", "")
-	other := "WHIPCODE_HOME"
-	if buildinfo.Name == "whipcode" {
-		other = "WHIP_HOME"
-	}
+	other := "WHIP_HOME"
 	t.Setenv(other, foreign)
 	writePromptFile(t, filepath.Join(foreign, "skills", "tripwire", "SKILL.md"), "not frontmatter")
 	writePromptFile(t, filepath.Join(home, "."+buildinfo.Name, "skills", "default", "SKILL.md"),

@@ -817,7 +817,7 @@ func WithOperationObserver(ctx context.Context, observe func(operationID string)
 // updateKey carries a per-tool-call partial-output callback. The agent layer
 // attaches it to the ctx for one call (a context value, not a package var, so
 // parallel tool calls can't cross wires); the bash tool forwards it to
-// bashrun's OnUpdate. Non-callers (whip run, tests) simply don't set it.
+// bashrun's OnUpdate. Non-callers (whipcode run, tests) simply don't set it.
 type updateKey struct{}
 
 // WithOnUpdate returns a ctx that makes the bash tool report throttled partial

@@ -16,7 +16,7 @@ import (
 )
 
 // TestExtensionRealChrome is the goal's acceptance path: a real Chrome with
-// the whip extension loaded (autoAttach pins the active tab — no human
+// the whipcode extension loaded (autoAttach pins the active tab — no human
 // click), driven through the chrome.debugger tunnel via the relay, using
 // whip's real *Browser (the Backend browser_exec calls) against a live page.
 //

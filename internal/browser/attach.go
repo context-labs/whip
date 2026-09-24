@@ -316,7 +316,7 @@ func DiscoverLiveWS(ctx context.Context) (string, error) {
 
 // DiscoverWSForProfile resolves a live browser's WS URL from one specific
 // user-data-dir's DevToolsActivePort — used to reattach to a previously
-// launched whip Chrome instead of spawning a duplicate (hermes
+// launched whipcode Chrome instead of spawning a duplicate (hermes
 // /browser connect's already-listening check, via the profile file).
 // ok is false when the file is absent or the browser behind it is gone.
 func DiscoverWSForProfile(ctx context.Context, base string) (ws string, ok bool) {
@@ -328,7 +328,7 @@ func DiscoverWSForProfile(ctx context.Context, base string) (ws string, ok bool)
 // verify the port answers and a live process holds the profile lock, then
 // resolve the WS URL. stale reports a port file whose browser is gone.
 func discoverProfileWS(ctx context.Context, base string) (ws string, stale bool, err error) {
-	data, err := os.ReadFile(filepath.Join(base, "DevToolsActivePort")) //nolint:gosec // G304: base is the browser profile dir whip itself resolved
+	data, err := os.ReadFile(filepath.Join(base, "DevToolsActivePort")) //nolint:gosec // G304: base is the browser profile dir whipcode itself resolved
 	if err != nil {
 		return "", false, err
 	}

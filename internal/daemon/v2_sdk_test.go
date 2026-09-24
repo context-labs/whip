@@ -40,7 +40,7 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	// Keep config/catalog state beside the fixture database across restarts;
 	// package TestMain otherwise selects a new disposable home for each process.
-	t.Setenv("WHIP_HOME", filepath.Join(directory, "home"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(directory, "home"))
 	lifetime, err := sdkFixtureLifetime(os.Getenv("WHIP_SDK_FIXTURE_LIFETIME"))
 	if err != nil {
 		t.Fatal(err)

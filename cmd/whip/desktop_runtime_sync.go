@@ -45,7 +45,7 @@ func desktopRuntimeSyncCLI(args []string, output io.Writer) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || buildinfo.Name != "whipcode" || buildinfo.UpdateOwner != "desktop" {
+	if flags.NArg() != 0 || buildinfo.UpdateOwner != "desktop" {
 		return errors.New("backend synchronization requires a desktop-supplied whipcode build")
 	}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -38,11 +38,11 @@ func TestLoadSaveDefaults(t *testing.T) {
 func TestRLMRuntimeLimits(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".whip"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".whipcode"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	data := `{"defaultModel":"m","rlm":{"steps":99,"maxWorkers":2,"defaultEngine":"quickjs","maxConcurrentHostCalls":1},"providers":{"p":{"baseUrl":"https://example.test","api":"openai-completions"}},"models":{"m":{"providers":["p"]}}}`
-	if err := os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(data), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load()
@@ -56,7 +56,7 @@ func TestRLMRuntimeLimits(t *testing.T) {
 
 func TestLegacyRuntimeKeysDisappearOnSave(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	path := filepath.Join(home, "config.json")
 	data := `{
   "defaultModel": "m",
@@ -90,8 +90,8 @@ func TestLegacyRuntimeKeysDisappearOnSave(t *testing.T) {
 func TestLoadRejectsBadJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".whip"), 0o700)
-	os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte("{nope"), 0o600)
+	os.MkdirAll(filepath.Join(home, ".whipcode"), 0o700)
+	os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte("{nope"), 0o600)
 	if _, err := Load(); err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -186,7 +186,7 @@ func TestInfKeyBadJSON(t *testing.T) {
 func TestLoadJSONCCommentsAndTrailingCommas(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".whip"), 0o700)
+	os.MkdirAll(filepath.Join(home, ".whipcode"), 0o700)
 	src := `{
   // default route
   "defaultModel": "m1",
@@ -199,7 +199,7 @@ func TestLoadJSONCCommentsAndTrailingCommas(t *testing.T) {
   },
 }
 `
-	os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(src), 0o600)
+	os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte(src), 0o600)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestLoadJSONCCommentsAndTrailingCommas(t *testing.T) {
 func TestMCPImportRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".whip"), 0o700)
+	os.MkdirAll(filepath.Join(home, ".whipcode"), 0o700)
 	src := `{
   "defaultModel": "m1",
   "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
@@ -229,7 +229,7 @@ func TestMCPImportRoundTrip(t *testing.T) {
   }
 }
 `
-	os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(src), 0o600)
+	os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte(src), 0o600)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +251,7 @@ func TestMCPImportRoundTrip(t *testing.T) {
 		t.Fatalf("mcpImport did not round-trip: %+v", reloaded.MCPImport)
 	}
 	// Absent block stays nil — zero-breakage default.
-	if err := os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(`{
+	if err := os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte(`{
   "defaultModel": "m1",
   "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
   "models": { "m1": { "providers": ["a"] } }
@@ -272,7 +272,7 @@ func TestMCPImportRoundTrip(t *testing.T) {
 func TestLoadPreservesMCPImportOnClobber(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".whip")
+	dir := filepath.Join(home, ".whipcode")
 	os.MkdirAll(dir, 0o700)
 	os.WriteFile(filepath.Join(dir, "config.json"), []byte(
 		`{"providers":null,"models":null,"mcpImport":{"codex":{"enabled":false}}}`,
@@ -289,7 +289,7 @@ func TestLoadPreservesMCPImportOnClobber(t *testing.T) {
 func TestLoadRecoversFromClobberedConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".whip")
+	dir := filepath.Join(home, ".whipcode")
 	os.MkdirAll(dir, 0o700)
 	p := filepath.Join(dir, "config.json")
 	// a previously-clobbered config: parses fine but has no providers/models
@@ -309,7 +309,7 @@ func TestLoadRecoversFromClobberedConfig(t *testing.T) {
 func TestLoadRegeneratesDefaultsWhenEmptyAndNoBackup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".whip")
+	dir := filepath.Join(home, ".whipcode")
 	os.MkdirAll(dir, 0o700)
 	os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"providers":null,"models":null}`), 0o600)
 	cfg, err := Load()
@@ -324,7 +324,7 @@ func TestLoadRegeneratesDefaultsWhenEmptyAndNoBackup(t *testing.T) {
 func TestSaveRefusesToClobberHealthyConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".whip")
+	dir := filepath.Join(home, ".whipcode")
 	os.MkdirAll(dir, 0o700)
 	p := filepath.Join(dir, "config.json")
 	healthy := `{"defaultModel":"m1","providers":{"a":{"baseUrl":"https://a","api":"openai-completions"}},"models":{"m1":{"providers":["a"]}}}`
@@ -383,7 +383,7 @@ func TestSaveWritesJSONCHeader(t *testing.T) {
 }
 
 func TestLoadCatalogsAlwaysNonNil(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no ~/.whip/models.json exists
+	t.Setenv("HOME", t.TempDir()) // no ~/.whipcode/models.json exists
 	cats := LoadCatalogs()
 	if cats == nil {
 		t.Fatal("LoadCatalogs must return a non-nil map so callers can write into it")
@@ -395,7 +395,7 @@ func TestLoadCatalogsAlwaysNonNil(t *testing.T) {
 }
 
 func TestLogEventWritesAndRotates(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 
 	LogEvent("config.save", "before=(providers=1) after=(providers=1)")
 	LogEvent("catalog.fetch", "inference ok: 42 models")
@@ -422,7 +422,7 @@ func TestLogEventWritesAndRotates(t *testing.T) {
 }
 
 func TestLogEventNeverFails(t *testing.T) {
-	t.Setenv("WHIP_HOME", "/nonexistent-\x7f-impossible") // Dir() will fail MkdirAll
+	t.Setenv("WHIPCODE_HOME", "/nonexistent-\x7f-impossible") // Dir() will fail MkdirAll
 	LogEvent("config.load", "should not panic or error")
 }
 
@@ -466,7 +466,7 @@ func TestCatalogMaxCompletionTokens(t *testing.T) {
 func TestLoadMixedTokenFields(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".whip"), 0o700)
+	os.MkdirAll(filepath.Join(home, ".whipcode"), 0o700)
 	src := `{
   "defaultModel": "m1",
   "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
@@ -476,7 +476,7 @@ func TestLoadMixedTokenFields(t *testing.T) {
   }
 }
 `
-	os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(src), 0o600)
+	os.WriteFile(filepath.Join(home, ".whipcode", "config.json"), []byte(src), 0o600)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -585,7 +585,7 @@ func TestRLMRejectsUnknownEngineAndConcurrency(t *testing.T) {
 
 func TestEngineOnlyConfigurationPreservesPreference(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"rlm":{"defaultEngine":"quickjs","maxConcurrentHostCalls":1}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

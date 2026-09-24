@@ -20,9 +20,9 @@ a durable transcript, and an identity. Every model sees exactly one tool,
 flowchart TB
     subgraph clients["protocol clients"]
         TUI["TUI"]
-        RUN["whip run"]
+        RUN["whipcode run"]
         ACP["ACP"]
-        BRIDGE["whip mcp serve"]
+        BRIDGE["whipcode mcp serve"]
         WEB["React web application + TypeScript SDK"]
     end
 
@@ -129,11 +129,11 @@ budgets, and private transcript.
   daemon-enforced; browser Host/Origin validation remains transport-owned.
 - Provider onboarding, credentials, workspace completion and shared configuration
   are execution-host services. Only presentation preferences remain client-owned.
-- SQLite WAL with synchronous=NORMAL retains daemon-crash durability. Schema 7
-  is a clean break: incompatible databases fail without deletion or migration.
-- New data lives under `~/.whip/runtime-v2/` (or
-  `$WHIP_HOME/runtime-v2/`). The older `~/.whip/sessions.db` is deliberately
-  left untouched by this clean break.
+- SQLite WAL with synchronous=NORMAL retains daemon-crash durability. The fresh
+  schema rejects incompatible databases without deletion or migration.
+- Runtime data lives under `~/.whipcode/runtime-v2/` (or
+  `$WHIPCODE_HOME/runtime-v2/`). Pre-reset installations require the explicit
+  [manual reset](team-reset.md); old stores are not imported.
 
 ## Package map
 
@@ -179,7 +179,7 @@ readable browser foregrounds while retaining the exact source catalog. Theme
 changes preserve route, draft, scroll and highlighted-code identities.
 
 The daemon serves packaged assets and API traffic on its existing optional
-listener. `whip web` discovers and opens that endpoint; it never starts or
+listener. `whipcode web` discovers and opens that endpoint; it never starts or
 replaces the daemon. Browser clients are trusted to make permission decisions,
 while internal capabilities and content grants remain daemon-enforced. See
 [web-app.md](web-app.md) for launch, development proxy and trusted-network setup.

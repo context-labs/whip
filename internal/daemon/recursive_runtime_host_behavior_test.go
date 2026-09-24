@@ -24,7 +24,7 @@ func hostBehaviorCall(t *testing.T, host *recursiveHost, module, operation strin
 }
 
 func TestRecursiveHostArtifactsSchedulesAndRetainedChildren(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	host := runtime.rootNode.host
 	text := strings.Repeat("prefix needle suffix;", 2000)
@@ -104,7 +104,7 @@ func TestRecursiveHostArtifactsSchedulesAndRetainedChildren(t *testing.T) {
 }
 
 func TestRecursiveHostRejectsMalformedOperationsBeforeEffects(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	_, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	host := runtime.rootNode.host
 	for _, module := range []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "state", "artifacts", "schedules", "permissions", "unknown"} {
@@ -144,7 +144,7 @@ func TestRecursiveHostRejectsMalformedOperationsBeforeEffects(t *testing.T) {
 }
 
 func TestRecursiveHostShellJobCanTimeoutThenBeKilled(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	_, _, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	host := runtime.rootNode.host
 	result := hostBehaviorCall(t, host, "shell", "start", map[string]any{"command": "printf job-output; sleep 30"}).(map[string]any)
@@ -173,7 +173,7 @@ func TestRecursiveHostShellJobCanTimeoutThenBeKilled(t *testing.T) {
 }
 
 func TestRecursiveHostFileOperationsPreserveWorkspaceAndPatchArguments(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	meta, _, err := store.Load(root.ID())
 	if err != nil {
@@ -216,7 +216,7 @@ func TestRecursiveHostFileOperationsPreserveWorkspaceAndPatchArguments(t *testin
 }
 
 func TestRecursiveHostMCPDiscoveryReportsCurrentAuthority(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	url, effects := localMCPFixture(t, "read instructions before calling tools")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
 	host := runtime.rootNode.host

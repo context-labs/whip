@@ -1,14 +1,13 @@
 package config
 
-// Inference.net is whip's first-class provider: `whip auth inference-net
-// login` provisions a machine API key (stored in ~/.whip/inference-net.json)
+// Inference.net is whip's first-class provider: `whipcode auth inference-net
+// login` provisions a machine API key (stored in ~/.whipcode/inference-net.json)
 // and registers the provider entry here, so a user never handles a key.
 // BYOK is also supported (literal apiKey or apiKeyEnv). These helpers back
-// `whip auth inference-net` and `/auth inference-net`.
+// `whipcode auth inference-net` and `/auth inference-net`.
 
 const (
-	// InferenceNetProvider is the provider map key (renamed from "inference";
-	// Load's normalize migrates old configs).
+	// InferenceNetProvider is the canonical provider map key.
 	InferenceNetProvider = "inference-net"
 	// InferenceNetBaseURL is the OpenAI-compatible API root.
 	InferenceNetBaseURL = "https://api.inference.net/v1"
@@ -35,7 +34,6 @@ func (c *Config) UpsertInferenceNet(key string, envMode bool) {
 	if c.Providers == nil {
 		c.Providers = map[string]Provider{}
 	}
-	delete(c.Providers, "inference") // fold any legacy entry into the new key
 	c.Providers[InferenceNetProvider] = p
 	logf("config.inferencenet", "upserted inference-net provider (envMode=%v, literal=%v)", envMode, key != "")
 }

@@ -37,7 +37,7 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	t.Cleanup(srv.Close)
 
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"rlm": {"enabled": false},
@@ -53,7 +53,7 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 
 // runCapture swaps stdout/stdin for the duration of runCLI and returns what
 // the run printed on stdout. stdinData is piped in ("" still leaves a
-// non-TTY empty stdin, like `whip run "…" < /dev/null`).
+// non-TTY empty stdin, like `whipcode run "…" < /dev/null`).
 func runCapture(t *testing.T, stdinData string, args ...string) (string, error) {
 	t.Helper()
 
@@ -186,7 +186,7 @@ func TestRunResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// find the session id from the store (same WHIP_HOME for both runs)
+	// find the session id from the store (same WHIPCODE_HOME for both runs)
 	dir, _ := configDir()
 	st, err := sessionOpen(dir)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestRunMaxTurns(t *testing.T) {
 	}))
 	defer srv.Close()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"rlm": {"enabled": false},
@@ -316,7 +316,7 @@ func TestRunTimeout(t *testing.T) {
 	defer srv.Close()
 	defer srv.CloseClientConnections()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"rlm": {"enabled": false},
@@ -381,7 +381,7 @@ func TestRunQuietJSON(t *testing.T) {
 	}
 }
 
-func configDir() (string, error) { return os.Getenv("WHIP_HOME"), nil }
+func configDir() (string, error) { return os.Getenv("WHIPCODE_HOME"), nil }
 
 func sessionOpen(dir string) (*session.Store, error) { return session.Open(runtimeDBPath(dir)) }
 
@@ -420,7 +420,7 @@ func TestRunResolveErrors(t *testing.T) {
 
 	// a provider with no key at all: nothing to authenticate with
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := `{
 		"defaultModel": "test",
 		"providers": {"testprov": {"baseUrl": "https://example.invalid", "api": "openai-completions"}},
@@ -439,7 +439,7 @@ func TestRunResolveErrors(t *testing.T) {
 func TestRunUnreadableConfig(t *testing.T) {
 	unusableHome(t)
 	if _, err := runCapture(t, "", "hi"); err == nil {
-		t.Error("an unusable WHIP_HOME should error")
+		t.Error("an unusable WHIPCODE_HOME should error")
 	}
 }
 
@@ -478,7 +478,7 @@ func TestRunJSONToolEvents(t *testing.T) {
 	defer srv.Close()
 
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"rlm": {"enabled": false},
@@ -525,7 +525,7 @@ func TestRunJSONReasoning(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
@@ -570,7 +570,7 @@ func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIP_HOME"), "runtime-v2", "sessions.db"))
+	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +596,7 @@ func TestRunAgentSelectionAndResume(t *testing.T) {
 	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "--max-tokens", "10000", "select agent"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIP_HOME"), "runtime-v2", "sessions.db"))
+	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +678,7 @@ func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
 				}))
 				defer server.Close()
 				home := t.TempDir()
-				t.Setenv("WHIP_HOME", home)
+				t.Setenv("WHIPCODE_HOME", home)
 				cfg := fmt.Sprintf(`{"defaultModel":"test","mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKey":"k"}},"models":{"test":{"providers":["testprov"],"maxOut":100}}}`, server.URL)
 				if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 					t.Fatal(err)

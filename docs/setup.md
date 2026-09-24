@@ -1,21 +1,42 @@
 # Installation and local development
 
-Detailed setup instructions for the `whip` and `whipcode` distributions.
+Detailed setup instructions for WhipCode: the `whipcode` CLI and WHIP Desktop.
+`main` is the canonical source. There is no second supported CLI distribution.
+For a pre-reset internal installation, use the [manual reset checklist](team-reset.md);
+these instructions describe fresh installations, not a migration.
 For the recommended Desktop beta quickstart, see the [project README](../README.md#quickstart).
 
 ## Install
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh
-```
-
-Or build from source with Go 1.27 or newer:
+The standalone installer requires `curl`, Python 3, and `sha256sum` or `shasum`.
+Before the first stable release, opt into the validated prerelease channel:
 
 ```sh
-go install github.com/context-labs/whip/cmd/whip@latest
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
 ```
 
-Then run `whip` in your project folder. The TUI opens directly, without a
+It installs `whipcode` into `~/.local/bin` by default; add that directory to your
+`PATH` if needed. `WHIPCODE_BIN_DIR` selects another destination. A stable request
+(the default when `WHIPCODE_CHANNEL` is unset) fails until a new-project stable
+release exists; it never falls back to old releases. After `v1.0.0` is published,
+use the same command without `WHIPCODE_CHANNEL=prerelease` for stable installation.
+
+Or build the packaged CLI from source with Go 1.27+, Node 24, and Task:
+
+```sh
+git clone --branch main https://github.com/context-labs/whip.git
+cd whip
+npm ci
+task build       # ./whipcode, including the embedded renderer/native helper
+task install     # install into GOBIN or GOPATH/bin
+```
+
+On macOS, the native helper also requires Xcode command-line tools. Bare
+`go install .../cmd/whip@latest` is not the supported product build: it names the
+wrong executable and omits required packaged assets. Local builds use `dev`
+unless `WHIPCODE_VERSION` is explicitly supplied.
+
+Then run `whipcode` in your project folder. The TUI opens directly, without a
 folder-trust prompt. Tool approvals follow the session's saved permission level.
 Whip detects supported credentials on the execution host and uses your selected
 model when it is ready. Otherwise, a provider dialog opens over the composer:
@@ -53,8 +74,7 @@ to the selected execution host. Custom OpenAI-compatible endpoints are supported
 [provider configuration](models-providers.md#supported-provider-types-and-custom-endpoints);
 create them in the TUI, then use them from either application.
 
-To reuse a secrets file, add its path to the execution host's `~/.whip/config.json`
-(use `~/.whipcode/config.json` for whipcode):
+To reuse a secrets file, add its path to the execution host's `~/.whipcode/config.json`:
 
 ```json
 {
@@ -71,9 +91,9 @@ discover them. Whip saves `apiKeyEnv` references, never copies these file values
 into its configuration, and does not search arbitrary folders or read OpenCode
 credentials. File changes are read on discovery and new client creation; reload
 an existing session after rotating a key. Newly exported environment variables
-require `whip daemon restart` (or `whipcode daemon restart`).
+require `whipcode daemon restart`.
 
-The CLI can also validate a named file reference with `whip auth openrouter --env`.
+The CLI can also validate a named file reference with `whipcode auth openrouter --env`.
 
 Known-provider metadata is bundled from Models.dev. Maintainers can run
 `task models:update` to refresh the reviewed subset and `task models:check` to
@@ -82,15 +102,15 @@ check generated files offline. Live provider model lists remain authoritative.
 For a noninteractive API-key setup:
 
 ```sh
-whip auth openrouter
-whip run -p openrouter -m moonshotai/kimi-k3 "inspect this repository and explain its architecture"
+whipcode auth openrouter
+whipcode run -p openrouter -m moonshotai/kimi-k3 "inspect this repository and explain its architecture"
 ```
 
 Select an execution language once when creating a session:
 
 ```sh
-whip --rlm-engine quickjs
-whip run --rlm-engine quickjs --permission-mode automatic --max-cost 2 --max-tokens 50000 --effort high "inspect this repository"
+whipcode --rlm-engine quickjs
+whipcode run --rlm-engine quickjs --permission-mode automatic --max-cost 2 --max-tokens 50000 --effort high "inspect this repository"
 ```
 
 Select an agent definition the same way. `coding` is the default; the
@@ -98,8 +118,8 @@ deliberately limited `junior-developer` edits and runs tests but cannot
 delegate, reach MCP servers, or drive a browser:
 
 ```sh
-whip --agent junior-developer
-whip run --agent junior-developer --permission-mode automatic "add a unit test for the parser"
+whipcode --agent junior-developer
+whipcode run --agent junior-developer --permission-mode automatic "add a unit test for the parser"
 ```
 
 `--resume ID --agent NAME` asserts the session's definition and rejects a
@@ -118,37 +138,24 @@ durable recursive tree.
 Manage the local runtime daemon directly when testing or upgrading a checkout:
 
 ```sh
-whip daemon status [--json]
-whip daemon start
-whip daemon stop [--timeout 10s] [--force]
-whip daemon restart [--timeout 10s] [--force]
-whip daemon logs [-f] [-n 200]
+whipcode daemon status [--json]
+whipcode daemon start
+whipcode daemon stop [--timeout 10s] [--force]
+whipcode daemon restart [--timeout 10s] [--force]
+whipcode daemon logs [-f] [-n 200]
 ```
 
-`restart` replaces the running daemon with the currently invoked `whip`
+`restart` replaces the running daemon with the currently invoked `whipcode`
 binary. Normal stop and restart checkpoint durable state first; `--force` is
 only a fallback for an unresponsive daemon.
 
-## Whipcode branch builds
+## Standalone releases and updates
 
-Install the latest validated `whip-rlm` build alongside whip:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh | sh
-```
-
-The installer supports Linux and macOS on x64 and arm64. It requires `curl`,
-Python 3, and `sha256sum` or `shasum`; downloads are verified against the release
-checksums. Run `whipcode` to complete its independent setup.
-
-Whipcode uses `~/.whipcode/config.json` and keeps its sessions, credentials,
-browser profiles, and daemon under `~/.whipcode`. Set `WHIPCODE_HOME` to choose
-another home. It does not read `WHIP_HOME` or copy your whip configuration.
-Project/shared skills and explicitly configured external credentials remain
-available through the existing integration mechanisms.
+The new CLI release track is `v1.0.0-alpha.N`, followed by intentionally approved
+`v1.0.0` and normal semver releases. Validated main pushes can publish prereleases
+only after release enablement; see [release operations](releases.md).
 
 ```sh
-whipcode --version
 whipcode update
 whipcode daemon start
 whipcode web
@@ -157,25 +164,27 @@ whipcode web
 The daemon opens only its Unix socket by default. `whipcode web` requires that
 daemon to be running, starts a separate foreground gateway, opens the browser,
 and waits; `--no-open` skips the browser but still stays running. Ctrl+C stops
-the gateway without stopping daemon work. Opt into automatic managed gateway
-startup with `WHIPCODE_NETWORK=1` (`WHIP_NETWORK=1` for source-built `whip`).
-`WHIPCODE_LISTEN` alone does not enable automatic web access. See
+the gateway without stopping daemon work. `WHIPCODE_NETWORK=1` explicitly opts
+into managed gateway startup; `WHIPCODE_LISTEN` alone does not. See
 [web access](web-app.md#run-the-packaged-application-locally) for fixed ports,
 open-existing `--url` mode, compatibility, and trusted proxy configuration.
 
-`whipcode update` installs into the invoked executable's directory and restarts
-only its daemon. To choose a destination or pin/roll back to an exact build,
-replace the example tag below with a published whipcode tag:
+`whipcode update` replaces the invoked standalone installation and requests only
+its daemon's restart. An alpha build follows the prerelease channel; a stable
+build follows stable. `WHIPCODE_CHANNEL` can explicitly select `prerelease` or
+`stable`. Desktop-owned backends refuse independent CLI updates.
+
+To choose a destination or pin an exact build, replace the example tag with a
+published new-project tag. An explicit pin can roll back executable bytes; it
+does **not** make newer saved state compatible with an older backend:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh \
-  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=whipcode-v0.0.4 sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh \
+  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=v1.0.0-alpha.1 sh
 ```
 
-Successful pushes to `whip-rlm` publish `whipcode-v0.0.N` GitHub prereleases after
-CI and security checks. Stable whip continues to use `v*` releases. Source builds
-use `npm ci && task build:whipcode`; `task install:whipcode` installs into GOBIN
-or GOPATH/bin. These local builds report `dev` unless `WHIPCODE_VERSION` is set.
+The installer verifies a complete platform asset set and SHA-256 checksums
+before atomic replacement. Old CLI tags and Desktop tags are not candidates.
 
 ### Desktop installation and upgrades
 
@@ -223,7 +232,8 @@ backend upgrade details.
 
 ### Update your local installation from source
 
-From this checkout on an Apple Silicon Mac, run:
+For an already-installed **post-reset** app on an Apple Silicon Mac, use the
+commands below. This is not the clean-project reset or a migration from old builds:
 
 ```sh
 task update:local
@@ -336,8 +346,8 @@ The launcher prints its unique container name. While it is running, inspect it
 from another terminal:
 
 ```sh
-docker exec <container-name> whip daemon logs -n 60
-docker exec <container-name> whip daemon status --json
+docker exec <container-name> whipcode daemon logs -n 60
+docker exec <container-name> whipcode daemon status --json
 # Stop this test environment from another terminal:
 docker stop <container-name>
 ```

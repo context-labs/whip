@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if err := os.Setenv("WHIP_HOME", filepath.Join(home, "whip")); err != nil {
+		if err := os.Setenv("WHIPCODE_HOME", filepath.Join(home, "whip")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -72,8 +72,8 @@ func invokeMain(t *testing.T, args ...string) string {
 		os.Args, flag.CommandLine = previousArgs, previousFlags
 		os.Stdin, os.Stdout = previousInput, previousOutput
 	}()
-	os.Args = append([]string{"whip"}, args...)
-	flag.CommandLine = flag.NewFlagSet("whip", flag.ContinueOnError)
+	os.Args = append([]string{"whipcode"}, args...)
+	flag.CommandLine = flag.NewFlagSet("whipcode", flag.ContinueOnError)
 	flag.CommandLine.SetOutput(io.Discard)
 
 	inR, inW, err := os.Pipe()
@@ -103,7 +103,7 @@ func invokeMain(t *testing.T, args ...string) string {
 
 func TestMainDispatchesHeadlessCommands(t *testing.T) {
 	t.Run("version", func(t *testing.T) {
-		if output := invokeMain(t, "-version"); !strings.Contains(output, "whip "+version) {
+		if output := invokeMain(t, "-version"); !strings.Contains(output, "whipcode "+version) {
 			t.Fatalf("version output = %q", output)
 		}
 	})
@@ -113,7 +113,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 
 	t.Run("bench", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("WHIP_HOME", home)
+		t.Setenv("WHIPCODE_HOME", home)
 		writeConfig(t, home, `{
 			"defaultModel":"test",
 			"providers":{"testprov":{"baseUrl":"http://127.0.0.1:1","api":"openai-completions","apiKey":"k"}},
@@ -133,13 +133,13 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 
 	t.Run("update", func(t *testing.T) {
 		home, bin := t.TempDir(), t.TempDir()
-		t.Setenv("WHIP_HOME", home)
+		t.Setenv("WHIPCODE_HOME", home)
 		installer := filepath.Join(bin, "sh")
 		if err := os.WriteFile(installer, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", bin)
-		if output := invokeMain(t, "update"); !strings.Contains(output, "whip updated") {
+		if output := invokeMain(t, "update"); !strings.Contains(output, "whipcode updated") {
 			t.Fatalf("update output = %q", output)
 		}
 	})
@@ -167,7 +167,7 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 	for _, kind := range []string{"headless", "acp", "tui"} {
 		t.Run(kind, func(t *testing.T) {
 			requests, workingDirectory := promptRequestFixture(t)
-			standing := filepath.Join(os.Getenv("WHIP_HOME"), "me.md")
+			standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\nSTANDING_BEFORE_EDIT")
 			writePromptRequestFile(t, filepath.Join(workingDirectory, "CLAUDE.md"), "CLAUDE_REQUEST_MARKER")
 			writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "AGENTS_REQUEST_MARKER")
@@ -203,7 +203,7 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 
 func TestHeadlessSystemOverrideReachesProviderExactly(t *testing.T) {
 	requests, workingDirectory := promptRequestFixture(t)
-	writePromptRequestFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "NORMAL_STANDING_RULE")
+	writePromptRequestFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "NORMAL_STANDING_RULE")
 	writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "NORMAL_PROJECT_RULE")
 	const override = "Exact user system override.\nKeep this byte-for-byte."
 	if _, err := runCapture(t, "", "-quiet", "-system", override, "hello"); err != nil {
@@ -234,7 +234,7 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	t.Chdir(t.TempDir())
 	workingDirectory, err := os.Getwd()
 	if err != nil {

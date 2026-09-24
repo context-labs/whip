@@ -14,7 +14,7 @@ import (
 
 func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
 	directory := t.TempDir()
-	t.Setenv("WHIP_HOME", directory)
+	t.Setenv("WHIPCODE_HOME", directory)
 	t.Setenv("OPENAI_API_KEY", "must-not-fallback")
 	auth := openaiauth.New(t.Context(), directory)
 	if err := auth.Install(t.Context(), auth.Generation(), openaiauth.Credentials{
@@ -65,7 +65,7 @@ func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
 }
 
 func TestACPSubscriptionDoesNotRequireAnAPIKey(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cfg := config.Default()
 	if err := cfg.UpsertOpenAICodex(); err != nil {
 		t.Fatal(err)

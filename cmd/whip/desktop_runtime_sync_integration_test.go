@@ -31,7 +31,7 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	for binary, build := range map[string]string{canonical: "1.0.0-beta.1", newer: "1.0.0-beta.2"} {
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags",
-			"-X main.version="+build+" -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop",
+			"-X main.version="+build+" -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop",
 			"-o", binary, "./cmd/whip")
 		cmd.Dir = root
 		output, buildErr := cmd.CombinedOutput()

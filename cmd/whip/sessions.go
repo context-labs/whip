@@ -12,9 +12,9 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-// `whip sessions` — list stored sessions, newest first. The scriptable
-// companion to `whip run`: find a session, then resume it in the TUI or
-// inspect it from a script. `whip sessions export <root>` renders a session's
+// `whipcode sessions` — list stored sessions, newest first. The scriptable
+// companion to `whipcode run`: find a session, then resume it in the TUI or
+// inspect it from a script. `whipcode sessions export <root>` renders a session's
 // trace as OTLP/JSON.
 func sessionsCLI() error {
 	if args := flag.Args(); len(args) > 1 && args[1] == "export" {

@@ -26,7 +26,7 @@ func writeCompletionSkill(t *testing.T, root, directory, name, description, extr
 
 func TestHostSkillsCompleteReadOnlyAcrossTransports(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	parent := canonicalPromptDirectory(t, t.TempDir())
 	cwd := filepath.Join(parent, "project")
@@ -99,7 +99,7 @@ func TestHostSkillsCompleteReadOnlyAcrossTransports(t *testing.T) {
 
 func TestHostSkillsCompleteValidationAndDefinition(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	cwd := t.TempDir()
 	writeCompletionSkill(t, cwd, "local", "local", "local metadata", "")
@@ -142,7 +142,7 @@ func TestHostSkillsCompleteValidationAndDefinition(t *testing.T) {
 
 func TestHostSkillsCompleteSymlinkPreviewPolicy(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	cwd, outside := t.TempDir(), t.TempDir()
 	writeCompletionSkill(t, outside, "external", "external", "outside", "")
@@ -166,7 +166,7 @@ func TestHostSkillsCompleteSymlinkPreviewPolicy(t *testing.T) {
 
 func TestWorkspaceSkillCompletionUsesChildScope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cwd := canonicalPromptDirectory(t, t.TempDir())
 	allowed := filepath.Join(cwd, "allowed")
 	writeCompletionSkill(t, cwd, "parent", "parent", "parent", "")
@@ -201,7 +201,7 @@ func TestWorkspaceSkillCompletionUsesChildScope(t *testing.T) {
 
 func TestHostSkillsCompleteDoesNotWriteStore(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)
 	db, err := sql.Open("sqlite", path)
@@ -243,7 +243,7 @@ func TestHostSkillsCompleteDoesNotWriteStore(t *testing.T) {
 
 func TestWorkspaceSkillsCompletePinnedNamedChildDefinition(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	definition := agentdef.Coding()
 	definition.ID = "completion-definition"
@@ -303,7 +303,7 @@ func TestWorkspaceSkillsCompletePinnedNamedChildDefinition(t *testing.T) {
 
 func TestHostSkillsCompleteBoundsMetadata(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	server := &Server{daemon: &Daemon{store: store}}
 	cwd := t.TempDir()

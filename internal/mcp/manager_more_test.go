@@ -627,7 +627,7 @@ func TestKickAutoReconnectDeclines(t *testing.T) {
 	s := newSrv(ServerConfig{Command: []string{"x"}, Enabled: new(false)})
 	s.kickAutoReconnect(m)
 
-	// Closing manager: whip is shutting down.
+	// Closing manager: whipcode is shutting down.
 	closing := NewManager(nil)
 	closing.mu.Lock()
 	closing.closed = true

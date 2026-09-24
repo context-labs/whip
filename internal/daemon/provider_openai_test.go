@@ -25,7 +25,7 @@ func openAITestCredentials() openaiauth.Credentials {
 func TestOpenAILoginFailureCanRetryAndCatalogFailureKeepsLogin(t *testing.T) {
 	for _, failure := range []string{"authorization", "credential storage"} {
 		t.Run(failure, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			service := NewProviderService(t.Context(), "retry")
 			t.Cleanup(service.Close)
 			attempts := 0
@@ -72,7 +72,7 @@ func TestOpenAILoginFailureCanRetryAndCatalogFailureKeepsLogin(t *testing.T) {
 }
 
 func TestOpenAICancelledLogoutPreservesCredentials(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "cancelled-logout")
 	t.Cleanup(service.Close)
 	if err := service.openAI.Install(t.Context(), service.openAI.Generation(), openAITestCredentials()); err != nil {
@@ -90,7 +90,7 @@ func TestOpenAICancelledLogoutPreservesCredentials(t *testing.T) {
 }
 
 func TestOpenAILoginPreservesConcurrentConfigurationConflict(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "conflict")
 	t.Cleanup(service.Close)
 	service.openAILogin = func(context.Context, func(string, string)) (openaiauth.Credentials, error) {
@@ -127,7 +127,7 @@ func TestOpenAILoginPreservesConcurrentConfigurationConflict(t *testing.T) {
 }
 
 func TestOpenAILoginRecoveryPersistenceAndLogout(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "first")
 	service.refreshModels = func(context.Context, string, config.Provider) error { return nil }
 	t.Cleanup(service.Close)
@@ -186,7 +186,7 @@ func TestOpenAILoginRecoveryPersistenceAndLogout(t *testing.T) {
 }
 
 func TestOpenAISetupRetryUsesSavedLogin(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "generation")
 	service.refreshModels = func(context.Context, string, config.Provider) error { return nil }
 	t.Cleanup(service.Close)
@@ -209,7 +209,7 @@ func TestOpenAISetupRetryUsesSavedLogin(t *testing.T) {
 }
 
 func TestOpenAILogoutCancelsOnlyOwnFlows(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "generation")
 	t.Cleanup(service.Close)
 	service.openAILogin = func(ctx context.Context, _ func(string, string)) (openaiauth.Credentials, error) {
@@ -240,7 +240,7 @@ func TestOpenAILogoutCancelsOnlyOwnFlows(t *testing.T) {
 
 func TestOpenAIRejectsConflictingProfileBeforeLogin(t *testing.T) {
 	directory := t.TempDir()
-	t.Setenv("WHIP_HOME", directory)
+	t.Setenv("WHIPCODE_HOME", directory)
 	_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
 		cfg.Providers[openaiauth.Provider] = config.Provider{API: "openai-completions", BaseURL: "https://example.com"}
 		return nil
@@ -264,7 +264,7 @@ func TestOpenAIRejectsConflictingProfileBeforeLogin(t *testing.T) {
 }
 
 func TestOpenAILoginAcrossUnixAndWebSocketWithoutJournalingSecrets(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	service := fixture.server.providers
 	service.refreshModels = func(context.Context, string, config.Provider) error { return nil }
@@ -319,7 +319,7 @@ func TestOpenAILoginAcrossUnixAndWebSocketWithoutJournalingSecrets(t *testing.T)
 }
 
 func TestOpenAICatalogIsScopedToConnectedAccount(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "catalog")
 	t.Cleanup(service.Close)
 	credentials := openAITestCredentials()

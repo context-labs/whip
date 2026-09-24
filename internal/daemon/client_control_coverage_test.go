@@ -18,7 +18,7 @@ import (
 // durable command admission and supervised worker launch.
 func controlBoundarySession(t *testing.T) *Session {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	root := createRoot(t, store)
 	meta, _, err := store.Load(root)
@@ -255,7 +255,7 @@ func TestClientControlRejectsInvalidTargetsAndInputs(t *testing.T) {
 	if err != nil || output != string(want) {
 		t.Fatalf("context audit = %q, %v", output, err)
 	}
-	if err := os.WriteFile(filepath.Join(os.Getenv("WHIP_HOME"), "config.json"), []byte("{invalid configuration"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(os.Getenv("WHIPCODE_HOME"), "config.json"), []byte("{invalid configuration"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := root.applyClientCommand(t.Context(), "provider.catalogs", json.RawMessage(`{}`)); err == nil {

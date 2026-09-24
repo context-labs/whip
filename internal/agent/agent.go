@@ -440,7 +440,7 @@ func (a *Agent) Turn(ctx context.Context, input string, ev Events) (string, erro
 }
 
 // TurnAuthored is Turn for a message the human actually typed and submitted
-// (vs. a steered background-task result or goal-continuation whip injects).
+// (vs. a steered background-task result or goal-continuation whipcode injects).
 // The message is marked Authored so input-history recall cycles only real
 // submissions.
 func (a *Agent) TurnAuthored(ctx context.Context, input string, ev Events) (string, error) {

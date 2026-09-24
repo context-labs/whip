@@ -11,7 +11,7 @@ import (
 	"github.com/context-labs/whip/internal/tools"
 )
 
-// toolRunner hosts WHIP capabilities for protocol clients such as `whip mcp
+// toolRunner hosts WHIP capabilities for protocol clients such as `whipcode mcp
 // serve`. It is not a model session and deliberately has no agent loop.
 type toolRunner struct {
 	services *tools.Services

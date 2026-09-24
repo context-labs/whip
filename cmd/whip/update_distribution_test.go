@@ -13,7 +13,7 @@ func TestDistributionUpdateDownloadFailureKeepsNoticeAndDaemon(t *testing.T) {
 	home, bin := t.TempDir(), t.TempDir()
 	t.Setenv(buildinfo.Env("HOME"), home)
 	notice := filepath.Join(home, "update.json")
-	original := []byte(`{"latest":"whipcode-v0.0.99","acknowledged":false}`)
+	original := []byte(`{"latest":"v1.0.0-alpha.99","acknowledged":false}`)
 	if err := os.WriteFile(notice, original, 0o600); err != nil {
 		t.Fatal(err)
 	}

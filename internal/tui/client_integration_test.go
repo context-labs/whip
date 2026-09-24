@@ -27,7 +27,7 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 	for _, transport := range []string{"unix", "websocket"} {
 		t.Run(transport, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("WHIP_HOME", home)
+			t.Setenv("WHIPCODE_HOME", home)
 			cfg := config.Default()
 			cfg.DefaultModel, cfg.DefaultProvider = "test-model", "test-provider"
 			cfg.Models["test-model"] = config.Model{Providers: []string{"test-provider"}}

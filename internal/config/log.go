@@ -25,7 +25,7 @@ const (
 
 var logMu sync.Mutex
 
-// LogEvent appends one timestamped line to ~/.whip/whip.log. op is a short
+// LogEvent appends one timestamped line to ~/.whipcode/whip.log. op is a short
 // verb ("config.save", "config.load", "catalog.fetch", ...); detail is
 // free-form context. Best-effort: errors are swallowed by design.
 func LogEvent(op, detail string) {

@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   package:
+    if: vars.WHIP_RELEASE_ENABLED == 'true' && vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'
     runs-on: macos-15
     timeout-minutes: 60
     environment: desktop-signing

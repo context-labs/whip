@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webassets"
@@ -37,7 +36,7 @@ func webCLI(args []string) error {
 }
 
 func runWeb(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet(buildinfo.Text("whip web"), flag.ContinueOnError)
+	flags := flag.NewFlagSet("whipcode web", flag.ContinueOnError)
 	noOpen := flags.Bool("no-open", false, "print the ready URL without opening a browser")
 	publishedURL := flags.String("url", "", "check/open an existing HTTP(S) endpoint instead of serving")
 	if err := flags.Parse(args); err != nil {
@@ -47,12 +46,12 @@ func runWeb(ctx context.Context, args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New(buildinfo.Text("usage: whip web [--no-open] [--url https://whip.example]"))
+		return errors.New("usage: whipcode web [--no-open] [--url https://whip.example]")
 	}
 	ready := func(endpoint string) {
 		fmt.Fprintln(os.Stdout, endpoint+"/")
 		if !*noOpen && !openWebBrowser(endpoint+"/") {
-			fmt.Fprintln(os.Stderr, buildinfo.Text("whip: could not open the browser; open the URL above"))
+			fmt.Fprintln(os.Stderr, "whipcode: could not open the browser; open the URL above")
 		}
 	}
 	if *publishedURL != "" {
@@ -106,7 +105,7 @@ func runGateway(ctx context.Context, paths daemon.RuntimePaths, expected *gatewa
 		expected = &gatewayReady{RuntimeID: initializedCheck.RuntimeID, Generation: initializedCheck.Generation}
 	}
 	if !gatewayAssetsAvailable() {
-		return errors.New(buildinfo.Text("this executable was built without web assets; run `npm ci && task build`, then run `whip web` again"))
+		return errors.New("this executable was built without web assets; run `npm ci && task build`, then run `whipcode web` again")
 	}
 	server, err := webgateway.Start(ctx, options)
 	if err != nil {
@@ -135,11 +134,11 @@ func dialGatewayClient(ctx context.Context, paths daemon.RuntimePaths) (*daemon.
 		Capabilities: []string{protocol.NetworkClientCapability},
 	})
 	if err != nil {
-		return nil, fmt.Errorf(buildinfo.Text("connect to running daemon: %w; inspect `whip daemon status` or run `whip daemon start` explicitly"), err)
+		return nil, fmt.Errorf("connect to running daemon: %w; inspect `whipcode daemon status` or run `whipcode daemon start` explicitly", err)
 	}
 	if !slices.Contains(client.InitializeResult().NegotiatedCapabilities, protocol.NetworkClientCapability) {
 		_ = client.Close()
-		return nil, errors.New(buildinfo.Text("the running daemon does not support the network-client safety capability; update it and explicitly run `whip daemon restart` (interrupts active work)"))
+		return nil, errors.New("the running daemon does not support the network-client safety capability; update it and explicitly run `whipcode daemon restart` (interrupts active work)")
 	}
 	return client, nil
 }
@@ -160,7 +159,7 @@ func validateWebEndpoint(endpoint string) (string, error) {
 		}
 	}
 	if ip := net.ParseIP(parsed.Hostname()); ip != nil && ip.IsUnspecified() {
-		return "", errors.New(buildinfo.Text("web endpoint is a wildcard address; use `whip web --url http://HOST:PORT` with an exact WHIP_ALLOWED_HOSTS entry"))
+		return "", errors.New("web endpoint is a wildcard address; use `whipcode web --url http://HOST:PORT` with an exact WHIPCODE_ALLOWED_HOSTS entry")
 	}
 	return parsed.Scheme + "://" + parsed.Host, nil
 }
@@ -178,7 +177,7 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		if response.StatusCode == http.StatusForbidden {
-			return errors.New(buildinfo.Text("web host is not allowed; configure the gateway's exact WHIP_ALLOWED_HOSTS value"))
+			return errors.New("web host is not allowed; configure the gateway's exact WHIPCODE_ALLOWED_HOSTS value")
 		}
 		return fmt.Errorf("endpoint does not expose the web app (HTTP %d); check the URL and gateway build", response.StatusCode)
 	}
@@ -195,7 +194,7 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 		return errors.New("gateway web protocol is incompatible; update the gateway executable")
 	}
 	if !info.Available {
-		return errors.New(buildinfo.Text("this gateway was built without web assets; run `npm ci && task build` and start the gateway again"))
+		return errors.New("this gateway was built without web assets; run `npm ci && task build` and start the gateway again")
 	}
 	return nil
 }

@@ -3,9 +3,9 @@
 // with `forget`, and the user can read, edit, or delete in any editor.
 //
 // Two scopes:
-//   - installation: ~/.whip/memory.md — facts about the user, injected into
+//   - installation: ~/.whipcode/memory.md — facts about the user, injected into
 //     every session
-//   - session: ~/.whip/sessions/<id>.memory.md — continuation notes for one
+//   - session: ~/.whipcode/sessions/<id>.memory.md — continuation notes for one
 //     conversation
 //
 // Retrieval is always-inject with a hard cap (maxEntries short lines): at
@@ -50,7 +50,7 @@ type Scope struct {
 	Name string // "installation" or "session" — used in the injected header
 }
 
-// Installation returns the ~/.whip/memory.md scope.
+// Installation returns the ~/.whipcode/memory.md scope.
 func Installation() Scope {
 	dir, err := config.Dir()
 	if err != nil {

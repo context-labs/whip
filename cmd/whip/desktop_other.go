@@ -8,7 +8,7 @@ import (
 )
 
 func desktopSSHCLI([]string) int {
-	fmt.Fprintln(os.Stderr, "whip desktop: SSH supervision is unavailable on this platform")
+	fmt.Fprintln(os.Stderr, "whipcode desktop: SSH supervision is unavailable on this platform")
 	return 1
 }
 

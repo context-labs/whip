@@ -75,8 +75,8 @@ func ParseOpenCode(data []byte) (map[string]ServerConfig, error) {
 var opencodeEnvRef = regexp.MustCompile(`\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // opencodeReferences rewrites OpenCode's "{env:NAME}" placeholders into the
-// "${NAME}" references whip resolves at connect time, so an imported secret
-// stays a reference. Its "{file:path}" form has no whip equivalent and is
+// "${NAME}" references whipcode resolves at connect time, so an imported secret
+// stays a reference. Its "{file:path}" form has no whipcode equivalent and is
 // left as written.
 func opencodeReferences(values map[string]string) map[string]string {
 	if len(values) == 0 {

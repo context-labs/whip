@@ -1,12 +1,12 @@
 // Package mcp implements whip's Model Context Protocol support: a client that
 // connects to configured MCP servers (stdio and streamable HTTP) and exposes
-// their tools to the agent loop, plus a server (`whip mcp serve`) exposing
+// their tools to the agent loop, plus a server (`whipcode mcp serve`) exposing
 // whip's own tools.
 //
 // Configuration is backwards compatible with claude-style (.mcp.json project
 // files), codex-style (~/.codex/config.toml [mcp_servers]) and OpenCode
 // (~/.config/opencode/opencode.json "mcp") formats; all are normalized into
-// ServerConfig and merged with whip's own "mcp" block in ~/.whip/config.json,
+// ServerConfig and merged with whip's own "mcp" block in ~/.whipcode/config.json,
 // which always wins on name conflicts.
 package mcp
 
@@ -44,7 +44,7 @@ type ServerConfig struct {
 	ToolTimeout    int    `json:"toolTimeout,omitempty"`    // seconds per tool call (default 60)
 
 	// Source is the config file this server came from (".mcp.json",
-	// "~/.codex/config.toml", "~/.whip/config.json"). Set by discovery for
+	// "~/.codex/config.toml", "~/.whipcode/config.json"). Set by discovery for
 	// display (a failed server should point at the file to fix). Neither a
 	// source label nor serialized provenance can confer trust on attachments.
 	Source  string `json:"source,omitempty"`
@@ -253,11 +253,11 @@ func (p ImportSourcePolicy) listed(name string) bool {
 
 // Filtered is the discovery result when an ImportPolicy is applied: Merged is
 // what the manager connects to; Blocked holds the servers the policy filtered
-// out, forced disabled with a note so they stay visible (/mcp, whip mcp
-// list) instead of vanishing silently. Blocked never shadows a whip entry of
+// out, forced disabled with a note so they stay visible (/mcp, whipcode mcp
+// list) instead of vanishing silently. Blocked never shadows a whipcode entry of
 // the same name. Sources attributes every discovered name (merged or
 // blocked) to the file that contributes/would contribute it ("whip",
-// ".mcp.json", or "codex") — codex wins over claude, whip over both. Each
+// ".mcp.json", or "codex") — codex wins over claude, whipcode over both. Each
 // merged/blocked ServerConfig also carries its Source file path so a failed
 // server can point at the file to fix.
 type Filtered struct {
@@ -291,7 +291,7 @@ func Select(f Filtered, allowed []string) Filtered {
 	return f
 }
 
-// SourceLabel names a discovery source the way /mcp and `whip mcp list`
+// SourceLabel names a discovery source the way /mcp and `whipcode mcp list`
 // refer to it, so a failed-source row reads like the servers it would have
 // produced.
 func SourceLabel(path string) string {
@@ -398,7 +398,7 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 		kept := make(map[string]ServerConfig, len(src))
 		for name, c := range src {
 			if !p.Admits(name) {
-				if _, owned := whipCfg[name]; !owned { // whip always wins; no ghost row
+				if _, owned := whipCfg[name]; !owned { // whipcode always wins; no ghost row
 					off := false
 					c.Enabled = &off
 					note := "blocked by mcpImport config (" + source + ")"
@@ -465,7 +465,7 @@ var CodexPath = defaultCodexPath
 // project .mcp.json. A variable so tests can point it at fixtures.
 var ClaudeGlobalPath = defaultClaudeGlobalPath
 
-// whipConfigPath is whip's own config file location (~/.whip/config.json) —
+// whipConfigPath is whip's own config file location (~/.whipcode/config.json) —
 // the source of any server from the config's "mcp" block. Best-effort: ""
 // when the home dir isn't resolvable.
 func whipConfigPath() string {
@@ -526,4 +526,4 @@ func defaultClaudeGlobalPath() string {
 // the property that makes codex/claude imports work when the referenced var
 // isn't set in whip's import-time environment (the customer.io "failed to
 // auth after importing from codex" report) and keeps resolved secrets out of
-// ~/.whip/config.json.
+// ~/.whipcode/config.json.

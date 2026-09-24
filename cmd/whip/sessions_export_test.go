@@ -100,7 +100,7 @@ func TestPushOTLPPostsGzipBatchesWithTheBearerToken(t *testing.T) {
 
 func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	st := openRuntimeTestStore(t, dir)
 	id, err := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
 	if err != nil {
@@ -193,7 +193,7 @@ func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
 
 func TestSessionsExportCLIReportsArgumentAndDeliveryFailures(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", dir)
+	t.Setenv("WHIPCODE_HOME", dir)
 	st := openRuntimeTestStore(t, dir)
 	id, err := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
 	if err != nil {

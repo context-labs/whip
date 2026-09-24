@@ -18,7 +18,7 @@ import (
 )
 
 // TestBrowserExecReachesModel pins the full loop: the model calls
-// browser_exec, whip drives a real headless Chrome, and the page content
+// browser_exec, whipcode drives a real headless Chrome, and the page content
 // comes back in the tool result the provider receives.
 func TestBrowserExecReachesModel(t *testing.T) {
 	home, _ := os.UserHomeDir()

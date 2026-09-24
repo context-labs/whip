@@ -20,7 +20,7 @@ import (
 func syncFixture(t *testing.T) (string, desktopSyncOptions) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("WHIP_HOME", filepath.Join(dir, "home"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(dir, "home"))
 	source, target := filepath.Join(dir, "payload"), filepath.Join(dir, "whipcode")
 	for path, content := range map[string]string{source: "new backend", target: "old backend"} {
 		if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
@@ -32,12 +32,12 @@ func syncFixture(t *testing.T) (string, desktopSyncOptions) {
 }
 
 func TestDesktopSyncCLIRejectsUnownedOrMalformedUpdates(t *testing.T) {
-	previousName, previousOwner := buildinfo.Name, buildinfo.UpdateOwner
-	defer func() { buildinfo.Name, buildinfo.UpdateOwner = previousName, previousOwner }()
+	previousOwner := buildinfo.UpdateOwner
+	defer func() { buildinfo.UpdateOwner = previousOwner }()
 	if err := desktopRuntimeSyncCLI(nil, io.Discard); err == nil {
 		t.Fatal("ordinary binary acquired desktop update authority")
 	}
-	buildinfo.Name, buildinfo.UpdateOwner = "whipcode", "desktop"
+	buildinfo.UpdateOwner = "desktop"
 	for _, args := range [][]string{
 		{"--unknown"},
 		{"extra"},
@@ -57,7 +57,7 @@ func TestDesktopSyncDaemonHelper(t *testing.T) {
 	if home == "" {
 		return
 	}
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	for index, arg := range os.Args {
 		if arg == "_daemon" {
 			if err := daemonCLI(os.Args[index+1:]); err != nil {
@@ -75,7 +75,7 @@ func TestDesktopSyncCoordinatesRealOwnerAndReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("WHIP_NETWORK", "0")
+	t.Setenv("WHIPCODE_NETWORK", "0")
 	t.Setenv("WHIP_DESKTOP_UPDATE_TEST_HOME", filepath.Dir(paths.Home))
 	self, err := os.Executable()
 	if err != nil {
@@ -301,9 +301,9 @@ func TestDesktopManagedDiagnosticsAndApprovalCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer owner.Close()
-	previousName, previousOwner := buildinfo.Name, buildinfo.UpdateOwner
-	defer func() { buildinfo.Name, buildinfo.UpdateOwner = previousName, previousOwner }()
-	buildinfo.Name, buildinfo.UpdateOwner = "whipcode", "desktop"
+	previousOwner := buildinfo.UpdateOwner
+	defer func() { buildinfo.UpdateOwner = previousOwner }()
+	buildinfo.UpdateOwner = "desktop"
 	// Point the distribution-specific environment at the same isolated home.
 	t.Setenv("WHIPCODE_HOME", filepath.Dir(paths.Home))
 	self, err := os.Executable()
@@ -336,7 +336,7 @@ func TestDesktopManagedDiagnosticsAndApprovalCLI(t *testing.T) {
 func TestDesktopSyncUnsafeRuntimeDoesNotReplaceCanonicalBinary(t *testing.T) {
 	source, options := syncFixture(t)
 	// A file where the daemon home belongs must fail before owner shutdown.
-	t.Setenv("WHIP_HOME", source)
+	t.Setenv("WHIPCODE_HOME", source)
 	if _, err := syncDesktopRuntime(t.Context(), source, options); err == nil {
 		t.Fatal("accepted non-directory runtime home")
 	}
@@ -354,12 +354,12 @@ func TestDesktopDaemonPreflightRejectsUnsafeStartup(t *testing.T) {
 			case "flags":
 				args = []string{"--invalid"}
 			case "network":
-				t.Setenv("WHIP_NETWORK", "invalid")
+				t.Setenv("WHIPCODE_NETWORK", "invalid")
 			case "no-home":
-				t.Setenv("WHIP_HOME", "")
+				t.Setenv("WHIPCODE_HOME", "")
 				t.Setenv("HOME", "")
 			case "home-file":
-				t.Setenv("WHIP_HOME", source)
+				t.Setenv("WHIPCODE_HOME", source)
 			case "maintenance", "database":
 				paths, err := daemonRuntimePaths()
 				if err != nil {
@@ -405,7 +405,7 @@ func TestDesktopDiagnosticsReportUnhealthyOwnerAndRejectMalformedCommands(t *tes
 		t.Fatal("missing owner PID was reported as a real process")
 	}
 	_, _ = syncFixture(t)
-	t.Setenv("WHIP_HOME", "")
+	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", "")
 	if _, err := daemonStatusPaths(); err == nil {
 		t.Fatal("missing home was accepted")

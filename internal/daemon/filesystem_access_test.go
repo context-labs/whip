@@ -17,7 +17,7 @@ import (
 )
 
 func TestFilesystemAccessStarlarkRootAndChildSurviveRestart(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		streamText(w, "done")
 	}))
@@ -96,7 +96,7 @@ True`, filepath.Join(sibling, "child.txt")))
 }
 
 func TestFilesystemAccessOutsideCWDCanDowngradeAndNavigateBack(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	base := canonicalPromptDirectory(t, t.TempDir())
 	project, sibling := filepath.Join(base, "project"), filepath.Join(base, "sibling")
 	writeDaemonPromptFile(t, filepath.Join(project, "inside.txt"), "inside-project")

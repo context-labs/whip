@@ -18,8 +18,8 @@ func TestMainExitHelper(t *testing.T) {
 	if separator < 0 {
 		t.Fatal("helper needs command arguments after --")
 	}
-	os.Args = append([]string{"whip"}, os.Args[separator+1:]...)
-	flag.CommandLine = flag.NewFlagSet("whip", flag.ExitOnError)
+	os.Args = append([]string{"whipcode"}, os.Args[separator+1:]...)
+	flag.CommandLine = flag.NewFlagSet("whipcode", flag.ExitOnError)
 	main()
 	t.Fatal("invalid command returned without exiting")
 }

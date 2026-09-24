@@ -17,7 +17,7 @@ import (
 )
 
 func TestDeviceLoginChoosesWorkspaceAndCreatesProject(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	useTestDaemon(t)
 	mux := http.NewServeMux()

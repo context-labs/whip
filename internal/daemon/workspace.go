@@ -31,7 +31,7 @@ func (r *AgentSession) CaptureWorkspace(ctx context.Context) string {
 		return ""
 	}
 	if commit == "" {
-		commit, err = r.workspaceGit(ctx, "commit-tree", "HEAD^{tree}", "-m", "whip turn snapshot")
+		commit, err = r.workspaceGit(ctx, "commit-tree", "HEAD^{tree}", "-m", "whipcode turn snapshot")
 		if err != nil {
 			return ""
 		}

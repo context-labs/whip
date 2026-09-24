@@ -36,7 +36,7 @@ type providerBehaviorClient interface {
 
 func providerBehaviorFixture(t *testing.T) (*Server, *Client, *RootClient, string) {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
@@ -252,7 +252,7 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 }
 
 func TestProviderConfigurationRejectsInvalidChangesAtomically(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "validation")
 	defer service.Close()
 	before, err := service.ReadConfiguration()
@@ -343,7 +343,7 @@ func TestRootProviderValidationUsesEphemeralConnection(t *testing.T) {
 func TestProviderLoginFailuresAndCancellationNeverReportSuccess(t *testing.T) {
 	for _, stage := range []string{"projects", "create", "finish", "cancel_provisioning", "cancel_projects"} {
 		t.Run(stage, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			service := NewProviderService(t.Context(), "failure")
 			defer service.Close()
 			entered := make(chan struct{})
@@ -424,7 +424,7 @@ func TestProviderLoginFailuresAndCancellationNeverReportSuccess(t *testing.T) {
 }
 
 func TestProviderCompletionPersistsCredentialsOnlyBeforeCancellation(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	service := NewProviderService(t.Context(), "persist")
 	defer service.Close()
 	auth := inferencenet.Auth{UserEmail: "owner@example.test", TeamName: "Test workspace", ProjectID: "project", ProjectName: "Project", MachineKey: "machine-secret", MachineKeyName: "Host"}

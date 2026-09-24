@@ -100,13 +100,13 @@ func TestDaemonCommandsSurfaceUnavailableHomeAndLaunchErrors(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("WHIP_HOME", filepath.Join(file, "home"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(file, "home"))
 	for _, command := range []string{"status", "start", "stop", "restart", "logs"} {
 		if err := daemonManageCLI([]string{command}); err == nil {
 			t.Fatalf("%s accepted unavailable home", command)
 		}
 	}
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	previous := launchManagedDaemon
 	t.Cleanup(func() { launchManagedDaemon = previous })
 	launchErr := errors.New("fixture launch refused")

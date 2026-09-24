@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestProviderExplicitNoAuthentication(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("INFERENCE_API_KEY", "private-fixture-key")
 	provider := Provider{BaseURL: InferenceNetBaseURL, API: "openai-completions", Auth: "none"}
 	if key, err := provider.ResolveKey(); key != "" || err != nil {

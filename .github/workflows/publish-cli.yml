@@ -1,0 +1,180 @@
+name: release whipcode
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Alpha prerelease or explicitly approved v1.0.0 stable
+        type: choice
+        options: [alpha, stable]
+        default: alpha
+        required: true
+
+# Never interrupt immutable uploads. A queued old SHA is skipped by metadata.
+concurrency:
+  group: whipcode-publishing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: >-
+      github.repository == 'context-labs/whip' &&
+      github.ref == 'refs/heads/main' && vars.WHIP_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      mode: ${{ steps.version.outputs.mode }}
+      source: ${{ steps.version.outputs.source }}
+      current: ${{ steps.version.outputs.current }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require clean current main and select release identity
+        id: version
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'alpha' }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"
+          if [ "$(git rev-parse origin/main)" != "$SOURCE_SHA" ]; then
+            echo 'Skipping superseded main source.'
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$RELEASE_MODE" in
+            alpha) tag="v1.0.0-alpha.$RUN_NUMBER" ;;
+            stable) tag=v1.0.0 ;;
+            *) exit 1 ;;
+          esac
+          printf 'tag=%s\nmode=%s\nsource=%s\ncurrent=true\n' "$tag" "$RELEASE_MODE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: metadata
+    if: needs.metadata.outputs.current == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  security:
+    needs: metadata
+    if: needs.metadata.outputs.current == 'true'
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/security.yml
+
+  build:
+    needs: [metadata, ci, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: whipcode-linux-x64
+            driver: false
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            asset: whipcode-linux-arm64
+            driver: false
+          - os: macos-15
+            goos: darwin
+            goarch: arm64
+            asset: whipcode-darwin-arm64
+            driver: true
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            asset: whipcode-darwin-x64
+            driver: true
+    runs-on: ${{ matrix.os }}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: '0'
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      ASSET: ${{ matrix.asset }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ci-renderer
+          path: apps/web
+      - name: Verify and package the tested browser application
+        run: |
+          node scripts/pack-web.mjs --release
+          test -s internal/webassets/dist/index.html
+      - name: Build the embedded Swift driver
+        if: matrix.driver
+        run: |
+          swift build -c release --package-path driver
+          cp driver/.build/release/whip-computer internal/computer/bin/whip-computer
+          codesign --sign - --force internal/computer/bin/whip-computer
+          test -s internal/computer/bin/whip-computer
+      - name: Build distribution
+        run: |
+          mkdir -p dist/release
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=$RELEASE_TAG" \
+            -o "dist/release/$ASSET" ./cmd/whip
+      - name: Accept the packaged binary from a fresh home with the tested renderer
+        run: python3 scripts/test-distributions.py --binary "dist/release/$ASSET" --version "$RELEASE_TAG"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: whipcode-bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/release/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: [metadata, build]
+    if: vars.WHIP_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # Stable environment requires human approval and main-only deployment rules.
+    # Alpha requires main-only deployment but no review; both paths require the kill switch.
+    environment: ${{ needs.metadata.outputs.mode == 'stable' && 'whipcode-stable' || 'whipcode-alpha' }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.metadata.outputs.source }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: whipcode-bin-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish complete validated main release (no tag-trigger chaining)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: context-labs/whip
+          SOURCE_SHA: ${{ needs.metadata.outputs.source }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_MODE: ${{ needs.metadata.outputs.mode }}
+          WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
+          WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
+        run: bash scripts/publish-whipcode.sh

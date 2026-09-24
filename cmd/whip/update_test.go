@@ -51,7 +51,7 @@ func TestUpdateCLIRunsInstaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with a succeeding installer: %v", err)
 	}
-	if !strings.Contains(out, "whip updated") {
+	if !strings.Contains(out, "whipcode updated") {
 		t.Errorf("success message missing:\n%s", out)
 	}
 	if !restarted {
@@ -74,7 +74,7 @@ func TestUpdateCLIInstallerFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "update failed") {
 		t.Fatalf("a failing installer should surface as an update error, got %v", err)
 	}
-	if strings.Contains(out, "whip updated") {
+	if strings.Contains(out, "whipcode updated") {
 		t.Errorf("failure must not claim success:\n%s", out)
 	}
 }

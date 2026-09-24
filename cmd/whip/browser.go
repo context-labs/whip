@@ -9,26 +9,24 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/context-labs/whip/internal/buildinfo"
-
 	"github.com/context-labs/whip/internal/browser/extrelay"
 )
 
-// browserCLI implements `whip browser <install>`.
+// browserCLI implements `whipcode browser <install>`.
 //
-//	install    write the unpacked extension to ~/.whip/browser/extension,
+//	install    write the unpacked extension to ~/.whipcode/browser/extension,
 //	           generate a relay token, and open chrome://extensions + the
 //	           folder so the user can load it (Chrome forbids programmatic
 //	           install — the three clicks are on the user).
 func browserCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New(buildinfo.Text("usage: whip browser <install>"))
+		return errors.New("usage: whipcode browser <install>")
 	}
 	switch args[0] {
 	case "install":
 		return browserInstall()
 	default:
-		return fmt.Errorf(buildinfo.Text("unknown whip browser subcommand %q (want: install)"), args[0])
+		return fmt.Errorf("unknown whipcode browser subcommand %q (want: install)", args[0])
 	}
 }
 
@@ -57,7 +55,7 @@ func browserInstall() error {
 		return fmt.Errorf("write relay state: %w", err)
 	}
 
-	fmt.Println(buildinfo.Text("whip browser extension written:"))
+	fmt.Println("whipcode browser extension written:")
 	for _, f := range written {
 		fmt.Println("  ", f)
 	}
@@ -68,13 +66,13 @@ func browserInstall() error {
 	fmt.Println("  2. Click \"Load unpacked\".")
 	fmt.Printf("  3. Select this folder:\n       %s\n\n", dir)
 
-	fmt.Println(buildinfo.Text("Then, to let whip drive a tab:"))
-	fmt.Println(buildinfo.Text("  - Set \"browser\": { \"mode\": \"extension\" } in ~/.whip/config.json."))
-	fmt.Println("  - Open the tab you want, click the whip extension icon (a green ● appears).")
+	fmt.Println("Then, to let whipcode drive a tab:")
+	fmt.Println("  - Set \"browser\": { \"mode\": \"extension\" } in ~/.whipcode/config.json.")
+	fmt.Println("  - Open the tab you want, click the whipcode extension icon (a green ● appears).")
 	fmt.Println("  - Click the icon again to detach.")
 	fmt.Println()
-	fmt.Println("Note: while pinned, Chrome shows a \"whip is debugging this browser\" bar —")
-	fmt.Println(buildinfo.Text("that's chrome.debugger, the mechanism that lets whip drive your real session."))
+	fmt.Println("Note: while pinned, Chrome shows a \"whipcode is debugging this browser\" bar —")
+	fmt.Println("that's chrome.debugger, the mechanism that lets whipcode drive your real session.")
 
 	openInstallTargets(dir)
 	return nil

@@ -237,7 +237,7 @@ func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool, 
 		r.agent.Services.SetExternalPermissions(false)
 	}
 	// bind keyed the prompt cache by session id; a stable caller-chosen key
-	// (`whip run -cache-key repo/reviewer`) shares the cached prefix across
+	// (`whipcode run -cache-key repo/reviewer`) shares the cached prefix across
 	// runs. Children keep caching under the root session id.
 	if cacheKey != "" {
 		r.agent.SetSessionID(cacheKey)

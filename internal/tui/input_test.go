@@ -77,13 +77,13 @@ func TestAppendKeepsScrolledUpViewport(t *testing.T) {
 	}
 }
 
-// The startup report warns (warn-only: whip never runs `tmux set`) when
+// The startup report warns (warn-only: whipcode never runs `tmux set`) when
 // shift+enter cannot reach the pane: under mosh, or inside tmux with the
 // server option extended-keys off.
 func TestStartupReportShiftEnterWarnings(t *testing.T) {
 	mosh, tmux := moshDetect, tmuxExtKeysCheck
 	t.Cleanup(func() { moshDetect, tmuxExtKeysCheck = mosh, tmux })
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
 
 	moshDetect = func() bool { return false }

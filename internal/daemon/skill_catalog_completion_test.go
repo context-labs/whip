@@ -13,7 +13,7 @@ import (
 
 func TestSkillCatalogCompletionLimits(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cwd := canonicalPromptDirectory(t, t.TempDir())
 	for i := range 1024 {
 		name := fmt.Sprintf("skill-%04d", i)
@@ -66,7 +66,7 @@ func TestSkillCatalogCompletionLimits(t *testing.T) {
 
 func TestSkillCatalogCompletionByteOverflow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	cwd := canonicalPromptDirectory(t, t.TempDir())
 	for i := range 1024 {
 		// Warned names are still invocable. HTML escaping expands their JSON bytes.

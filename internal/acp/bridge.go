@@ -195,7 +195,7 @@ func (b *Bridge) mergeMCPServers(client []acp.McpServer) map[string]mcp.ServerCo
 			continue
 		}
 		if _, exists := b.mcpBase[name]; exists {
-			config_logf("client MCP server %q shadowed by whip config — skipped", name)
+			config_logf("client MCP server %q shadowed by whipcode config — skipped", name)
 			continue
 		}
 		out[name] = value

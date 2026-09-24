@@ -17,19 +17,15 @@ import (
 )
 
 func TestDaemonStatusDoesNotInitializeHome(t *testing.T) {
-	for _, distribution := range []string{"whip", "whipcode"} {
+	for _, distribution := range []string{buildinfo.Name} {
 		for _, override := range []bool{false, true} {
 			name := distribution + "/default home"
 			if override {
 				name = distribution + "/home override"
 			}
 			t.Run(name, func(t *testing.T) {
-				previous := buildinfo.Name
-				buildinfo.Name = distribution
-				t.Cleanup(func() { buildinfo.Name = previous })
 				userHome := filepath.Join(t.TempDir(), "absent-user-home")
 				t.Setenv("HOME", userHome)
-				t.Setenv("WHIP_HOME", "")
 				t.Setenv("WHIPCODE_HOME", "")
 				home := filepath.Join(userHome, "."+distribution)
 				if override {
@@ -126,7 +122,7 @@ func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
 
 func TestDaemonManagementLifecycle(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +217,7 @@ func TestDaemonManagementLifecycle(t *testing.T) {
 }
 
 func TestDaemonManagementRejectsInvalidCommands(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	for _, args := range [][]string{
 		nil,
 		{"unknown"},

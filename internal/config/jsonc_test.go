@@ -5,7 +5,7 @@ import (
 )
 
 func TestReadWriteJSONRoundTrip(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	type state struct {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
@@ -72,7 +72,7 @@ func TestParseJSONCEdgeCases(t *testing.T) {
 }
 
 func TestReadJSONMissingFileErrors(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	var v map[string]any
 	if err := ReadJSON("nope.json", &v); err == nil {
 		t.Fatal("missing file should be an error the caller treats as empty")

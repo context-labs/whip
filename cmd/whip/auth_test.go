@@ -52,7 +52,7 @@ func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 }
 
 func TestAuthOpenRouterGoodKey(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
@@ -98,7 +98,7 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 }
 
 func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
@@ -120,7 +120,7 @@ func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
 }
 
 func TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.OpenRouterEnvVar, "")
 	keyPath := filepath.Join(t.TempDir(), "openrouter.key")
 	if err := os.WriteFile(keyPath, []byte("sk-or-file\n"), 0o600); err != nil {
@@ -149,7 +149,7 @@ func TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt(t *testing.T) {
 }
 
 func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-new")
 	defer srv.Close()
 
@@ -176,14 +176,14 @@ func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
 
 func TestAuthCLIDispatch(t *testing.T) {
 	if err := authCLI(nil); err == nil {
-		t.Error("bare `whip auth` should print usage")
+		t.Error("bare `whipcode auth` should print usage")
 	}
 	if err := authCLI([]string{"anthropic", "sk-x"}); err == nil {
 		t.Error("unknown provider should be rejected")
 	}
 	// openrouter with no key anywhere errors cleanly (no prompt in tests:
 	// stdin isn't a terminal, so the piped read hits EOF).
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.OpenRouterEnvVar, "")
 	if err := authCLI([]string{"openrouter"}); err == nil {
 		t.Error("openrouter with no key should error, not hang or write config")
@@ -242,7 +242,7 @@ func withStdin(t *testing.T, data string) {
 // An unparseable flag fails before anything is read or written, and an empty
 // answer at the prompt reports the missing key rather than calling the API.
 func TestAuthOpenRouterCLIArgs(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.OpenRouterEnvVar, "")
 
 	if err := authOpenRouterCLI([]string{"-nosuchflag"}); err == nil {
@@ -278,7 +278,7 @@ func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	if _, err := config.Load(); err != nil { // materialize the default config
 		t.Fatal(err)
 	}

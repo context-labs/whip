@@ -1,4 +1,4 @@
-// Package session persists the recursive runtime under ~/.whip/runtime-v2.
+// Package session persists the recursive runtime under ~/.whipcode/runtime-v2.
 package session
 
 import (
@@ -563,7 +563,7 @@ func (s *Store) UserHistoryContext(ctx context.Context, limit int) ([]string, er
 			continue // skip malformed rows rather than fail the whole recall
 		}
 		if !msg.Authored {
-			continue // injected by whip (steered task result / goal prompt), not typed
+			continue // injected by whipcode (steered task result / goal prompt), not typed
 		}
 		content := strings.TrimSpace(msg.TextContent())
 		if content == "" || seen[content] {

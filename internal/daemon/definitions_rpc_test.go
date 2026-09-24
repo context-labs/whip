@@ -11,7 +11,7 @@ import (
 )
 
 func TestDefinitionRegistryAcrossTransports(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	author := fixture.dial("unix", "definition-author")
 	reader := fixture.dial("websocket", "definition-reader")

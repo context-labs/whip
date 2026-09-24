@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// TestServeSelfHost builds `whip mcp serve` and connects to it as a real
+// TestServeSelfHost builds `whipcode mcp serve` and connects to it as a real
 // stdio MCP server — the full loop: config → manager → CommandTransport →
 // subprocess → served tools. Gated on WHIP_TEST_SELFHOST since it shells
 // out to `go build`.
 func TestServeSelfHost(t *testing.T) {
 	if os.Getenv("WHIP_TEST_SELFHOST") == "" {
-		t.Skip("builds the whip binary; set WHIP_TEST_SELFHOST=1 to run")
+		t.Skip("builds the whipcode binary; set WHIP_TEST_SELFHOST=1 to run")
 	}
 	bin := filepath.Join(t.TempDir(), "whip")
 	if out, err := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "../../cmd/whip").CombinedOutput(); err != nil {

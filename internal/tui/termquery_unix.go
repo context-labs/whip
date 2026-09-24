@@ -43,7 +43,7 @@ func queryTerminalBackground(tty *os.File, inTmux bool) bgResult {
 	// VMIN=0 + VTIME=1 (100ms): read returns 0 bytes when the terminal never
 	// replies. os.File.SetReadDeadline does NOT work on /dev/tty (not in the
 	// runtime poller on darwin), so without this the reads below block
-	// forever and whip hangs at startup (e.g. tmux with allow-passthrough off).
+	// forever and whipcode hangs at startup (e.g. tmux with allow-passthrough off).
 	raw.Cc[unix.VMIN] = 0
 	raw.Cc[unix.VTIME] = 1
 	if err := unix.IoctlSetTermios(fd, ioctlWriteTermios, &raw); err != nil {

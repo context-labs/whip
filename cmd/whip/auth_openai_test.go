@@ -13,7 +13,7 @@ import (
 
 func TestOpenAIAuthCLIStatusAndLogout(t *testing.T) {
 	directory := t.TempDir()
-	t.Setenv("WHIP_HOME", directory)
+	t.Setenv("WHIPCODE_HOME", directory)
 	auth := openaiauth.New(t.Context(), directory)
 	if err := auth.Install(t.Context(), auth.Generation(), openaiauth.Credentials{
 		AccessToken: "fixture-access", RefreshToken: "fixture-refresh", AccountID: "fixture-account",
@@ -61,7 +61,7 @@ func TestOpenAIAuthCLIRejectsInvalidOperations(t *testing.T) {
 
 func TestOpenAIAuthCLIMalformedCredentialsRequireRepairWithoutDisclosure(t *testing.T) {
 	directory := t.TempDir()
-	t.Setenv("WHIP_HOME", directory)
+	t.Setenv("WHIPCODE_HOME", directory)
 	if err := os.WriteFile(filepath.Join(directory, "openai-codex.json"), []byte(`{"accessToken":"private-fixture-secret"`), 0o600); err != nil {
 		t.Fatal(err)
 	}

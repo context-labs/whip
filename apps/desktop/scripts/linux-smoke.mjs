@@ -16,7 +16,8 @@ const run = async (...args) => (await exec(binary, args, { env, cwd: directory, 
 try {
   const info = JSON.parse(await run('_desktop-runtime-info'));
   assert.equal(info.distribution, 'whipcode'); assert.equal(info.updateOwner, 'standalone');
-  assert.equal(info.buildId, process.env.RELEASE_VERSION);
+  // Standalone CLI versions are v-prefixed semver; Electron's app version is bare.
+  assert.equal(info.buildId, `v${process.env.RELEASE_VERSION}`);
   const renderer = await readRendererManifest(path.join(repositoryRoot, 'apps/web/renderer-manifest.json'));
   await run('daemon', 'start');
   const status = JSON.parse(await run('daemon', 'status', '--json'));

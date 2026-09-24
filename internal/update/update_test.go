@@ -16,10 +16,10 @@ import (
 func TestDesktopUpdateChecksDoNotReadStateOrFetchBranchReleases(t *testing.T) {
 	previousOwner, previousFetch := buildinfo.UpdateOwner, fetchLatest
 	buildinfo.UpdateOwner = "desktop"
-	fetchLatest = func() (string, error) { t.Fatal("desktop queried standalone releases"); return "", nil }
+	fetchLatest = func(string) (string, error) { t.Fatal("desktop queried standalone releases"); return "", nil }
 	t.Cleanup(func() { buildinfo.UpdateOwner, fetchLatest = previousOwner, previousFetch })
 	home := filepath.Join(t.TempDir(), "absent")
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	if Check("v1.0.0") != "" || Pending("v1.0.0") != "" {
 		t.Fatal("desktop offered a standalone update")
 	}
@@ -38,10 +38,10 @@ func fetchErr() func() (string, error) {
 
 func TestStartupCheckPreservesNoticeForDevAndUnavailableHomes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	previous := fetchLatest
 	requests := 0
-	fetchLatest = func() (string, error) { requests++; return "v99.0.0", nil }
+	fetchLatest = func(string) (string, error) { requests++; return "v99.0.0", nil }
 	t.Cleanup(func() { fetchLatest = previous })
 	notice := filepath.Join(home, noticeFile)
 	before := []byte(`{"latest":"v99.0.0","acknowledged":false}`)
@@ -54,7 +54,7 @@ func TestStartupCheckPreservesNoticeForDevAndUnavailableHomes(t *testing.T) {
 	if after, err := os.ReadFile(notice); err != nil || string(after) != string(before) {
 		t.Fatalf("development build changed release notice: %q, %v", after, err)
 	}
-	t.Setenv("WHIP_HOME", filepath.Join(notice, "not-a-directory"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(notice, "not-a-directory"))
 	if result := Check("v1.0.0"); result != "" || requests != 0 {
 		t.Fatalf("unavailable state directory blocked startup or queried updates: %q, %d", result, requests)
 	}
@@ -64,16 +64,16 @@ func TestStartupCheckPreservesNoticeForDevAndUnavailableHomes(t *testing.T) {
 // returned so the startup report can name it.
 func TestCheckNewerRelease(t *testing.T) {
 	p := filepath.Join(t.TempDir(), noticeFile)
-	got := check("v0.3.0", p, fetchOK("v0.4.0"), time.Now())
-	if got != "v0.4.0" {
-		t.Fatalf("check = %q, want v0.4.0", got)
+	got := check("v1.3.0", "stable", p, fetchOK("v1.4.0"), time.Now())
+	if got != "v1.4.0" {
+		t.Fatalf("check = %q, want v1.4.0", got)
 	}
 	n, err := readNotice(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Latest != "v0.4.0" || n.Acknowledged {
-		t.Errorf("notice = %+v, want Latest v0.4.0 unacknowledged", n)
+	if n.Latest != "v1.4.0" || n.Acknowledged {
+		t.Errorf("notice = %+v, want Latest v1.4.0 unacknowledged", n)
 	}
 }
 
@@ -86,10 +86,10 @@ func TestCheckSkips(t *testing.T) {
 
 	// Pending unacknowledged notice for a release not yet installed.
 	p := filepath.Join(t.TempDir(), noticeFile)
-	if err := writeNotice(p, Notice{CheckedAt: now.Add(-365 * 24 * time.Hour), Latest: "v0.4.0"}); err != nil {
+	if err := writeNotice(p, Notice{Channel: "stable", CheckedAt: now.Add(-365 * 24 * time.Hour), Latest: "v1.4.0"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := check("v0.3.0", p, spy, now); got != "" {
+	if got := check("v1.3.0", "stable", p, spy, now); got != "" {
 		t.Errorf("pending notice: check = %q, want \"\"", got)
 	}
 	if called {
@@ -98,10 +98,10 @@ func TestCheckSkips(t *testing.T) {
 
 	// Fresh TTL, nothing pending.
 	p2 := filepath.Join(t.TempDir(), noticeFile)
-	if err := writeNotice(p2, Notice{CheckedAt: now.Add(-time.Hour)}); err != nil {
+	if err := writeNotice(p2, Notice{Channel: "stable", CheckedAt: now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if got := check("v0.3.0", p2, spy, now); got != "" {
+	if got := check("v1.3.0", "stable", p2, spy, now); got != "" {
 		t.Errorf("fresh TTL: check = %q, want \"\"", got)
 	}
 	if called {
@@ -110,7 +110,7 @@ func TestCheckSkips(t *testing.T) {
 
 	// Dev builds never nag.
 	p3 := filepath.Join(t.TempDir(), noticeFile)
-	if got := check("dev", p3, spy, now); got != "" {
+	if got := check("dev", "stable", p3, spy, now); got != "" {
 		t.Errorf("dev build: check = %q, want \"\"", got)
 	}
 	if called {
@@ -123,10 +123,10 @@ func TestCheckSkips(t *testing.T) {
 func TestCheckStaleTTLRefetches(t *testing.T) {
 	p := filepath.Join(t.TempDir(), noticeFile)
 	old := time.Now().Add(-48 * time.Hour)
-	if err := writeNotice(p, Notice{CheckedAt: old, Latest: "v0.3.0", Acknowledged: true}); err != nil {
+	if err := writeNotice(p, Notice{Channel: "stable", CheckedAt: old, Latest: "v1.3.0", Acknowledged: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := check("v0.3.0", p, fetchOK("v0.3.0"), time.Now()); got != "" {
+	if got := check("v1.3.0", "stable", p, fetchOK("v1.3.0"), time.Now()); got != "" {
 		t.Fatalf("check = %q, want \"\" (already on latest)", got)
 	}
 	n, err := readNotice(p)
@@ -145,7 +145,7 @@ func TestCheckStaleTTLRefetches(t *testing.T) {
 // attempt, so every launch doesn't hammer the API.
 func TestCheckFetchFailure(t *testing.T) {
 	p := filepath.Join(t.TempDir(), noticeFile)
-	if got := check("v0.3.0", p, fetchErr(), time.Now()); got != "" {
+	if got := check("v1.3.0", "stable", p, fetchErr(), time.Now()); got != "" {
 		t.Fatalf("check = %q, want \"\"", got)
 	}
 	n, err := readNotice(p)
@@ -158,21 +158,21 @@ func TestCheckFetchFailure(t *testing.T) {
 }
 
 // TestCheckOutOfBandUpdate: the user updated via curl|sh (never ran
-// `whip update`), so the notice for the now-installed release is stale and
+// `whipcode update`), so the notice for the now-installed release is stale and
 // unacknowledged. check clears it and resumes checking — otherwise they'd
 // never hear about a new release again.
 func TestCheckOutOfBandUpdate(t *testing.T) {
 	p := filepath.Join(t.TempDir(), noticeFile)
-	// The notice was written days ago; the user has since installed v0.4.0.
+	// The notice was written days ago; the user has since installed v1.4.0.
 	old := time.Now().Add(-48 * time.Hour)
-	if err := writeNotice(p, Notice{CheckedAt: old, Latest: "v0.4.0"}); err != nil {
+	if err := writeNotice(p, Notice{Channel: "stable", CheckedAt: old, Latest: "v1.4.0"}); err != nil {
 		t.Fatal(err)
 	}
 	called := false
-	spy := func() (string, error) { called = true; return "v0.5.0", nil }
-	// Now ON v0.4.0: the stale notice must not suppress the check.
-	if got := check("v0.4.0", p, spy, time.Now()); got != "v0.5.0" {
-		t.Fatalf("check = %q, want v0.5.0", got)
+	spy := func() (string, error) { called = true; return "v1.5.0", nil }
+	// Now ON v1.4.0: the stale notice must not suppress the check.
+	if got := check("v1.4.0", "stable", p, spy, time.Now()); got != "v1.5.0" {
+		t.Fatalf("check = %q, want v1.5.0", got)
 	}
 	if !called {
 		t.Error("stale notice suppressed the fetch")
@@ -181,8 +181,8 @@ func TestCheckOutOfBandUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Latest != "v0.5.0" {
-		t.Errorf("notice Latest = %q, want v0.5.0", n.Latest)
+	if n.Latest != "v1.5.0" {
+		t.Errorf("notice Latest = %q, want v1.5.0", n.Latest)
 	}
 }
 
@@ -193,9 +193,9 @@ func TestCheckCorruptNotice(t *testing.T) {
 	if err := os.WriteFile(p, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := check("v0.3.0", p, fetchOK("v0.4.0"), time.Now())
-	if got != "v0.4.0" {
-		t.Fatalf("check = %q, want v0.4.0", got)
+	got := check("v1.3.0", "stable", p, fetchOK("v1.4.0"), time.Now())
+	if got != "v1.4.0" {
+		t.Fatalf("check = %q, want v1.4.0", got)
 	}
 	if _, err := readNotice(p); err != nil {
 		t.Fatal("corrupt notice was not rewritten:", err)
@@ -208,18 +208,18 @@ func TestNewer(t *testing.T) {
 		current, latest string
 		want            bool
 	}{
-		{"v0.3.0", "v0.4.0", true},
-		{"v0.3.0", "v0.3.1", true},
-		{"v0.3.0", "v1.0.0", true},
-		{"0.3.0", "0.4.0", true}, // missing v prefix tolerated
-		{"v0.3.0", "v0.3.0", false},
-		{"v0.4.0", "v0.3.0", false},
-		{"v0.3.0", "v0.3.0-rc.1", false}, // prerelease of the same version
-		{"v0.3.0-rc.1", "v0.3.0", true},
-		{"dev", "v0.4.0", false},
-		{"v0.3.0", "", false},
-		{"v0.3.0", "garbage", false},
-		{"v0.3", "v0.4.0", false},
+		{"v1.3.0", "v1.4.0", true},
+		{"v1.3.0", "v1.3.1", true},
+		{"v1.3.0", "v2.0.0", true},
+		{"1.3.0", "1.4.0", false}, // canonical v prefix required
+		{"v1.3.0", "v1.3.0", false},
+		{"v1.4.0", "v1.3.0", false},
+		{"v1.3.0", "v1.3.0-rc.1", false}, // prerelease of the same version
+		{"v1.3.0-rc.1", "v1.3.0", true},
+		{"dev", "v1.4.0", false},
+		{"v1.3.0", "", false},
+		{"v1.3.0", "garbage", false},
+		{"v1.3", "v1.4.0", false},
 	}
 	for _, c := range cases {
 		if got := Newer(c.current, c.latest); got != c.want {
@@ -232,22 +232,22 @@ func TestNewer(t *testing.T) {
 // notices; Acknowledge silences them.
 func TestPendingAndAcknowledge(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 
-	if got := Pending("v0.3.0"); got != "" {
+	if got := Pending("v1.3.0"); got != "" {
 		t.Fatalf("no notice: Pending = %q, want \"\"", got)
 	}
-	if err := writeNotice(filepath.Join(home, noticeFile), Notice{CheckedAt: time.Now(), Latest: "v0.4.0"}); err != nil {
+	if err := writeNotice(filepath.Join(home, noticeFile), Notice{Channel: "stable", CheckedAt: time.Now(), Latest: "v1.4.0"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := Pending("v0.3.0"); got != "v0.4.0" {
-		t.Fatalf("Pending = %q, want v0.4.0", got)
+	if got := Pending("v1.3.0"); got != "v1.4.0" {
+		t.Fatalf("Pending = %q, want v1.4.0", got)
 	}
-	if got := Pending("v0.4.0"); got != "" {
+	if got := Pending("v1.4.0"); got != "" {
 		t.Errorf("already on latest: Pending = %q, want \"\"", got)
 	}
 	Acknowledge()
-	if got := Pending("v0.3.0"); got != "" {
+	if got := Pending("v1.3.0"); got != "" {
 		t.Errorf("after Acknowledge: Pending = %q, want \"\"", got)
 	}
 	// Acknowledge is a no-op with nothing pending, and notice JSON stays valid.
@@ -266,10 +266,12 @@ func TestPendingAndAcknowledge(t *testing.T) {
 }
 
 // fetchLatestGitHub parses the tag from a GitHub releases response and errors
-// on non-200 / empty tag. latestURL is swapped for a mock server.
+// on non-200 / empty tag. releasesURL is swapped for a mock server.
 func TestFetchLatestGitHub(t *testing.T) {
-	orig := latestURL
-	defer func() { latestURL = orig }()
+	t.Setenv("PATH", t.TempDir()) // never read the developer's gh credentials
+	t.Setenv("GH_TOKEN", "test-token")
+	orig := releasesURL
+	defer func() { releasesURL = orig }()
 	// Relax the fetch timeout: the 2s production bound races under
 	// `-race -shuffle=on` on a loaded CI runner (a localhost request took
 	// 2.1s and flaked the suite).
@@ -280,11 +282,11 @@ func TestFetchLatestGitHub(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v9.9.9"})
+			_ = json.NewEncoder(w).Encode([]githubRelease{releaseFixture("v9.9.9")})
 		}))
 		defer srv.Close()
-		latestURL = srv.URL
-		tag, err := fetchLatestGitHub()
+		releasesURL = srv.URL
+		tag, err := fetchLatestGitHub("stable")
 		if err != nil || tag != "v9.9.9" {
 			t.Fatalf("tag=%q err=%v", tag, err)
 		}
@@ -294,18 +296,18 @@ func TestFetchLatestGitHub(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
-		latestURL = srv.URL
-		if _, err := fetchLatestGitHub(); err == nil {
+		releasesURL = srv.URL
+		if _, err := fetchLatestGitHub("stable"); err == nil {
 			t.Fatal("expected error on 404")
 		}
 	})
 	t.Run("empty tag", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": ""})
+			_ = json.NewEncoder(w).Encode([]githubRelease{})
 		}))
 		defer srv.Close()
-		latestURL = srv.URL
-		if _, err := fetchLatestGitHub(); err == nil {
+		releasesURL = srv.URL
+		if _, err := fetchLatestGitHub("stable"); err == nil {
 			t.Fatal("expected error on empty tag_name")
 		}
 	})

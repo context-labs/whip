@@ -710,7 +710,7 @@ func (m *controlSurfaceMCP) record(action, name string) bool {
 }
 
 func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
@@ -777,7 +777,7 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 }
 
 func TestClientControlRejectsRootRuntimeMutationDuringTurn(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
@@ -1049,7 +1049,7 @@ func (*reloadTestRuntime) Close()                   {}
 func (r *reloadTestRuntime) HasRunningAgents() bool { return r.running.Load() }
 
 func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runtime := &reloadTestRuntime{}
@@ -1095,7 +1095,7 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 
 func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(t *testing.T) {
 	t.Run("explicit off", func(t *testing.T) {
-		t.Setenv("WHIP_HOME", t.TempDir())
+		t.Setenv("WHIPCODE_HOME", t.TempDir())
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)
 		runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
@@ -1119,7 +1119,7 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 	})
 
 	t.Run("model compatibility is session only", func(t *testing.T) {
-		t.Setenv("WHIP_HOME", t.TempDir())
+		t.Setenv("WHIPCODE_HOME", t.TempDir())
 		cfg := config.Default()
 		cfg.DefaultEffort = "high"
 		cfg.Providers["limited-provider"] = config.Provider{BaseURL: "https://example.test"}
@@ -1212,7 +1212,7 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 }
 
 func TestProductionAgentRunnerControlAdapters(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"formed goal"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}`)

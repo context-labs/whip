@@ -27,7 +27,7 @@ import (
 
 func providerConnectionsFixture(t *testing.T) *ProviderService {
 	t.Helper()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.InferenceNetEnvVar, "")
 	t.Setenv(config.OpenRouterEnvVar, "")
@@ -64,7 +64,7 @@ func TestProviderInventoryReportsWinningSourceWithoutExecutingSecrets(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(os.Getenv("WHIP_HOME"), "config.json"))
+	before, err := os.ReadFile(filepath.Join(os.Getenv("WHIPCODE_HOME"), "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestProviderInventoryReportsWinningSourceWithoutExecutingSecrets(t *testing
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("inventory executed a secret command")
 	}
-	after, _ := os.ReadFile(filepath.Join(os.Getenv("WHIP_HOME"), "config.json"))
+	after, _ := os.ReadFile(filepath.Join(os.Getenv("WHIPCODE_HOME"), "config.json"))
 	if string(before) != string(after) {
 		t.Fatal("inventory changed saved configuration")
 	}

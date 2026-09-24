@@ -1,7 +1,7 @@
 //go:build darwin
 
 // embed_darwin.go — extract the embedded whip-computer helper to a stable
-// path (~/.whip/bin/whip-computer) on first use (plan §"Why embed": stable
+// path (~/.whipcode/bin/whip-computer) on first use (plan §"Why embed": stable
 // path + stable signature = sticky TCC). If no helper is embedded (fresh
 // clone before `task driver`), fall back to the driver build tree for dev;
 // otherwise computer-use's native tier is unavailable and callers keep the
@@ -34,7 +34,7 @@ func helperDest() (string, error) {
 	return filepath.Join(buildinfo.Home(home), "bin", "whip-computer"), nil
 }
 
-// ensureHelperBinary extracts the embedded helper to ~/.whip/bin (once —
+// ensureHelperBinary extracts the embedded helper to ~/.whipcode/bin (once —
 // skipped when the on-disk file already matches the embedded bytes). With an
 // empty embed (placeholder), prefer the dev build tree.
 func ensureHelperBinary() (string, error) {
@@ -55,7 +55,7 @@ func ensureHelperBinary() (string, error) {
 		}
 		return "", errors.New("no whip-computer helper embedded and none built — run `task driver` (macOS, needs Xcode CLT)")
 	}
-	if existing, err := os.ReadFile(dest); err == nil && bytesEqual(existing, helperBinary) { //nolint:gosec // dest is fixed under ~/.whip/bin
+	if existing, err := os.ReadFile(dest); err == nil && bytesEqual(existing, helperBinary) { //nolint:gosec // dest is fixed under ~/.whipcode/bin
 		return dest, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {

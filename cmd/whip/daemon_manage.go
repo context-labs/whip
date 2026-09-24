@@ -58,7 +58,7 @@ type daemonStatus struct {
 
 func daemonManageCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon <status|start|stop|restart|logs>"))
+		return errors.New("usage: whipcode daemon <status|start|stop|restart|logs>")
 	}
 	switch args[0] {
 	case "status":
@@ -72,7 +72,7 @@ func daemonManageCLI(args []string) error {
 	case "logs":
 		return daemonLogsCLI(args[1:])
 	default:
-		return fmt.Errorf(buildinfo.Text("unknown whip daemon subcommand %q (want: status, start, stop, restart, or logs)"), args[0])
+		return fmt.Errorf("unknown whipcode daemon subcommand %q (want: status, start, stop, restart, or logs)", args[0])
 	}
 }
 
@@ -113,13 +113,13 @@ func daemonStatusPaths() (daemon.RuntimePaths, error) {
 }
 
 func daemonStatusCLI(args []string) error {
-	flags := flag.NewFlagSet(buildinfo.Text("whip daemon status"), flag.ContinueOnError)
+	flags := flag.NewFlagSet("whipcode daemon status", flag.ContinueOnError)
 	jsonOutput := flags.Bool("json", false, "print machine-readable status")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon status [--json]"))
+		return errors.New("usage: whipcode daemon status [--json]")
 	}
 	paths, err := daemonStatusPaths()
 	if err != nil {
@@ -143,9 +143,9 @@ func daemonStatusCLI(args []string) error {
 
 func daemonStartCLI(args []string) error {
 	if len(args) != 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon start (web gateway disabled by default; " +
-			"WHIP_NETWORK=1 starts a managed gateway, WHIP_LISTEN selects a trusted bind, " +
-			"WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS set exact allowlists)"))
+		return errors.New("usage: whipcode daemon start (web gateway disabled by default; " +
+			"WHIPCODE_NETWORK=1 starts a managed gateway, WHIPCODE_LISTEN selects a trusted bind, " +
+			"WHIPCODE_ALLOWED_ORIGINS and WHIPCODE_ALLOWED_HOSTS set exact allowlists)")
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {
@@ -158,7 +158,7 @@ func daemonStartCLI(args []string) error {
 	if status.State == "running" {
 		fmt.Printf("daemon already running (pid %s, build %s)\n", printablePID(status.PID), status.DaemonBuild)
 		if !status.BuildMatch {
-			fmt.Printf(buildinfo.Text("warning: current CLI build is %s; run `whip daemon restart` to replace the daemon\n"), version)
+			fmt.Printf("warning: current CLI build is %s; run `whipcode daemon restart` to replace the daemon\n", version)
 		}
 		return nil
 	}
@@ -212,20 +212,20 @@ func daemonRestartCLI(args []string) error {
 }
 
 func daemonLifecycleFlags(name string, args []string) (time.Duration, bool, error) {
-	flags := flag.NewFlagSet(buildinfo.Text("whip daemon ")+name, flag.ContinueOnError)
+	flags := flag.NewFlagSet("whipcode daemon "+name, flag.ContinueOnError)
 	timeout := flags.Duration("timeout", daemonManageTimeout, "time to wait for a clean lifecycle transition")
 	force := flags.Bool("force", false, "terminate the recorded daemon process if graceful shutdown fails")
 	if err := flags.Parse(args); err != nil {
 		return 0, false, err
 	}
 	if flags.NArg() != 0 || *timeout <= 0 {
-		return 0, false, fmt.Errorf(buildinfo.Text("usage: whip daemon %s [--timeout 10s] [--force]"), name)
+		return 0, false, fmt.Errorf("usage: whipcode daemon %s [--timeout 10s] [--force]", name)
 	}
 	return *timeout, *force, nil
 }
 
 func daemonLogsCLI(args []string) error {
-	flags := flag.NewFlagSet(buildinfo.Text("whip daemon logs"), flag.ContinueOnError)
+	flags := flag.NewFlagSet("whipcode daemon logs", flag.ContinueOnError)
 	follow := flags.Bool("f", false, "follow appended log output")
 	web := flags.Bool("web", false, "read the managed gateway log instead of the daemon log")
 	lines := flags.Int("n", 200, "number of lines to print")
@@ -233,7 +233,7 @@ func daemonLogsCLI(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 || *lines <= 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon logs [--web] [-f] [-n 200]"))
+		return errors.New("usage: whipcode daemon logs [--web] [-f] [-n 200]")
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {

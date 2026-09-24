@@ -40,7 +40,7 @@ type Message struct {
 	// name") — without it every tool-using turn 400s.
 	Name string `json:"name,omitempty"`
 	// Authored marks a user message the human actually typed and submitted, as
-	// opposed to one whip injected on their behalf (steered background-task
+	// opposed to one whipcode injected on their behalf (steered background-task
 	// results, goal-check continuations). Internal only — never sent to the
 	// provider. Used so input-history recall cycles only real submissions.
 	Authored bool `json:"authored,omitempty"`

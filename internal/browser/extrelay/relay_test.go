@@ -141,7 +141,7 @@ func TestNoTabAttachedErrors(t *testing.T) {
 	cdp := dialWS(t, "ws://"+r.Addr()+"/cdp")
 	defer cdp.Close()
 	writeCli(t, cdp, `{"id":5,"method":"Runtime.evaluate","params":{"expression":"1"}}`)
-	if resp := readSrv(t, cdp); !strings.Contains(resp, "click the whip extension icon") {
+	if resp := readSrv(t, cdp); !strings.Contains(resp, "click the whipcode extension icon") {
 		t.Fatalf("want actionable no-tab error, got %s", resp)
 	}
 }

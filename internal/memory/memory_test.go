@@ -95,10 +95,10 @@ func TestForgetPreservesUserProse(t *testing.T) {
 	}
 }
 
-// Scope constructors resolve under the whip home (WHIP_HOME overrides it).
+// Scope constructors resolve under the whipcode home (WHIPCODE_HOME overrides it).
 func TestScopeConstructors(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 
 	inst := Installation()
 	if inst.Path != filepath.Join(home, "memory.md") || inst.Name != "installation" {
@@ -122,7 +122,7 @@ func TestScopeConstructors(t *testing.T) {
 	if err := zero.Forget(1); err == nil {
 		t.Fatal("forget on the zero scope should error")
 	}
-	// constructors and the round-trip compose: remember lands in WHIP_HOME
+	// constructors and the round-trip compose: remember lands in WHIPCODE_HOME
 	if err := inst.Remember("a fact"); err != nil {
 		t.Fatal(err)
 	}

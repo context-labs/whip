@@ -3,7 +3,7 @@
 // (`name(arg, ...)`), arguments are JSON values, and `print(expr)` where
 // expr is a helper call or a quoted string. js(...) payloads pass through
 // to the page verbatim. Simple semantics keep the model reliable and the
-// parser ~100 lines with no eval surface in whip itself.
+// parser ~100 lines with no eval surface in whipcode itself.
 
 package tools
 

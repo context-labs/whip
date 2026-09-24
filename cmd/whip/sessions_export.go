@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -23,7 +22,7 @@ import (
 // HALO desktop and inference.net enforce, with headroom for the envelope.
 const otlpPushBatchBytes = 4<<20 - 64<<10
 
-// `whip sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]`
+// `whipcode sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]`
 // renders a session's spans as one OTLP/JSON ExportTraceServiceRequest. The
 // daemon builds the document; the CLI fetches it through bounded content reads
 // and either writes it or posts it to an OTLP/HTTP endpoint in gzip batches.
@@ -34,7 +33,7 @@ func sessionsExportCLI(args []string) error {
 	push := fs.String("push", "", "POST the export to an OTLP/HTTP endpoint instead of writing a file, e.g. http://127.0.0.1:8799/v1/traces")
 	token := fs.String("token", os.Getenv("INFERENCE_API_KEY"), "bearer token for -push (default $INFERENCE_API_KEY)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]"))
+		fmt.Fprintln(os.Stderr, "usage: whipcode sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]")
 		fs.PrintDefaults()
 	}
 	// The standard parser stops at the first positional argument; accept flags

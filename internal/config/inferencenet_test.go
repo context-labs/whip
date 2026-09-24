@@ -6,42 +6,14 @@ import (
 	"testing"
 )
 
-func TestNormalizeRenamesInferenceProvider(t *testing.T) {
-	cfg := &Config{
-		DefaultProvider: "inference",
-		CompactProvider: "inference",
-		Providers: map[string]Provider{
-			"inference": {Name: "Inference.net", BaseURL: InferenceNetBaseURL, API: "openai-completions"},
-		},
-		Models: map[string]Model{
-			"kimi-k3": {Providers: []string{"inference", "openrouter"}},
-		},
-	}
-	cfg.normalize()
-
-	if _, ok := cfg.Providers["inference"]; ok {
-		t.Error("legacy \"inference\" provider not removed")
+func TestUpsertInferenceNetPreservesOtherProviders(t *testing.T) {
+	cfg := &Config{Providers: map[string]Provider{"inference": {Name: "User-defined provider"}}}
+	cfg.UpsertInferenceNet("", false)
+	if cfg.Providers["inference"].Name != "User-defined provider" {
+		t.Fatal("upsert rewrote a user-defined provider")
 	}
 	if _, ok := cfg.Providers[InferenceNetProvider]; !ok {
-		t.Fatal("provider not renamed to inference-net")
-	}
-	if got := cfg.Models["kimi-k3"].Providers; got[0] != "inference-net" || got[1] != "openrouter" {
-		t.Errorf("model route not migrated: %v", got)
-	}
-	if cfg.DefaultProvider != "inference-net" || cfg.CompactProvider != "inference-net" {
-		t.Errorf("default/compact provider not migrated: %+v", cfg)
-	}
-}
-
-func TestNormalizeNoLegacyIsNoop(t *testing.T) {
-	cfg := Default()
-	before := len(cfg.Providers)
-	cfg.normalize()
-	if len(cfg.Providers) != before {
-		t.Errorf("normalize changed a fresh Default: %v", cfg.Providers)
-	}
-	if _, ok := cfg.Providers[InferenceNetProvider]; !ok {
-		t.Error("Default should already use inference-net")
+		t.Fatal("canonical provider missing")
 	}
 }
 
@@ -67,7 +39,7 @@ func TestUpsertInferenceNetModes(t *testing.T) {
 
 func TestProviderKeyFallsBackToStoredMachineKey(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	keyFile := filepath.Join(home, "inference-net.json")
 	if err := os.WriteFile(keyFile, []byte(`{"machineKey":"mk-stored"}`), 0o600); err != nil {
 		t.Fatal(err)

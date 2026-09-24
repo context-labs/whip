@@ -27,7 +27,7 @@ func (f subscriptionRuntimeTransport) RoundTrip(request *http.Request) (*http.Re
 }
 
 func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	providers := NewProviderService(t.Context(), "subscription-runtime")
 	t.Cleanup(providers.Close)
 	if err := providers.openAI.Install(t.Context(), providers.openAI.Generation(), openAITestCredentials()); err != nil {

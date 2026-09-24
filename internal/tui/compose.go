@@ -252,7 +252,7 @@ func rect(x, y, w, h int) uv.Rectangle { return uv.Rect(x, y, max(w, 0), max(h, 
 func (m *model) screen(w, h int) *uv.ScreenBuffer {
 	if m.scr == nil || m.scr.Width() != w || m.scr.Height() != h {
 		scr := uv.NewScreenBuffer(w, h)
-		scr.Method = ansi.GraphemeWidth // every whip measurement is grapheme-based (lipgloss.Width)
+		scr.Method = ansi.GraphemeWidth // every whipcode measurement is grapheme-based (lipgloss.Width)
 		m.scr = &scr
 		return m.scr
 	}
@@ -318,7 +318,7 @@ func (m *model) View() tea.View {
 	view.AltScreen = true
 	if m.mouseOn {
 		// Button-motion (?1002) reports drags without the hover flood of
-		// all-motion. tmux forwards drags to whip only under all-motion
+		// all-motion. tmux forwards drags to whipcode only under all-motion
 		// (mouse_any_flag), so it keeps ?1003 there.
 		view.MouseMode = tea.MouseModeCellMotion
 		if inTmuxEnv() {

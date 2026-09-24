@@ -15,7 +15,7 @@ func promptFixture(t *testing.T) PromptOptions {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("WHIP_HOME", filepath.Join(home, "whip"))
+	t.Setenv("WHIPCODE_HOME", filepath.Join(home, "whip"))
 	cwd, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestComposePromptIncludesActualEnvironmentAndOrderedSources(t *testing.T) {
 		{filepath.Join(root, "AGENTS.md"), "# A real heading\nROOT_AGENTS_MARKER"},
 		{filepath.Join(options.WorkingDirectory, "CLAUDE.md"), "NESTED_CLAUDE_MARKER"},
 		{filepath.Join(options.WorkingDirectory, "AGENTS.md"), "NESTED_AGENTS_MARKER"},
-		{filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "# OMIT_COMMENT\n\n STANDING_USER_MARKER \n"},
+		{filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "# OMIT_COMMENT\n\n STANDING_USER_MARKER \n"},
 	}
 	for _, file := range files {
 		writePromptFile(t, file.path, file.content)
@@ -100,7 +100,7 @@ func TestComposePromptRefreshesStandingRulesAndWorkingDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	me := filepath.Join(os.Getenv("WHIP_HOME"), "me.md")
+	me := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 	writePromptFile(t, me, "BEFORE_USER_EDIT")
 	writePromptFile(t, filepath.Join(firstCWD, "AGENTS.md"), "FIRST_PROJECT_RULE")
 	writePromptFile(t, filepath.Join(secondCWD, "AGENTS.md"), "SECOND_PROJECT_RULE")
@@ -166,7 +166,7 @@ func TestComposePromptFiltersDeniedProjectContextAndKeepsGlobalSources(t *testin
 	writePromptFile(t, filepath.Join(child, "AGENTS.md"), "ALLOWED_CHILD_RULE")
 	writePromptFile(t, filepath.Join(child, ".agents", "skills", "child", "SKILL.md"), "---\ndescription: ALLOWED_CHILD_SKILL\n---\n")
 	writePromptFile(t, config.MePath(), "GLOBAL_USER_RULE")
-	writePromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "user", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
+	writePromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "skills", "user", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
 	options.ProjectDirectoryAllowed = func(path string) (bool, error) { return directoryContains(child, path), nil }
 	snapshot, err := ComposePrompt(options)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestComposePromptProjectSkillAliasesCannotEscapeAuthority(t *testing.T) {
 			}
 			globalTarget := filepath.Join(outside, "global.md")
 			writePromptFile(t, globalTarget, "---\nname: global\ndescription: TRUSTED_GLOBAL_ALIAS\n---\n")
-			globalLink := filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md")
+			globalLink := filepath.Join(os.Getenv("WHIPCODE_HOME"), "skills", "global", "SKILL.md")
 			if err := os.MkdirAll(filepath.Dir(globalLink), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -248,7 +248,7 @@ func TestComposePromptSkillsReflectScopedCatalogAndExplicitEntries(t *testing.T)
 	skills := []struct{ path, description string }{
 		{filepath.Join(options.WorkingDirectory, ".agents", "skills", "local", "SKILL.md"), "LOCAL_CATALOG_MARKER"},
 		{filepath.Join(root, ".agents", "skills", "ancestor", "SKILL.md"), "ANCESTOR_CATALOG_MARKER"},
-		{filepath.Join(os.Getenv("WHIP_HOME"), "skills", "user", "SKILL.md"), "USER_CATALOG_MARKER"},
+		{filepath.Join(os.Getenv("WHIPCODE_HOME"), "skills", "user", "SKILL.md"), "USER_CATALOG_MARKER"},
 		{filepath.Join(os.Getenv("HOME"), ".agents", "skills", "shared", "SKILL.md"), "SHARED_CATALOG_MARKER"},
 	}
 	for _, skill := range skills {
@@ -315,13 +315,13 @@ func TestComposePromptRejectsIncompleteApplicableRules(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "standing-oversized":
-				writePromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), strings.Repeat("x", config.MaxMeInstructionBytes+1))
+				writePromptFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), strings.Repeat("x", config.MaxMeInstructionBytes+1))
 			case "standing-directory":
-				if err := os.MkdirAll(filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), 0o700); err != nil {
+				if err := os.MkdirAll(filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), 0o700); err != nil {
 					t.Fatal(err)
 				}
 			case "bad-config-home":
-				writePromptFile(t, os.Getenv("WHIP_HOME"), "not a directory")
+				writePromptFile(t, os.Getenv("WHIPCODE_HOME"), "not a directory")
 			case "bad-cwd":
 				options.WorkingDirectory = filepath.Join(options.WorkingDirectory, "missing")
 			case "skill-frontmatter":

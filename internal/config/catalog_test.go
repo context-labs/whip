@@ -59,7 +59,7 @@ func TestCatalogEffortsNormalizesOffAndMissingModels(t *testing.T) {
 }
 
 func TestCatalogPricingRoundTrip(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	free := llm.Pricing{Prompt: "0", Completion: "0", InputCacheRead: "0"}
 	paid := llm.Pricing{Prompt: "0.000001", Completion: "0.000005", InputCacheRead: "0.0000001"}
 	cats := map[string]Catalog{
@@ -97,7 +97,7 @@ func TestCatalogStale(t *testing.T) {
 }
 
 func TestCatalogDiscoveryVersionSurvivesRestart(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	catalog := Catalog{FetchedAt: time.Now(), Models: []ModelInfoLite{{ID: "future-model"}}}
 	if !catalog.NeedsDiscovery() {
 		t.Fatal("legacy allowlist cache should refresh before TTL expiry")

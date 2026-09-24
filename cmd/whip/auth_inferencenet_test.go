@@ -14,7 +14,7 @@ import (
 )
 
 func TestAuthInferenceNetDispatch(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	// Unknown subcommand is rejected.
 	if err := authCLI([]string{"inference-net", "bogus"}); err == nil {
 		t.Error("unknown subcommand should error")
@@ -30,7 +30,7 @@ func TestAuthInferenceNetDispatch(t *testing.T) {
 }
 
 func TestAuthInferenceNetBYOKNoKey(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.InferenceNetEnvVar, "")
 	if err := authCLI([]string{"inference-net", "login", "--key", ""}); err == nil {
 		t.Error("BYOK with no key should error")
@@ -39,7 +39,7 @@ func TestAuthInferenceNetBYOKNoKey(t *testing.T) {
 
 func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
 	useTestDaemon(t)
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	if err := authCLI([]string{"inference-net", "status"}); err != nil {
 		t.Errorf("status on a fresh home should not error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
 
 func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
 	useTestDaemon(t)
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	// Point the remote calls at a dead local port so they fail fast (and the
 	// test never reaches the real relay); the local state is still cleared.
 	defer inferencenet.SetURLsForTest("http://127.0.0.1:1", "", "")()
@@ -74,7 +74,7 @@ func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
 }
 
 func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv(config.InferenceNetEnvVar, "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer good" {
@@ -233,7 +233,7 @@ func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	defer inferencenet.SetURLsForTest(server.URL, server.URL, server.URL)()
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // openBrowser reports false without launching an app
 
 	reader, writer, err := os.Pipe()

@@ -8,7 +8,7 @@ import (
 func TestDefaultPermissionModePersistence(t *testing.T) {
 	for _, mode := range []string{"", "prompt", "automatic"} {
 		t.Run("mode="+mode, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			cfg := Default()
 			cfg.DefaultPermissionMode = mode
 			if err := cfg.Save(); err != nil {

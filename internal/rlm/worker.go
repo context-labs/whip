@@ -31,7 +31,7 @@ const (
 )
 
 // WorkerMain runs the authority-free side of the RLM protocol. It is public
-// so the hidden whip entrypoint and subprocess tests use the identical path.
+// so the hidden whipcode entrypoint and subprocess tests use the identical path.
 func WorkerMain(args []string, input io.Reader, output io.Writer) error {
 	if raceEnabled {
 		return workerMain(args, input, output, applySoftMemoryLimit)

@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if err = os.Setenv("HOME", home); err == nil {
-		err = os.Setenv("WHIP_HOME", filepath.Join(home, ".whip"))
+		err = os.Setenv("WHIPCODE_HOME", filepath.Join(home, ".whipcode"))
 	}
 	if err == nil {
 		err = os.Unsetenv("XDG_CONFIG_HOME") // OpenCode discovery would read it before HOME

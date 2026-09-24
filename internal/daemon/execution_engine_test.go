@@ -18,7 +18,7 @@ import (
 )
 
 func TestSessionCreateFreezesEngineBeforeDefaultsChange(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	if _, _, err := config.UpdateVersioned("", func(c *config.Config) error { c.RLM.DefaultEngine = "quickjs"; return nil }); err != nil {
 		t.Fatal(err)
 	}

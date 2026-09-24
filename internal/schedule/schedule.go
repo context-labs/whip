@@ -2,7 +2,7 @@
 // wakeup channel: '@every 10m' for interval work, '@at <rfc3339>' for
 // one-shots. Fires land on the schedule's own grid (anchor + n×interval), so
 // a slow run never drifts later fires — the exo scheduler semantics, minus
-// cron (whip keeps the grammar at two forms on purpose).
+// cron (whipcode keeps the grammar at two forms on purpose).
 package schedule
 
 import (

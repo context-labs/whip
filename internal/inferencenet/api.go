@@ -9,7 +9,7 @@ import (
 
 // The relay's public REST surface (trpc-to-openapi, INF-4438) reuses the same
 // session/API-key auth as tRPC but speaks plain JSON — no superjson envelope.
-// These helpers wrap the few operations whip needs: project list/create and
+// These helpers wrap the few operations whipcode needs: project list/create and
 // API-key create/archive.
 
 type Project struct {

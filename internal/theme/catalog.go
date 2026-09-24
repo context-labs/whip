@@ -39,7 +39,7 @@ type CatalogResult struct {
 }
 
 // Catalog lists built-ins and up to MaxCustomThemes directory entries from customDir.
-// customDir is the themes directory itself (normally WHIP_HOME/themes).
+// customDir is the themes directory itself (normally WHIPCODE_HOME/themes).
 func Catalog(customDir string) (CatalogResult, error) {
 	result := CatalogResult{Themes: []Metadata{}, Errors: []CatalogError{}}
 	if _, errs := Embedded(); len(errs) > 0 {

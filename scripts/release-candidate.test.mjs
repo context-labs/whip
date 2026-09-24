@@ -38,7 +38,7 @@ async function fixture(t) {
   await json('signed-startup.json', startup);
   await json('sbom.cdx.json', { bomFormat: 'CycloneDX', components: [{ name: 'fixture' }] });
   await writeFile(path.join(directory, 'THIRD_PARTY_NOTICES.txt'), 'fixture notices');
-  await json('linux-runtime.json', { ...compatibility, distribution: 'whipcode', updateOwner: 'standalone', buildId: version, source,
+  await json('linux-runtime.json', { ...compatibility, distribution: 'whipcode', updateOwner: 'standalone', buildId: `v${version}`, source,
     rendererDigest: evidence.rendererDigest, smoke: { embeddedRenderer: true, daemonReady: true } });
   await writeFile(path.join(directory, 'whipcode-linux-x64'), 'linux fixture');
   return { directory, env, json, evidence, startup, runtime };
@@ -121,4 +121,14 @@ test('candidate refuses signed evidence that omits an archive digest', async t =
   const files = { ...f.evidence.files }; delete files['Whip-Beta-1.2.3-beta.1.zip'];
   await f.json('evidence.json', { ...f.evidence, files });
   await assert.rejects(candidate('assemble', f.directory, f.env), /bind every installer/);
+});
+
+test('candidate requires the exact v-prefixed standalone Linux version and update owner', async t => {
+  for (const changed of [{ buildId: '1.2.3-beta.1' }, { buildId: 'v1.2.3-beta.2' },
+    { buildId: 'v1.2.3' }, { buildId: 'vv1.2.3-beta.1' }, { updateOwner: 'desktop' }]) {
+    const f = await fixture(t);
+    const linux = JSON.parse(await readFile(path.join(f.directory, 'linux-runtime.json'), 'utf8'));
+    await f.json('linux-runtime.json', { ...linux, ...changed });
+    await assert.rejects(candidate('assemble', f.directory, f.env));
+  }
 });

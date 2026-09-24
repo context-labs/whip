@@ -10,14 +10,14 @@ name: ci
 # parallel job succeeded. Add a new job to `go`'s `needs` when you add one,
 # or its failures won't block a merge.
 on:
+  workflow_call:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
-# Cancel superseded runs on the same ref/PR — a force-push or a quick follow-up
-# commit shouldn't waste a runner on a stale diff.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -27,8 +27,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -38,7 +38,7 @@ jobs:
       # time. Key on the sources too, with a prefix restore-key, so each run
       # starts from the nearest previous compile and saves an updated cache.
       - name: Go build cache (lint)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-lint-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -63,7 +63,7 @@ jobs:
         run: go run ./cmd/whipvet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           # Pinned: "latest" is a moving target and older releases can't parse
           # Go 1.27 export data. Bump deliberately alongside the Go toolchain.
@@ -78,8 +78,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -94,7 +94,7 @@ jobs:
       # expensive part of this job and setup-go's go.sum-keyed cache never
       # refreshes to hold them.
       - name: Go build cache (race + coverage objects)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-test-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -104,14 +104,13 @@ jobs:
         run: |
           mapfile -t packages < <(go list ./... | grep -v -e /internal/browser -e /internal/tui)
           printf -v cover_packages '%s,' "${packages[@]}"
-          # The instrumented daemon suite outgrew Go's 10-minute package
-          # budget on hosted runners; individual operation deadlines stay set.
+          # Instrumented daemon tests need the established hosted-runner budget.
           go test -race -shuffle=on -timeout=20m \
             -coverprofile=cover.out -coverpkg="${cover_packages%,}" "${packages[@]}"
 
       # Self-contained coverage floor — no external service or token, so it
-      # works identically on fork PRs. Baseline today is ~93.6%; the gate fails
-      # if total statement coverage drops below the floor. Ratchet the floor up
+      # works without a service credential. The gate fails if total statement
+      # coverage drops below the floor. Ratchet the floor up
       # over time as coverage improves (don't lower it).
       - name: coverage floor (90%)
         run: |
@@ -130,8 +129,8 @@ jobs:
       matrix:
         target: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -139,7 +138,7 @@ jobs:
       # Per-target: each GOOS/GOARCH has its own standard-library objects, so
       # they get their own cache rather than evicting each other.
       - name: Go build cache (${{ matrix.target }})
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -160,11 +159,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -178,16 +177,17 @@ jobs:
   sdk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run check
       - name: Web application and component checks
         run: |
@@ -199,14 +199,6 @@ jobs:
           node --test scripts/pack-web.test.mjs
           node scripts/pack-web.mjs
           npm run build:storybook -w @whip/ui
-      - name: Shared renderer for native acceptance
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-renderer
-          if-no-files-found: error
-          path: |
-            apps/web/dist
-            apps/web/renderer-manifest.json
       - run: WHIP_SDK_RACE=1 npm run acceptance
       - run: npm run test:package
       - run: npx playwright install --with-deps chromium firefox
@@ -219,9 +211,17 @@ jobs:
       - run: node apps/web/scripts/snapshot-refresh.mjs
       - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
+      - name: Shared verified renderer for desktop and release consumers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-renderer
+          if-no-files-found: error
+          path: |
+            apps/web/dist
+            apps/web/renderer-manifest.json
       - name: Browser acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: web-browser-evidence
           if-no-files-found: ignore
@@ -239,12 +239,9 @@ jobs:
   mobile:
     uses: ./.github/workflows/mobile.yml
 
-  # `go` is a required status check in the repo's ruleset, so the name has to
-  # survive the split. It is the aggregate gate: green only when lint, tests,
-  # builds, both runtime platforms, SDK, desktop, mobile, and Swift driver all pass. if: always()
-  # makes a failed dependency report as a failure here rather than a skip.
+  # Required aggregate: failed or skipped dependencies must fail, never go green.
   go:
-    needs: [lint, test, build, runtime, driver, sdk, desktop, mobile]
+    needs: [lint, test, build, runtime, driver, sdk, distribution, desktop, mobile]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -256,6 +253,7 @@ jobs:
           echo "runtime=${{ needs.runtime.result }}"
           echo "driver=${{ needs.driver.result }}"
           echo "sdk=${{ needs.sdk.result }}"
+          echo "distribution=${{ needs.distribution.result }}"
           echo "desktop=${{ needs.desktop.result }}"
           echo "mobile=${{ needs.mobile.result }}"
           [ "${{ needs.lint.result }}" = success ] || exit 1
@@ -264,6 +262,7 @@ jobs:
           [ "${{ needs.runtime.result }}" = success ] || exit 1
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.distribution.result }}" = success ] || exit 1
           [ "${{ needs.desktop.result }}" = success ] || exit 1
           [ "${{ needs.mobile.result }}" = success ] || exit 1
 
@@ -271,19 +270,55 @@ jobs:
   # go:embeds it — build it here too so a driver-breaking change fails the
   # PR, not the next release.
   driver:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build the whip-computer Swift driver
         run: |
           swift build -c release --package-path driver
           test -s driver/.build/release/whip-computer
 
       - name: Full build with the helper embedded
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
       - run: |
           cp driver/.build/release/whip-computer internal/computer/bin/whip-computer
           go build -trimpath -o /dev/null ./cmd/whip
+
+  distribution:
+    needs: sdk
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Installer and release selection acceptance
+        run: |
+          python3 scripts/test-install-whipcode.py
+          python3 scripts/test-publish-whipcode.py
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ci-renderer
+          path: apps/web
+      - name: Verify and embed the same tested renderer
+        run: node scripts/pack-web.mjs --release
+      - name: Compiled whipcode acceptance
+        run: python3 scripts/test-distributions.py
+      - name: Canonical distribution paths
+        run: |
+          go test ./cmd/whip ./internal/buildinfo ./internal/config ./internal/browser ./internal/browser/extrelay ./internal/computer ./internal/skills ./internal/capability -run '^TestDistribution'

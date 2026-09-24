@@ -17,7 +17,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 
 	// dispatch and argument validation
 	if err := mcpCLI(nil, "v"); err == nil {
-		t.Error("bare `whip mcp` should print usage")
+		t.Error("bare `whipcode mcp` should print usage")
 	}
 	if err := mcpCLI([]string{"bogus"}, "v"); err == nil {
 		t.Error("unknown subcommand should error")
@@ -47,7 +47,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"local", "echo hi", "remote", "http://127.0.0.1:9/mcp", "paper", "whip config", "codex config"} {
+	for _, want := range []string{"local", "echo hi", "remote", "http://127.0.0.1:9/mcp", "paper", "whipcode config", "codex config"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list missing %q:\n%s", want, out)
 		}
@@ -74,7 +74,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 
 func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	useTestDaemon(t)
 	t.Chdir(t.TempDir())
 	reader, writer, err := os.Pipe()
@@ -115,7 +115,7 @@ func TestMCPCLIBlockedServer(t *testing.T) {
 
 func TestMCPTestCLIUnknownAndDisabled(t *testing.T) {
 	whipHome := t.TempDir()
-	t.Setenv("WHIP_HOME", whipHome)
+	t.Setenv("WHIPCODE_HOME", whipHome)
 	chdir(t, t.TempDir()) // no .mcp.json in the working directory
 	orig := mcp.CodexPath
 	mcp.CodexPath = func() string { return filepath.Join(whipHome, "no-codex.toml") }
@@ -154,12 +154,12 @@ func TestMCPTestCLIUnknownAndDisabled(t *testing.T) {
 	}
 }
 
-// mcpHome isolates WHIP_HOME (with the given "mcp" block appended to a
+// mcpHome isolates WHIPCODE_HOME (with the given "mcp" block appended to a
 // healthy config), an empty working directory, and a missing codex file.
 func mcpHome(t *testing.T, mcpBlock string) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	chdir(t, t.TempDir())
 	orig := mcp.CodexPath
 	mcp.CodexPath = func() string { return filepath.Join(home, "no-codex.toml") }
@@ -297,7 +297,7 @@ func TestMCPCLIListReportsBrokenProjectFile(t *testing.T) {
 }
 
 // TestMCPServeHelperProcess is not a test: re-executed as a child process it
-// is a real `whip mcp serve` stdio server for the doctor to talk to.
+// is a real `whipcode mcp serve` stdio server for the doctor to talk to.
 func TestMCPServeHelperProcess(t *testing.T) {
 	if os.Getenv("WHIP_MCP_SERVE_HELPER") != "1" {
 		t.Skip("helper process, run only by TestMCPTestCLIReady")
@@ -309,7 +309,7 @@ func TestMCPServeHelperProcess(t *testing.T) {
 }
 
 // The doctor's happy path: connect to a real stdio MCP server (this test
-// binary re-executed as `whip mcp serve`), report the timing and the tools.
+// binary re-executed as `whipcode mcp serve`), report the timing and the tools.
 func TestMCPTestCLIReady(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {

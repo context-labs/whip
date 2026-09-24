@@ -10,7 +10,7 @@ import (
 )
 
 // Auth is whip's Inference.net sign-in state, persisted to
-// ~/.whip/inference-net.json (0600). The session token drives the control
+// ~/.whipcode/inference-net.json (0600). The session token drives the control
 // plane (device flow, key minting); the machine key is what the provider
 // entry resolves to for inference calls.
 type Auth struct {

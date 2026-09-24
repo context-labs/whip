@@ -238,7 +238,7 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 }
 
 func TestCatalogRefreshEchoOnlyWhenExplicit(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	catalogsResult := daemon.CommandResult{Status: "succeeded", Output: `{"catalogs":{"anthropic":{}}}`}
 
 	// Background refresh (startup, auth): no "refreshed" echo, flag untouched.

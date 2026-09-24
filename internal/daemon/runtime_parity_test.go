@@ -75,7 +75,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 		tested++
 		t.Run(operation.Name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("WHIP_HOME", home)
+			t.Setenv("WHIPCODE_HOME", home)
 			if err := (&config.Config{Providers: map[string]config.Provider{}}).Save(); err != nil {
 				t.Fatal(err)
 			}

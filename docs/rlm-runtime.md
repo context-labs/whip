@@ -354,7 +354,7 @@ grants. `/permissions` (or `/permissions list`) prints the tree rules and the
 global allowlist; `/permissions forget <id>` deletes a tree rule.
 
 Permission mode belongs to the root session and persists across client and
-daemon restarts. `whip --yolo` saves Full Access for the initially selected
+daemon restarts. `whipcode --yolo` saves Full Access for the initially selected
 session: ordinary file grants allow host paths outside the project and permission
 prompts are approved automatically. Explicit child path and operation ceilings
 still apply. `--cautious` saves approval prompts and the original project file
@@ -555,53 +555,31 @@ The runtime uses:
 
 | Path | Purpose |
 | --- | --- |
-| `~/.whip/runtime-v2/daemon.sock` | owner-only local protocol socket |
-| `~/.whip/runtime-v2/daemon.lock` | single-daemon ownership lock |
-| `~/.whip/runtime-v2/daemon.log` | detached daemon diagnostics |
-| `~/.whip/runtime-v2/sessions.db*` | commands, agents, transcripts, messages, policy, events |
-| `~/.whip/runtime-v2/artifacts/sha256/` | immutable large bodies |
+| `~/.whipcode/runtime-v2/daemon.sock` | owner-only local protocol socket |
+| `~/.whipcode/runtime-v2/daemon.lock` | single-daemon ownership lock |
+| `~/.whipcode/runtime-v2/daemon.log` | detached daemon diagnostics |
+| `~/.whipcode/runtime-v2/sessions.db*` | commands, agents, transcripts, messages, policy, events |
+| `~/.whipcode/runtime-v2/artifacts/sha256/` | immutable large bodies |
 
 The daemon can be inspected and managed without entering the TUI:
 
 ```sh
-whip daemon status [--json]
-whip daemon start
-whip daemon stop [--timeout 10s] [--force]
-whip daemon restart [--timeout 10s] [--force]
-whip daemon logs [-f] [-n 200]
+whipcode daemon status [--json]
+whipcode daemon start
+whipcode daemon stop [--timeout 10s] [--force]
+whipcode daemon restart [--timeout 10s] [--force]
+whipcode daemon logs [-f] [-n 200]
 ```
 
 `status` does not auto-start the daemon. Normal stop and restart checkpoint
 durable state and wait for the owner lock to be released. `--force` sends a
 signal only to the PID currently holding that lock.
 
-`WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
-migrated automatically; this is an intentional clean break. The current
-development schema is version 16 (`whip-recursive-runtime-v16`). Opening a
-version 10 database performs a transactional, one-way upgrade that adds session
-archive state and updates catalog revision tracking in schema 11. The subsequent
-schema 11-to-12 transaction adds nullable, bounded last-turn outcomes per agent,
-backfills retained lifecycle evidence, and reconciles legacy stopped turns.
-Schema 12-to-13 adds the session's durable permission mode, defaulting to Ask
-for existing sessions. Historical mode events do not resurrect past live choices.
-The migration emits the new mode so clients reconnecting through event replay
-also learn the default.
-Schema 13-to-14 preserves saved modes and tags valid bootstrap root file grants
-as session scope, retaining their original canonical path as the Ask boundary.
-Legacy child grants keep explicit paths because their creation records do not
-prove inheritance. Newly created default children record their issuer and inherit
-its live file scope. Revoked/expired grants are never revived by the migration.
-Schema 14-to-15 records each session's immutable execution engine and adds
-engine checkpoints. Schema 15-to-16 records each session's agent definition;
-every existing session ran the coding agent and is defaulted to `coding`.
-Runtime identity, agent IDs, history, configuration, command outcomes, and
-existing sessions are preserved; existing sessions start unarchived. Backfill
-leaves outcomes unknown when evidence is missing or pruned, externally stored
-events exceed 8 MiB, or edited legacy root history has no safe reset boundary.
-Child history is unaffected by that root-history restriction. Each failed
-upgrade step rolls back and can be retried.
-Older binaries cannot open the upgraded database. Other incompatible schemas
-are rejected without modification; WHIP never automatically deletes them.
+`WHIPCODE_HOME` replaces `~/.whipcode`. The clean-project schema does not open
+or migrate pre-reset databases. Incompatible stores are rejected without
+modification or automatic deletion; use the [manual reset checklist](team-reset.md).
+Current schema and compatibility identifiers are defined by the runtime source,
+not by historical migration plans.
 
 ## Recovery
 

@@ -34,7 +34,7 @@ func launchDaemonProcess(paths RuntimePaths, executable string) error {
 // pass its held descriptor through readiness without admitting competing starts.
 func LaunchInstalledDaemon(paths RuntimePaths, executable string, maintenance *os.File) error {
 	logPath := filepath.Join(paths.Home, "daemon.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // paths.Home is the validated owner-only whip runtime.
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // paths.Home is the validated owner-only whipcode runtime.
 	if err != nil {
 		return err
 	}

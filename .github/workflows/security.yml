@@ -1,27 +1,17 @@
 name: security
 
-# Security gate for PRs and main: dependency vulnerabilities, SAST, and CodeQL.
-#
-# Safe for untrusted (outside-contributor) PRs:
-#   * Every job runs with the default pull_request trigger — untrusted code
-#     executes, but the GITHUB_TOKEN is read-only and no secrets are exposed.
-#   * The ONLY job that writes (uploads SARIF to the Security tab) is CodeQL,
-#     which uses GitHub's own action with a narrowly-scoped security-events
-#     permission and never checks out the PR's build scripts for execution.
-#   * There is no pull_request_target trigger anywhere, so a fork can never
-#     run with a writable token or secrets.
+# Shared dependency and CodeQL gates for PRs, main, and release callers.
 on:
+  workflow_call:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
   schedule:
-    # Weekly re-scan of main: new CVEs drop against unchanged deps.
     - cron: "17 6 * * 1"
 
-# Cancel superseded runs on the same ref/PR — a force-push or a quick follow-up
-# commit shouldn't waste a runner on a stale diff.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: security-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -34,8 +24,8 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -45,7 +35,7 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   # NOTE on gosec: it already runs as a linter inside golangci-lint (see the
   # `go` job in ci.yml), where the repo's deliberate `//nolint:gosec // reason`
@@ -54,23 +44,19 @@ jobs:
   # the signal, so we don't run it twice. CodeQL below is the independent SAST
   # pass and surfaces in the Security tab.
 
-  # CodeQL semantic analysis. Results land in the repo's Security tab. The
-  # security-events:write permission is scoped to THIS job only and the
-  # analysis does not execute the PR's code (it builds it in a sandbox), so
-  # it's safe on untrusted PRs. Uses the security-and-quality suite for a few
-  # maintainability/reliability queries on top of the default security set.
+  # Analyze the branch or PR merge commit; only this job may upload security results.
   codeql:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           category: "/language:go"

@@ -13,7 +13,7 @@ contract easier to locate.
   project-file, skill, and standing-instruction discovery, host modules,
   capabilities, model and compaction defaults, and surface flags. A session
   records its definition id at creation (`session.create.definition`,
-  `whip run -agent`, `whip --agent`; default `coding`), restores it on restart,
+  `whipcode run -agent`, `whipcode --agent`; default `coding`), restores it on restart,
   copies it on fork, and cannot resume under a different one. The prompt
   composer derives the module catalog from the definition, the kernel installs
   only its modules, the host refuses calls to any other module, and a new
@@ -169,7 +169,7 @@ root prompt (`evals/rlm`).
   OpenCode's three global files merge in its own order and an `oauth` entry
   imports disabled with a sign-in note (`internal/mcp/opencode.go`,
   `TestParseOpenCode`, `TestLoadMergedOpenCode`).
-- Only native configuration is trusted. `whip mcp import` writes native,
+- Only native configuration is trusted. `whipcode mcp import` writes native,
   trusted entries (`cmd/whip/mcp_import_test.go`). The web and desktop app
   reach the same state through the import screen: a host that has servers
   configured for other agents is offered them once on New session (after a
@@ -195,7 +195,7 @@ root prompt (`evals/rlm`).
   daemon derives that key from the server URL (`brandKey`,
   `internal/mcp/import.go`, `TestBrandKey`) and, for domains the bundle
   lacks, `mcp.brand.icons` asks DuckDuckGo's icon endpoint once per domain
-  and caches the answer under `~/.whip/icons` with a byte cap, a sniffed
+  and caches the answer under `~/.whipcode/icons` with a byte cap, a sniffed
   type allowlist, no redirects and no credentials (`internal/brandicon`,
   `TestResolveCachesHitsAndMisses`, `TestResolveRefusesWhatIsNotASmallRasterImage`,
   `TestResolveFetchesAConcurrentKeyOnce`). `brandIcons: false` in the host
@@ -211,7 +211,7 @@ root prompt (`evals/rlm`).
   (`internal/mcp/search.go`, [MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
 - Status rows distinguish `blocked` (policy-filtered or refused at attach) and
   `unreadable` (a discovery source that failed to parse) from live servers;
-  the web panel, TUI palette and `whip mcp list` derive their controls from
+  the web panel, TUI palette and `whipcode mcp list` derive their controls from
   those states (`TestSourceErrorsAreStatusRows`, `mcp_palette_test.go`,
   `packages/app/test/inspector.test.tsx`).
 - Secrets resolve once at connect for both transports, bounded by the
@@ -255,10 +255,10 @@ root prompt (`evals/rlm`).
   stalled streams and permits a one-second best-effort session DELETE. Healthy
   notification streams survive startup completion and catalog refresh
   (`internal/mcp/http_transport.go`, `http_transport_test.go`).
-- `whip mcp serve` is a daemon protocol tool host, not a model agent.
+- `whipcode mcp serve` is a daemon protocol tool host, not a model agent.
 - Secrets stay references: `$VAR`/`${VAR}`/`!cmd` in env and headers resolve
   at connect time (`config.ResolveSecret`/`ResolveEnvMap`/`ExpandTemplate`)
-  inside the daemon's environment — run `whip daemon restart` after exporting
+  inside the daemon's environment — run `whipcode daemon restart` after exporting
   new vars. Codex `bearer_token_env_var` imports as `Authorization: Bearer
   $VAR`; `http_headers`/`env_http_headers` import as headers.
 
@@ -307,7 +307,7 @@ root prompt (`evals/rlm`).
 - `models.call` and `models.batch` provide stateless analysis without creating
   durable child identities; batch results retain input order.
 - Prompt-cache keys are stable per retained session: the daemon stamps
-  `prompt_cache_key` with the session id. Headless `whip run -cache-key <key>`
+  `prompt_cache_key` with the session id. Headless `whipcode run -cache-key <key>`
   pins a stable key (e.g. `repo/reviewer`) so one-off runs reuse the cached
   system prefix.
 
@@ -541,18 +541,17 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 ## Daemon and clients
 
 - The daemon is the only runtime/store owner.
-- TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
+- TUI, `whipcode run`, sessions commands, ACP, and MCP stdio are protocol clients.
 - WHIP v5 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
 - The daemon core is always socket-only. Ordinary startup opens no web listener.
-  `whip web` requires a compatible running daemon and owns a separate foreground
+  `whipcode web` requires a compatible running daemon and owns a separate foreground
   gateway; it opens the browser and waits. `--no-open` still waits; `--url` checks
   and opens an existing gateway without starting any server or local daemon.
-  `WHIP_NETWORK=1` opts daemon launch paths into the same gateway as an owned
+  `WHIPCODE_NETWORK=1` opts daemon launch paths into the same gateway as an owned
   child after socket readiness. Unset/`0` means no automatic gateway, not a ban
-  on explicit `whip web`; `WHIP_LISTEN` alone is not opt-in. Whipcode uses
-  `WHIPCODE_*`. The implicit bind is `127.0.0.1:4444`, with ephemeral fallback
+  on explicit `whipcode web`; `WHIPCODE_LISTEN` alone is not opt-in. The implicit bind is `127.0.0.1:4444`, with ephemeral fallback
   only on address-in-use; explicit binds never silently move. Code:
   `cmd/whip/{web,daemon,gateway_process}.go`, `internal/webgateway`.
   Validation sources: `cmd/whip/{web_test,daemon_network_test,gateway_process_test}.go` and
@@ -572,7 +571,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   ready-only `init.network_endpoint` never describe foreground instances. A
   gateway crash leaves daemon work alive; owner/daemon loss stops the gateway.
   Bounded readiness/lifetime pipes and process reaping prevent owned-child
-  leaks. There is no automatic restart loop; foreground `whip web` is the
+  leaks. There is no automatic restart loop; foreground `whipcode web` is the
   non-disruptive recovery path. Code: `cmd/whip/gateway_process.go` and
   `internal/daemon/server.go`; validation: `cmd/whip/gateway_process_test.go`,
   `internal/daemon/server_gateway_test.go`, and the gateway acceptance plan.
@@ -749,7 +748,7 @@ behavior to its owning code and repeatable validation.
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
-| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whip sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
+| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
 | Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
 | Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
 | Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
@@ -775,7 +774,7 @@ behavior to its owning code and repeatable validation.
 | Host-scoped configuration, login cleanup and unsaved-edit guards | `packages/app/src/settings/{configuration,providers,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
 | Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
 | Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
-| Packaged same-origin web assets, foreground `whip web`, and optional same-implementation managed gateway; socket-only daemon default | `internal/{webassets,webgateway}`, `cmd/whip/{web,gateway_process}.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, gateway tests, `cmd/whip/web_test.go`, lifecycle/process tests, `scripts/pack-web.test.mjs`; migration acceptance tracked separately in the gateway plan |
+| Packaged same-origin web assets, foreground `whipcode web`, and optional same-implementation managed gateway; socket-only daemon default | `internal/{webassets,webgateway}`, `cmd/whip/{web,gateway_process}.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, gateway tests, `cmd/whip/web_test.go`, lifecycle/process tests, `scripts/pack-web.test.mjs`; migration acceptance tracked separately in the gateway plan |
 
 React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI owns
 accessible component interactions; StyleX extracts authored CSS. Source UI/app
@@ -969,7 +968,7 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
 - Pasted images show as chips. A clipboard image (`ctrl+v`) lands in the
   input as `[Image N]`; a pasted or dropped image path, or a macOS screenshot
   preview, as `[Image N: name.png]` (long names shortened to 24 columns), with
-  the bytes copied to `~/.whip/pastes/`. The live transcript echoes the chip;
+  the bytes copied to `~/.whipcode/pastes/`. The live transcript echoes the chip;
   only the text sent to the daemon expands it to the real `@path` mention,
   which is what a resumed or rebuilt transcript shows. The registry resets on
   `/clear` and when the TUI switches root session, so a recalled chip from
@@ -1008,18 +1007,16 @@ the conversation.
 
 The agent prompt and skill suggestions use the authorized catalog: `.agents/skills`
 in the working directory and applicable ancestors within project boundaries, the
-configured Whip user directory's `skills` folder (normally `~/.whip/skills`), and
+configured Whip user directory's `skills` folder (normally `~/.whipcode/skills`), and
 `~/.agents/skills`. With no project selected, New Chat discovers only those two
 user-global roots on the selected execution host; after folder selection it
-previews the initial selected-project boundary plus globals. The Desktop
-Whipcode distribution uses `$WHIPCODE_HOME/skills` (normally
-`~/.whipcode/skills`) for its application-owned root. That override does not
+previews the initial selected-project boundary plus globals. The application-owned root follows `WHIPCODE_HOME`; that override does not
 relocate the daemon user's `~/.agents/skills`. Discovery does not implicitly
 choose the daemon's launch directory or import another harness's skill folders.
 The CLI listing/import helpers retain `skills.DirsFor` discovery (working-directory
 and user locations). Skill instructions are loaded on demand, not all at startup.
 
-CLI: `whip skills list` (names, sources, warnings) and `whip skills import
+CLI: `whipcode skills list` (names, sources, warnings) and `whipcode skills import
 [--dry-run]` — copies skills from other harnesses' user dirs
 (`~/.codex/skills`, `~/.claude/skills` — `skills.ForeignDirs`) into
 `~/.agents/skills`, deduped by name against what whip already loads and
@@ -1087,7 +1084,7 @@ saves it to the config (`"theme": "<name>"`).
 
 The whole view is painted with the theme's background and text colour, so a
 light theme reads on a dark terminal and the terminal's own colours follow
-the theme while whip runs (they are restored on exit). Besides whip's `light`
+the theme while whipcode runs (they are restored on exit). Besides whip's `light`
 and `dark`, the switcher lists opencode's theme catalog, converted from its
 assets with `internal/theme/themes/convert_opencode.py`: aura, ayu,
 carbonfox, catppuccin (latte/frappe/macchiato), cobalt2, cursor, dracula,
@@ -1097,8 +1094,8 @@ palenight, rosepine, solarized, synthwave84, tokyonight, vercel, vesper and
 zenburn — each as `<name>` (dark) and `<name>-light`. Catalog themes pin their
 surfaces, syntax colours and markdown accents; whip's own themes derive them.
 
-User themes are JSON files in `~/.whip/themes/<name>.json` (or under
-`$WHIP_HOME`). Any token you leave out defaults from the built-in of the same
+User themes are JSON files in `~/.whipcode/themes/<name>.json` (or under
+`$WHIPCODE_HOME`). Any token you leave out defaults from the built-in of the same
 darkness; unknown keys and malformed colors are reported with the allowed keys
 when you run `/theme`. Colors are `#rrggbb` or an ANSI palette index `0`-`255`.
 
@@ -1206,10 +1203,10 @@ and attention show source hosts, filters, separate bounded pages and partial
 failures. Responses open their owning sessions; neither index hydrates roots.
 Remote listener/proxy setup and exact browser Origin allowlists remain explicit
 trusted-network configuration; automatic stable-Origin handling is deferred.
-The local daemon is socket-only by default; `whip web` starts its foreground
-gateway without a daemon restart, or `WHIP_NETWORK=1` opts into managed startup.
+The local daemon is socket-only by default; `whipcode web` starts its foreground
+gateway without a daemon restart, or `WHIPCODE_NETWORK=1` opts into managed startup.
 The desktop origin `whip-app://bundle` can be explicitly allowed through
-`WHIP_ALLOWED_ORIGINS` (`WHIPCODE_ALLOWED_ORIGINS` for the whipcode distribution).
+`WHIPCODE_ALLOWED_ORIGINS`.
 Other custom origins, wildcards, suffixes, ports and paths remain rejected.
 `internal/webgateway/server_test.go:TestDesktopOriginExplicitAndExact` covers
 validation, explicit opt-in and CORS response headers; the daemon no longer
@@ -1243,28 +1240,28 @@ the fresh runtime schema is version 8. Older stores are rejected without being
 modified; this change includes no session migration or automatic data deletion.
 
 
-## Whipcode distribution
+## WhipCode distribution
 
-The `whip-rlm` branch publishes a separate `whipcode` executable through copied
-CI, security, and release workflows. Both distributions use one Go runtime and
-the same embedded web application. A compiled `internal/buildinfo` identity
-selects CLI instructions, `.whipcode` home paths, `WHIPCODE_HOME`, and isolated
-network controls. Application-owned config, auth, sessions, locks, notices,
-skills, browser profiles/extension state, and macOS helper extraction follow
-that home; renaming a binary does not switch its identity.
+`whipcode` is the sole supported CLI, built from `main`. `task build` and
+`task install` produce the same canonical runtime with embedded web assets.
+Application-owned config, auth, sessions, locks, notices, skills, browser state,
+and extracted native helpers use `~/.whipcode` or `WHIPCODE_HOME`. Network
+controls use `WHIPCODE_*`. There is no alternate legacy identity or home alias.
 
-`install-whipcode.sh` verifies complete, versioned prerelease assets and SHA-256
-checksums before atomic replacement. `whipcode update` stays in its channel,
-replaces the invoked installation, and requests only its daemon's restart.
-Stable `whip` release discovery remains unchanged. See [installation](setup.md#whipcode-branch-builds).
+`main/install.sh` selects new-project releases (`v1.0.0-alpha.N`, then `v1.0.0`),
+verifies the complete platform asset set and SHA-256 checksums before atomic
+replacement. Stable is the default; prereleases are explicit. It never selects
+historical CLI or Desktop tags. `whipcode update` replaces only its invoked
+installation and requests its daemon's restart. Desktop-managed backends update
+with their matched app instead. Pre-reset installations require a manual reset,
+not migration. See [setup](setup.md), [release operations](releases.md), and
+[team reset](team-reset.md).
 
-Code: `internal/buildinfo`, `internal/config`, `internal/update/whipcode.go`,
-`cmd/whip/update.go`, `install-whipcode.sh`, `scripts/publish-whipcode.sh`, and
-`.github/workflows/{ci,security,release}-whipcode.yml`.
-Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`,
-`TestWhipcodeVersionComparison`, `scripts/test-install-whipcode.py`, and
-`scripts/test-distributions.py` (both compiled binaries, independent sockets,
-restart, and self-update).
+Implementation: `internal/buildinfo`, `internal/update`, `cmd/whip/update.go`,
+`install.sh`, and the shared CI/security/release workflows. Package acceptance
+covers the actual embedded renderer, fresh installation, private daemon socket,
+web gateway, and standalone/Desktop update ownership.
+
 ## Native mobile companion (development)
 
 The Expo workspace in `apps/mobile` provides multi-host private setup, themed

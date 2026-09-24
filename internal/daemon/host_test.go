@@ -63,7 +63,7 @@ func TestHostDirectoryPickValidation(t *testing.T) {
 }
 
 func TestHostRejectsMalformedRPCParameters(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	fixture := newV2Fixture(t, &fakeRunner{})
 	client := fixture.dial("unix", "invalid-host-requests")
 	for _, method := range []string{"host.directories.list", "host.directory.pick", "host.attention", "host.themes.resolve", "mailbox.list", "mailbox.read"} {
@@ -154,7 +154,7 @@ func TestDirectoryPickLinuxFallback(t *testing.T) {
 
 func TestHostServicesAcrossTransports(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIPCODE_HOME", home)
 	t.Setenv("INFERENCE_API_KEY", "")
 	themes := filepath.Join(home, "themes")
 	if err := os.MkdirAll(themes, 0o700); err != nil {
@@ -236,7 +236,7 @@ func TestHostServicesAcrossTransports(t *testing.T) {
 }
 
 func TestHostReadsDoNotOpenRootsAndQuestionsDisappear(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("INFERENCE_API_KEY", "")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	opens := 0

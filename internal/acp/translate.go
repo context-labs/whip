@@ -1,4 +1,4 @@
-// Package acp serves whip as an Agent Client Protocol agent: the bridge
+// Package acp serves whipcode as an Agent Client Protocol agent: the bridge
 // between the editor-facing JSON-RPC protocol (github.com/coder/acp-go-sdk)
 // and whip's agent loop. translate.go holds the pure conversions — no I/O,
 // no connection state — so the wire mapping is trivially testable.
@@ -15,7 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-// toolKind maps whip tool names to ACP tool kinds (protocol-notes.md §5).
+// toolKind maps whipcode tool names to ACP tool kinds (protocol-notes.md §5).
 func toolKind(name string) acp.ToolKind {
 	switch name {
 	case "read":
@@ -82,7 +82,7 @@ func startToolCall(id, name, args string) acp.SessionUpdate {
 }
 
 // todoStatusToACP maps whip's todo statuses onto ACP plan entry statuses
-// (whip has an extra "cancelled" state; ACP doesn't — it maps to pending,
+// (whipcode has an extra "cancelled" state; ACP doesn't — it maps to pending,
 // the honest "not done" reading).
 func todoStatusToACP(s string) acp.PlanEntryStatus {
 	switch s {
