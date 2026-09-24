@@ -3,6 +3,7 @@ package webgateway
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -86,13 +87,13 @@ func TestRejectsSmuggledOrUninitializedFrames(t *testing.T) {
 // rawBackend owns isolated Unix sockets and drains all workers at test cleanup.
 func rawBackend(t *testing.T, serve func(protocoltransport.Transport)) string {
 	t.Helper()
-	directory, err := os.MkdirTemp("", "wg-")
+	directory, err := os.MkdirTemp("/tmp", "wg-") //nolint:usetesting // Unix sockets require a short absolute path on macOS.
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
 	socket := filepath.Join(directory, "backend.sock")
-	listener, err := net.Listen("unix", socket)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +153,7 @@ func sendFrame(t *testing.T, transport protocoltransport.Transport, frame string
 		t.Fatal(err)
 	}
 }
+
 func readMessage(t *testing.T, transport protocoltransport.Transport) protocoltransport.Message {
 	t.Helper()
 	frame, err := transport.ReadMessage()
@@ -169,6 +171,7 @@ func TestHandshakeFailClosedBeforePipelinedTraffic(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"old-daemon", "different-runtime", "different-generation"} {
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
 			result := newFakeClient().init
 			switch mode {
 			case "old-daemon":
@@ -197,7 +200,7 @@ func TestHandshakeFailClosedBeforePipelinedTraffic(t *testing.T) {
 					return
 				}
 				if !slices.Contains(params.Capabilities, protocol.NetworkClientCapability) {
-					closed <- fmt.Errorf("missing network marker")
+					closed <- errors.New("missing network marker")
 					return
 				}
 				reply, _ := protocoltransport.MarshalFrame(protocoltransport.Message{ID: req.ID, Result: result})

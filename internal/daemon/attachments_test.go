@@ -168,9 +168,9 @@ func TestAttachmentChildUploadAndInboxAcrossTransports(t *testing.T) {
 				}
 				request.Header.Set("Content-Type", "text/plain")
 				request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
-				response, body := gatewayHTTPRequest(t, request)
-				if response.StatusCode != http.StatusCreated {
-					t.Fatalf("child upload: %d %s", response.StatusCode, body)
+				status, _, body := gatewayHTTPRequest(t, request)
+				if status != http.StatusCreated {
+					t.Fatalf("child upload: %d %s", status, body)
 				}
 				if err := json.Unmarshal(body, &handle); err != nil {
 					t.Fatal(err)

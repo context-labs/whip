@@ -22,9 +22,11 @@ import (
 	"github.com/context-labs/whip/internal/webgateway"
 )
 
-const gatewayStartupTimeout = 5 * time.Second
-const gatewayShutdownTimeout = 2 * time.Second
-const gatewayReadyLimit = 8192
+const (
+	gatewayStartupTimeout  = 5 * time.Second
+	gatewayShutdownTimeout = 2 * time.Second
+	gatewayReadyLimit      = 8192
+)
 
 // Cancellation is supervised below rather than using CommandContext's immediate
 // kill: the lifetime pipe and SIGTERM get a bounded graceful shutdown first.
@@ -128,7 +130,10 @@ func startGatewayProcess(ctx context.Context, command *exec.Cmd, expected gatewa
 	if err == nil {
 		select {
 		case <-child.done:
-			err = fmt.Errorf("gateway exited during startup: %v", child.waitErr)
+			err = errors.New("gateway exited during startup")
+			if child.waitErr != nil {
+				err = fmt.Errorf("gateway exited during startup: %w", child.waitErr)
+			}
 		default:
 		}
 	}
@@ -218,13 +223,13 @@ func manageGateway(ctx context.Context, paths daemon.RuntimePaths, generation in
 		fail(err)
 		return
 	}
-	log, err := os.OpenFile(filepath.Join(paths.Home, "web.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	log, err := os.OpenFile(filepath.Join(paths.Home, "web.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		fail(err)
 		return
 	}
 	defer func() { _ = log.Close() }()
-	if err := log.Chmod(0600); err != nil {
+	if err := log.Chmod(0o600); err != nil {
 		fail(err)
 		return
 	}

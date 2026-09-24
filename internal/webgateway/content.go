@@ -163,7 +163,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Length", strconv.FormatInt(handle.Size, 10))
 		}
-		count, err := w.Write(chunk.Data) //nolint:gosec // Forced attachment and nosniff; uploaded HTML cannot execute on this origin.
+		count, err := w.Write(chunk.Data)
 		if err != nil || count != len(chunk.Data) {
 			return
 		}

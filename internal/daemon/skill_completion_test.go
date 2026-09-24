@@ -106,9 +106,14 @@ func TestHostSkillsCompleteValidationAndDefinition(t *testing.T) {
 	file := filepath.Join(cwd, "file")
 	writeDaemonPromptFile(t, file, "not a directory")
 	for _, p := range []protocol.HostSkillCompletionParams{
-		{Limit: 8}, {CWD: file, Limit: 8}, {CWD: filepath.Join(cwd, "missing"), Limit: 8},
-		{CWD: cwd}, {CWD: cwd, Limit: 1025}, {CWD: cwd, Limit: 8, PermissionMode: "invalid"},
-		{CWD: cwd, Limit: 8, Definition: "not-registered"}, {CWD: cwd, Limit: 8, Prefix: strings.Repeat("x", 4097)},
+		{Limit: 8},
+		{CWD: file, Limit: 8},
+		{CWD: filepath.Join(cwd, "missing"), Limit: 8},
+		{CWD: cwd},
+		{CWD: cwd, Limit: 1025},
+		{CWD: cwd, Limit: 8, PermissionMode: "invalid"},
+		{CWD: cwd, Limit: 8, Definition: "not-registered"},
+		{CWD: cwd, Limit: 8, Prefix: strings.Repeat("x", 4097)},
 	} {
 		if _, err := fixture.server.completeHostSkills(t.Context(), p); err == nil {
 			t.Fatalf("accepted %+v", p)
@@ -141,7 +146,7 @@ func TestHostSkillsCompleteSymlinkPreviewPolicy(t *testing.T) {
 	fixture := newV2Fixture(t, &fakeRunner{})
 	cwd, outside := t.TempDir(), t.TempDir()
 	writeCompletionSkill(t, outside, "external", "external", "outside", "")
-	if err := os.MkdirAll(filepath.Join(cwd, ".agents"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(cwd, ".agents"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(outside, ".agents", "skills"), filepath.Join(cwd, ".agents", "skills")); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -124,12 +125,12 @@ func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			listener, err := net.Listen("unix", paths.Socket)
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", paths.Socket)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer listener.Close()
-			if err := os.Chmod(paths.Socket, 0600); err != nil {
+			if err := os.Chmod(paths.Socket, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			done := make(chan error, 1)
@@ -156,7 +157,7 @@ func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 					return
 				}
 				if !slices.Contains(params.Capabilities, protocol.NetworkClientCapability) {
-					done <- fmt.Errorf("gateway did not request restrictions")
+					done <- errors.New("gateway did not request restrictions")
 					return
 				}
 				result := protocol.InitializeResult{ProtocolMajor: protocol.Major, RuntimeID: "old-runtime", Generation: 1}
@@ -281,7 +282,11 @@ func TestForegroundGatewayCancellationLeavesDaemonAndDiscoveryAlone(t *testing.T
 	}
 	client.Close()
 	httpClient := &http.Client{Timeout: time.Second}
-	if response, err := httpClient.Get(record.Endpoint + "/api/v3/web"); err == nil {
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, record.Endpoint+"/api/v3/web", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response, err := httpClient.Do(request); err == nil {
 		response.Body.Close()
 		t.Fatal("gateway kept listening")
 	}
@@ -298,7 +303,7 @@ func TestGatewayMissingAssetsAndExplicitPortFailureLeaveDaemonAlive(t *testing.T
 		t.Fatalf("assets error: %v", err)
 	}
 	gatewayAssetsAvailable = func() bool { return true }
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

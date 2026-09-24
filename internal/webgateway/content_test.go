@@ -24,6 +24,7 @@ func contentServer(client *fakeClient) *Server {
 	s.options.Open = func(context.Context) (Client, error) { return client, nil }
 	return s
 }
+
 func assertClosed(t *testing.T, client *fakeClient) {
 	t.Helper()
 	select {
@@ -97,6 +98,7 @@ func TestInvalidUploadsNeverCommitAndCloseClient(t *testing.T) {
 		{"interrupted body", 8, digest([]byte("body")), io.MultiReader(strings.NewReader("body"), interruptedReader{}), 400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := newFakeClient()
 			calls := 0
 			client.call = func(ctx context.Context, method string, params, result any) error {
@@ -125,6 +127,7 @@ func TestDownloadsRecheckGrantsAndValidateDigest(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"success", "revoked", "corrupt", "changed-metadata", "oversized-chunk", "empty-chunk"} {
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
 			data := bytes.Repeat([]byte("x"), 2*maxContentChunk)
 			handle := protocol.ContentHandle{ReferenceID: "ref", Size: int64(len(data)), Digest: digest(data), MediaType: "text/html"}
 			client := newFakeClient()
@@ -160,9 +163,10 @@ func TestDownloadsRecheckGrantsAndValidateDigest(t *testing.T) {
 			aborted := false
 			func() {
 				defer func() {
-					if err := recover(); err != nil {
-						if err != http.ErrAbortHandler {
-							panic(err)
+					if recovered := recover(); recovered != nil {
+						err, ok := recovered.(error)
+						if !ok || !errors.Is(err, http.ErrAbortHandler) {
+							panic(recovered)
 						}
 						aborted = true
 					}
@@ -265,6 +269,7 @@ func TestServerDeadlineClosesStalledLiveTransfers(t *testing.T) {
 	t.Parallel()
 	for _, method := range []string{"upload.begin", "content.read"} {
 		t.Run(method, func(t *testing.T) {
+			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
 				client := newFakeClient()
 				client.call = func(ctx context.Context, called string, params, result any) error {

@@ -13,6 +13,7 @@ type messageTransport = protocoltransport.Transport
 func newUnixMessageTransport(conn net.Conn) *protocoltransport.Unix {
 	return protocoltransport.NewUnix(conn)
 }
+
 func newWebsocketMessageTransport(conn net.Conn, source io.Reader) *protocoltransport.WebSocket {
 	return protocoltransport.NewWebSocket(conn, source)
 }

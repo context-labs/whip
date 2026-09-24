@@ -20,7 +20,7 @@ func gatewayHTTPURL(f v2Fixture) string {
 	return "http" + strings.TrimSuffix(strings.TrimPrefix(f.endpoint, "ws"), "/api/v3/ws")
 }
 
-func gatewayHTTPRequest(t *testing.T, request *http.Request) (*http.Response, []byte) {
+func gatewayHTTPRequest(t *testing.T, request *http.Request) (int, http.Header, []byte) {
 	t.Helper()
 	client := &http.Client{Timeout: 5 * time.Second}
 	t.Cleanup(client.CloseIdleConnections)
@@ -33,7 +33,7 @@ func gatewayHTTPRequest(t *testing.T, request *http.Request) (*http.Response, []
 	if err != nil {
 		t.Fatal(err)
 	}
-	return response, body
+	return response.StatusCode, response.Header, body
 }
 
 func waitGatewayUploads(t *testing.T, manager *uploadManager, want int) {
@@ -78,9 +78,9 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 	}
 	request.Header.Set("Content-Type", "text/html")
 	request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
-	response, body := gatewayHTTPRequest(t, request)
-	if response.StatusCode != http.StatusCreated {
-		t.Fatalf("upload: %d %s", response.StatusCode, body)
+	status, _, body := gatewayHTTPRequest(t, request)
+	if status != http.StatusCreated {
+		t.Fatalf("upload: %d %s", status, body)
 	}
 	var handle ContentHandle
 	if err := json.Unmarshal(body, &handle); err != nil {
@@ -98,15 +98,15 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, body := gatewayHTTPRequest(t, request)
-		if response.StatusCode != test.status {
-			t.Fatalf("download status %d: %s", response.StatusCode, body)
+		status, header, body := gatewayHTTPRequest(t, request)
+		if status != test.status {
+			t.Fatalf("download status %d: %s", status, body)
 		}
 		if test.status == http.StatusOK {
 			if !bytes.Equal(body, data) {
 				t.Fatal("content body differs")
 			}
-			if response.Header.Get("Content-Disposition") != "attachment" || response.Header.Get("X-Content-Type-Options") != "nosniff" {
+			if header.Get("Content-Disposition") != "attachment" || header.Get("X-Content-Type-Options") != "nosniff" {
 				t.Fatal("active content is not forced to a safe download")
 			}
 		}
@@ -118,9 +118,9 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, body = gatewayHTTPRequest(t, request)
-	if response.StatusCode != http.StatusForbidden {
-		t.Fatalf("revoked grant served: %d %s", response.StatusCode, body)
+	status, _, body = gatewayHTTPRequest(t, request)
+	if status != http.StatusForbidden {
+		t.Fatalf("revoked grant served: %d %s", status, body)
 	}
 	waitGatewayUploads(t, f.server.uploads, 0)
 }
@@ -131,7 +131,7 @@ func TestContentHTTPInterruptedUploadReleasesDaemonState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connection, err := net.DialTimeout("tcp", endpoint.Host, 5*time.Second)
+	connection, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", endpoint.Host)
 	if err != nil {
 		t.Fatal(err)
 	}

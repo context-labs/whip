@@ -101,10 +101,15 @@ func TestHostGlobalSkillsDefinitionAndValidation(t *testing.T) {
 		}
 	}
 	for _, params := range []protocol.HostSkillCompletionParams{
-		{Limit: 32}, {Scope: "global", CWD: home, Limit: 32},
-		{Scope: "global", CWD: " ", Limit: 32}, {Scope: "project", CWD: home, Limit: 32},
-		{Scope: "unknown", Limit: 32}, {Scope: "global", Limit: 0}, {Scope: "global", Limit: 1025},
-		{Scope: "global", Limit: 32, Definition: "missing"}, {Scope: "global", Limit: 32, PermissionMode: "invalid"},
+		{Limit: 32},
+		{Scope: "global", CWD: home, Limit: 32},
+		{Scope: "global", CWD: " ", Limit: 32},
+		{Scope: "project", CWD: home, Limit: 32},
+		{Scope: "unknown", Limit: 32},
+		{Scope: "global", Limit: 0},
+		{Scope: "global", Limit: 1025},
+		{Scope: "global", Limit: 32, Definition: "missing"},
+		{Scope: "global", Limit: 32, PermissionMode: "invalid"},
 		{Scope: "global", Limit: 32, Prefix: strings.Repeat("x", 4097)},
 	} {
 		if _, err := fixture.server.completeHostSkills(t.Context(), params); err == nil {

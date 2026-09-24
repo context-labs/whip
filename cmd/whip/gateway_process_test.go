@@ -38,11 +38,11 @@ func TestGatewayProcessHelper(t *testing.T) {
 	}
 	args := os.Args[separator+1:]
 	if home := os.Getenv("WHIP_TEST_GATEWAY_HOME"); home != "" {
-		os.Setenv(buildinfo.Env("HOME"), home)
+		t.Setenv(buildinfo.Env("HOME"), home)
 	}
 	if mode == "child" {
 		if path := os.Getenv("WHIP_TEST_GATEWAY_PID"); path != "" {
-			if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+			if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -64,7 +64,7 @@ func TestGatewayProcessHelper(t *testing.T) {
 		}
 		init := client.InitializeResult()
 		expected := gatewayReady{RuntimeID: init.RuntimeID, Generation: init.Generation}
-		command := gatewayTestCommand("child")
+		command := gatewayTestCommand(t, "child")
 		child, ready, err := startGatewayProcess(t.Context(), command, expected, 5*time.Second)
 		if err != nil {
 			t.Fatal(err)
@@ -122,8 +122,9 @@ func TestGatewayProcessHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func gatewayTestCommand(mode string) *exec.Cmd {
-	command := exec.Command(os.Args[0], "-test.run=^TestGatewayProcessHelper$", "--")
+func gatewayTestCommand(t *testing.T, mode string) *exec.Cmd {
+	t.Helper()
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestGatewayProcessHelper$", "--")
 	command.Env = append(os.Environ(), "WHIP_TEST_GATEWAY_HELPER="+mode)
 	return command
 }
@@ -139,7 +140,7 @@ func TestManagedGatewayReadinessAndBoundedFailures(t *testing.T) {
 		{name: "startup timeout", mode: "stall", want: "did not become ready"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := gatewayTestCommand(test.mode)
+			command := gatewayTestCommand(t, test.mode)
 			expected := gatewayReady{RuntimeID: "fixture-runtime", Generation: 41}
 			timeout := 2 * time.Second
 			if test.mode == "stall" {
@@ -170,7 +171,7 @@ func TestManagedGatewayReadinessAndBoundedFailures(t *testing.T) {
 }
 
 func TestManagedGatewayStopEscalatesAndReaps(t *testing.T) {
-	command := gatewayTestCommand("stubborn")
+	command := gatewayTestCommand(t, "stubborn")
 	child, _, err := startGatewayProcess(t.Context(), command, gatewayReady{RuntimeID: "fixture", Generation: 1}, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +187,7 @@ func TestManagedGatewayStopEscalatesAndReaps(t *testing.T) {
 func TestManagedGatewayCancelledStartupReaps(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	command := gatewayTestCommand("stall")
+	command := gatewayTestCommand(t, "stall")
 	child, _, err := startGatewayProcess(ctx, command, gatewayReady{RuntimeID: "fixture", Generation: 1}, time.Second)
 	if child != nil {
 		child.stop(time.Second)
@@ -212,7 +213,7 @@ func TestManagedGatewayParentDeathClosesListener(t *testing.T) {
 	t.Setenv("WHIP_LISTEN", "127.0.0.1:0")
 	paths := startWebTestDaemon(t)
 	t.Setenv("WHIP_TEST_GATEWAY_HOME", filepath.Dir(paths.Home))
-	command := gatewayTestCommand("parent")
+	command := gatewayTestCommand(t, "parent")
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +269,11 @@ func TestManagedGatewayParentDeathClosesListener(t *testing.T) {
 	httpClient := &http.Client{Timeout: 200 * time.Millisecond}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		response, err := httpClient.Get(record.Endpoint + "/api/v3/web")
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, record.Endpoint+"/api/v3/web", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := httpClient.Do(request)
 		if err != nil {
 			status, client := probeDaemon(paths, time.Second)
 			if client == nil {
@@ -293,7 +298,7 @@ func TestManagedGatewayStatusFailureAndRepeatedStart(t *testing.T) {
 		if executable != want {
 			t.Errorf("gateway uses %s, want own executable %s", executable, want)
 		}
-		return exec.Command(executable, "-test.run=^TestGatewayProcessHelper$", "--")
+		return exec.CommandContext(t.Context(), executable, "-test.run=^TestGatewayProcessHelper$", "--")
 	}
 	t.Cleanup(func() { gatewayCommand = previousCommand })
 	previousLaunch := launchManagedDaemon
@@ -393,7 +398,7 @@ func TestGatewayChildSignalsDoNotStopDaemon(t *testing.T) {
 	client.Close()
 	for _, sig := range []os.Signal{os.Interrupt, syscall.SIGTERM} {
 		t.Run(sig.String(), func(t *testing.T) {
-			command := gatewayTestCommand("child")
+			command := gatewayTestCommand(t, "child")
 			child, _, err := startGatewayProcess(t.Context(), command, gatewayReady{RuntimeID: initialized.RuntimeID, Generation: initialized.Generation}, 5*time.Second)
 			if err != nil {
 				t.Fatal(err)
@@ -431,7 +436,7 @@ func TestManagedGatewayRealChildReadyCrashAndDaemonStop(t *testing.T) {
 			var launches atomic.Int32
 			gatewayCommand = func(executable string) *exec.Cmd {
 				launches.Add(1)
-				return exec.Command(executable, "-test.run=^TestGatewayProcessHelper$", "--")
+				return exec.CommandContext(t.Context(), executable, "-test.run=^TestGatewayProcessHelper$", "--")
 			}
 			t.Cleanup(func() { gatewayCommand = previous })
 			paths := startWebTestDaemon(t)
@@ -503,7 +508,11 @@ func TestManagedGatewayRealChildReadyCrashAndDaemonStop(t *testing.T) {
 				t.Fatal(err)
 			}
 			httpClient := &http.Client{Timeout: time.Second}
-			if response, err := httpClient.Get(ready.NetworkEndpoint + "/api/v3/web"); err == nil {
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ready.NetworkEndpoint+"/api/v3/web", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, err := httpClient.Do(request); err == nil {
 				response.Body.Close()
 				t.Fatal("daemon stop retained gateway listener")
 			}

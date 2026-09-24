@@ -528,16 +528,17 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 		}
 		var work func() (string, error)
-		if operation == "mcp.refresh" {
+		switch operation {
+		case "mcp.refresh":
 			work = func() (string, error) { return s.clientMCP(s.supervisor.ctx, operation, action) }
-		} else if operation == "browser.set_driver" {
+		case "browser.set_driver":
 			runner, ok := s.runner.(*AgentSession)
 			if !ok || runner.browserManager() == nil {
 				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("browser automation is unavailable"), &result))
 			}
 			manager := runner.browserManager()
 			work = func() (string, error) { return setBrowserDriver(manager, action.Driver) }
-		} else {
+		default:
 			manager, ok := s.currentMCP().(clientMCPManager)
 			if !ok {
 				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("MCP integration is unavailable"), &result))

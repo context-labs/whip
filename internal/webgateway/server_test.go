@@ -27,19 +27,22 @@ func newFakeClient() *fakeClient {
 		NegotiatedCapabilities: []string{protocol.NetworkClientCapability},
 	}}
 }
+
 func (c *fakeClient) Call(ctx context.Context, method string, params, result any) error {
 	if c.call == nil {
 		return errors.New("unexpected call: " + method)
 	}
 	return c.call(ctx, method, params, result)
 }
+
 func (c *fakeClient) Close() error                                { c.once.Do(func() { close(c.done) }); return nil }
 func (c *fakeClient) Done() <-chan struct{}                       { return c.done }
 func (c *fakeClient) InitializeResult() protocol.InitializeResult { return c.init }
 
 func testServer(t *testing.T, socket string, monitor *fakeClient) *Server {
 	t.Helper()
-	s, err := Start(t.Context(), Options{Address: "127.0.0.1:0", SocketPath: socket,
+	s, err := Start(t.Context(), Options{
+		Address: "127.0.0.1:0", SocketPath: socket,
 		Open: func(context.Context) (Client, error) { return monitor, nil },
 	})
 	if err != nil {
@@ -62,7 +65,7 @@ func TestMonitorLossClosesListener(t *testing.T) {
 	if s.Err() == nil {
 		t.Fatal("daemon loss not reported")
 	}
-	conn, err := net.DialTimeout("tcp", strings.TrimPrefix(s.Endpoint(), "http://"), time.Second)
+	conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", strings.TrimPrefix(s.Endpoint(), "http://"))
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("listener survived backend loss")
@@ -73,7 +76,8 @@ func TestStartupRequiresAcknowledgedRestriction(t *testing.T) {
 	t.Parallel()
 	monitor := newFakeClient()
 	monitor.init.NegotiatedCapabilities = nil
-	if s, err := Start(t.Context(), Options{Address: "127.0.0.1:0", SocketPath: "unused",
+	if s, err := Start(t.Context(), Options{
+		Address: "127.0.0.1:0", SocketPath: "unused",
 		Open: func(context.Context) (Client, error) { return monitor, nil },
 	}); err == nil {
 		_ = s.Close()
@@ -88,7 +92,7 @@ func TestStartupRequiresAcknowledgedRestriction(t *testing.T) {
 
 func TestExplicitBindDoesNotFallback(t *testing.T) {
 	t.Parallel()
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +105,7 @@ func TestExplicitBindDoesNotFallback(t *testing.T) {
 }
 
 func TestImplicitBindFallsBackOnlyWhenBusy(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:4444")
+	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:4444")
 	if err != nil {
 		t.Skipf("isolated reservation of default port unavailable: %v", err)
 	}
@@ -146,6 +150,7 @@ func TestHostOriginAndDiscovery(t *testing.T) {
 		{"null origin", "localhost:8080", "null", 403},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			for _, path := range []string{"/", "/sessions/root", "/api/v3/web", "/api/v3/content/ref"} {
 				request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:8080"+path, nil)
 				request.Host = tc.host
@@ -246,7 +251,7 @@ func TestInvalidUpgradeClosesHijackedConnection(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != 400 {
+		if response.StatusCode != http.StatusBadRequest {
 			t.Fatalf("status %d", response.StatusCode)
 		}
 	}
