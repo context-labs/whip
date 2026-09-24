@@ -769,6 +769,7 @@ func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
 	}
 	options := requests[0].Options
 	if len(options) != 3 || options[0].Name != "SQLite - embedded" || options[1].Name != "Postgres" || options[1].Kind != acpsdk.PermissionOptionKindAllowOnce ||
+		string(options[0].OptionId) != "0" || string(options[1].OptionId) != "1" ||
 		string(options[2].OptionId) != optDismiss || options[2].Kind != acpsdk.PermissionOptionKindRejectOnce {
 		t.Fatalf("question options = %+v", options)
 	}

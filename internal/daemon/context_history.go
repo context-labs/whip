@@ -181,11 +181,13 @@ func (host *recursiveHost) history(ctx context.Context, operation string, argume
 		if offset < 0 || offset > len(body) || length < 1 || length > sessionstore.InlineValueLimit {
 			return nil, errors.New("history read requires an in-range offset and length 1..8192")
 		}
-		if offset < len(body) && !utf8.RuneStart(body[offset]) {
+		// offset == len(body) is a valid empty read at EOF.
+		remainder := body[offset:]
+		if len(remainder) > 0 && !utf8.RuneStart(remainder[0]) {
 			return nil, errors.New("history offset must be a UTF-8 boundary")
 		}
-		text := utf8PrefixRuntime(body[offset:], length)
-		if text == "" && offset < len(body) {
+		text := utf8PrefixRuntime(remainder, length)
+		if text == "" && len(remainder) > 0 {
 			return nil, errors.New("history length is too small for the next UTF-8 character")
 		}
 		result := view.cursor(view.source(message))

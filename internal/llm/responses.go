@@ -334,8 +334,8 @@ func decodeResponses(
 			if err != nil {
 				return false, nonRetryable{err}
 			}
-			completed.Continuation = ResponseContinuation{AccountID: accountID, Model: model, Items: string(items)}
 			message = completed
+			message.Continuation = ResponseContinuation{AccountID: accountID, Model: model, Items: string(items)}
 			return true, nil
 		case "error":
 			return false, subscriptionError(0, []byte(data))

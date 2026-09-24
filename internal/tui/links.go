@@ -249,8 +249,8 @@ func linkSGRs() (label, href string) {
 }
 
 // osc8RE matches one OSC 8 hyperlink open or close sequence (BEL or ST
-// terminated).
-var osc8RE = regexp.MustCompile("\x1b\\]8;[^\a\x1b]*(?:\a|\x1b\\\\)")
+// terminated). BEL is the literal protocol byte 0x07, not an alphabetic class.
+var osc8RE = regexp.MustCompile(`\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)`)
 
 // stripOSC8 removes glamour v2's own hyperlinks from rendered markdown. whip
 // re-links on its own terms below: the label becomes the only clickable text,
