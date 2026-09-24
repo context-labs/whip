@@ -1,11 +1,11 @@
 # CLI release operations
 
-> Cutover status (2026-09-24): publication is intentionally paused by Sam's
-> decision. GitHub rejects its built-in Actions App as a restricted tag creator
-> (HTTP 422). Both release flags remain false and new `v*` creation is blocked.
-> Before enabling the flow below, configure an explicitly approved release
-> identity (for example a dedicated repo-only GitHub App) and validate its
-> creation-only authority. Do not relax main protection or reuse old workflow IDs.
+The publishing job uses GitHub's built-in `GITHUB_TOKEN` with `contents: write`;
+no custom App, PAT, or additional secret is required. Repository writers may
+create new `v*` tags, but existing tags cannot be moved or deleted. Creating a
+tag does not trigger CLI publication: only validated main pushes and deliberate
+main workflow dispatches do. Main still requires PRs and passing checks, with no
+bypass. Stable approval and Desktop publication remain independently gated.
 
 `whipcode` is the sole CLI; `main` is the sole maintained source. Historical
 branches/tags are records, not release or upgrade paths. This runbook describes
@@ -49,23 +49,26 @@ advisory AI review pipeline is part of this release flow.
 2. Record the full accepted clean commit SHA as repository variable
    `WHIP_RELEASE_BASELINE`. Candidates must descend from it and equal current
    main. Main ancestry alone could authorize pre-reset source and is insufficient.
-3. Audit effective branch/tag rules, workflow permissions, release actor,
-   environments/reviewers, old publisher/dispatch access, secret scopes, and
-   external integrations with their owners. Protect existing tags from changes;
-   retire old execution paths without deleting history or published assets.
+3. Keep main protections and the tag update/deletion rules. Do not add a blanket
+   `v*` creation block: it also blocks the built-in publishing token. Audit
+   write-capable workflows and repository write access; this setup does not
+   reserve manual tag/release creation exclusively for the publisher. Keep old
+   publisher workflow IDs retired without deleting history or published assets.
 4. Configure `whipcode-alpha` for trusted main prereleases and `whipcode-stable`
    for Sam's explicit stable approval (no admin bypass); both permit only main.
    Verify PRs have no publication credentials. Confirm Desktop signing and both
    **stage and promote** approvals separately; stage uploads are already public.
-5. Only with explicit authorization, set `WHIP_RELEASE_ENABLED=true`.
-   `WHIP_DESKTOP_RELEASE_ENABLED=true` is an additional independent Desktop gate.
+5. Only with explicit authorization, set `WHIP_RELEASE_ENABLED=true` and enable
+   `publish-cli.yml` in GitHub Actions. `WHIP_DESKTOP_RELEASE_ENABLED=true` is an
+   additional independent Desktop gate.
    Keep publication disabled until all checks, settings, and credential ownership
    are verified. Do not create release tags just to test preparation.
 
 ## Publish and verify
 
-- Let a validated current-main push produce an alpha, or deliberately dispatch
-  the CLI workflow from main with `channel=stable` for `v1.0.0`. A superseded SHA
+- Let a validated current-main push produce an alpha, or dispatch one explicitly:
+  `gh workflow run publish-cli.yml --ref main -f channel=alpha`. Use
+  `channel=stable` only for an explicitly approved `v1.0.0` release. A superseded SHA
   is skipped; do not bypass source guards to publish it. Approve the concrete
   stable candidate only after its shared validation completes.
 - Inspect the run's source SHA, version, asset set, and checksums. Confirm alpha
