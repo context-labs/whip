@@ -72,6 +72,29 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 	}
 }
 
+func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	useTestDaemon(t)
+	t.Chdir(t.TempDir())
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldInput := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() {
+		os.Stdin = oldInput
+		_ = reader.Close()
+	})
+	if err := mcpServe("test-version"); err != nil {
+		t.Fatalf("mcp serve EOF = %v", err)
+	}
+}
+
 func TestMCPCLIBlockedServer(t *testing.T) {
 	wd := importFixture(t, `, "mcpImport": { "codex": { "exclude": ["node_repl"] } }`)
 	chdir(t, wd)
@@ -279,6 +302,7 @@ func TestMCPServeHelperProcess(t *testing.T) {
 	if os.Getenv("WHIP_MCP_SERVE_HELPER") != "1" {
 		t.Skip("helper process, run only by TestMCPTestCLIReady")
 	}
+	useTestDaemon(t)
 	if err := mcpCLI([]string{"serve"}, "helper"); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 	}
@@ -302,8 +326,15 @@ func TestMCPTestCLIReady(t *testing.T) {
 	if !strings.Contains(out, "✓ connected") {
 		t.Fatalf("doctor should report the connection:\n%s", out)
 	}
-	if !strings.Contains(out, "tools:") || !strings.Contains(out, "read") {
-		t.Errorf("doctor should list the served tools:\n%s", out)
+	if !strings.Contains(out, "— 10 tools") {
+		t.Errorf("doctor should report the complete served-tool count:\n%s", out)
+	}
+	wantPreview := "  tools: mcp__self__bash, mcp__self__browser_allow_preview_port, mcp__self__browser_attach, mcp__self__browser_detach, mcp__self__browser_list_tabs, …"
+	if !strings.Contains(out, wantPreview+"\n") {
+		t.Errorf("doctor should list the first five sorted tools and explicit truncation:\n%s", out)
+	}
+	if strings.Contains(out, "mcp__self__read") || strings.Contains(out, "mcp__self__browser_run") {
+		t.Errorf("doctor preview must remain bounded rather than listing all tools:\n%s", out)
 	}
 }
 
@@ -311,12 +342,14 @@ func TestMCPTestCLIReady(t *testing.T) {
 // failure instead of claiming success.
 func TestMCPCLISaveFailures(t *testing.T) {
 	home := mcpHome(t, `,
-  "mcp": { "mine": { "command": ["true"] } }`)
+  "mcp": { "mine": { "command": ["true"] } },
+  "mcpImport": { "project": { "enabled": true } }`)
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// an importable project server, so import has something to write
+	// an importable project server (the project source is opted in above),
+	// so import has something to write
 	if werr := os.WriteFile(filepath.Join(wd, ".mcp.json"),
 		[]byte(`{"mcpServers":{"proj":{"command":"true"}}}`), 0o600); werr != nil {
 		t.Fatal(werr)

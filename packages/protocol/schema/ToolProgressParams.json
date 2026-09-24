@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "invocation_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/ToolProgressParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolProgressParams",
+  "required": [
+    "invocation_id",
+    "generation",
+    "text"
+  ],
+  "additionalProperties": false
+}

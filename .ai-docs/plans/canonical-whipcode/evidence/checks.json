@@ -1,0 +1,24 @@
+{
+  "implementationRevision": "efeb8242951a75040b0ba5f81f78ce859b16d7de",
+  "taskCheck": {
+    "passed": true,
+    "sdkTests": 254,
+    "webTests": 299,
+    "fullGoTests": true,
+    "contractsAndRendererChecks": true
+  },
+  "desktopTests": {
+    "passed": true,
+    "nativeTests": 66,
+    "nativeSkipped": 0,
+    "packagingTests": 75,
+    "realIsolatedSSH": true
+  },
+  "focusedGoRace": true,
+  "independentReviewCompleted": true,
+  "installedGatekeeper": "Notarized Developer ID accepted",
+  "installedSignaturesVerified": true,
+  "privateConfigurationVerified": true,
+  "tailscaleServeEmpty": true,
+  "historicalSecretsNotCopied": true
+}

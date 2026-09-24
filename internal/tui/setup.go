@@ -1,245 +1,905 @@
 package tui
 
 import (
-	"bufio"
 	"context"
-	"fmt"
-	"io"
-	"os"
-	"strconv"
+	"errors"
+	"slices"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/context-labs/whip/internal/tui/ui"
+
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/inferencenet"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
-// setupWizard runs once, on the first launch (no config file existed), after
-// the trust gate and before the TUI takes the terminal. It walks the
-// install-time decisions the palette can't conveniently make for you —
-// provider auth, thinking-token display, and whether claude/codex MCP configs
-// are imported — and persists the answers. Defaults are opt-OUT (Enter = no /
-// skip): a first run that only presses Enter ends with a clean, self-contained
-// config that imports nothing and signs into nothing.
-//
-// The wizard only runs interactively. Non-terminal stdin (piped runs, tests,
-// headless launches) skips silently and keeps the shipped defaults. r is the
-// caller's shared stdin reader (checkTrust just used it — a fresh bufio here
-// would lose its buffered read-ahead).
-func setupWizard(cfg *config.Config, r *bufio.Reader) error {
-	// A failed Stat means we can't tell whether stdin is a terminal — treat it
-	// as non-terminal and skip, rather than error out of install.
-	st, statErr := os.Stdin.Stat()
-	if statErr != nil || st.Mode()&os.ModeCharDevice == 0 {
-		return nil //nolint:nilerr // no terminal to ask on: keep defaults
-	}
-	return runSetupWizard(cfg, r, os.Stderr)
+var errProviderReadinessUnavailable = errors.New("this execution host cannot report provider readiness; update Whip on the host and restart it, then reconnect")
+
+// providerSetup is the shared floating connection dialog. The normal composer
+// owns the draft before and after a session exists; this dialog never submits it.
+type providerSetup struct {
+	request                           uint64
+	pickProvider                      string
+	pickKey                           bool
+	selectionModel, selectionProvider string
+	ctx                               context.Context
+	cancel                            context.CancelFunc
+	cancelCall                        context.CancelFunc
+	host                              setupHost
+	newSession                        bool
+	automatic                         bool
+	persistDefault                    bool
+	model, provider                   string
+	list                              protocol.ProviderList
+	catalogs                          protocol.ProviderCatalogsResult
+	login                             daemon.ProviderLoginStatus
+	loginFeedback                     string
+	openedURL                         string
+	mode                              string
+	selected                          int
+	input                             textinput.Model
+	message                           string
+	notice                            string
+	effort                            string
+	autoModel                         bool
+	busy                              bool
+	done                              bool
+	chosen                            bool
+	width                             int
+	form                              *setupProviderForm
+	configuration                     protocol.ProviderConfiguration
+	reloadProvider                    string
+	reload                            bool
+	methods                           []setupConnectionMethod
+	manageMethods                     bool
 }
 
-// openRouterValidate is the wizard's key-check seam: llm's client in prod, an
-// httptest stub in tests (os.Stdin can't be swapped for a pipe either, but I/O
-// is a parameter already).
-var openRouterValidate = func(ctx context.Context, key string) (int, error) {
-	infos, err := llm.New(config.OpenRouterBaseURL, key).Models(ctx)
-	return len(infos), err
+type setupReply struct {
+	request       uint64
+	owner         *providerSetup
+	kind          string
+	list          protocol.ProviderList
+	catalogs      protocol.ProviderCatalogsResult
+	login         daemon.ProviderLoginStatus
+	err           error
+	configuration protocol.ProviderConfiguration
+	model         string
+	reload        bool
+	message       string
 }
 
-// runSetupWizard is the wizard body with injectable I/O so tests can drive it
-// (os.Stdin can't be swapped for a pipe without losing the terminal check).
-// stdin is any reader here — the production path passes the shared
-// *bufio.Reader; tests pass a strings.Reader.
-func runSetupWizard(cfg *config.Config, stdin io.Reader, stderr io.Writer) error {
-	r, ok := stdin.(*bufio.Reader)
-	if !ok {
-		r = bufio.NewReader(stdin)
+type setupPoll struct {
+	owner   *providerSetup
+	request uint64
+	flowID  string
+}
+
+// Clipboard and cursor commands return through the same owner boundary as
+// RPCs. Late input cannot enter another provider dialog or the session draft.
+type setupInputMsg struct {
+	owner   *providerSetup
+	request uint64
+	message tea.Msg
+	field   string
+	mode    string
+}
+
+func (s *providerSetup) inputCommand(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
 	}
-	w := stderr
-
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Welcome to whip! First-run setup (Enter = skip/keep default).")
-	fmt.Fprintln(w, "Every choice is reversible later: /auth, ctrl+p, ~/.whip/config.json.")
-	fmt.Fprintln(w, "")
-
-	setupProvider(cfg, r, w)
-
-	if !askYN(r, w, "Show thinking (reasoning) tokens in the transcript?", true) {
-		off := false
-		cfg.Thinking = &off
+	request := s.request
+	field, mode := s.formInputField(), s.mode
+	return func() tea.Msg {
+		return setupInputMsg{owner: s, request: request, field: field, mode: mode, message: cmd()}
 	}
+}
 
-	setupMCPImports(cfg, r, w)
-
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("saving setup choices: %w", err)
+func newProviderSetup(ctx context.Context, host setupHost, newSession bool) *providerSetup {
+	ctx, cancel := context.WithCancel(ctx)
+	input := textinput.New()
+	input.Prompt = ""
+	input.CharLimit = 16384
+	input.Focus()
+	return &providerSetup{
+		ctx: ctx, cancel: cancel, host: host, newSession: newSession,
+		persistDefault: newSession, input: input, mode: "providers", width: 64,
 	}
-	config.MarkSetupDone() // only on success: an aborted wizard offers again
-	fmt.Fprintln(w, "Setup complete — starting whip.")
-	fmt.Fprintln(w, "")
+}
+
+func (s *providerSetup) Init() tea.Cmd { return s.refresh("") }
+
+func (s *providerSetup) call(kind string, operation func(context.Context) setupReply) tea.Cmd {
+	if s.cancelCall != nil {
+		s.cancelCall()
+	}
+	s.busy = true
+	s.request++
+	request := s.request
+	ctx, cancelCall := context.WithCancel(s.ctx)
+	s.cancelCall = cancelCall
+	return func() tea.Msg {
+		defer cancelCall()
+		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		reply := operation(bounded)
+		reply.owner, reply.kind, reply.request = s, kind, request
+		return reply
+	}
+}
+
+func (s *providerSetup) refresh(after string) tea.Cmd {
+	host, model, provider := s.host, s.selectionModel, s.selectionProvider
+	return s.call("inventory"+after, func(ctx context.Context) setupReply {
+		list, err := host.DiscoverProviders(ctx, model, provider)
+		if err != nil {
+			return setupReply{err: err}
+		}
+		return setupReply{list: list}
+	})
+}
+
+func (s *providerSetup) Update(message tea.Msg) (*providerSetup, tea.Cmd) {
+	switch msg := message.(type) {
+	case setupInputMsg:
+		if msg.owner != s || msg.request != s.request || msg.field != s.formInputField() || msg.mode != s.mode || s.done || !s.editing() {
+			return s, nil
+		}
+		if s.mode == "provider_form" {
+			return s, s.updateFormInput(msg.message)
+		}
+		var cmd tea.Cmd
+		before := s.input.Value()
+		s.input, cmd = s.input.Update(msg.message)
+		if s.input.Value() != before {
+			s.selected = 0
+		}
+		return s, s.inputCommand(cmd)
+	case tea.WindowSizeMsg:
+		s.width = max(20, min(68, msg.Width-4))
+		s.input.SetWidth(max(10, s.width-4))
+	case setupPoll:
+		if msg.owner != s || msg.request != s.request || msg.flowID != s.login.FlowID ||
+			s.busy || s.done || s.mode != "login" || s.ctx.Err() != nil {
+			return s, nil
+		}
+		host, id := s.host, s.login.FlowID
+		return s, s.call("login", func(ctx context.Context) setupReply {
+			status, err := host.LoginStatus(ctx, id)
+			return setupReply{login: status, err: err}
+		})
+	case setupReply:
+		if msg.owner != s || msg.request != s.request || s.done || s.ctx.Err() != nil {
+			return s, nil
+		}
+		s.busy = false
+		if msg.err != nil {
+			if strings.HasPrefix(msg.kind, "provider-") {
+				return s, s.providerFailure(msg)
+			}
+			s.message = msg.err.Error()
+			if msg.kind == "selected" {
+				s.mode, s.autoModel = "models", false
+				s.message += ". Press ctrl+r to refresh, then select a model to retry."
+			} else if msg.kind != "key" {
+				s.message += " — retry when ready. Your draft is preserved."
+			}
+			if msg.kind == "login" && s.login.FlowID != "" {
+				return s, s.poll()
+			}
+			return s, nil
+		}
+		s.message = ""
+		if strings.HasPrefix(msg.kind, "provider-") {
+			return s, s.providerReply(msg)
+		}
+		switch msg.kind {
+		case "inventory", "inventory-connected", "inventory-saved", "inventory-managed":
+			selectedID := s.selectedProviderID()
+			s.list = msg.list
+			if s.list.Selection == nil {
+				s.mode, s.message = "unsupported", errProviderReadinessUnavailable.Error()
+				return s, nil
+			}
+			if s.automatic && s.list.Selection.Ready {
+				s.model, s.provider = s.list.Selection.Model, s.list.Selection.Provider
+				s.done, s.chosen = true, true
+				return s, nil
+			}
+			s.automatic = false
+			if msg.kind == "inventory-saved" || msg.kind == "inventory-managed" {
+				return s, s.afterProviderRefresh(msg.kind)
+			}
+			if s.pickProvider != "" {
+				s.provider, s.pickProvider = s.pickProvider, ""
+				if entry := s.entry(); entry != nil {
+					if s.pickKey && slices.Contains(entry.Methods, "api_key") {
+						s.pickKey, s.mode = false, "key"
+						s.input.EchoMode = textinput.EchoPassword
+						return s, nil
+					}
+					return s, s.connect(*entry)
+				}
+				s.input.Reset()
+				s.input.EchoMode = textinput.EchoNormal
+				s.pickKey = false
+				s.message = "Provider " + s.provider + " was not found on this host. Choose a provider below."
+			}
+			if msg.kind == "inventory-connected" {
+				return s, s.prepareModel()
+			}
+			s.mode, s.selected = "providers", 0
+			s.restoreProviderSelection(selectedID)
+		case "catalogs":
+			s.catalogs = msg.catalogs
+			s.list = msg.list
+			s.message = ""
+			if s.list.Selection == nil {
+				s.mode, s.message = "unsupported", errProviderReadinessUnavailable.Error()
+				return s, nil
+			}
+			if failure := msg.catalogs.Errors[s.provider]; failure != "" {
+				s.message = "Model list unavailable: " + failure + ". Press ctrl+r to retry."
+			}
+			if s.autoModel {
+				return s, s.selectDefaultModel()
+			}
+			s.mode = "models"
+			s.selected = max(0, slices.Index(s.modelOptions(), s.model))
+		case "login":
+			return s, s.applyLogin(msg.login)
+		case "key":
+			s.notice = ""
+			if s.provider == s.selectionProvider {
+				s.reloadProvider = s.provider
+			}
+			return s, s.refresh("-connected")
+		case "selected":
+			s.done, s.chosen = true, true
+		}
+	case tea.KeyPressMsg:
+		return s, s.keypress(msg)
+	case tea.PasteMsg:
+		if s.mode == "provider_form" && !s.busy {
+			return s, s.updateFormInput(msg)
+		}
+		if s.editing() {
+			var cmd tea.Cmd
+			s.input, cmd = s.input.Update(msg)
+			s.selected = 0
+			return s, s.inputCommand(cmd)
+		}
+	}
+	return s, nil
+}
+
+func (s *providerSetup) entry() *protocol.ProviderEntry {
+	for i := range s.list.Providers {
+		if s.list.Providers[i].ID == s.provider {
+			return &s.list.Providers[i]
+		}
+	}
 	return nil
 }
 
-// askYN asks a yes/no question with an explicit default: Enter takes it,
-// y/yes/n/no parse, anything else re-asks once and then takes the default
-// (a wizard answer is never worth a validation loop).
-func askYN(r *bufio.Reader, w io.Writer, question string, def bool) bool {
-	hint := "[y/N]"
-	if def {
-		hint = "[Y/n]"
+func (s *providerSetup) prepareModel() tea.Cmd {
+	s.input.Reset()
+	s.input.EchoMode = textinput.EchoNormal
+	s.selected = 0
+	s.message, s.effort = "", ""
+	s.autoModel = false
+	entry := s.entry()
+	if entry == nil {
+		s.mode = "providers"
+		return nil
 	}
-	for attempt := 0; ; attempt++ {
-		fmt.Fprintf(w, "%s %s ", question, hint)
-		line, err := r.ReadString('\n')
-		if err != nil && line == "" {
-			return def // EOF: take the default rather than wedge install
-		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
-		case "":
-			return def
-		case "y", "yes":
-			return true
-		case "n", "no":
-			return false
-		}
-		if attempt > 0 {
-			return def // second unrecognized answer: stop asking
-		}
-		fmt.Fprintln(w, "  (answer y or n)")
+	if preset, ok := setupDefaultPreset(s.provider); ok && setupCanAttempt(*entry) {
+		s.autoModel = true
+		s.model = ""
+		s.mode = "models"
+		return s.loadCatalogs(entry.SuggestedModel != preset.SuggestedModels[0])
 	}
+	s.model = entry.SuggestedModel
+	if s.list.Selection != nil && s.list.Selection.Ready && s.list.Selection.Provider == s.provider {
+		s.model = s.list.Selection.Model
+	}
+	s.mode = "models"
+	return s.loadCatalogs(false)
 }
 
-// setupProvider asks which inference provider to connect. Enter skips (the
-// shipped config already routes to inference-net and resolves its machine key
-// whenever the user signs in later via /auth).
-func setupProvider(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	fmt.Fprintln(w, "Connect a model provider:")
-	fmt.Fprintln(w, "  1) Inference.net — browser sign-in, no key handling (recommended)")
-	fmt.Fprintln(w, "  2) OpenRouter    — paste an API key from https://openrouter.ai/keys")
-	fmt.Fprintln(w, "  3) Skip          — set up later with /auth")
-	fmt.Fprint(w, "Choose [1/2/3, default 3]: ")
-	line, _ := r.ReadString('\n')
-	switch strings.TrimSpace(line) {
-	case "1", "inference-net", "inference":
-		setupInferenceNet(cfg, r, w)
-	case "2", "openrouter":
-		setupOpenRouter(cfg, r, w)
-	default:
-		fmt.Fprintln(w, "  skipped — /auth inference-net or /auth openrouter later.")
-	}
-	fmt.Fprintln(w, "")
-}
-
-// setupInferenceNet runs the browser device login in the plain terminal,
-// reusing the CLI's CompleteLogin flow (device code → team/project picker →
-// machine key). Numbered prompts stand in for the TUI's choice picker.
-func setupInferenceNet(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	fmt.Fprintln(w, "  starting Inference.net sign-in…")
-	auth, err := inferencenet.CompleteLogin(ctx, func(verificationURL, userCode string) {
-		fmt.Fprintln(w, "\n  Approve this terminal in your browser:")
-		fmt.Fprintln(w, "  "+verificationURL)
-		fmt.Fprintln(w, "\n  Code: "+userCode)
-		if openBrowserURL(verificationURL) {
-			fmt.Fprintln(w, "  Browser opened; waiting for approval…")
-		} else {
-			fmt.Fprintln(w, "  Open the URL manually; waiting for approval…")
+func (s *providerSetup) loadCatalogs(refresh bool) tea.Cmd {
+	host, model, provider, selected := s.host, s.selectionModel, s.selectionProvider, s.provider
+	return s.call("catalogs", func(ctx context.Context) setupReply {
+		catalogs, err := host.ProviderCatalogsFor(ctx, selected, refresh)
+		if err != nil {
+			return setupReply{err: err}
 		}
-	}, func(kind, title string, options []string) (string, error) {
-		return wizardChoose(r, w, title, options)
+		list, err := host.ListProvidersFor(ctx, model, provider)
+		return setupReply{catalogs: catalogs, list: list, err: err}
 	})
-	if err != nil {
-		fmt.Fprintln(w, "  sign-in failed: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth inference-net — continuing setup.")
-		return
-	}
-	fmt.Fprintln(w, "  provisioning an API key for this machine…")
-	if _, err := auth.EnsureMachineKey(ctx); err != nil {
-		fmt.Fprintln(w, "  key provisioning failed: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth inference-net — continuing setup.")
-		return
-	}
-	if err := inferencenet.SaveAuth(auth); err != nil {
-		fmt.Fprintln(w, "  could not save sign-in state: "+err.Error())
-		return
-	}
-	// The machine key resolves from ~/.whip/inference-net.json, so the
-	// provider entry carries no literal key.
-	cfg.UpsertInferenceNet("", false)
-	fmt.Fprintf(w, "  ✓ signed in as %s (project %s)\n", auth.UserEmail, auth.ProjectName)
 }
 
-// setupOpenRouter validates a pasted key against OpenRouter's /models and
-// registers the provider. A bad paste doesn't wedge install — /auth
-// openrouter retries later. The key echoes in the plain terminal (the TUI's
-// masked input box doesn't exist yet); the prompt says so.
-func setupOpenRouter(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	fmt.Fprint(w, "  paste your OpenRouter key (visible while typing): ")
-	line, _ := r.ReadString('\n')
-	key := config.TrimKey(line)
-	if key == "" {
-		fmt.Fprintln(w, "  skipped — /auth openrouter later.")
-		return
-	}
-	fmt.Fprintln(w, "  validating key against OpenRouter…")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	models, err := openRouterValidate(ctx, key)
-	cancel()
-	if err != nil {
-		fmt.Fprintln(w, "  OpenRouter rejected the key: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth openrouter — continuing setup.")
-		return
-	}
-	cfg.UpsertOpenRouter(key, false)
-	fmt.Fprintf(w, "  ✓ openrouter configured — %d models in the catalog\n", models)
-}
-
-// wizardChoose is the numbered-list ChooseFunc for the wizard's plain
-// terminal: Enter takes the first option, a number picks, a bare name matches.
-func wizardChoose(r *bufio.Reader, w io.Writer, title string, options []string) (string, error) {
-	fmt.Fprintln(w, "  "+title+":")
-	if len(options) == 0 {
-		fmt.Fprint(w, "  name: ")
-		line, err := r.ReadString('\n')
-		return strings.TrimSpace(line), err
-	}
-	for i, o := range options {
-		fmt.Fprintf(w, "    %d) %s\n", i+1, o)
-	}
-	fmt.Fprintf(w, "  pick [1-%d, default 1]: ", len(options))
-	line, err := r.ReadString('\n')
-	if err != nil && line == "" {
-		return "", err
-	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return options[0], nil
-	}
-	if n, err := strconv.Atoi(line); err == nil && n >= 1 && n <= len(options) {
-		return options[n-1], nil
-	}
-	return "", fmt.Errorf("invalid choice %q", line)
-}
-
-// setupMCPImports asks which external MCP configs whip should import. Enter =
-// no for both (opt-in): nothing from another harness's config is picked up
-// unless the user says so. The answers always land in the mcpImport block so
-// the install has an explicit record — and ctrl+p → MCPs flips them later.
-func setupMCPImports(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	fmt.Fprintln(w, "whip can import MCP servers from other tools' configs.")
-	claude := askYN(r, w, "Import MCP servers from Claude? (~/.claude.json, .mcp.json)", false)
-	codex := askYN(r, w, "Import MCP servers from Codex? (~/.codex/config.toml)", false)
-	cfg.MCPImport = &config.MCPImport{
-		Claude: &config.MCPImportSource{Enabled: &claude},
-		Codex:  &config.MCPImportSource{Enabled: &codex},
-	}
-	state := func(on bool) string {
-		if on {
-			return "on"
+func (s *providerSetup) modelOptions() []string {
+	models := []string{}
+	for name, model := range s.catalogs.Models {
+		if slices.Contains(model.Providers, s.provider) {
+			models = append(models, name)
 		}
-		return "off"
 	}
-	fmt.Fprintf(w, "  MCP imports: claude %s, codex %s (toggle anytime: ctrl+p → MCPs)\n", state(claude), state(codex))
-	fmt.Fprintln(w, "")
+	for _, model := range s.catalogs.Catalogs[s.provider].Models {
+		if !slices.Contains(models, model.ID) {
+			models = append(models, model.ID)
+		}
+	}
+	slices.Sort(models)
+	filter := strings.ToLower(s.input.Value())
+	return slices.DeleteFunc(models, func(model string) bool { return !strings.Contains(strings.ToLower(model), filter) })
+}
+
+func (s *providerSetup) connect(entry protocol.ProviderEntry) tea.Cmd {
+	return s.connectMethod(entry, "")
+}
+
+func (s *providerSetup) connectMethod(entry protocol.ProviderEntry, method string) tea.Cmd {
+	s.provider, s.model, s.effort, s.selected = entry.ID, "", "", 0
+	s.autoModel = false
+	s.notice, s.message, s.loginFeedback = "", "", ""
+	s.login, s.openedURL = daemon.ProviderLoginStatus{}, ""
+	s.pickKey = false
+	s.input.Reset()
+	s.input.EchoMode = textinput.EchoNormal
+	if method == "" && setupCanAttempt(entry) {
+		return s.prepareModel()
+	}
+	if method != "api_key" && slices.Contains(entry.Methods, "login") {
+		s.mode = "login"
+		host := s.host
+		return s.call("login", func(ctx context.Context) setupReply {
+			flows, err := host.ListLogins(ctx)
+			if err != nil {
+				return setupReply{err: err}
+			}
+			for _, flow := range flows.Flows {
+				if flow.Provider == entry.ID && setupLoginActive(flow.State) {
+					return setupReply{login: flow}
+				}
+			}
+			status, err := host.BeginProviderLogin(ctx, entry.ID)
+			return setupReply{login: status, err: err}
+		})
+	}
+	if slices.Contains(entry.Methods, "api_key") {
+		s.mode = "key"
+		s.input.EchoMode = textinput.EchoPassword
+		return nil
+	}
+	s.message = "This connection needs configuration on the execution host. Use Settings or edit the host config, then ctrl+r."
+	return nil
+}
+
+func setupLoginActive(state string) bool {
+	return state != "succeeded" && state != "failed" && state != "expired" && state != "cancelled" && state != "interrupted"
+}
+
+func (s *providerSetup) applyLogin(status daemon.ProviderLoginStatus) tea.Cmd {
+	s.login = status
+	if status.VerificationURL != "" && s.openedURL != status.VerificationURL {
+		s.openedURL = status.VerificationURL
+		openBrowserURL(status.VerificationURL)
+	}
+	s.selected = 0
+	switch status.State {
+	case "choose_team":
+		s.mode = "teams"
+
+	case "choose_project":
+		s.mode = "projects"
+
+	case "succeeded":
+		if s.provider == s.selectionProvider {
+			s.reloadProvider = s.provider
+		}
+		s.mode = "models"
+		return s.refresh("-connected")
+	case "failed", "expired", "cancelled", "interrupted":
+		s.mode = "providers"
+		s.message = "Sign-in " + status.State + ". " + status.Error
+	default:
+		s.mode = "login"
+		return s.poll()
+	}
+	return nil
+}
+
+func (s *providerSetup) poll() tea.Cmd {
+	msg := setupPoll{owner: s, request: s.request, flowID: s.login.FlowID}
+	return tea.Tick(750*time.Millisecond, func(time.Time) tea.Msg { return msg })
+}
+
+func (s *providerSetup) chooseLogin(choice string, project bool) tea.Cmd {
+	host, id := s.host, s.login.FlowID
+	return s.call("login", func(ctx context.Context) setupReply {
+		var status daemon.ProviderLoginStatus
+		var err error
+		if project {
+			status, err = host.SelectLoginProject(ctx, id, choice)
+		} else {
+			status, err = host.SelectLoginTeam(ctx, id, choice)
+		}
+		return setupReply{login: status, err: err}
+	})
+}
+
+func (s *providerSetup) useModel() tea.Cmd {
+	if s.model == "" || s.provider == "" {
+		return nil
+	}
+	s.mode = "models"
+	s.input.Reset()
+	s.selected = max(0, slices.Index(s.modelOptions(), s.model))
+	host, model, provider, revision := s.host, s.model, s.provider, s.list.Revision
+	persist := s.persistDefault
+	var effort *string
+	if s.effort != "" {
+		effort = new(s.effort)
+	}
+	return s.call("selected", func(ctx context.Context) setupReply {
+		if !persist {
+			return setupReply{}
+		}
+		_, err := host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{
+			Revision: revision, DefaultModel: &model, DefaultProvider: &provider,
+			DefaultEffort: effort,
+		})
+		return setupReply{err: err}
+	})
+}
+
+func (s *providerSetup) editing() bool {
+	return s.mode == "provider_form" || s.mode == "providers" || s.mode == "models" || s.mode == "key" || s.mode == "project_name"
+}
+
+func (s *providerSetup) keypress(msg tea.KeyPressMsg) tea.Cmd {
+	key := msg.String()
+	if key == "ctrl+c" {
+		s.close()
+		return nil
+	}
+	if s.providerMode() {
+		return s.providerKeypress(msg)
+	}
+	if key == "esc" {
+		s.pickProvider, s.pickKey = "", false
+		s.message = ""
+		s.input.Reset()
+		s.input.EchoMode = textinput.EchoNormal
+		if s.mode == "login" || s.mode == "teams" || s.mode == "projects" || s.mode == "project_name" {
+			if s.login.FlowID != "" {
+				host, id := s.host, s.login.FlowID
+				return s.call("login", func(ctx context.Context) setupReply {
+					status, err := host.CancelLogin(ctx, id)
+					return setupReply{login: status, err: err}
+				})
+			}
+		}
+		// An observation can close while an RPC finishes; ignore that reply.
+		s.request++
+		if s.cancelCall != nil {
+			s.cancelCall()
+		}
+		s.busy = false
+		if s.mode == "providers" || s.mode == "unsupported" {
+			s.close()
+			return nil
+		} else {
+			s.mode, s.selected = "providers", 0
+		}
+		return nil
+	}
+	if s.mode == "login" && (key == "o" || key == "c") {
+		if key == "o" && s.login.VerificationURL != "" {
+			if !openBrowserURL(s.login.VerificationURL) {
+				s.loginFeedback = "Open the link above in your browser."
+			}
+		}
+		if key == "c" && s.login.UserCode != "" {
+			copyText(s.login.UserCode)
+			s.loginFeedback = "Code copied."
+		}
+		return nil
+	}
+	if s.busy {
+		return nil
+	}
+	if key == "ctrl+e" && s.mode == "providers" {
+		entries := s.entries()
+		if s.selected < len(entries) {
+			return s.chooseProvider(entries[s.selected], true)
+		}
+		return nil
+	}
+	if key == "ctrl+r" {
+		if s.mode == "key" {
+			s.input.Reset()
+			s.input.EchoMode = textinput.EchoNormal
+		}
+		if s.mode == "models" {
+			return s.loadCatalogs(true)
+		}
+		return s.refresh("")
+	}
+	if key == "ctrl+k" && s.mode == "providers" {
+		entries := s.entries()
+		if s.selected < len(entries) {
+			entry := entries[s.selected]
+			if slices.Contains(entry.Methods, "api_key") {
+				s.provider = entry.ID
+				s.input.Reset()
+				s.input.EchoMode = textinput.EchoPassword
+				s.mode = "key"
+			}
+		}
+		return nil
+	}
+	count := s.optionCount()
+	if key == "up" && count > 0 {
+		s.selected = (s.selected + count - 1) % count
+		return nil
+	}
+	if key == "down" && count > 0 {
+		s.selected = (s.selected + 1) % count
+		return nil
+	}
+	if key == "enter" {
+		s.message = ""
+		switch s.mode {
+		case "providers":
+			entries := s.entries()
+			if s.selected == len(entries) {
+				s.openCustomProvider()
+				return nil
+			}
+			if len(entries) > 0 {
+				return s.chooseProvider(entries[min(s.selected, len(entries)-1)], false)
+			}
+		case "methods":
+			if s.selected < len(s.methods) {
+				method := s.methods[s.selected]
+				if s.manageMethods || method.entry.Status.Disabled {
+					s.provider = method.entry.ID
+					return s.readProvider("manage")
+				}
+				return s.connectMethod(method.entry, method.method)
+			}
+		case "models":
+			models := s.modelOptions()
+			if s.selected == len(models) {
+				s.effort, s.autoModel = "", false
+				return s.readProvider("manual")
+			}
+			if len(models) > 0 {
+				chosen := models[min(s.selected, len(models)-1)]
+				if chosen != s.model {
+					s.effort = ""
+				}
+				s.model = chosen
+				return s.useModel()
+			}
+		case "key":
+			key := config.TrimKey(s.input.Value())
+			s.input.Reset()
+			if key == "" {
+				s.message = "Paste an API key to continue."
+				return nil
+			}
+			host, revision, provider := s.host, s.list.Revision, s.provider
+			return s.call("key", func(ctx context.Context) setupReply {
+				_, err := host.SetProviderKey(ctx, daemon.ProviderKeySetup{Revision: revision, Provider: provider, Key: key})
+				return setupReply{err: err}
+			})
+		case "teams":
+			if len(s.login.Teams) > 0 {
+				return s.chooseLogin(s.login.Teams[s.selected].ID, false)
+			}
+		case "projects":
+			if s.selected == len(s.login.Projects) {
+				s.mode = "project_name"
+				s.input.Reset()
+				return nil
+			}
+			return s.chooseLogin(s.login.Projects[s.selected].ID, true)
+		case "project_name":
+			name := strings.TrimSpace(s.input.Value())
+			if name == "" {
+				return nil
+			}
+			host, id := s.host, s.login.FlowID
+			return s.call("login", func(ctx context.Context) setupReply {
+				status, err := host.CreateLoginProject(ctx, id, name)
+				return setupReply{login: status, err: err}
+			})
+
+		}
+		return nil
+	}
+	if s.editing() {
+		var cmd tea.Cmd
+		s.input, cmd = s.input.Update(msg)
+		s.selected = 0
+		return s.inputCommand(cmd)
+	}
+	return nil
+}
+
+func (s *providerSetup) optionCount() int {
+	switch s.mode {
+	case "providers":
+		return len(s.entries()) + 1
+	case "methods":
+		return len(s.methods)
+	case "models":
+		return len(s.modelOptions()) + 1
+	case "teams":
+		return len(s.login.Teams)
+	case "projects":
+		return len(s.login.Projects) + 1
+	}
+	return 0
+}
+
+func (s *providerSetup) body() string {
+	if s.providerMode() {
+		return strings.Join(s.providerFormRows(s.width, 0), "\n")
+	}
+	var body strings.Builder
+	line := func(text string) { body.WriteString(text + "\n") }
+	switch s.mode {
+	case "unsupported":
+		line("Update this execution host")
+		line("Provider setup requires a newer host version.")
+		line("ctrl+r check again · Esc close")
+	case "providers":
+		return strings.Join(s.providerRows(s.width, 0), "\n")
+	case "methods":
+		return strings.Join(s.methodRows(s.width, 0), "\n")
+	case "models", "teams", "projects":
+		return strings.Join(s.choiceRows(s.width, 0), "\n")
+	case "key":
+		return strings.Join(s.keyRows(s.width, 0), "\n")
+	case "login":
+		return strings.Join(s.loginRows(s.width, 0), "\n")
+	case "project_name":
+		return strings.Join(s.projectNameRows(s.width, 0), "\n")
+
+	}
+	if s.busy {
+		line("")
+		line("Working…")
+	}
+	if s.message != "" {
+		line("")
+		line(s.message)
+	}
+	return wrap(body.String(), s.width)
+}
+
+func setupCanAttempt(entry protocol.ProviderEntry) bool {
+	if entry.Status.Disabled {
+		return false
+	}
+	if entry.Status.Available != nil && *entry.Status.Available {
+		return true
+	}
+	return entry.Status.AuthState == "unchecked"
+}
+
+func setupProviderDescription(entry protocol.ProviderEntry) string {
+	if setupCanAttempt(entry) {
+		switch entry.Status.KeySource {
+		case "none":
+			return "No authentication required"
+		case "environment":
+			return "Found in this host's environment: " + entry.Status.EnvironmentVariable
+		case "command":
+			return "Configured credential command; checked when a request is made"
+		case "env_file":
+			return "Environment file on this host: " + entry.Status.CredentialPath
+		case "key_file":
+			return "Key file on this host: " + entry.Status.CredentialPath
+		case "external":
+			return "Managed by Inference CLI on this host"
+		default:
+			return "Saved connection on this host"
+		}
+	}
+	if entry.Status.AuthState == "setup_required" {
+		return "Finish connecting with saved credentials"
+	}
+	if len(entry.Status.Warnings) > 0 {
+		return strings.Join(entry.Status.Warnings, " ")
+	}
+	if slices.Contains(entry.Methods, "login") {
+		if entry.ID == "openai-codex" {
+			return "Use your ChatGPT subscription's Codex access"
+		}
+		return "Sign in with your browser"
+	}
+	if slices.Contains(entry.Methods, "api_key") {
+		return "Paste an API key"
+	}
+	return "Manage configuration on this host"
+}
+
+// The same component runs as a floating dialog after a session exists.
+func (s *providerSetup) key(m *model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	_, cmd := s.Update(msg)
+	return m, m.finishProviderSetup(cmd)
+}
+
+func (s *providerSetup) rows(m *model) []string {
+	s.width = m.dialogWidth()
+	s.input.SetWidth(max(10, s.width-6))
+	if s.providerMode() {
+		return s.providerFormRows(s.width, m.dialogHeight())
+	}
+	switch s.mode {
+	case "providers":
+		return s.providerRows(s.width, m.dialogHeight())
+	case "methods":
+		return s.methodRows(s.width, m.dialogHeight())
+	case "key":
+		return s.keyRows(s.width, m.dialogHeight())
+	case "login":
+		return s.loginRows(s.width, m.dialogHeight())
+	case "project_name":
+		return s.projectNameRows(s.width, m.dialogHeight())
+	case "models", "teams", "projects":
+		return s.choiceRows(s.width, m.dialogHeight())
+	}
+	s.width -= 4
+	th := currentTheme()
+	rows := strings.Split(s.body(), "\n")
+	for i, line := range rows {
+		rows[i] = ui.PadRow(th.On(th.Text, th.Surface.Panel).Render("  "+ansi.Truncate(line, s.width, "…")), s.width+4, th.Surface.Panel)
+	}
+	return rows
+}
+
+func (s *providerSetup) choiceRows(width, height int) []string {
+	title, detail, empty := "Choose a model", "", "No matching models. ctrl+r refresh"
+	options := s.modelOptions()
+	if s.mode == "models" {
+		options = append(options, "Enter model manually…")
+	}
+	if s.mode != "models" {
+		title, detail, empty = "Choose workspace", s.login.Email, "No workspaces available"
+		choices := s.login.Teams
+		if s.mode == "projects" {
+			title, choices = "Choose project", s.login.Projects
+		}
+		options = nil
+		for _, choice := range choices {
+			options = append(options, choice.Name)
+		}
+		if s.mode == "projects" {
+			options = append(options, "Create a new project…")
+		}
+	}
+	items := make([]ui.ListItem, len(options))
+	for i, option := range options {
+		items[i] = ui.ListItem{Left: option}
+	}
+	if s.busy {
+		detail = "Working…"
+	}
+	if s.message != "" {
+		detail = s.message
+	}
+	footer := []string{"enter", "continue"}
+	if s.mode == "models" {
+		footer[1] = "use"
+	}
+	if width >= 50 {
+		footer = append(footer, "↑↓", "choose")
+	}
+	return s.listRows(ui.List{
+		Title: title, Hint: "esc", Search: s.mode == "models", SearchView: s.searchView(width),
+		Groups: []ui.ListGroup{{Items: items}}, Sel: s.selected, Empty: empty, Footer: footer,
+		Width: width, Height: height,
+	}, detail)
+}
+
+func (s *providerSetup) searchView(width int) string {
+	return setupInputView(s.input, "Search", max(width-4, 1))
+}
+
+func (s *providerSetup) listRows(list ui.List, detail string) []string {
+	th := currentTheme()
+	width, height := list.Width, list.Height
+	var details []string
+	if detail != "" {
+		details = strings.Split(wrap(detail, max(width-4, 1)), "\n")
+	}
+	if height > 0 {
+		if height < 12 {
+			list.Footer = nil
+		}
+		budget := max(height-11, 1)
+		if len(details) > budget {
+			details = details[:budget]
+			details[budget-1] = ansi.Truncate(details[budget-1], max(width-5, 1), "") + "…"
+		}
+		if len(details) > 0 {
+			list.Height = max(height-len(details)-1, 1)
+		}
+		if height < 10 {
+			details, list.Height = nil, height
+		}
+	}
+	rows := list.Render(th)
+	for _, line := range details {
+		rows = append(rows, ui.PadRow(th.On(th.Muted, th.Surface.Panel).Render("  "+line), width, th.Surface.Panel))
+	}
+	if len(details) > 0 {
+		rows = append(rows, ui.PadRow("", width, th.Surface.Panel))
+	}
+	for i, row := range rows {
+		rows[i] = ui.PadRow(ansi.Truncate(row, width, ""), width, th.Surface.Panel)
+	}
+	return rows
+}
+
+func (m *model) openProviderSetup() tea.Cmd { return m.openProviderSetupFor("") }
+
+func (m *model) openProviderSetupFor(provider string) tea.Cmd {
+	if m.clientClosed {
+		return m.toastError("Connection ended. Use /quit and relaunch Whip to retry.")
+	}
+	if m.startup != nil && (m.startup.creating || m.startup.preparing) {
+		return m.toastError("Opening your session…")
+	}
+	if m.providerSetup != nil {
+		m.providerSetup.automatic = false
+		return nil
+	}
+	m.palette = nil
+	m.providerSetup = newProviderSetup(m.setupContext(), m.client, m.beforeSession())
+	m.providerSetup.pickProvider = provider
+	m.providerSetup.selectionModel, m.providerSetup.selectionProvider = m.modelName, m.provName
+	m.providerSetup.persistDefault = m.beforeSession() && m.modelName == "" && m.provName == ""
+	return m.providerSetup.Init()
+}
+
+func (m *model) finishProviderSetup(cmd tea.Cmd) tea.Cmd {
+	s := m.providerSetup
+	if s != nil && m.startup != nil && !s.automatic {
+		// A launch prompt becomes an ordinary draft when setup is needed.
+		m.initialPrompt = ""
+	}
+	if s == nil || !s.done {
+		return cmd
+	}
+	m.providerSetup = nil
+	s.close()
+	if s.reload {
+		_, reload := m.submitClientAction("session.reload", protocol.Empty{}, "")
+		return tea.Batch(cmd, reload)
+	}
+	if !s.chosen {
+		return cmd
+	}
+	if m.beforeSession() {
+		m.startup.effort = s.effort
+		return m.startFirstSession(s.model, s.provider)
+	}
+	if s.reloadProvider == s.provider && s.model == s.selectionModel && s.provider == s.selectionProvider && s.effort == "" {
+		_, reload := m.submitClientAction("session.reload", protocol.Empty{}, "")
+		return tea.Batch(cmd, reload)
+	}
+	_, change := m.submitClientAction("session.model", protocol.ModelParams{Model: s.model, Provider: s.provider, Effort: s.effort}, "")
+	return tea.Batch(cmd, change)
 }

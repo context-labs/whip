@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // kill0 probes whether pid is alive (signal 0).
@@ -80,11 +82,12 @@ func fakeExecSpec() ServerSpec {
 // (SIGKILL of the process group, goroutine exit). Covers what pipeManager
 // bypasses.
 func TestRealProcessLifecycle(t *testing.T) {
-	m := NewManager(map[string]ServerSpec{"fake": fakeExecSpec()})
-
 	dir := t.TempDir()
 	writeFile(t, dir+"/go.mod", "module x\n")
 	writeFile(t, dir+"/main.go", "package main\n")
+	processes := capability.NewProcessManager()
+	m := NewManager(map[string]ServerSpec{"fake": fakeExecSpec()})
+	m.SetProcessOptions(processes, "root", dir, nil)
 
 	before := runtime.NumGoroutine()
 	out := m.WaitDiagnostics(context.Background(), dir+"/main.go")
@@ -92,30 +95,47 @@ func TestRealProcessLifecycle(t *testing.T) {
 		t.Fatalf("real-process diagnostics missing: %q", out)
 	}
 
-	// Capture the child pid, then Close and assert death + goroutine settle.
+	// Capture the child pid, then switch root authority and assert the old
+	// server is reaped before a fresh one is launched.
 	m.mu.Lock()
 	var pid int
 	for _, cs := range m.clients {
-		if cs.cmd != nil && cs.cmd.Process != nil {
-			pid = cs.cmd.Process.Pid
+		if cs.process != nil {
+			pid = cs.process.PID()
 		}
 	}
 	m.mu.Unlock()
 	if pid == 0 {
 		t.Fatal("no spawned client")
 	}
-	m.Close()
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if err := kill0(pid); err != nil {
-			break // process gone
+	assertDead := func(pid int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if err := kill0(pid); err != nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
-		time.Sleep(20 * time.Millisecond)
+		t.Fatalf("process %d survived scope close", pid)
 	}
-	if err := kill0(pid); err == nil {
-		t.Fatalf("process %d survived Close", pid)
+	m.SetProcessOptions(processes, "root-two", dir, nil)
+	assertDead(pid)
+	if out := m.WaitDiagnostics(context.Background(), dir+"/main.go"); !strings.Contains(out, "from real process") {
+		t.Fatalf("diagnostics after root switch: %q", out)
 	}
+	m.mu.Lock()
+	for _, cs := range m.clients {
+		if cs.process != nil {
+			pid = cs.process.PID()
+		}
+	}
+	m.mu.Unlock()
+	m.Close()
+	if err := processes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertDead(pid)
 	time.Sleep(100 * time.Millisecond)
 	if after := runtime.NumGoroutine(); after > before+2 {
 		t.Fatalf("goroutines grew across spawn+close: before=%d after=%d", before, after)

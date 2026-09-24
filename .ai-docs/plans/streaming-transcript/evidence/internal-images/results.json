@@ -1,0 +1,59 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "d349f0df724c865a20d5d2bcdaf788238be2c7c0951094020178023ee9a43104",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 16,
+      "mounted": 17,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true,
+      "internalImagesCollapsed": true,
+      "internalImagesExplicitRead": true
+    }
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "d349f0df724c865a20d5d2bcdaf788238be2c7c0951094020178023ee9a43104",
+    "messages": {
+      "encodedImageBytes": 1030422,
+      "contentReads": 16,
+      "mounted": 17,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true,
+      "internalImagesCollapsed": true,
+      "internalImagesExplicitRead": true
+    }
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "d349f0df724c865a20d5d2bcdaf788238be2c7c0951094020178023ee9a43104",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 14,
+      "mounted": 16,
+      "retry": true,
+      "anchorDrift": 0,
+      "attachments": 5,
+      "loadingPreservesHeight": true,
+      "reducedMotion": true,
+      "keyboardPreview": true,
+      "narrowImagesWrap": true,
+      "lightLargeText": true,
+      "internalImagesCollapsed": true,
+      "internalImagesExplicitRead": true
+    }
+  }
+]

@@ -1,0 +1,227 @@
+import { useSyncExternalStore } from 'react';
+import { SessionTabs, welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { ThemeProvider, UIProvider } from '@whip/ui';
+import type { ProviderList } from '@whip/protocol';
+import { RuntimeContext } from '../src/context';
+import type { AppRuntime } from '../src/runtime';
+import { Welcome } from '../src/welcome';
+import { CompositionStore } from '../src/compositions';
+import { SubmittedInputs } from '../src/input-presentation';
+
+const route = vi.hoisted(() => ({ search: {} as { cwd?: string; runtimeId?: string }, location: { state: { __TSR_key: 'initial' } }, navigate: vi.fn() }));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  useSearch: () => route.search,
+  useLocation: ({ select }: { select(value: typeof route.location): unknown }) => select(route.location),
+  useNavigate: () => route.navigate,
+  useRouter: () => ({ state: { location: route.location } }),
+}));
+vi.mock('../src/directory-picker', () => ({ DirectoryPicker: ({ onSelect, disabled, value }: { onSelect(value: string): void; disabled: boolean; value: string }) => <button type="button" title={value} disabled={disabled} onClick={() => onSelect('/edited')}>Choose folder</button> }));
+beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })); route.search = { cwd: '/repo', runtimeId: 'host' }; route.location = { state: { __TSR_key: 'initial' } }; route.navigate.mockClear(); });
+afterEach(() => vi.unstubAllGlobals());
+const provider = (id: string, available: boolean) => ({ id, name: id === 'inference-net' ? 'Inference.net' : 'OpenRouter', custom: false, recommended: id === 'inference-net', suggested_model: available ? 'coding-model' : '', methods: ['api_key'], status: { provider: id, available, configured: available, key_source: available ? 'environment' : 'none', auth_state: available ? 'connected' : 'key_required', warnings: [] } });
+function fixture(ready = true, entries = [provider('inference-net', ready), provider('openrouter', false)], selectionMissing = false) {
+  const execution_engines = [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }];
+  const snapshot = { state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'starlark', execution_engines } };
+  const inventory: ProviderList = { revision: '1', default_provider: 'inference-net', selection: selectionMissing ? undefined : { ready, model: 'coding-model', provider: 'inference-net', reason: ready ? 'ready' : 'provider_required' }, providers: entries };
+  const client = { subscribe: () => () => {}, getSnapshot: () => snapshot, supports: () => true,
+    agents: { list: vi.fn(async () => ({ items: [{ id: 'coding', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'junior-developer', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'support-triage', revision: 'b'.repeat(64), built_in: false, registered_by: 'app', created_at: '' }] })) },
+    sessions: { create: vi.fn((params: unknown) => ({ params })) }, session: vi.fn((rootId: string) => ({ rootId, client: { clientId: 'sidebar-test' }, submit: vi.fn(() => ({ rootId })), command: vi.fn(() => ({ rootId })) })),
+    configuration: { get: vi.fn(async () => ({ default_execution_engine: 'starlark' })), update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
+    providers: {
+      list: vi.fn(async () => ({ ...inventory })), catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
+      login: { list: vi.fn(async () => ({ flows: [] })) },
+      setKey: vi.fn(async (params: { provider: string }) => { const entry = inventory.providers!.find(entry => entry.id === params.provider)!; entry.status.available = true; entry.status.key_source = 'literal'; entry.suggested_model = 'coding-model'; }),
+    } };
+  const otherConnection = { state: 'connected', info: { runtime_id: 'another', default_execution_engine: 'starlark', execution_engines } };
+  const other = { ...client, getSnapshot: () => otherConnection };
+  const state = { commands: [], hosts: [
+    { id: 'local', name: 'Local', local: true, runtimeId: 'host', state: 'connected', client, profile: { target: { kind: 'url' } } },
+    { id: 'remote', name: 'Kuzco', local: false, runtimeId: 'another', state: 'connected', client: other, profile: { target: { kind: 'url' } } },
+  ] };
+  const drafts = new Map<string, string>(); const subscribers = new Set<() => void>();
+  const run = vi.fn(async (_handle: unknown, label: string, onAccepted?: () => void) => { onAccepted?.(); return label === 'Create session' ? { status: 'succeeded', result: { root_id: 'created' } } : { status: 'succeeded' }; });
+  const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const tabs = new SessionTabs();
+  const first = tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/repo' });
+  let active = first.id;
+  let focused = true;
+  function Panel() {
+    useSyncExternalStore(tabs.subscribe, tabs.getSnapshot);
+    const tab = tabs.workspace().tabs.find(tab => tab.id === active);
+    return tab?.kind === 'new' ? <Welcome key={active} focused={focused} tab={tab} /> : <p>Promoted to {tab?.kind === 'chat' ? tab.rootId : 'nothing'}</p>;
+  }
+  const runtime = {
+    tabs, run,
+    compositions: new CompositionStore(), submittedInputs: new SubmittedInputs(),
+    queries: query, platform: { copy: vi.fn(async () => {}), openExternal: vi.fn(async () => {}) },
+    connections: { isAttached: () => true, select: vi.fn() }, subscribe: () => () => {}, getSnapshot: () => state,
+    lastSession: () => undefined,
+    draft: (key: string) => drafts.get(key) ?? '', setDraft: (key: string, value: string) => { drafts.set(key, value); subscribers.forEach(listener => listener()); },
+    subscribeDraft: (_key: string, listener: () => void) => { subscribers.add(listener); return () => subscribers.delete(listener); }, report: vi.fn(),
+  } as unknown as AppRuntime;
+  const tree = () => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}><Panel /></QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
+  const view = render(tree());
+  return { runtime, client, inventory, run, drafts, query, tabs, first, focus: (value: boolean) => { focused = value; view.rerender(tree()); }, select: (id: string) => { active = id; view.rerender(tree()); }, ...view, rerender: () => view.rerender(tree()) };
+}
+async function openSessionOptions() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Session options', exact: true }));
+}
+it('keeps independent drafts and setup through tab and host switches without sending', async () => {
+  const f = fixture();
+  await screen.findByLabelText('Your first message');
+  expect(screen.getByTitle('/repo')).toBeTruthy(); expect(f.client.sessions.create).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Local draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
+  expect(screen.getByTitle('/edited')).toBeTruthy();
+  let second!: NewChatTab;
+  act(() => { second = f.tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/second' }); });
+  f.select(second.id);
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('');
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Second draft' } });
+  act(() => { f.tabs.updateNew(second.id, { hostProfileId: 'remote', runtimeId: 'another' }); });
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Second draft');
+  expect(screen.getByTitle('/second')).toBeTruthy();
+  f.select(f.first.id);
+  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Local draft');
+  expect(screen.getByTitle('/edited')).toBeTruthy(); expect(f.client.sessions.create).not.toHaveBeenCalled();
+});
+it('sends the edited folder, explicit ready pair, prompt and default Ask only after Send', async () => {
+  const f = fixture();
+  await screen.findByRole('button', { name: 'Send first message' });
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Explain auth' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledExactlyOnceWith({ cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt', execution_engine: 'starlark' }));
+  await screen.findByText('Promoted to created');
+  expect(f.client.session).toHaveBeenCalledTimes(1); // No effort chosen: create, then send.
+  expect(f.client.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: 'Explain auth' });
+  expect(f.drafts.get(welcomeDraftKey(f.first.id))).toBe('');
+  expect(route.navigate).not.toHaveBeenCalled(); // Promotion is a tab change; the router follows it, a panel never navigates.
+});
+
+it('retains the selected execution language in its draft and sends it explicitly', async () => {
+  const f = fixture();
+  await screen.findByRole('button', { name: 'Send first message' });
+  await openSessionOptions();
+  fireEvent.click(screen.getByRole('combobox', { name: 'Execution language' }));
+  const option = await screen.findByRole('option', { name: 'JavaScript (QuickJS)' });
+  fireEvent.pointerDown(option); fireEvent.click(option);
+  expect((f.tabs.workspace().tabs[0] as NewChatTab).executionEngine).toBe('quickjs');
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Use this language' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ execution_engine: 'quickjs' })));
+});
+
+it('does not offer unadvertised execution engines or send with missing discovery', async () => {
+  const f = fixture();
+  f.client.getSnapshot().info.execution_engines = [];
+  f.rerender();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this task' } });
+  expect((await screen.findByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert').textContent).toContain('does not advertise');
+});
+it('offers only one default confirmation for the detected OpenRouter route with no promotion detour', async () => {
+  const f = fixture(false, [provider('inference-net', false), provider('openrouter', true)]);
+  const panel = await screen.findByRole('region', { name: 'Provider setup' });
+  const available = await within(panel).findByRole('button', { name: 'Use OpenRouter' });
+  const connect = within(panel).getByRole('button', { name: 'Connect Inference.net' });
+  expect(available.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByText('Recommended')).toHaveLength(1);
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Retain this task'); });
+  fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
+  await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalledExactlyOnceWith({ revision: '1', default_model: 'coding-model', default_provider: 'openrouter', default_effort: '' }, { signal: expect.any(AbortSignal) }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
+  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Retain this task');
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+});
+it('connects a key during setup, masks it, and preserves the draft until model confirmation', async () => {
+  const f = fixture(false);
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep me while signing in'); });
+  fireEvent.click(await screen.findByRole('button', { name: 'Show all providers' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
+  const key = await screen.findByLabelText('API key') as HTMLInputElement;
+  expect(key.type).toBe('password'); fireEvent.change(key, { target: { value: 'secret-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+  await screen.findByRole('button', { name: 'Use coding-model' });
+  expect(f.client.configuration.update).not.toHaveBeenCalled();
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
+  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep me while signing in');
+  expect(JSON.stringify([...f.drafts])).not.toContain('secret-key');
+  expect(JSON.stringify(f.query.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use coding-model' }));
+  const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
+  expect(input.value).toBe('Keep me while signing in');
+  expect(input.disabled).toBe(false);
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+});
+it('replaces an unavailable draft route after explicit provider setup confirmation', async () => {
+  const f = fixture();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this draft' } });
+  act(() => { f.tabs.updateNew(f.first.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }); });
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Inference.net' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
+  const tab = f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as NewChatTab;
+  expect(tab.model).toBeUndefined(); expect(tab.provider).toBeUndefined(); expect(tab.effort).toBeUndefined();
+  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Keep this draft');
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+});
+it('does not navigate away from a later route when the first submission resolves', async () => {
+  const f = fixture(); let finish!: () => void;
+  f.run.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ status: 'succeeded', result: { root_id: 'created' } }); }));
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Task' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.run).toHaveBeenCalledOnce());
+  route.location = { state: { __TSR_key: 'another-visit' } }; f.rerender();
+  await act(async () => { finish(); });
+  await screen.findByText('Promoted to created');
+  expect(route.navigate).not.toHaveBeenCalled();
+});
+
+it('retains the draft and explains a compatible old host needs updating instead of looping through setup', async () => {
+  const f = fixture(false, [provider('inference-net', true)], true);
+  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep this task'); });
+  await screen.findByText('Update Whip on Local to use provider setup. Your draft is preserved.');
+  expect(screen.queryByRole('button', { name: 'Use Inference.net' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
+  expect(f.client.sessions.create).not.toHaveBeenCalled(); expect(f.client.configuration.update).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep this task');
+});
+
+it('does not focus a background pane composer when provider setup completes', async () => {
+  const f = fixture(false, [provider('openrouter', true)]);
+  const confirm = await screen.findByRole('button', { name: 'Use coding-model' });
+  f.focus(false);
+  confirm.focus();
+  fireEvent.click(confirm);
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(document.activeElement).not.toBe(screen.getByLabelText('Your first message'));
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+});
+it('offers the host’s agent definitions and sends the chosen one with the first message', async () => {
+  const f = fixture();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Triage the queue' } });
+  await openSessionOptions();
+  const picker = await screen.findByRole('combobox', { name: 'Agent' });
+  fireEvent.click(picker);
+  const option = await screen.findByRole('option', { name: 'support-triage' });
+  fireEvent.pointerDown(option); fireEvent.click(option);
+  await waitFor(() => expect((f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as { definition?: string }).definition).toBe('support-triage'));
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledOnce());
+  expect(f.client.sessions.create.mock.calls[0]![0]).toMatchObject({ cwd: '/repo', definition: 'support-triage', execution_engine: 'starlark' });
+});

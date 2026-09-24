@@ -1,0 +1,141 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
+import { Dialog, ThemeProvider, UIProvider } from '@whip/ui';
+import userEvent from '@testing-library/user-event';
+import type { ProviderCatalogsResult } from '@whip/protocol';
+import { useState, type ComponentProps } from 'react';
+import { modelOptions } from '../src/model-options';
+import { CatalogModelPicker, ModelPicker } from '../src/model-selection';
+import { RuntimeContext } from '../src/context';
+import type { AppRuntime } from '../src/runtime';
+
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
+afterEach(() => vi.unstubAllGlobals());
+
+const catalog = {
+  models: { 'gpt-5.5': { providers: ['openrouter'] }, review: { id: 'gpt-5.5', providers: ['openai-codex'] } },
+  providers: {},
+  catalogs: {
+    openrouter: { models: [{ id: 'gpt-5.5', context_length: 400000, reasoning_efforts: ['low'] }] },
+    'openai-codex': { models: [
+      { id: 'gpt-5.5', context_length: 258400, reasoning_efforts: ['low', 'xhigh'] },
+      { id: 'gpt-6-astra', context_length: 258400, reasoning_efforts: ['low', 'ultra'] },
+    ] },
+  },
+} as unknown as ProviderCatalogsResult;
+
+it('offers discovered models and keeps explicit provider routes and configured aliases', () => {
+  const options = modelOptions(catalog);
+  expect(options.map(option => [option.name, option.provider])).toEqual([
+    ['gpt-5.5', 'openai-codex'], ['gpt-5.5', 'openrouter'],
+    ['gpt-6-astra', 'openai-codex'], ['review', 'openai-codex'],
+  ]);
+  expect(options.find(option => option.name === 'review')?.model.context_length).toBe(258400);
+  const shadowed = modelOptions({ ...catalog, models: { 'gpt-5.5': { id: 'gpt-6-astra', providers: ['openai-codex'] } } });
+  expect(shadowed.filter(option => option.name === 'gpt-5.5').map(option => [option.provider, option.model.id]))
+    .toEqual([['openai-codex', 'gpt-6-astra']]);
+});
+
+it('removes unavailable provider routes from configured and cached model choices', () => {
+  const options = modelOptions({ ...catalog, providers: { openrouter: { available: false } } });
+  expect(options.some(option => option.provider === 'openrouter')).toBe(false);
+  expect(options.some(option => option.provider === 'openai-codex')).toBe(true);
+});
+
+it('switches the provider when the selected model name is unchanged', async () => {
+  const setModel = vi.fn(async () => ({}));
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const runtime = { run: (result: Promise<unknown>) => result, report: vi.fn() } as unknown as AppRuntime;
+  const props = {
+    connected: true, root: { meta: { model: 'gpt-5.5', provider: 'openrouter' }, active_turns: {} },
+    view: { session: { setModel, client: {
+      getSnapshot: () => ({ info: { runtime_id: 'host' } }),
+      providers: { catalogs: async () => ({ result: catalog }) },
+    } } },
+  } as unknown as ComponentProps<typeof ModelPicker>;
+  const route = createRootRoute({ component: () => <QueryClientProvider client={queries}>
+    <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider>
+      <ModelPicker {...props} />
+    </UIProvider></ThemeProvider></RuntimeContext.Provider>
+  </QueryClientProvider> });
+  const router = createRouter({ routeTree: route, history: createMemoryHistory() });
+  render(<RouterProvider router={router} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  const current = await screen.findByRole('option', { name: 'gpt-5.5 · openrouter' });
+  expect(current.getAttribute('aria-selected')).toBe('true');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'openai-codex' } });
+  expect(screen.queryByRole('option', { name: 'gpt-5.5 · openrouter' })).toBeNull();
+  const subscription = screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' });
+  expect(subscription.getAttribute('aria-selected')).toBe('false');
+  fireEvent.click(subscription);
+  await waitFor(() => expect(setModel).toHaveBeenCalledExactlyOnceWith('gpt-5.5', 'openai-codex'));
+});
+
+it('shows the routing provider logo and updates it when choosing another provider for the same model', async () => {
+  function Picker() {
+    const [route, setRoute] = useState({ model: 'gpt-5.5', provider: 'openrouter' });
+    return <CatalogModelPicker {...route} settings catalog={catalog} onChange={(model, provider) => setRoute({ model, provider })} />;
+  }
+  render(<ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider>);
+  const trigger = screen.getByRole('button', { name: 'Model', exact: true });
+  expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openrouter$/);
+  expect(trigger.textContent).toBe('gpt-5.5');
+  fireEvent.click(trigger);
+  const option = await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' });
+  expect(option.querySelector('[data-model-name]')?.textContent).toBe('gpt-5.5');
+  expect(option.querySelector('[data-model-provider]')?.textContent).toBe('openai-codex');
+  fireEvent.click(option);
+  expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openai$/);
+  expect(trigger.textContent).toBe('gpt-5.5');
+  expect(trigger.title).toBe('gpt-5.5 · openai-codex');
+});
+
+it.each(['pointer', 'keyboard'])('closes the model picker when opening session options with %s', async interaction => {
+  const user = userEvent.setup();
+  const change = vi.fn();
+  function Picker() {
+    const [showOptions, setShowOptions] = useState(false);
+    return <>
+      <CatalogModelPicker model="gpt-5.5" provider="openrouter" catalog={catalog} onChange={change}
+        onSessionOptions={() => setShowOptions(true)} />
+      <Dialog open={showOptions} onOpenChange={setShowOptions} title="Session options">
+        <p>Session configuration</p>
+      </Dialog>
+    </>;
+  }
+  const route = createRootRoute({ component: () => <ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider> });
+  const router = createRouter({ routeTree: route, history: createMemoryHistory() });
+  render(<RouterProvider router={router} />);
+  await user.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  const options = await screen.findByRole('button', { name: 'Session options' });
+  if (interaction === 'keyboard') {
+    options.focus();
+    await user.keyboard('{Enter}');
+  } else {
+    await user.click(options);
+  }
+  const dialog = await screen.findByRole('dialog', { name: 'Session options' });
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Search models', hidden: true })).toBeNull());
+  expect(screen.queryByRole('option', { hidden: true })).toBeNull();
+  expect(change).not.toHaveBeenCalled();
+  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Session options' })).toBeNull());
+  await user.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  expect(await screen.findByRole('textbox', { name: 'Search models' })).toBeTruthy();
+});
+
+it('preserves the model selection popup for an action failure and closes on successful retry', async () => {
+  const change = vi.fn().mockRejectedValueOnce(new Error('Model change rejected')).mockResolvedValue(undefined);
+  render(<ThemeProvider initialTheme="light"><UIProvider><CatalogModelPicker model="gpt-5.5" provider="openrouter" settings catalog={catalog} onChange={change} /></UIProvider></ThemeProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
+  expect(alert.textContent).toContain('Model change rejected');
+  fireEvent.click(screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' }));
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(change).toHaveBeenCalledTimes(2);
+});

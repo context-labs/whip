@@ -1,0 +1,156 @@
+{
+  "purpose": "Signed canonical runtime and RLM worker continuity across client detach and copied application-source removal; not an actual Squirrel upgrade",
+  "recordedAt": "2026-09-08T18:13:29.670Z",
+  "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native",
+  "fixture": "/private/tmp/whip-continuity-iUcqtl",
+  "manifest": {
+    "schema": 1,
+    "distribution": "whipcode",
+    "version": "0.1.2",
+    "buildId": "local-efeb8242951a",
+    "architecture": "arm64",
+    "teamId": "JAPWPV5JY2",
+    "rendererDigest": "99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16",
+    "source": {
+      "commit": "efeb8242951a75040b0ba5f81f78ce859b16d7de",
+      "dirty": true,
+      "lockfile": "305e8be9b5a01041daf9bc2c8b1a18bcd47895d988d6784c036ad1d5a1d42f06"
+    },
+    "compatibility": {
+      "protocolMajor": 4,
+      "protocolMinor": 1,
+      "schemaVersion": 10
+    },
+    "files": {
+      "whipcode": {
+        "bytes": 41117776,
+        "sha256": "d9a1167152620fa1347e27037e77f01309ae1c87e93c7eb4272999d9b199953c"
+      },
+      "whip-computer": {
+        "bytes": 431648,
+        "sha256": "ae68bf61ed7088b1e24f26b9eff38a28123d0da191557a6bd78ad09adf3e41b6"
+      }
+    }
+  },
+  "executableMetadata": {
+    "distribution": "whipcode",
+    "buildId": "local-efeb8242951a",
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "schemaVersion": 10
+  },
+  "negotiated": {
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "runtimeId": "f55d08f288fb2204b8b917ac2b98bf38",
+    "buildId": "local-efeb8242951a"
+  },
+  "environment": {
+    "WHIPCODE_HOME": "/private/tmp/whip-continuity-iUcqtl/home",
+    "embeddedHelper": true,
+    "inheritedCredentials": false,
+    "provider": "http://127.0.0.1:63067",
+    "daemonTCP": false
+  },
+  "daemon": {
+    "pid": 37999,
+    "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _daemon",
+    "executableMapped": true
+  },
+  "finalDaemonPID": 37999,
+  "beforeWorkers": [
+    {
+      "pid": 38079,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "heldWorkers": [
+    {
+      "pid": 38079,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 38192,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "afterWorkers": [
+    {
+      "pid": 38079,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 38192,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 38326,
+      "command": "/private/tmp/whip-continuity-iUcqtl/bin/whipcode _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "newWorkerPIDsAfterSourceRemoval": [
+    38326
+  ],
+  "before": {
+    "rootId": "2b37725a19515d8d7a84a47f707db765",
+    "commandId": "3f490177-2a6e-4460-babe-6deddfbc4553",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-before-bcb06912-d767-4c54-80dc-dddfca3b489f\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-before-bcb06912-d767-4c54-80dc-dddfca3b489f"
+      }
+    },
+    "answer": "Verified continuity-before-bcb06912-d767-4c54-80dc-dddfca3b489f: 42",
+    "snapshotVerified": true
+  },
+  "disconnectedAcceptedTurn": {
+    "rootId": "1fa3bd52d297a0028cb6b7de28bab2d7",
+    "commandId": "10a318c0-c1a7-47dd-88e2-a827d9728d54",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-held-bcb06912-d767-4c54-80dc-dddfca3b489f\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-held-bcb06912-d767-4c54-80dc-dddfca3b489f"
+      }
+    },
+    "answer": "Verified continuity-held-bcb06912-d767-4c54-80dc-dddfca3b489f: 42",
+    "snapshotVerified": true
+  },
+  "after": {
+    "rootId": "f4ce7b1e74a2c0e304ba83ffbab5801d",
+    "commandId": "1afcf7d5-b4a7-4fcf-84eb-3efbb6dc5709",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-after-bcb06912-d767-4c54-80dc-dddfca3b489f\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-after-bcb06912-d767-4c54-80dc-dddfca3b489f"
+      }
+    },
+    "answer": "Verified continuity-after-bcb06912-d767-4c54-80dc-dddfca3b489f: 42",
+    "snapshotVerified": true
+  },
+  "providerRequests": 6,
+  "sourceCopyRemoved": true,
+  "canonicalSignaturesAndHashesVerified": true,
+  "limits": [
+    "No Electron process launched: SDK client disconnect models GUI detachment.",
+    "No N-to-N+1 Squirrel installation or notarization tested."
+  ],
+  "cleanup": {
+    "daemonStopped": true,
+    "fixtureRemoved": true
+  }
+}

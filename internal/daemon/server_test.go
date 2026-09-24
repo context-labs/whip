@@ -1,0 +1,834 @@
+package daemon
+
+import (
+	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
+)
+
+func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/models" || request.Header.Get("Authorization") != "Bearer secret-key" {
+			http.Error(w, "unexpected request", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"validated-model"}]}`))
+	}))
+	defer provider.Close()
+
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, client, served := startTCPClient(t, value, "auth-client")
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+		<-served
+	})
+
+	result, err := client.ValidateProvider(t.Context(), ProviderValidateParams{
+		Name: "temporary", BaseURL: provider.URL, Key: "secret-key",
+	})
+	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "validated-model" {
+		t.Fatalf("provider validation=%+v err=%v", result, err)
+	}
+	if _, err := store.LoadCommand(t.Context(), "auth-client", "provider.validate"); err == nil {
+		t.Fatal("ephemeral provider validation created a durable command")
+	}
+	replay, err := client.Replay(t.Context(), ReplayParams{RootID: rootID, Cursor: 0, Limit: session.MaxEventReplay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(replay)
+	if strings.Contains(string(encoded), "secret-key") {
+		t.Fatal("provider credential leaked into durable events")
+	}
+}
+
+func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &fakeRunner{}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	server, err := NewServer(value, ServerOptions{BuildID: "test-build", Generation: 7, PID: 4321, StartedAt: startedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		if err := server.Close(); err != nil {
+			t.Errorf("close server: %v", err)
+		}
+		if err := <-served; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient(context.Background(), conn, InitializeParams{
+		ProtocolMajor: ProtocolMajor, BuildID: "client-build", ClientKind: "test", ClientID: "client-1",
+		Cursors: map[string]int64{rootID: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if got := client.InitializeResult(); got.Generation != 7 || got.BuildID != "test-build" || got.PID != 4321 || got.StartedAt != startedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("initialize = %+v", got)
+	}
+	payload, _ := json.Marshal(map[string]string{"text": "hello"})
+	params := CommandParams{CommandID: "command-1", Scope: "root", RootID: rootID, Operation: "submit", Payload: payload}
+	result, err := client.Command(context.Background(), params)
+	if err != nil || result.Status != "succeeded" || result.Output != "hello" || result.IngressSeq != 1 {
+		t.Fatalf("command = %+v, %v", result, err)
+	}
+	retry, err := client.Command(context.Background(), params)
+	if err != nil || !reflect.DeepEqual(retry, result) || runner.calls.Load() != 1 {
+		t.Fatalf("retry = %+v, calls=%d, err=%v", retry, runner.calls.Load(), err)
+	}
+	params.Payload, _ = json.Marshal(map[string]string{"text": "different"})
+	if _, err := client.Command(context.Background(), params); err == nil || !strings.Contains(err.Error(), "different request") {
+		t.Fatalf("conflict = %v", err)
+	}
+	replay, err := client.Replay(context.Background(), ReplayParams{RootID: rootID, Cursor: 0, Limit: 100})
+	if err != nil || replay.Latest == 0 || len(replay.Events) == 0 {
+		t.Fatalf("replay = %+v, %v", replay, err)
+	}
+	snapshot, err := client.Snapshot(context.Background(), rootID)
+	if err != nil || snapshot.RootID != rootID || snapshot.Cursor != replay.Latest || len(snapshot.Messages) != 2 {
+		t.Fatalf("snapshot = %+v, %v", snapshot, err)
+	}
+	upload := []byte(strings.Repeat("uploaded", 50_000))
+	digest := sha256.Sum256(upload)
+	handle, err := client.Upload(context.Background(), UploadBeginParams{
+		UploadID: "protocol-upload", RootID: rootID, ExpectedDigest: hex.EncodeToString(digest[:]),
+		Size: int64(len(upload)), MediaType: "application/octet-stream", Source: "protocol test",
+	}, upload)
+	if err != nil || handle.Digest != hex.EncodeToString(digest[:]) || handle.ReferenceID == "" {
+		t.Fatalf("protocol upload = %+v, %v", handle, err)
+	}
+	select {
+	case event := <-client.Events():
+		if event.RootID != rootID || event.Seq == 0 {
+			t.Fatalf("event = %+v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for streamed event")
+	}
+}
+
+func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t *testing.T) {
+	if _, err := NewServer(nil, ServerOptions{}); err == nil {
+		t.Fatal("nil daemon server was created")
+	}
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstServer, firstClient := net.Pipe()
+	go server.serveConn(firstServer)
+	first, err := NewClient(context.Background(), firstClient, InitializeParams{
+		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close(); _ = server.Close() }()
+	if err := first.Call(context.Background(), "unsupported", struct{}{}, nil); err == nil || !strings.Contains(err.Error(), "unsupported operation") {
+		t.Fatalf("unsupported method = %v", err)
+	}
+	secondServer, secondClient := net.Pipe()
+	go server.serveConn(secondServer)
+	second, err := NewClient(context.Background(), secondClient, InitializeParams{
+		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
+	})
+	if err != nil {
+		t.Fatalf("same principal should support concurrent connections: %v", err)
+	}
+	defer second.Close()
+
+	reader := bufio.NewReaderSize(strings.NewReader(strings.Repeat("x", MaxFrameSize)+"\n"), MaxFrameSize)
+	if _, err := readProtocolFrame(reader); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("oversized frame error = %v", err)
+	}
+	wrongServer, wrongClient := net.Pipe()
+	go server.serveConn(wrongServer)
+	if _, err := NewClient(context.Background(), wrongClient, InitializeParams{ProtocolMajor: 99, ClientKind: "test", ClientID: "wrong"}); err == nil {
+		t.Fatal("wrong protocol major initialized")
+	}
+	if err := server.Serve(nil); err == nil {
+		t.Fatal("nil listener was accepted")
+	}
+}
+
+func TestProtocolRejectsMalformedInitialization(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	wrongMethod, _ := marshalFrame(rpcMessage{ID: json.RawMessage("1"), Method: "daemon.ping"})
+	invalidParams := []byte("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":\"bad\"}\n")
+	missingIdentity, _ := marshalFrame(rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: json.RawMessage(`{"protocol_major":1}`)})
+	for name, frame := range map[string][]byte{
+		"invalid envelope":   []byte("{}\n"),
+		"wrong first method": wrongMethod,
+		"invalid params":     invalidParams,
+		"missing identity":   missingIdentity,
+	} {
+		t.Run(name, func(t *testing.T) {
+			serverSide, clientSide := net.Pipe()
+			go server.serveConn(serverSide)
+			if _, err := clientSide.Write(frame); err != nil {
+				t.Fatal(err)
+			}
+			_ = clientSide.SetReadDeadline(time.Now().Add(time.Second))
+			responseFrame, err := readProtocolFrame(bufio.NewReader(clientSide))
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := decodeFrame(responseFrame)
+			if err != nil || response.Error == nil {
+				t.Fatalf("initialization response = %+v, %v", response, err)
+			}
+			_ = clientSide.Close()
+		})
+	}
+}
+
+type failingListener struct {
+	err    error
+	closed bool
+}
+
+func (l *failingListener) Accept() (net.Conn, error) { return nil, l.err }
+func (l *failingListener) Close() error              { l.closed = true; return nil }
+func (*failingListener) Addr() net.Addr              { return &net.TCPAddr{} }
+
+func TestServerServeReportsListenerFailureAndHonorsPreClose(t *testing.T) {
+	newValue := func(path string) *Daemon {
+		store := openStore(t, path)
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: &fakeRunner{}}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+
+	server, err := NewServer(newValue(filepath.Join(t.TempDir(), "failure.db")), ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("accept failed")
+	if err := server.Serve(&failingListener{err: want}); !errors.Is(err, want) {
+		t.Fatalf("accept error = %v", err)
+	}
+	_ = server.Close()
+
+	closed, err := NewServer(newValue(filepath.Join(t.TempDir(), "closed.db")), ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	listener := &failingListener{err: want}
+	if err := closed.Serve(listener); err != nil || !listener.closed {
+		t.Fatalf("serve after close = %v, listener closed=%t", err, listener.closed)
+	}
+}
+
+func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{BuildID: "test", Generation: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	connection := &serverConn{server: server, client: InitializeParams{ClientID: "malformed", ClientKind: "test"}}
+	for _, method := range []string{
+		"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin",
+		"upload.chunk", "upload.finish", "permission.decide", "executor.bind", "executor.pending", "tool.result", "tool.progress",
+	} {
+		if result, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); result != nil || failure == nil || failure.Code != -32602 {
+			t.Errorf("%s malformed params = %v, %+v", method, result, failure)
+		}
+	}
+	result, failure := server.handle(connection, rpcMessage{Method: "daemon.ping"})
+	if failure != nil || result == nil {
+		t.Fatalf("daemon ping = %v, %+v", result, failure)
+	}
+}
+
+func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.replay(ReplayParams{RootID: "root"}); err == nil {
+		t.Fatal("closed store replay succeeded")
+	}
+	if err := server.Serve(&failingListener{err: errors.New("unused")}); err == nil {
+		t.Fatal("server resumed across a closed store")
+	}
+	_ = server.Close()
+	if err := writeProtocolMessage(io.Discard, rpcMessage{Result: make(chan int)}); err == nil {
+		t.Fatal("unencodable protocol message was written")
+	}
+}
+
+func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{turn: func(context.Context, string, bool) (string, error) {
+			close(started)
+			<-release
+			return "done", nil
+		}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxConnections: 1, MaxInFlight: 1, InitializationTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	defer func() { _ = server.Close(); <-served }()
+
+	idle, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idle.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(idle).ReadByte(); !errors.Is(err, io.EOF) {
+		t.Fatalf("uninitialized connection was not closed by the server: %v", err)
+	}
+	_ = idle.Close()
+
+	// EOF precedes the server goroutine releasing its connection slot.
+	// Retry admission until teardown completes instead of racing that release.
+	var client *Client
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+		if dialErr != nil {
+			t.Fatal(dialErr)
+		}
+		client, err = NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
+		if err == nil {
+			break
+		}
+		_ = conn.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("expired connection did not release its slot: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	defer client.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	extra, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
+		t.Fatal("connection above the configured maximum was initialized")
+	}
+	_ = extra.Close()
+
+	payload, _ := json.Marshal(map[string]string{"text": "hold"})
+	commandDone := make(chan error, 1)
+	go func() {
+		_, err := client.Command(context.Background(), CommandParams{CommandID: "hold", Scope: "root", RootID: rootID, Operation: "submit", Payload: payload})
+		commandDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("command did not start")
+	}
+	var ping map[string]any
+	if err := client.Call(context.Background(), "daemon.ping", struct{}{}, &ping); err != nil {
+		t.Fatalf("accepted execution retained an RPC slot: %v", err)
+	}
+	close(release)
+	if err := <-commandDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxConnections: 1, ClientIdleTimeout: 25 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	defer func() { _ = server.Close(); <-served }()
+
+	idle, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "idle"})
+	if err := writeProtocolMessage(idle, rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReaderSize(idle, MaxFrameSize)
+	if _, err := readProtocolFrame(reader); err != nil {
+		t.Fatal(err)
+	}
+	_ = idle.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := readProtocolFrame(reader); err == nil {
+		t.Fatal("initialized idle connection never expired")
+	}
+	_ = idle.Close()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+		if dialErr == nil {
+			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
+			if clientErr == nil {
+				_ = client.Close()
+				break
+			}
+			_ = conn.Close()
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired connection did not release its slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxOutbound: 1, MaxOutboundBytes: 512})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSide, slowSide := net.Pipe()
+	connection := &serverConn{server: server, conn: newUnixMessageTransport(serverSide), out: make(chan []byte, 1), done: make(chan struct{})}
+	server.wg.Go(connection.writeLoop)
+	for i := range 10 {
+		connection.notify("event", map[string]any{"sequence": i, "payload": strings.Repeat("x", 128)})
+	}
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("slow connection was not closed")
+	case <-func() <-chan struct{} {
+		done := make(chan struct{})
+		go func() { _, _ = slowSide.Read(make([]byte, 1)); close(done) }()
+		return done
+	}():
+	}
+	connection.mu.Lock()
+	closed := connection.closed
+	connection.mu.Unlock()
+	if !closed {
+		t.Fatal("slow client remained open")
+	}
+	if connection.send(rpcMessage{Result: make(chan int)}) || connection.send(rpcMessage{Result: "closed"}) {
+		t.Fatal("closed connection accepted outbound frames")
+	}
+	if _, err := server.daemon.store.RootCursors(context.Background()); err != nil {
+		t.Fatalf("slow client stopped daemon: %v", err)
+	}
+	_ = slowSide.Close()
+	_ = server.Close()
+}
+
+func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxOutbound: 1, MaxOutboundBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSide, clientSide := net.Pipe()
+	connection := &serverConn{server: server, conn: newUnixMessageTransport(serverSide), out: make(chan []byte, 1), done: make(chan struct{})}
+	if !connection.send(rpcMessage{Result: "first"}) {
+		t.Fatal("empty outbound queue rejected a frame")
+	}
+	if connection.send(rpcMessage{Result: "second"}) {
+		t.Fatal("full outbound queue accepted a frame")
+	}
+	connection.mu.Lock()
+	closed := connection.closed
+	connection.mu.Unlock()
+	if !closed || connection.outBytes == 0 {
+		t.Fatalf("overflow state closed=%t bytes=%d", closed, connection.outBytes)
+	}
+	_ = clientSide.Close()
+	_ = server.Close()
+}
+
+func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	large := strings.Repeat("snapshot-data-", 70_000)
+	if err := store.Save(rootID, 0, []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: large}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, client, served := startTCPClient(t, value, "snapshot-client")
+	snapshot, err := client.Snapshot(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Omitted["messages"] {
+		t.Fatal("large history was not explicitly omitted")
+	}
+	page, err := client.HistoryPage(t.Context(), HistoryPageParams{RootID: rootID, AgentID: rootID, ThroughSeq: -1, Limit: 2, MaxBytes: 4096, Recent: true})
+	if err != nil || len(page.Messages) != 2 || page.Messages[1].Body == nil {
+		t.Fatalf("bounded history page: %+v, %v", page, err)
+	}
+	var data []byte
+	handle := page.Messages[1].Body
+	for int64(len(data)) < handle.Size {
+		chunk, err := client.ReadContent(t.Context(), protocol.ContentReadParams{RootID: rootID, AgentID: rootID, ReferenceID: handle.ReferenceID, Offset: int64(len(data)), Limit: MaxContentChunk})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chunk.Data) == 0 {
+			t.Fatal("premature end of content")
+		}
+		data = append(data, chunk.Data...)
+	}
+
+	var message llm.Message
+	if err := json.Unmarshal(data, &message); err != nil || message.Content != large {
+		t.Fatal("large message did not round trip through its content grant")
+	}
+
+	_ = client.Close()
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-served; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServerCommandValidation(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	connection := &serverConn{server: server, client: InitializeParams{ClientID: "validation"}}
+	validText, _ := json.Marshal(map[string]string{"text": "hello"})
+	tests := []CommandParams{
+		{},
+		{CommandID: "id", Operation: "submit", Payload: json.RawMessage(`{`)},
+		{CommandID: "id", Operation: "submit", Scope: "invalid"},
+		{CommandID: "id", Operation: "invalid", Scope: "daemon"},
+		{CommandID: "id", Operation: "session.create", Scope: "daemon", Payload: json.RawMessage(`{`)},
+		{CommandID: "id", Operation: "submit", Scope: "root", RootID: rootID, Payload: json.RawMessage(`{}`)},
+		{CommandID: "id", Operation: "invalid", Scope: "root", RootID: rootID, Payload: validText},
+		{CommandID: "id", Operation: "submit", Scope: "root", RootID: "missing", Payload: validText},
+	}
+	for _, params := range tests {
+		if _, err := server.command(connection, params); err == nil {
+			t.Fatalf("invalid command was accepted: %+v", params)
+		}
+	}
+	for _, method := range []string{"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin", "upload.chunk", "upload.finish", "permission.decide"} {
+		if _, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); failure == nil {
+			t.Fatalf("invalid %s params were accepted", method)
+		}
+	}
+	if result, failure := server.handle(connection, rpcMessage{Method: "daemon.ping"}); failure != nil || result == nil {
+		t.Fatalf("daemon ping = %v, %v", result, failure)
+	}
+	if connection.notify("invalid", make(chan int)) {
+		t.Fatal("unmarshalable notification was sent")
+	}
+
+	connection.armLifecycle(2)
+	if connection.consumeLifecycle(1) || !connection.consumeLifecycle(2) || connection.consumeLifecycle(2) {
+		t.Fatal("lifecycle generation was not single-use")
+	}
+	if _, err := readProtocolFrame(bufio.NewReader(strings.NewReader(`{"jsonrpc":"2.0"}`))); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("unterminated frame = %v", err)
+	}
+}
+
+func TestCommandStatusNotFoundIsDistinctFromLookupFailure(t *testing.T) {
+	for _, transport := range []string{"unix", "websocket"} {
+		t.Run(transport, func(t *testing.T) {
+			fixture := newV2Fixture(t, &fakeRunner{})
+			client := fixture.dial(transport, "status-owner")
+			if client.InitializeResult().ProtocolMinor != protocol.Minor {
+				t.Fatalf("protocol minor = %d", client.InitializeResult().ProtocolMinor)
+			}
+			_, err := client.CommandStatus(t.Context(), "missing-command")
+			failure, ok := errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32011 || failure.Data == nil || failure.Data.Kind != "command_not_found" {
+				t.Fatalf("missing command error = %#v", err)
+			}
+
+			_, err = client.SubmitAndWait(t.Context(), CommandParams{
+				CommandID: "existing-command", Scope: "root", RootID: fixture.rootID,
+				Operation: "submit", Payload: json.RawMessage(`{"text":"hello"}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := fixture.dial(transport, "other-client")
+			_, err = other.CommandStatus(t.Context(), "existing-command")
+			failure, ok = errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32011 {
+				t.Fatalf("foreign command error = %#v", err)
+			}
+			status, err := client.CommandStatus(t.Context(), "existing-command")
+			if err != nil || status.Status != "succeeded" {
+				t.Fatalf("owner command status = %+v, %v", status, err)
+			}
+		})
+	}
+
+	// Infrastructure errors must never give clients permission to treat work
+	// as absent and retry it. Only the specific no-rows status path does that.
+	for _, err := range []error{context.Canceled, errors.New("database unavailable")} {
+		failure := rpcFromError(err)
+		if failure.Data.Kind == "command_not_found" {
+			t.Fatalf("lookup failure classified as absent: %v", err)
+		}
+	}
+}
+
+func TestPermissionDecisionStatusRecoversStoredOutcomes(t *testing.T) {
+	for _, transport := range []string{"unix", "websocket"} {
+		t.Run(transport, func(t *testing.T) {
+			fixture := newV2Fixture(t, &fakeRunner{})
+			client := fixture.dial(transport, "decision-owner")
+			ctx := t.Context()
+			cases := []struct {
+				name    string
+				status  string
+				body    []byte
+				message string
+				kind    string
+			}{
+				{
+					name: "stored-ticket", status: "succeeded",
+					body: mustJSON(t, capability.Ticket{OperationID: "operation", LeaseID: "lease", PermissionID: "permission"}),
+				},
+				{
+					name: "legacy-denied", status: "failed", body: []byte(capability.ErrDenied.Error()),
+					message: capability.ErrDenied.Error(), kind: "permission_denied",
+				},
+				{
+					name: "legacy-error", status: "failed", body: []byte("permission owner is unavailable"),
+					message: "permission owner is unavailable", kind: "execution_failed",
+				},
+				{
+					name: "structured-error", status: "failed",
+					body: mustJSON(t, rpcFailure(-32009, "decision conflict")), message: "decision conflict", kind: "conflict",
+				},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					decision := PermissionDecision{
+						CommandID: tc.name, RootID: fixture.rootID, PermissionID: "permission", Allow: true,
+					}
+					payload := mustJSON(t, decision)
+					digest, err := requestDigest("root", fixture.rootID, "permission.decide", payload)
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = fixture.store.AdmitControlCommand(ctx, session.CommandAdmission{
+						ClientID: "decision-owner", CommandID: tc.name, Scope: session.CommandScopeRoot,
+						RootID: fixture.rootID, AgentID: fixture.rootID, Kind: "permission.decide", RequestDigest: digest,
+						Payload: session.RuntimePayload{Data: payload, MediaType: "application/json"},
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = fixture.store.FinishCommand(
+						ctx, "decision-owner", tc.name, tc.status,
+						session.RuntimePayload{Data: tc.body, MediaType: "application/json"},
+					)
+					if err != nil {
+						t.Fatal(err)
+					}
+					status, err := client.CommandStatus(ctx, tc.name)
+					if err != nil || status.CommandID != tc.name || status.Operation != "permission.decide" || status.Status != tc.status {
+						t.Fatalf("decision status = %+v, %v", status, err)
+					}
+					if tc.status == "succeeded" {
+						want := PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}
+						wire := map[string]string{}
+						if err := json.Unmarshal(status.Result, &wire); err != nil {
+							t.Fatal(err)
+						}
+						if !reflect.DeepEqual(wire, map[string]string{"operation_id": "operation", "lease_id": "lease"}) || status.Failure != nil {
+							t.Fatalf("successful decision result = %s, %+v", status.Result, status.Failure)
+						}
+						replayed, err := client.DecidePermission(ctx, decision)
+						if err != nil || replayed != want {
+							t.Fatalf("stored decision replay = %+v, %v", replayed, err)
+						}
+						return
+					}
+					if status.Failure == nil || status.Failure.Message != tc.message || status.Failure.Data == nil || status.Failure.Data.Kind != tc.kind {
+						t.Fatalf("failed decision result = %+v", status)
+					}
+					_, err = client.DecidePermission(ctx, decision)
+					failure, ok := errors.AsType[*RPCError](err)
+					if !ok || failure.Message != tc.message || failure.Data == nil || failure.Data.Kind != tc.kind {
+						t.Fatalf("stored decision replay error = %#v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPermissionDecisionPersistsStructuredFailure(t *testing.T) {
+	fixture := newV2Fixture(t, &fakeRunner{})
+	client := fixture.dial("websocket", "decision-owner")
+	decision := PermissionDecision{CommandID: "failed-decision", RootID: fixture.rootID, PermissionID: "missing", Allow: true}
+	_, err := client.DecidePermission(t.Context(), decision)
+	failure, ok := errors.AsType[*RPCError](err)
+	if !ok {
+		t.Fatalf("missing permission error = %#v", err)
+	}
+	record, err := fixture.store.LoadCommand(t.Context(), "decision-owner", decision.CommandID)
+	if err != nil || record.Status != "failed" {
+		t.Fatalf("persisted decision = %+v, %v", record, err)
+	}
+	var stored RPCError
+	if err := json.Unmarshal(record.Outcome.Inline, &stored); err != nil {
+		t.Fatalf("persisted failure is not structured JSON: %q, %v", record.Outcome.Inline, err)
+	}
+	if !reflect.DeepEqual(&stored, failure) {
+		t.Fatalf("stored failure = %+v, want %+v", stored, failure)
+	}
+	status, err := client.CommandStatus(t.Context(), decision.CommandID)
+	if err != nil || status.Status != "failed" || !reflect.DeepEqual(status.Failure, failure) {
+		t.Fatalf("recovered decision = %+v, %v", status, err)
+	}
+}

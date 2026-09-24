@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"reflect"
@@ -8,8 +9,71 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// Colors are the fixed portable color roles. Every value is normalized #rrggbb.
+// The original TUI JSON spelling remains unchanged in Spec; wire fields use snake_case.
+type Colors struct {
+	Background  string `json:"background"`
+	Foreground  string `json:"foreground"`
+	Muted       string `json:"muted"`
+	Faint       string `json:"faint"`
+	Primary     string `json:"primary"`
+	OnPrimary   string `json:"on_primary"`
+	Accent      string `json:"accent"`
+	Success     string `json:"success"`
+	Warning     string `json:"warning"`
+	Error       string `json:"error"`
+	Info        string `json:"info"`
+	Link        string `json:"link"`
+	Emphasis    string `json:"emphasis"`
+	Border      string `json:"border"`
+	BorderFocus string `json:"border_focus"`
+	DiffAdd     string `json:"diff_add"`
+	DiffDel     string `json:"diff_del"`
+	Panel       string `json:"panel"`
+	Element     string `json:"element"`
+	Hover       string `json:"hover"`
+}
+
+// TokenStyle is effective Chroma styling, without CSS or terminal escapes.
+type TokenStyle struct {
+	Color      string `json:"color"`
+	Background string `json:"background"`
+	Bold       bool   `json:"bold"`
+	Italic     bool   `json:"italic"`
+	Underline  bool   `json:"underline"`
+}
+
+// CodeStyle preserves explicit Chroma overrides, including token attributes.
+// Tokens use Chroma's symbolic token names (for example NameFunction).
+type CodeStyle struct {
+	Foreground string                `json:"foreground"`
+	Background string                `json:"background"`
+	Tokens     map[string]TokenStyle `json:"tokens"`
+}
+
+// WebColors carries optional browser surface overrides using wire field names.
+type WebColors struct {
+	Navigation           string `json:"navigation,omitempty"`
+	QuietBorder          string `json:"quiet_border,omitempty"`
+	CodeBackground       string `json:"code_background,omitempty"`
+	InlineCodeBackground string `json:"inline_code_background,omitempty"`
+}
+
+// Resolved is presentation data, safe to use without a terminal renderer.
+type Resolved struct {
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+	Dark     bool         `json:"dark"`
+	Colors   Colors       `json:"colors"`
+	Syntax   SyntaxSpec   `json:"syntax"`
+	Markdown MarkdownSpec `json:"markdown"`
+	Code     CodeStyle    `json:"code"`
+	Web      *WebColors   `json:"web,omitempty"`
+}
 
 // SurfaceColors is the raised-layer ladder, independent of terminal color depth.
 type SurfaceColors struct{ Base, Panel, Element, Hover color.Color }
@@ -17,7 +81,8 @@ type SurfaceColors struct{ Base, Panel, Element, Hover color.Color }
 // ParseColor uses the same reference ANSI palette as the TUI's lipgloss colors:
 // x/ansi's VGA-compatible first 16 entries, xterm's 6x6x6 cube, then grays.
 // Actual terminal ANSI overrides cannot be observed by browser clients.
-// An empty color means the terminal default; callers validate Specs first.
+// An empty color means the terminal default; invalid ANSI indexes return nil.
+// Callers validate Specs first.
 func ParseColor(s string) color.Color {
 	if s == "" {
 		return nil
@@ -31,9 +96,9 @@ func ParseColor(s string) color.Color {
 		return nil
 	}
 	if n < 16 {
-		return ansi.BasicColor(uint8(n))
+		return ansi.BasicColor(n)
 	}
-	return ansi.IndexedColor(uint8(n))
+	return ansi.IndexedColor(n)
 }
 
 // Hex converts a color into an explicit browser color; nil remains empty.
@@ -145,4 +210,89 @@ func CodeEntries(spec Spec, background color.Color) chroma.StyleEntries {
 		entries[chroma.Background] = "bg:" + Hex(background)
 	}
 	return entries
+}
+
+// ResolveSpec resolves a validated browser theme without changing any catalog or
+// Chroma registry. Neutral is terminal-specific; browsers use light/dark for auto.
+func ResolveSpec(spec Spec) (Resolved, error) {
+	if spec.Neutral() {
+		return Resolved{}, errors.New("neutral is a terminal-only fallback")
+	}
+	if err := spec.Validate(); err != nil {
+		return Resolved{}, err
+	}
+	p := spec.Palette
+	normalizeColors(&p)
+	surfaces := Surfaces(spec, ParseColor(p.Bg))
+	colors := Colors{
+		Background: p.Bg, Foreground: p.Text, Muted: p.Muted, Faint: p.Faint, Primary: p.Primary,
+		OnPrimary: p.OnPrimary, Accent: p.Accent, Success: p.Success, Warning: p.Warning, Error: p.Error, Info: p.Info,
+		Link: p.Link, Emphasis: p.Emphasis, Border: p.Border, BorderFocus: p.BorderFocus, DiffAdd: p.DiffAdd, DiffDel: p.DiffDel,
+		Panel: orString(Hex(surfaces.Panel), p.Bg), Element: orString(Hex(surfaces.Element), p.Bg), Hover: orString(Hex(surfaces.Hover), p.Bg),
+	}
+	syntax, md := spec.SyntaxColors(), spec.MarkdownColors()
+	normalizeColors(&syntax)
+	normalizeColors(&md)
+	entries := CodeEntries(spec, ParseColor(colors.Element))
+	style, err := chroma.NewStyle(spec.Name, entries)
+	if err != nil {
+		return Resolved{}, fmt.Errorf("theme code styles: %w", err)
+	}
+	if spec.Chroma != "" {
+		style = chromastyles.Registry[spec.Chroma]
+	}
+	tokenTypes := style.Types()
+	for tt := range entries {
+		tokenTypes = append(tokenTypes, tt)
+	}
+	code := CodeStyle{Foreground: p.Text, Background: colors.Element, Tokens: map[string]TokenStyle{}}
+	text, bg := style.Get(chroma.Text), style.Get(chroma.Background)
+	if text.Colour.IsSet() {
+		code.Foreground = text.Colour.String()
+	}
+	if bg.Background.IsSet() {
+		code.Background = bg.Background.String()
+	}
+	for _, tt := range tokenTypes {
+		entry := style.Get(tt)
+		item := TokenStyle{
+			Color: code.Foreground, Background: code.Background, Bold: entry.Bold == chroma.Yes,
+			Italic: entry.Italic == chroma.Yes, Underline: entry.Underline == chroma.Yes,
+		}
+		if entry.Colour.IsSet() {
+			item.Color = entry.Colour.String()
+		}
+		if entry.Background.IsSet() {
+			item.Background = entry.Background.String()
+		}
+		code.Tokens[tt.String()] = item
+	}
+	// Explicit Chroma wins over a syntax block, exactly as in the terminal renderer.
+	if spec.Chroma != "" {
+		syntax = SyntaxSpec{
+			Keyword: code.Tokens[chroma.Keyword.String()].Color, Type: code.Tokens[chroma.KeywordType.String()].Color,
+			Function: code.Tokens[chroma.NameFunction.String()].Color, String: code.Tokens[chroma.LiteralString.String()].Color,
+			Number: code.Tokens[chroma.LiteralNumber.String()].Color, Comment: code.Tokens[chroma.Comment.String()].Color,
+			Punctuation: code.Tokens[chroma.Punctuation.String()].Color, Operator: code.Tokens[chroma.Operator.String()].Color,
+		}
+	}
+	var web *WebColors
+	if spec.Web != nil {
+		web = &WebColors{
+			Navigation: spec.Web.Navigation, QuietBorder: spec.Web.QuietBorder,
+			CodeBackground: spec.Web.CodeBackground, InlineCodeBackground: spec.Web.InlineCodeBackground,
+		}
+		normalizeColors(web)
+	}
+	return Resolved{
+		ID: spec.Name, Name: spec.Label(), Dark: spec.Dark,
+		Colors: colors, Syntax: syntax, Markdown: md, Code: code, Web: web,
+	}, nil
+}
+
+func orString(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }

@@ -1,0 +1,406 @@
+{
+  "type": "object",
+  "properties": {
+    "definition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "object",
+          "properties": {
+            "persona": {
+              "type": "string"
+            },
+            "rules": {
+              "type": "string"
+            },
+            "project_files": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "skill_discovery": {
+              "type": "boolean"
+            },
+            "standing_instructions": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "persona",
+            "rules",
+            "project_files",
+            "skill_discovery",
+            "standing_instructions"
+          ],
+          "additionalProperties": false
+        },
+        "modules": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "model": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "provider",
+            "effort"
+          ],
+          "additionalProperties": false
+        },
+        "compaction": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "threshold": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "provider",
+            "threshold"
+          ],
+          "additionalProperties": false
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "servers": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "servers"
+          ],
+          "additionalProperties": false
+        },
+        "tools": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input_schema": true,
+              "output_schema": true,
+              "timeout_millis": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "input_schema",
+              "output_schema",
+              "timeout_millis"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "output": true,
+        "children": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "instructions": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "persona": {
+                    "type": "string"
+                  },
+                  "rules": {
+                    "type": "string"
+                  },
+                  "project_files": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "skill_discovery": {
+                    "type": "boolean"
+                  },
+                  "standing_instructions": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "persona",
+                  "rules",
+                  "project_files",
+                  "skill_discovery",
+                  "standing_instructions"
+                ],
+                "additionalProperties": false
+              },
+              "modules": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "capabilities": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tools": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "model": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "model",
+                  "provider",
+                  "effort"
+                ],
+                "additionalProperties": false
+              },
+              "budgets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "report": {
+                "type": "string"
+              },
+              "output": true
+            },
+            "required": [
+              "instructions",
+              "modules",
+              "capabilities",
+              "tools",
+              "model",
+              "budgets",
+              "report",
+              "output"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "surface": {
+          "type": "object",
+          "properties": {
+            "auto_title": {
+              "type": "boolean"
+            },
+            "goal_loop": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "auto_title",
+            "goal_loop"
+          ],
+          "additionalProperties": false
+        },
+        "hooks": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "before_tool": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            },
+            "before_spawn": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            },
+            "turn_start": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "timeout_millis": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "operations",
+                "optional",
+                "timeout_millis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "before_tool",
+            "before_spawn",
+            "turn_start"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "instructions",
+        "modules",
+        "capabilities",
+        "model",
+        "compaction",
+        "mcp",
+        "tools",
+        "output",
+        "children",
+        "surface",
+        "hooks"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/DefinitionRegisterParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DefinitionRegisterParams",
+  "required": [
+    "definition"
+  ],
+  "additionalProperties": false
+}

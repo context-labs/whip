@@ -1,0 +1,13 @@
+{
+  "checks": [
+    "recorded digests grouped with work",
+    "standalone updates have no invented outcome",
+    "authored replies preserved",
+    "raw messages explicitly inspectable",
+    "keyboard disclosure and copy",
+    "compact action spacing at 530/390/320px",
+    "touch actions stay visible with 44px targets",
+    "no document overflow"
+  ],
+  "errors": []
+}

@@ -22,15 +22,14 @@ func (s *stubLSP) WaitDiagnostics(ctx context.Context, path string) string {
 
 func TestWriteEditAppendLSPDiagnostics(t *testing.T) {
 	stub := &stubLSP{block: "\n\n<diagnostics file=\"x.go\">\nERROR [1:1] boom\n</diagnostics>"}
-	saved := LSP
-	LSP = stub
-	defer func() { LSP = saved }()
+	services := NewServices()
+	services.SetDiagnostics(stub)
 
 	dir := t.TempDir()
 	p := filepath.Join(dir, "x.go")
 
 	args, _ := json.Marshal(map[string]any{"path": p, "content": "package main\n"})
-	out := Execute(context.Background(), All(), "write", args)
+	out := Execute(context.Background(), []Tool{writeTool(services)}, "write", args)
 	if !strings.Contains(out, "<diagnostics") || !strings.Contains(out, "ERROR [1:1] boom") {
 		t.Fatalf("write output missing diagnostics: %q", out)
 	}
@@ -39,7 +38,7 @@ func TestWriteEditAppendLSPDiagnostics(t *testing.T) {
 	}
 
 	args, _ = json.Marshal(map[string]any{"path": p, "old_string": "main", "new_string": "main2"})
-	out = Execute(context.Background(), All(), "edit", args)
+	out = Execute(context.Background(), []Tool{editTool(services)}, "edit", args)
 	if !strings.Contains(out, "<diagnostics") {
 		t.Fatalf("edit output missing diagnostics: %q", out)
 	}
@@ -49,26 +48,22 @@ func TestWriteEditAppendLSPDiagnostics(t *testing.T) {
 }
 
 func TestLSPNilUnchangedOutput(t *testing.T) {
-	saved := LSP
-	LSP = nil
-	defer func() { LSP = saved }()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "x.go")
 	args, _ := json.Marshal(map[string]any{"path": p, "content": "hi"})
-	out := Execute(context.Background(), All(), "write", args)
+	out := Execute(context.Background(), directTools(), "write", args)
 	if strings.Contains(out, "<diagnostics") {
 		t.Fatalf("nil hook must not alter output: %q", out)
 	}
 }
 
 func TestLSPFailureNeverFailsTool(t *testing.T) {
-	saved := LSP
-	LSP = &stubLSP{block: ""} // server slow/absent: empty block
-	defer func() { LSP = saved }()
+	services := NewServices()
+	services.SetDiagnostics(&stubLSP{block: ""}) // server slow/absent: empty block
 	dir := t.TempDir()
 	p := filepath.Join(dir, "x.go")
 	args, _ := json.Marshal(map[string]any{"path": p, "content": "hi"})
-	out := Execute(context.Background(), All(), "write", args)
+	out := Execute(context.Background(), []Tool{writeTool(services)}, "write", args)
 	if !strings.HasPrefix(out, "Wrote") {
 		t.Fatalf("tool result should be the success message, got %q", out)
 	}

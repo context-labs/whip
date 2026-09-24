@@ -8,9 +8,7 @@ import (
 	"github.com/context-labs/whip/internal/memory"
 )
 
-// /memory — the visible half of the memory feature: the user sees exactly
-// what gets injected each turn and can kill any line without leaving the
-// TUI. Both scopes render numbered; /memory <n> [session] marks an entry
+// /memory lists saved markdown notes; /memory <n> [session] marks an entry
 // done. The files stay plain markdown the user can also edit by hand.
 func (m *model) memoryCommand(args []string) {
 	scopes := []memory.Scope{memory.Installation(), memory.Session(m.sessionID)}
@@ -50,7 +48,7 @@ func (m *model) memoryCommand(args []string) {
 
 	// bare /memory — list both scopes, open entries first.
 	var b strings.Builder
-	b.WriteString(dimStyle.Render("memory — injected into every turn · /memory <n> [session] marks done · edit the files directly:"))
+	b.WriteString(dimStyle.Render("memory notes · /memory <n> [session] marks done · edit the files directly:"))
 	found := false
 	for _, s := range scopes {
 		entries := s.Entries()
@@ -68,7 +66,7 @@ func (m *model) memoryCommand(args []string) {
 		}
 	}
 	if !found {
-		b.WriteString("\n  (empty — the model saves facts with remember, or write a line like \"- [ ] prefers pnpm\" yourself)")
+		b.WriteString("\n  (empty — write a line like \"- [ ] prefers pnpm\" in a memory file)")
 	}
 	m.append(b.String())
 }

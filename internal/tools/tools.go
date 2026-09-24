@@ -2,15 +2,25 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools/bashrun"
 )
@@ -28,26 +38,780 @@ type Tool struct {
 // Implementations must be safe to call from a goroutine that is not the UI
 // thread, and must not block forever when no input arrives.
 type InteractiveRunner interface {
-	Run(ctx context.Context, command string, timeout time.Duration, keys <-chan []byte) string
+	Run(ctx context.Context, opts bashrun.Options) string
 }
 
-// InteractiveBash is the hook installed by the TUI; nil means the agent's bash
-// tool runs interactive commands itself using the non-interactive fallback
-// (which fast-fails sudo-style prompts instead of hanging).
-var InteractiveBash InteractiveRunner
-
-// LSP, when non-nil, feeds language-server diagnostics back to the model by
-// appending a <diagnostics> block to write/edit tool output (see
-// internal/lsp). Installed by the TUI at startup; nil in tests and headless
-// runs. Implementations must be safe for concurrent use (parallel tool
-// calls) and must honor ctx (ctrl+c cancels the wait).
-var LSP interface {
+type Diagnostics interface {
 	WaitDiagnostics(ctx context.Context, path string) string
 }
 
-// All returns the built-in tool set.
+type Services struct {
+	mu                     sync.RWMutex
+	interactive            InteractiveRunner
+	diagnostics            Diagnostics
+	gate                   Gate
+	dispatcher             *capability.Dispatcher
+	authority              capability.Authority
+	processes              *capability.ProcessManager
+	workspace              *capability.Workspace
+	processCwd             string
+	processEnv             map[string]string
+	browser                *browser.Manager
+	desktopBrowserProvider func() browser.DesktopProvider
+	allowPrivateURLs       bool
+	screenshotSink         func([][]byte)
+	computerPolicy         *computer.Policy
+	computerApprover       func(string) bool
+	computerHelper         *computer.Helper
+	appGenerations         map[string]int
+	externalPermissions    bool
+	headlessPermissions    bool
+	mcpAutomatic           bool
+	permissionRevision     uint64
+	mcpProvider            func() MCPProvider
+	mcpAttachmentStore     func(context.Context, string, []byte) (string, error)
+	permissionLedger       capability.Ledger
+	permissions            map[string]*permissionResolution
+	// Custom tools declared by the agent definition; see custom.go.
+	customDefinition string
+	customRevision   string
+	customTools      []CustomTool
+	toolExecutor     ToolExecutor
+
+	// Background shell jobs owned by this agent; see jobs.go.
+	jobs     map[string]*bashrun.Job
+	jobOrder []string
+}
+
+func NewServices() *Services { return &Services{} }
+
+// SetExternalPermissions makes dispatcher admissions wait for a trusted
+// client decision instead of consulting an in-process consent callback.
+func (s *Services) SetExternalPermissions(enabled bool) {
+	s.mu.Lock()
+	if s.externalPermissions != enabled {
+		s.invalidatePermissionPolicyLocked()
+	}
+	s.externalPermissions = enabled
+	if enabled && s.permissions == nil {
+		s.permissions = make(map[string]*permissionResolution)
+	}
+	s.mu.Unlock()
+}
+
+// CopyPermissionPolicyFrom preserves the current permission mode when a
+// runtime is replaced. Live waiters and the MCP manager belong to their runtime.
+func (s *Services) CopyPermissionPolicyFrom(previous *Services) {
+	if previous == nil || previous == s {
+		return
+	}
+	previous.mu.RLock()
+	gate, external := previous.gate, previous.externalPermissions
+	automatic, headless := previous.mcpAutomatic, previous.headlessPermissions
+	previous.mu.RUnlock()
+	s.mu.Lock()
+	s.invalidatePermissionPolicyLocked()
+	s.gate, s.externalPermissions = gate, external
+	s.mcpAutomatic, s.headlessPermissions = automatic, headless
+	if external && s.permissions == nil {
+		s.permissions = make(map[string]*permissionResolution)
+	}
+	s.mu.Unlock()
+}
+
+// ExternalPermissionsEnabled reports whether admissions are delegated to a
+// trusted daemon client instead of the in-process consent callback.
+func (s *Services) ExternalPermissionsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.externalPermissions
+}
+
+// ResolvePermission accepts one decision for a dispatcher invocation. The claim
+// remains until the invocation settles, including while the ledger commits it.
+func (s *Services) ResolvePermission(permissionID string, decision capability.Decision) error {
+	if permissionID == "" || decision.PrincipalID == "" {
+		return errors.New("permission and principal identities are required")
+	}
+	s.mu.Lock()
+	if !s.externalPermissions {
+		s.mu.Unlock()
+		return errors.New("external permissions are not enabled")
+	}
+	resolution := s.permissions[permissionID]
+	if resolution != nil && resolution.resolved {
+		s.mu.Unlock()
+		return capability.ErrDenied
+	}
+	if resolution != nil && resolution.waiter != nil {
+		resolution.decision, resolution.resolved = decision, true
+		waiter := resolution.waiter
+		s.mu.Unlock()
+		waiter <- decision
+		return nil
+	}
+	if s.permissionLedger != nil {
+		// Keep validation and insertion ordered with the invocation's final
+		// cleanup. A decision after terminalization cannot become an orphan.
+		admission, err := s.permissionLedger.Pending(context.Background(), permissionID)
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		if admission.Request.RootID != s.authority.RootID || admission.Request.AgentID != s.authority.AgentID {
+			s.mu.Unlock()
+			return capability.ErrDenied
+		}
+	}
+	s.permissions[permissionID] = &permissionResolution{decision: decision, resolved: true, revision: s.permissionRevision}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Services) SetBrowser(manager *browser.Manager, allowPrivateURLs bool) {
+	s.mu.Lock()
+	s.browser = manager
+	s.allowPrivateURLs = allowPrivateURLs
+	s.mu.Unlock()
+}
+
+func (s *Services) Browser() *browser.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.browser
+}
+
+func (s *Services) browserConfig() (*browser.Manager, bool, func([][]byte)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.browser, s.allowPrivateURLs, s.screenshotSink
+}
+
+func (s *Services) SetScreenshotSink(sink func([][]byte)) {
+	s.mu.Lock()
+	s.screenshotSink = sink
+	s.mu.Unlock()
+}
+
+// ScreenshotsEnabled reports whether browser/computer captures can be sent
+// back to the owning model. Authority clones intentionally do not copy the
+// callback because it steers one specific agent.
+func (s *Services) ScreenshotsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.screenshotSink != nil
+}
+
+func (s *Services) screenshots() func([][]byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.screenshotSink
+}
+
+func (s *Services) SetComputerPolicy(policy *computer.Policy) {
+	s.mu.Lock()
+	s.computerPolicy = policy
+	s.mu.Unlock()
+}
+
+func (s *Services) ComputerPolicy() *computer.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.computerPolicy
+}
+
+func (s *Services) SetComputerApprover(approver func(string) bool) {
+	s.mu.Lock()
+	s.computerApprover = approver
+	s.mu.Unlock()
+}
+
+func (s *Services) computerApproval() (*computer.Policy, func(string) bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.computerPolicy, s.computerApprover
+}
+
+func (s *Services) noteGeneration(app string, generation int) {
+	s.mu.Lock()
+	if s.appGenerations == nil {
+		s.appGenerations = map[string]int{}
+	}
+	s.appGenerations[strings.ToLower(app)] = generation
+	s.mu.Unlock()
+}
+
+func (s *Services) generationFor(app string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.appGenerations[strings.ToLower(app)]
+}
+
+func (s *Services) SetInteractive(runner InteractiveRunner) {
+	s.mu.Lock()
+	s.interactive = runner
+	s.mu.Unlock()
+}
+
+func (s *Services) SetDiagnostics(diagnostics Diagnostics) {
+	s.mu.Lock()
+	s.diagnostics = diagnostics
+	s.mu.Unlock()
+}
+
+func (s *Services) Diagnostics() Diagnostics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.diagnostics
+}
+
+func (s *Services) SetGate(gate Gate) {
+	s.mu.Lock()
+	s.gate = gate
+	s.invalidatePermissionPolicyLocked()
+	s.mu.Unlock()
+}
+
+func (s *Services) SetProcessMarkers(sessionID, model string) {
+	s.mu.Lock()
+	s.processEnv = bashrun.Markers(sessionID, model)
+	s.mu.Unlock()
+}
+
+// SetProcessEnvironment adds explicit child-process values without mutating
+// the daemon's process-global environment.
+func (s *Services) SetProcessEnvironment(values map[string]string) {
+	s.mu.Lock()
+	if s.processEnv == nil {
+		s.processEnv = make(map[string]string)
+	}
+	maps.Copy(s.processEnv, values)
+	s.mu.Unlock()
+}
+
+func (s *Services) ProcessOptions() bashrun.Options {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return bashrun.Options{Cwd: s.processCwd, RootID: s.authority.RootID, Processes: s.processes, Env: maps.Clone(s.processEnv)}
+}
+
+func (s *Services) ResolveWorkingDirectory(path string) (string, error) {
+	s.mu.RLock()
+	workspace := s.workspace
+	ledger, authority := s.permissionLedger, s.authority
+	s.mu.RUnlock()
+	if workspace == nil {
+		return filepath.Abs(path)
+	}
+	resolved, err := workspace.Canonicalize(path)
+	if err != nil {
+		return "", err
+	}
+	authorizer, ok := ledger.(interface {
+		AuthorizeCapability(context.Context, string, string, capability.Reference, string, string) error
+	})
+	if !ok {
+		// Standalone callers without a ledger retain their confined workspace.
+		resolved, err = workspace.Resolve(path)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		if err := authorizer.AuthorizeCapability(context.Background(), authority.RootID, authority.AgentID, authority.Files, "read", resolved); err != nil {
+			return "", err
+		}
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", path)
+	}
+	return resolved, nil
+}
+
+type workingDirectoryKey struct{}
+
+func WithWorkingDirectory(ctx context.Context, path string) context.Context {
+	if path == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, workingDirectoryKey{}, path)
+}
+
+func workingDirectory(ctx context.Context) string {
+	path, _ := ctx.Value(workingDirectoryKey{}).(string)
+	return path
+}
+
+type invocationKey struct{}
+
+type invocation struct {
+	commandClientID string
+	commandID       string
+	operationPrefix string
+	traceID         string
+}
+
+// WithTurnIdentity attributes all tool calls made from one agent turn to the
+// same command and trace.
+func WithTurnIdentity(ctx context.Context, clientID string) (context.Context, error) {
+	id, err := randomID()
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, invocationKey{}, invocation{
+		commandClientID: clientID,
+		commandID:       id,
+		traceID:         id,
+	}), nil
+}
+
+// WithOperationIdentity attributes host operations to one model tool call
+// within a turn. Each dispatch gets its own ID under this prefix.
+func WithOperationIdentity(ctx context.Context, callID string) context.Context {
+	identity, _ := ctx.Value(invocationKey{}).(invocation)
+	if callID != "" {
+		identity.operationPrefix = identity.commandID + ":" + callID
+	}
+	return context.WithValue(ctx, invocationKey{}, identity)
+}
+
+type bashResultKey struct{}
+
+func (s *Services) RunBash(ctx context.Context, command string, timeout time.Duration) (bashrun.Result, error) {
+	arguments, err := json.Marshal(struct {
+		Command string  `json:"command"`
+		Timeout float64 `json:"timeout"`
+	}{Command: command, Timeout: timeout.Seconds()})
+	if err != nil {
+		return bashrun.Result{}, err
+	}
+	var result bashrun.Result
+	ctx = context.WithValue(ctx, bashResultKey{}, &result)
+	_, err = s.run(ctx, "bash", arguments)
+	return result, err
+}
+
+func (s *Services) RunProcess(ctx context.Context, name string, args ...string) ([]byte, error) {
+	opts := s.ProcessOptions()
+	if opts.Processes == nil {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Dir = opts.Cwd
+		return cmd.CombinedOutput()
+	}
+	var stdout, stderr bytes.Buffer
+	process, err := opts.Processes.Start(ctx, opts.RootID, name, args, capability.ProcessOptions{
+		Cwd: opts.Cwd, Env: opts.Env, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
+	})
+	if err == nil {
+		err = process.Wait()
+	}
+	return append(stdout.Bytes(), stderr.Bytes()...), err
+}
+
+func (s *Services) RunWorkspaceProcess(ctx context.Context, name string, args ...string) ([]byte, error) {
+	arguments, err := json.Marshal(struct {
+		Name    string   `json:"name"`
+		Args    []string `json:"args"`
+		Command string   `json:"command"`
+	}{Name: name, Args: args, Command: strings.Join(append([]string{name}, args...), " ")})
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.run(ctx, "workspace_process", arguments)
+	return []byte(out), err
+}
+
+func workspaceProcessTool(services *Services) Tool {
+	return Tool{Def: llm.NewTool("workspace_process", "Run an internal workspace-wide process.", `{}`), Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
+		var args struct {
+			Name string   `json:"name"`
+			Args []string `json:"args"`
+		}
+		if err := json.Unmarshal(arguments, &args); err != nil {
+			return "", err
+		}
+		out, err := services.RunProcess(ctx, args.Name, args.Args...)
+		return string(out), err
+	}}
+}
+
+func (s *Services) computerAutomation(ctx context.Context) computer.Automation {
+	return computer.Automation{Context: ctx, Run: s.RunProcess}
+}
+
+func (s *Services) nativeComputerHelper() (*computer.Helper, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.computerHelper != nil {
+		return s.computerHelper, nil
+	}
+	if s.processes == nil {
+		return computer.Shared()
+	}
+	helper, err := computer.NewManagedHelper(s.processes, s.authority.RootID, s.processCwd, maps.Clone(s.processEnv))
+	if err != nil {
+		return nil, err
+	}
+	s.computerHelper = helper
+	return helper, nil
+}
+
+func (s *Services) Close() {
+	s.killJobs()
+	s.mu.RLock()
+	diagnostics, browserManager, computerHelper := s.diagnostics, s.browser, s.computerHelper
+	s.mu.RUnlock()
+	if closer, ok := diagnostics.(interface{ Close() }); ok {
+		closer.Close()
+	}
+	if browserManager != nil {
+		browserManager.CloseAll()
+	}
+	if computerHelper != nil {
+		computerHelper.Close()
+	}
+}
+
+// All returns an unbound built-in tool set. Execution fails closed until its
+// Services is bound to dispatcher authority.
 func All() []Tool {
-	return []Tool{bashTool(), readTool(), writeTool(), editTool()}
+	return AllWithServices(NewServices())
+}
+
+func AllWithServices(services *Services) []Tool {
+	if services == nil {
+		services = NewServices()
+	}
+	var toolset []Tool
+	for _, spec := range hostToolSpecs {
+		if spec.advertised {
+			toolset = append(toolset, services.wrap(spec.build(services)))
+		}
+	}
+	return toolset
+}
+
+// ToolDefinitions returns the public built-in schemas without exposing
+// concrete handlers to protocol adapters.
+func (s *Services) ToolDefinitions(context.Context) ([]llm.Tool, error) {
+	return append(Defs(AllWithServices(s)), desktopToolDefinitions()...), nil
+}
+
+// CallTool routes one public built-in through the bound dispatcher.
+func (s *Services) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+	return s.Invoke(ctx, name, arguments)
+}
+
+type hostToolSpec struct {
+	build      func(*Services) Tool
+	advertised bool
+	shell      bool
+	writer     bool
+	mutation   capability.Mutation
+	permission bool
+	path       func(json.RawMessage) (string, error)
+}
+
+var hostToolSpecs = []hostToolSpec{
+	{build: bashTool, advertised: true, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+	{build: func(*Services) Tool { return readTool() }, advertised: true, path: toolPath},
+	{build: writeTool, advertised: true, mutation: capability.MutationPath, permission: true, path: toolPath},
+	{build: editTool, advertised: true, mutation: capability.MutationPath, permission: true, path: toolPath},
+	{build: browserExec, shell: true},
+	{build: computerExec, shell: true},
+	{build: workspaceProcessTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+	{build: shellStartTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+}
+
+func hostTool(services *Services, operation string) Tool {
+	for _, spec := range hostToolSpecs {
+		tool := spec.build(services)
+		if tool.Def.Function.Name == operation {
+			return services.wrap(tool)
+		}
+	}
+	panic("unknown host tool: " + operation)
+}
+
+func hostSpec(operation string) (hostToolSpec, bool) {
+	for _, spec := range hostToolSpecs {
+		if spec.build(nil).Def.Function.Name == operation {
+			return spec, true
+		}
+	}
+	return hostToolSpec{}, false
+}
+
+func (s *Services) wrap(tool Tool) Tool {
+	direct := tool.Run
+	operation := tool.Def.Function.Name
+	tool.Run = func(ctx context.Context, arguments json.RawMessage) (string, error) {
+		if _, dispatched := dispatchCall(ctx); dispatched {
+			return direct(ctx, arguments)
+		}
+		return s.run(ctx, operation, arguments)
+	}
+	return tool
+}
+
+type dispatchCallKey struct{}
+
+func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) error {
+	if ledger == nil || workspaces == nil || processes == nil || authority.RootID == "" || authority.AgentID == "" {
+		return errors.New("host dispatcher authority is incomplete")
+	}
+	s.mu.RLock()
+	bound := s.dispatcher != nil && s.processes == processes && s.authority == authority
+	s.mu.RUnlock()
+	if bound {
+		return nil
+	}
+	dispatcher := capability.NewDispatcher(ledger, workspaces, s)
+	root, err := ledger.WorkspaceRoot(context.Background(), authority.RootID)
+	if err != nil {
+		return err
+	}
+	workspace, err := workspaces.Open(root)
+	if err != nil {
+		return err
+	}
+	for _, spec := range hostToolSpecs {
+		tool := spec.build(s)
+		operation := tool.Def.Function.Name
+		registration := capability.Registration{Operation: operation, Handler: func(ctx context.Context, call capability.Call) (string, error) {
+			return tool.Run(context.WithValue(ctx, dispatchCallKey{}, call), call.Arguments)
+		}, Mutation: spec.mutation, Permission: spec.permission, Path: spec.path}
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
+	for _, registration := range s.desktopBrowserRegistrations(ledger) {
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
+	if err := dispatcher.Register(s.mcpRegistration(ledger)); err != nil {
+		return err
+	}
+	customRegistrations, err := s.customRegistrations()
+	if err != nil {
+		return err
+	}
+	for _, registration := range customRegistrations {
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
+	s.mu.RLock()
+	env := maps.Clone(s.processEnv)
+	browserManager := s.browser
+	s.mu.RUnlock()
+	var childEnv []string
+	if browserManager != nil {
+		childEnv, err = processes.ChildEnvironment(env)
+		if err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	s.dispatcher = dispatcher
+	s.permissionLedger = ledger
+	s.authority = authority
+	s.processes = processes
+	s.workspace = workspace
+	s.processCwd = workspace.Root()
+	diagnostics := s.diagnostics
+	computerHelper := s.computerHelper
+	s.computerHelper = nil
+	s.mu.Unlock()
+	if computerHelper != nil {
+		computerHelper.Close()
+	}
+	if browserManager != nil {
+		browserManager.SetProcessOptions(processes, authority.RootID, childEnv)
+	}
+	if scoped, ok := diagnostics.(interface {
+		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
+	}); ok {
+		scoped.SetProcessOptions(processes, authority.RootID, workspace.Root(), env)
+	}
+	return nil
+}
+
+// CloneForAuthority keeps the parent's host integrations while binding tool
+// calls to a distinct descendant capability set.
+func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) (*Services, error) {
+	s.mu.RLock()
+	clone := &Services{
+		interactive:            s.interactive,
+		diagnostics:            s.diagnostics,
+		gate:                   s.gate,
+		processEnv:             maps.Clone(s.processEnv),
+		browser:                s.browser,
+		desktopBrowserProvider: s.desktopBrowserProvider,
+		allowPrivateURLs:       s.allowPrivateURLs,
+		computerPolicy:         s.computerPolicy,
+		computerApprover:       s.computerApprover,
+		appGenerations:         maps.Clone(s.appGenerations),
+		externalPermissions:    s.externalPermissions,
+		headlessPermissions:    s.headlessPermissions,
+		mcpAutomatic:           s.mcpAutomatic,
+		permissionRevision:     s.permissionRevision,
+		mcpProvider:            s.mcpProvider,
+		customDefinition:       s.customDefinition,
+		customRevision:         s.customRevision,
+		customTools:            append([]CustomTool(nil), s.customTools...),
+		toolExecutor:           s.toolExecutor,
+	}
+	s.mu.RUnlock()
+	if clone.externalPermissions {
+		clone.permissions = make(map[string]*permissionResolution)
+	}
+	if err := clone.BindDispatcher(ledger, workspaces, processes, authority); err != nil {
+		return nil, err
+	}
+	return clone, nil
+}
+
+func toolPath(arguments json.RawMessage) (string, error) {
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		return "", err
+	}
+	if args.Path == "" {
+		return "", errors.New("path is required")
+	}
+	return args.Path, nil
+}
+
+func (s *Services) run(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
+	s.mu.RLock()
+	dispatcher, authority := s.dispatcher, s.authority
+	s.mu.RUnlock()
+	if dispatcher == nil {
+		return "", errors.New("tool services are not bound to dispatcher authority")
+	}
+	spec, ok := hostSpec(operation)
+	if !ok && operation != "mcp.call" && !isCustomToolOperation(operation) && !isDesktopBrowserOperation(operation) {
+		return "", fmt.Errorf("unknown host operation %q", operation)
+	}
+	capabilityRef := authority.Files
+	if operation == "mcp.call" {
+		capabilityRef = authority.MCP
+	}
+	if isCustomToolOperation(operation) {
+		capabilityRef = authority.Tools
+	}
+	identity, ok := ctx.Value(invocationKey{}).(invocation)
+	if !ok || identity.traceID == "" {
+		var err error
+		ctx, err = WithTurnIdentity(ctx, "runtime")
+		if err != nil {
+			return "", err
+		}
+		identity = ctx.Value(invocationKey{}).(invocation)
+	}
+	request := capability.Request{
+		RootID: authority.RootID, AgentID: authority.AgentID, Operation: operation, Arguments: arguments,
+		CommandClientID: identity.commandClientID, CommandID: identity.commandID, TraceID: identity.traceID,
+	}
+	if spec.shell {
+		capabilityRef = authority.Shell
+	}
+	if isDesktopBrowserOperation(operation) {
+		capabilityRef = authority.Shell
+		if operation != "browser.open" && operation != "browser.attach" {
+			var call capability.BrowserCall
+			if err := json.Unmarshal(arguments, &call); err != nil {
+				return "", err
+			}
+			capabilityRef = call.Grant
+		}
+	}
+	if capabilityRef.ID == "" {
+		return "", capability.ErrDenied
+	}
+	if spec.writer {
+		request.WriterCapabilityID = authority.Files.ID
+		request.WriterCapabilityGeneration = authority.Files.Generation
+	}
+	request.CapabilityID = capabilityRef.ID
+	request.CapabilityGeneration = capabilityRef.Generation
+	if ok {
+		request.WorkingDirectory = workingDirectory(ctx)
+	}
+	// One model tool call (such as rlm_exec) can dispatch many host operations.
+	// Their ledger entries must be distinct even when they share a context.
+	operationID, err := randomID()
+	if err != nil {
+		return "", err
+	}
+	request.OperationID = operationID
+	if identity.operationPrefix != "" {
+		request.OperationID = identity.operationPrefix + ":" + operationID
+	}
+	if observe, ok := ctx.Value(operationObserverKey{}).(func(string)); ok && observe != nil {
+		observe(request.OperationID)
+	}
+	permission := &permissionInvocation{}
+	ctx = context.WithValue(ctx, permissionInvocationKey{}, permission)
+	defer func() {
+		s.mu.Lock()
+		delete(s.permissions, permission.id)
+		s.mu.Unlock()
+	}()
+	response, err := dispatcher.Dispatch(ctx, request)
+	return response.Output, err
+}
+
+// Invoke routes a named built-in operation through the same dispatcher,
+// authority, permission, budget, mutation-ordering, and trace path used by
+// runtime modules.
+func (s *Services) Invoke(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
+	if desktop, ok := desktopToolOperations[operation]; ok {
+		operation = desktop
+	}
+	if isDesktopBrowserOperation(operation) {
+		result, err := s.RunDesktopBrowser(ctx, operation, arguments)
+		if err != nil {
+			return "", err
+		}
+		data, err := json.Marshal(result)
+		return string(data), err
+	}
+	_, ok := hostSpec(operation)
+	if !ok {
+		return "", fmt.Errorf("unknown host operation %q", operation)
+	}
+	return s.run(ctx, operation, arguments)
+}
+
+func randomID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(id[:]), nil
+}
+
+func dispatchCall(ctx context.Context) (capability.Call, bool) {
+	call, ok := ctx.Value(dispatchCallKey{}).(capability.Call)
+	return call, ok
+}
+
+type operationObserverKey struct{}
+
+// WithOperationObserver reports the durable operation id of every host
+// operation dispatched under ctx. The RLM kernel uses it to name the
+// operations row a host call became, so its trace span can open the full
+// arguments and result.
+func WithOperationObserver(ctx context.Context, observe func(operationID string)) context.Context {
+	return context.WithValue(ctx, operationObserverKey{}, observe)
 }
 
 // updateKey carries a per-tool-call partial-output callback. The agent layer
@@ -62,6 +826,28 @@ func WithOnUpdate(ctx context.Context, onUpdate func(outputSoFar string)) contex
 	return context.WithValue(ctx, updateKey{}, onUpdate)
 }
 
+// OnUpdate returns the partial-output callback installed by WithOnUpdate, or
+// nil. The RLM kernel uses it to stream a cell's print output.
+func OnUpdate(ctx context.Context) func(outputSoFar string) {
+	callback, _ := ctx.Value(updateKey{}).(func(string))
+	return callback
+}
+
+type toolCallKey struct{}
+
+// WithToolCallID names the model tool call a ctx belongs to, so runtime
+// events emitted while it runs (host calls inside a Starlark cell) can be
+// attributed to it in the presentation stream.
+func WithToolCallID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, toolCallKey{}, id)
+}
+
+// ToolCallID returns the id set by WithToolCallID, or "".
+func ToolCallID(ctx context.Context) string {
+	id, _ := ctx.Value(toolCallKey{}).(string)
+	return id
+}
+
 // Defs returns the llm.Tool definitions for a tool set.
 func Defs(ts []Tool) []llm.Tool {
 	defs := make([]llm.Tool, len(ts))
@@ -71,19 +857,20 @@ func Defs(ts []Tool) []llm.Tool {
 	return defs
 }
 
-// Suggester returns the closest known tool names for an unknown one —
-// installed by the agent (which knows the live MCP tool set) so a stale or
-// typo'd tool call nudges the model toward the right name instead of
-// dead-ending the turn.
-var Suggester func(name string) []string
-
 // Execute runs the named tool. Errors are returned as strings so they can be
 // fed back to the model rather than aborting the loop.
 func Execute(ctx context.Context, ts []Tool, name string, args json.RawMessage) string {
+	return ExecuteWithSuggester(ctx, ts, name, args, nil)
+}
+
+func ExecuteWithSuggester(ctx context.Context, ts []Tool, name string, args json.RawMessage, suggest func(string) []string) string {
 	for _, t := range ts {
 		if t.Def.Function.Name == name {
 			out, err := t.Run(ctx, args)
 			if err != nil {
+				if out != "" {
+					return "Error: " + err.Error() + "\n" + out
+				}
 				return "Error: " + err.Error()
 			}
 			if out == "" {
@@ -93,8 +880,8 @@ func Execute(ctx context.Context, ts []Tool, name string, args json.RawMessage) 
 		}
 	}
 	msg := fmt.Sprintf("Error: unknown tool %q", name)
-	if Suggester != nil {
-		if hints := Suggester(name); len(hints) > 0 {
+	if suggest != nil {
+		if hints := suggest(name); len(hints) > 0 {
 			msg += " — did you mean " + strings.Join(hints, " or ") + "?"
 		}
 	}
@@ -140,11 +927,14 @@ func middleElide(s string) string {
 // lspDiagnostics appends the LSP diagnostics block for a just-written file.
 // Never fails the tool: a nil hook, an uncovered file, or a slow server all
 // yield "" (the wait is capped inside internal/lsp).
-func lspDiagnostics(ctx context.Context, path string) string {
-	if LSP == nil {
+func (s *Services) lspDiagnostics(ctx context.Context, path string) string {
+	s.mu.RLock()
+	diagnostics := s.diagnostics
+	s.mu.RUnlock()
+	if diagnostics == nil {
 		return ""
 	}
-	return LSP.WaitDiagnostics(ctx, path)
+	return diagnostics.WaitDiagnostics(ctx, path)
 }
 
 // TruncateTail caps tool output at maxOutput bytes, keeping the tail (the end
@@ -157,7 +947,7 @@ func TruncateTail(s string) string {
 	return fmt.Sprintf("[... first %d bytes truncated]\n", len(s)-maxOutput) + s[len(s)-maxOutput:]
 }
 
-func bashTool() Tool {
+func bashTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("bash",
 			"Execute a bash command in the current working directory and return its combined stdout/stderr. Use for running programs, git, searching (grep/rg), listing files, etc.",
@@ -174,20 +964,31 @@ func bashTool() Tool {
 			if a.Timeout <= 0 {
 				a.Timeout = 120
 			}
-			if deny := checkGate("bash", a.Command); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "bash", a.Command); deny != "" {
+					return "", errors.New(deny)
+				}
 			}
 			dur := time.Duration(a.Timeout * float64(time.Second))
 
 			// Interactive mode hands the live terminal to the user only when the
 			// TUI has wired a runner. Without it we run non-interactively, which
 			// fails sudo-style prompts fast instead of hanging on whip's tty.
-			if a.Interactive && InteractiveBash != nil {
+			services.mu.RLock()
+			interactive := services.interactive
+			services.mu.RUnlock()
+			processOpts := services.ProcessOptions()
+			processOpts.Command = a.Command
+			processOpts.Cwd = call.WorkingDir
+			if processOpts.Cwd == "" {
+				processOpts.Cwd = call.CanonicalRoot
+			}
+			processOpts.Timeout = dur
+			if a.Interactive && interactive != nil {
 				keys := make(chan []byte, 16)
-				out := InteractiveBash.Run(ctx, a.Command, dur, keys)
-				if isBinary([]byte(out)) {
-					return binaryPlaceholder("", len(out)), nil
-				}
+				processOpts.Keys = keys
+				out := interactive.Run(ctx, processOpts)
 				return TruncateTail(out), nil
 			}
 
@@ -195,27 +996,13 @@ func bashTool() Tool {
 			if cb, ok := ctx.Value(updateKey{}).(func(string)); ok {
 				onUpdate = cb
 			}
-			res := bashrun.Run(ctx, bashrun.Options{
-				Command:  a.Command,
-				Timeout:  dur,
-				OnUpdate: onUpdate,
-			})
+			processOpts.OnUpdate = onUpdate
+			res := bashrun.Run(ctx, processOpts)
+			if result, ok := ctx.Value(bashResultKey{}).(*bashrun.Result); ok {
+				*result = res
+			}
 
 			s := TruncateTail(res.Output)
-			if isBinary([]byte(res.Output)) {
-				// The placeholder replaces the output, but the exit-status and
-				// timeout suffixes still matter — a binary-producing command
-				// that failed or timed out reads identically to a clean one
-				// without them.
-				s = binaryPlaceholder("", len(res.Output))
-				if res.TimedOut {
-					return s + "\n(command timed out)", nil
-				}
-				if res.Exit != "" {
-					return fmt.Sprintf("%s\n(%s)", s, res.Exit), nil
-				}
-				return s, nil
-			}
 			if len(res.Output) > maxOutput {
 				// The model only sees the tail; give it a way to reach the
 				// rest (pi spills truncated bash output to a file too).
@@ -247,16 +1034,43 @@ func readTool() Tool {
 				Path   string `json:"path"`
 				Offset int    `json:"offset"`
 				Limit  int    `json:"limit"`
+				Mode   string `json:"_rlm_mode"`
+				Query  string `json:"query"`
 			}
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			data, err := os.ReadFile(a.Path)
+			actualPath := a.Path
+			if call, ok := dispatchCall(ctx); ok {
+				actualPath = call.CanonicalPath
+			}
+			switch a.Mode {
+			case "list":
+				entries, err := os.ReadDir(actualPath)
+				if err != nil {
+					return "", err
+				}
+				var output strings.Builder
+				for _, entry := range entries[:min(len(entries), 2_000)] {
+					name := entry.Name()
+					if entry.IsDir() {
+						name += "/"
+					}
+					output.WriteString(name + "\n")
+				}
+				return truncate(output.String()), nil
+			case "search":
+				if a.Query == "" {
+					return "", errors.New("query is required")
+				}
+				return searchFiles(actualPath, a.Query)
+			case "":
+			default:
+				return "", fmt.Errorf("unknown internal read mode %q", a.Mode)
+			}
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
-			}
-			if isBinary(data) {
-				return binaryPlaceholder(a.Path, len(data)), nil
 			}
 			lines := strings.Split(string(data), "\n")
 			start := max(a.Offset-1, 0)
@@ -277,7 +1091,53 @@ func readTool() Tool {
 	}
 }
 
-func writeTool() Tool {
+func searchFiles(root, query string) (string, error) {
+	const maxScanned = 8 << 20
+	var output strings.Builder
+	var scanned, matches int
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() || scanned >= maxScanned || matches >= 100 {
+			return nil
+		}
+		remaining := maxScanned - scanned
+		file, err := os.Open(path) //nolint:gosec // root is dispatcher-canonical and WalkDir does not follow symlinks
+		if err != nil {
+			return nil //nolint:nilerr // an unreadable search entry does not invalidate other matches
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, int64(remaining)))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			return nil //nolint:nilerr // an unreadable search entry does not invalidate other matches
+		}
+		scanned += len(data)
+		relative, _ := filepath.Rel(root, path)
+		for index, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, query) {
+				fmt.Fprintf(&output, "%s:%d:%s\n", relative, index+1, line)
+				matches++
+				if matches >= 100 {
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return truncate(output.String()), nil
+}
+
+func writeTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("write",
 			"Write content to a file, creating it (and parent directories) or overwriting it.",
@@ -290,17 +1150,24 @@ func writeTool() Tool {
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			if deny := checkGate("write", a.Path); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "write", a.Path); deny != "" {
+					return "", errors.New(deny)
+				}
+			}
+			actualPath := a.Path
+			if dispatched {
+				actualPath = call.CanonicalPath
 			}
 			// old content (if any) so an overwrite reports what changed
-			old, oldErr := os.ReadFile(a.Path)
+			old, oldErr := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.MkdirAll(filepath.Dir(a.Path), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(actualPath), 0o755); err != nil {
 				return "", err
 			}
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.WriteFile(a.Path, []byte(a.Content), 0o644); err != nil {
+			if err := os.WriteFile(actualPath, []byte(a.Content), 0o644); err != nil {
 				return "", err
 			}
 			out := fmt.Sprintf("Wrote %d bytes to %s", len(a.Content), a.Path)
@@ -312,12 +1179,12 @@ func writeTool() Tool {
 					out += "\n```diff\n" + d + "\n```"
 				}
 			}
-			return out + lspDiagnostics(ctx, a.Path), nil
+			return out + services.lspDiagnostics(ctx, actualPath), nil
 		},
 	}
 }
 
-func editTool() Tool {
+func editTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("edit",
 			"Replace an exact string in a file. old_string must appear exactly once unless replace_all is true.",
@@ -332,10 +1199,17 @@ func editTool() Tool {
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			if deny := checkGate("edit", a.Path); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "edit", a.Path); deny != "" {
+					return "", errors.New(deny)
+				}
 			}
-			data, err := os.ReadFile(a.Path)
+			actualPath := a.Path
+			if dispatched {
+				actualPath = call.CanonicalPath
+			}
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
 			}
@@ -349,7 +1223,7 @@ func editTool() Tool {
 			}
 			s = strings.ReplaceAll(s, a.OldString, a.NewString)
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.WriteFile(a.Path, []byte(s), 0o644); err != nil {
+			if err := os.WriteFile(actualPath, []byte(s), 0o644); err != nil {
 				return "", err
 			}
 			out := fmt.Sprintf("Replaced %d occurrence(s) in %s", n, a.Path)
@@ -362,7 +1236,7 @@ func editTool() Tool {
 			if d := editDiff(a.OldString, a.NewString, startLine); d != "" {
 				out += "\n```diff\n" + d + "\n```"
 			}
-			return out + lspDiagnostics(ctx, a.Path), nil
+			return out + services.lspDiagnostics(ctx, actualPath), nil
 		},
 	}
 }

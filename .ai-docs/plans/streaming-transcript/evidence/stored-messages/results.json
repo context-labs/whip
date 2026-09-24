@@ -1,0 +1,38 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "dd2736d7a8ff5cb45b47369a83c29b9298af0ba82e0a49f6bac80928865def87",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 12,
+      "mounted": 16,
+      "retry": true,
+      "anchorDrift": 0,
+      "narrowImageFits": true
+    }
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "dd2736d7a8ff5cb45b47369a83c29b9298af0ba82e0a49f6bac80928865def87",
+    "messages": {
+      "encodedImageBytes": 1030422,
+      "contentReads": 12,
+      "mounted": 13,
+      "retry": true,
+      "anchorDrift": 0,
+      "narrowImageFits": true
+    }
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "dd2736d7a8ff5cb45b47369a83c29b9298af0ba82e0a49f6bac80928865def87",
+    "messages": {
+      "encodedImageBytes": 868830,
+      "contentReads": 11,
+      "mounted": 14,
+      "retry": true,
+      "anchorDrift": 0,
+      "narrowImageFits": true
+    }
+  }
+]

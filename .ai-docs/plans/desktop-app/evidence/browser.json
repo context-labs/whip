@@ -1,0 +1,75 @@
+{
+  "chromium": {
+    "passed": true,
+    "checks": [
+      "production same-origin deep link and strict CSP",
+      "command palette accepts immediate keyboard search and focuses the requested composer",
+      "composer grows and shrinks, model/effort apply explicitly, and draft/model survive reload",
+      "delta/cumulative streams stay grouped across theme changes and reload; draft/theme persist",
+      "context completion queries the execution host and inserts an unsent reference",
+      "real text and image uploads reach history with explicit bounded PNG preview",
+      "two real browser clients share one permission resolution",
+      "concurrent tabs retain all submitted recovery identities",
+      "independent tabs preserve recipient drafts across reloads",
+      "route-owned details survive reload; hovering session links consumes no subscriptions",
+      "simulated renderer freeze/thaw converges without repeating work (not physical sleep)",
+      "crash/restart reconnect without duplicate admitted work",
+      "wrong-runtime routes never open or subscribe roots",
+      "touch viewport submits, denies permission, and stops a turn begun by another client",
+      "no critical or serious Axe violations in empty, pending, inspector, and phone states",
+      "320/390px phone header controls, readable scroll anchoring and jump to latest"
+    ],
+    "acceptance_ms": {
+      "count": 15,
+      "median": 8.188000000000102,
+      "p95": 27.70404199999939
+    },
+    "event_to_view_ms": {
+      "count": 6,
+      "median": 21.699999928474426,
+      "p95": 21.699999928474426
+    },
+    "restart_recovery_ms": {
+      "count": 1,
+      "median": 258.8204590000005,
+      "p95": 258.8204590000005
+    },
+    "command_status_requests": 20
+  },
+  "firefox": {
+    "passed": true,
+    "checks": [
+      "production same-origin deep link and strict CSP",
+      "command palette accepts immediate keyboard search and focuses the requested composer",
+      "composer grows and shrinks, model/effort apply explicitly, and draft/model survive reload",
+      "delta/cumulative streams stay grouped across theme changes and reload; draft/theme persist",
+      "context completion queries the execution host and inserts an unsent reference",
+      "real text and image uploads reach history with explicit bounded PNG preview",
+      "two real browser clients share one permission resolution",
+      "concurrent tabs retain all submitted recovery identities",
+      "independent tabs preserve recipient drafts across reloads",
+      "route-owned details survive reload; hovering session links consumes no subscriptions",
+      "crash/restart reconnect without duplicate admitted work",
+      "wrong-runtime routes never open or subscribe roots",
+      "touch viewport submits, denies permission, and stops a turn begun by another client",
+      "no critical or serious Axe violations in empty, pending, inspector, and phone states",
+      "320/390px phone header controls, readable scroll anchoring and jump to latest"
+    ],
+    "acceptance_ms": {
+      "count": 15,
+      "median": 2.2966249999990396,
+      "p95": 9.168708000001061
+    },
+    "event_to_view_ms": {
+      "count": 6,
+      "median": 26,
+      "p95": 26
+    },
+    "restart_recovery_ms": {
+      "count": 1,
+      "median": 331.7304159999985,
+      "p95": 331.7304159999985
+    },
+    "command_status_requests": 22
+  }
+}

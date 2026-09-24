@@ -1,0 +1,3 @@
+ok  	github.com/context-labs/whip/internal/daemon	0.818s
+ok  	github.com/context-labs/whip/internal/llm	1.522s
+ok  	github.com/context-labs/whip/internal/session	1.233s

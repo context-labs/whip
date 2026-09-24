@@ -1,0 +1,678 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+	"unicode"
+
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
+)
+
+// Update applies daemon state and presentation-only input. Model execution,
+// persistence, tool routing, and process ownership never enter this package.
+func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	defer m.layout()
+	next, command := m.update(message)
+	// The busy spinner animates through a tick loop: arm it whenever a turn or
+	// a child agent is running and no tick is in flight (the loop lapses when
+	// neither runs; agent rows ride the same tick for their elapsed times).
+	// This is the only arming site: a handler that armed and then dropped its
+	// own command left the flag set and the bar frozen for the session.
+	if mm, ok := next.(*model); ok && (mm.busy || mm.anyAgentRunning()) && !mm.spinning {
+		mm.spinning = true
+		command = tea.Batch(command, mm.spin.Tick)
+	}
+	return next, command
+}
+
+func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if probe, ok := message.(viewProbe); ok {
+		probe.fn(m)
+		return m, nil
+	}
+
+	switch msg := message.(type) {
+	case sessionPreparedMsg:
+		if m.startup == nil || m.startup != msg.owner || m.clientClosed {
+			return m, nil
+		}
+		m.startup.preparing = false
+		if msg.err != nil {
+			m.clientErr = msg.err
+			return m, m.toastError("Could not prepare the session: " + msg.err.Error() + ". Press Enter to retry.")
+		}
+		m.startup, m.clientErr = nil, nil
+		return m, m.clientReady()
+
+	case setupReply, setupPoll, setupInputMsg:
+		if m.providerSetup == nil {
+			return m, nil
+		}
+		_, cmd := m.providerSetup.Update(msg)
+		return m, m.finishProviderSetup(cmd)
+
+	case clientExportMsg:
+		if msg.err != nil {
+			return m, m.toastError("export failed: " + msg.err.Error())
+		}
+		m.append(dimStyle.Render("⤓ full transcript exported → " + msg.path))
+		return m, nil
+	case clientSkillsMsg:
+		if msg.rootID == m.sessionID {
+			for _, warning := range msg.warnings {
+				m.append(errStyle.Render("  ⚠ " + warning))
+			}
+		}
+		return m, nil
+	case clientCompletionMsg:
+		return m.applyHostCompletion(msg)
+	case clientHistoryMsg:
+		return m.applyOlderHistory(msg)
+	case clientUpdateMsg:
+		var commands []tea.Cmd
+		if msg.StateChanged {
+			m.clientState, m.clientErr = msg.State, msg.Err
+			if msg.State == ClientLive {
+				m.clientErr = nil
+				if m.startup != nil {
+					commands = append(commands, m.advanceStartup())
+				} else {
+					commands = append(commands, m.clientReady())
+				}
+			}
+		}
+		if msg.Snapshot != nil {
+			m.applyClientSnapshot(*msg.Snapshot)
+		}
+		if msg.Event != nil {
+			m.clientCursor = max(m.clientCursor, msg.Event.Seq)
+			m.recordClientStream(*msg.Event)
+			if handled, command := m.applyClientStream(msg.Event.Kind, msg.Event.Payload); handled {
+				return m, tea.Batch(waitClientUpdate(m.client), command)
+			}
+			if handled, command := m.applyClientLifecycle(msg.Event.Kind, msg.Event.Payload); handled {
+				return m, tea.Batch(waitClientUpdate(m.client), command)
+			}
+			return m, tea.Batch(waitClientUpdate(m.client), m.requestClientSnapshot())
+		}
+		if msg.closed {
+			m.clientClosed = true
+			if m.clientErr == nil {
+				m.clientErr = netClosedError{}
+			}
+			if m.providerSetup != nil {
+				m.providerSetup.input.Reset()
+				m.providerSetup.cancel()
+				m.providerSetup = nil
+			}
+			if m.startup != nil {
+				m.startup.creating, m.startup.preparing = false, false
+			}
+			m.append(errStyle.Render("Connection ended: " + m.clientErr.Error() + ". Use /quit and relaunch Whip to retry."))
+			return m, nil
+		}
+		commands = append(commands, waitClientUpdate(m.client))
+		return m, tea.Batch(commands...)
+
+	case clientSnapshotMsg:
+		if msg.err != nil {
+			m.clientErr = msg.err
+		} else {
+			m.applyClientSnapshot(msg.snapshot)
+		}
+		return m, nil
+
+	case clientCommandMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		succeeded := msg.err == nil && msg.result.Error == "" && msg.result.Status == "succeeded"
+		if succeeded && msg.action.Operation == "session.model" {
+			_, catalogs := m.submitClientAction("provider.catalogs", map[string]string{}, "")
+			return m, tea.Batch(m.requestClientSnapshot(), catalogs)
+		}
+		if succeeded && msg.action.Operation == "session.list" {
+			var metas []session.Meta
+			if err := json.Unmarshal([]byte(msg.result.Output), &metas); err != nil {
+				m.append(errStyle.Render("session list: " + err.Error()))
+			} else if len(metas) == 0 {
+				m.append(dimStyle.Render("(no previous sessions)"))
+			} else {
+				m.picker = &picker{metas: metas, previews: map[string][2]string{}}
+				return m.submitClientAction("session.preview", map[string]string{"id": metas[0].ID}, "")
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "session.preview" {
+			var preview daemon.SessionPreviewResult
+			if err := json.Unmarshal([]byte(msg.result.Output), &preview); err != nil {
+				m.append(errStyle.Render("session preview: " + err.Error()))
+			} else if m.picker != nil {
+				m.picker.previews[preview.RootID] = [2]string{preview.User, preview.Assistant}
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "history.user.list" {
+			var history []string
+			if err := json.Unmarshal([]byte(msg.result.Output), &history); err != nil {
+				m.append(errStyle.Render("input history: " + err.Error()))
+			} else {
+				// histPrev walks backward from len(hist), so retain oldest-first.
+				slices.Reverse(history)
+				for _, local := range m.hist {
+					if !slices.Contains(history, local) {
+						history = append(history, local)
+					}
+				}
+				m.hist = append(m.hist[:0], history...)
+				m.histIdx = len(m.hist)
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "provider.catalogs" {
+			var result daemon.ProviderCatalogsResult
+			if err := json.Unmarshal([]byte(msg.result.Output), &result); err != nil {
+				m.append(errStyle.Render("model catalogs: " + err.Error()))
+			} else {
+				if result.Models != nil {
+					m.cfg.Models = make(map[string]config.Model, len(result.Models))
+					for name, model := range result.Models {
+						m.cfg.Models[name] = config.Model{Name: model.Name, ID: model.ID, Providers: model.Providers, Context: model.Context, Vision: model.Vision}
+					}
+				}
+				if result.Providers != nil {
+					m.providersLoaded = true
+					m.cfg.Providers = make(map[string]config.Provider, len(result.Providers))
+					for name, provider := range result.Providers {
+						if provider.Available != nil && !*provider.Available {
+							continue
+						}
+						m.cfg.Providers[name] = config.Provider{BaseURL: provider.BaseURL}
+					}
+				}
+				m.updateCatalogs(result.Catalogs)
+				m.applyClientRoute(m.modelName, m.provName)
+				if m.verboseCatalogs {
+					m.append(dimStyle.Render(fmt.Sprintf("✓ refreshed %d provider catalog(s)", len(result.Catalogs))))
+				}
+				for provider, message := range result.Errors {
+					m.append(errStyle.Render(provider + ": " + message))
+				}
+			}
+			m.verboseCatalogs = false
+			return m, nil
+		}
+		if msg.action.Operation == "provider.catalogs" && !succeeded {
+			m.verboseCatalogs = false
+		}
+		if succeeded && msg.action.Operation == "agent.submit" {
+			var result daemon.AgentSubmitResult
+			if err := json.Unmarshal([]byte(msg.result.Output), &result); err != nil {
+				m.append(errStyle.Render("agent submit: " + err.Error()))
+			} else {
+				kind := result.Kind
+				if kind == "" {
+					kind = "submit"
+				}
+				m.upsertInbox(result.AgentID, result.InboxSeq, kind, result.Status)
+			}
+		}
+		if succeeded && msg.action.Operation == "agent.transcript" {
+			var transcript daemon.AgentTranscriptResult
+			if err := json.Unmarshal([]byte(msg.result.Output), &transcript); err != nil {
+				m.append(errStyle.Render("agent transcript: " + err.Error()))
+			} else if transcript.Agent.ParentID == "" {
+				m.clientView.messages = append([]llm.Message{{Role: "system"}}, pageMessages(transcript.Page)...)
+				m.setHistoryPage(m.sessionID, transcript.Page)
+				m.clientView.presentation = mergePresentation(transcript.Presentation, m.clientView.presentation, transcript.Cursor)
+				m.replaceAgentInbox(transcript.Agent.ID, transcript.Inbox)
+				m.rebuildClientTranscript()
+				m.restoreTerminalMarker()
+				m.refreshVP()
+			} else {
+				m.openAgent(transcript)
+			}
+			if transcript.Cursor > 0 && transcript.Cursor < m.clientCursor {
+				return m, m.requestClientSnapshot()
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "workspace.set" {
+			m.clientView.workingDir = msg.result.Output
+		}
+		if succeeded && msg.action.Operation == "history.clear" {
+			// A recalled "[Image 1]" chip from before the clear must stay
+			// literal, not resolve to the next image pasted at the same N.
+			m.images, m.imageSeq = nil, 0
+		}
+		if msg.action.Operation == "question.answer" {
+			var sent questionAnswer
+			_ = json.Unmarshal(msg.action.Payload, &sent) // our own payload; an undecodable id matches no dialog
+			switch {
+			case succeeded:
+				m.settleQuestion(sent.ID, questionOutcome(session.LifecycleEvent{Answer: sent.Answer, Dismissed: sent.Dismissed, Answers: questionResults(sent.Answers)})) // or question.answered does, whichever lands first
+				return m, nil
+			case m.question == nil || m.question.QuestionID != sent.ID:
+				// a late reply for a question that closed meanwhile: the dialog now open is another question's
+			case msg.result.Error != "":
+				m.question = nil // the daemon no longer knows the question (answered elsewhere, turn gone): drop the stale dialog
+			default:
+				m.question.inFlight = false // transport failure: the error line follows, keys work again
+			}
+		}
+		if succeeded {
+			if rendered, handled, err := renderRuntimeControl(msg.action.Operation, msg.result.Output); handled {
+				if err != nil {
+					m.append(errStyle.Render(msg.action.Operation + ": " + err.Error()))
+				} else {
+					m.append(dimStyle.Render(rendered))
+				}
+				if m.clientState == ClientLive && clientCommandNeedsSnapshot(msg.action.Operation) {
+					return m, m.requestClientSnapshot()
+				}
+				return m, nil
+			}
+		}
+		if succeeded && strings.HasPrefix(strings.TrimSpace(msg.result.Output), "[") {
+			var rendered string
+			var renderErr error
+			switch msg.action.Operation {
+			case "mcp.status":
+				m.cacheMCPInventory(msg.result.Output)
+				rendered, renderErr = renderMCPStatus(msg.result.Output)
+			case "lsp.status":
+				rendered, renderErr = renderLSPStatus(msg.result.Output)
+			case "schedule.list":
+				rendered, renderErr = renderSchedules(msg.result.Output)
+			}
+			if rendered != "" || renderErr != nil {
+				if renderErr != nil {
+					m.append(errStyle.Render(msg.action.Operation + ": " + renderErr.Error()))
+				} else {
+					m.append(dimStyle.Render(rendered))
+				}
+				return m, nil
+			}
+		}
+		if succeeded && msg.action.Operation == "context.audit" {
+			rendered, err := renderContextAudit(msg.result.Output)
+			if err != nil {
+				m.append(errStyle.Render("context audit: " + err.Error()))
+			} else {
+				m.append(dimStyle.Render(rendered))
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "history.compact.log" {
+			rendered, err := renderCompactionLog(msg.result.Output)
+			if err != nil {
+				m.append(errStyle.Render("compaction log: " + err.Error()))
+			} else {
+				m.append(dimStyle.Render(rendered))
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "agents.list" {
+			var values []session.RuntimeAgent
+			if err := json.Unmarshal([]byte(msg.result.Output), &values); err != nil {
+				m.append(errStyle.Render("agents: " + err.Error()))
+			} else if len(values) == 0 {
+				m.append(dimStyle.Render("(no descendant agents)"))
+			} else {
+				for _, value := range values {
+					m.append(dimStyle.Render(agentLine(value) + "  " + value.ID))
+				}
+			}
+		}
+		turnOperation := msg.action.Operation == "submit" || msg.action.Operation == "steer" || msg.action.Operation == "agent.submit"
+		switch {
+		case msg.err != nil:
+			if turnOperation {
+				m.recordTurnFailure(msg.action, msg.err.Error())
+			} else {
+				m.append(errStyle.Render(msg.action.Operation + ": " + msg.err.Error()))
+			}
+			if turnOperation {
+				m.busy = false
+				m.turnStart = time.Time{}
+			}
+		case msg.result.Error != "":
+			if turnOperation {
+				m.recordTurnFailure(msg.action, msg.result.Error)
+			} else {
+				m.append(errStyle.Render(msg.action.Operation + ": " + msg.result.Error))
+			}
+			if turnOperation {
+				m.busy = false
+				m.turnStart = time.Time{}
+			}
+		case msg.result.Status == "interrupted":
+			m.append(dimStyle.Render("(interrupted — effects may be uncertain)"))
+		case msg.action.Operation != "submit" && msg.action.Operation != "steer" &&
+			msg.action.Operation != "agent.submit" && msg.action.Operation != "agent.turn.cancel" &&
+			msg.action.Operation != "session.open" && msg.action.Operation != "agents.list" && msg.result.Output != "":
+			m.append(dimStyle.Render(msg.result.Output))
+		}
+		if succeeded && (msg.action.Operation == "session.fork" || msg.action.Operation == "session.open") {
+			m.clientState = ClientSnapshotting
+			if err := m.client.SwitchRoot(msg.result.Output); err != nil {
+				m.clientErr = err
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "session.rename" {
+			m.sessTitle = msg.result.Output
+		}
+		if m.clientState == ClientLive && clientCommandNeedsSnapshot(msg.action.Operation) {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientPermissionMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		if m.permDialog != nil && m.permDialog.daemon != nil && m.permDialog.daemon.ID == msg.permissionID {
+			m.permDialog.deciding = false
+			if msg.err == nil {
+				m.permDialog = nil
+			}
+		}
+		if msg.err != nil {
+			m.append(errStyle.Render("permission: " + msg.err.Error()))
+		}
+		if m.clientState == ClientLive {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientTerminalMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("terminal input: " + msg.err.Error()))
+		} else if msg.result.Error != "" {
+			m.append(errStyle.Render("terminal input: " + msg.result.Error))
+		}
+		return m, nil
+
+	case cfgSyncTick:
+		return m.cfgSync()
+	case cfgSyncMsg:
+		m.applyCfgSync(msg)
+		return m, nil
+	case tea.WindowSizeMsg:
+		if m.providerSetup != nil {
+			m.providerSetup.Update(msg)
+		}
+		m.termWidth, m.height = msg.Width, msg.Height
+		m.recalcWidth()
+		return m, nil
+	case themePollMsg:
+		if m.cfg.Theme != "" {
+			return m, themePollTick()
+		}
+		return m, tea.Batch(pollClientTheme, themePollTick())
+	case themeSyncMsg:
+		if !msg.ok || m.cfg.Theme != "" {
+			return m, nil
+		}
+		mdMu.Lock()
+		same := mdKnown && mdLight == msg.light
+		mdMu.Unlock()
+		if same {
+			return m, nil
+		}
+		SetLightTheme(msg.light)
+		m.applyOpencodeStyles()
+		m.refreshVP()
+		return m, nil
+	case toastClearMsg:
+		if msg.at.Equal(m.toastAt) {
+			m.toast = ""
+		}
+		return m, nil
+	case selScrollTick:
+		return m, m.selEdgeScroll()
+	case tea.BackgroundColorMsg:
+		m.applyDetectedBackground(msg)
+	case tea.ColorProfileMsg:
+		setThemeProfile(msg.Profile)
+		m.applyOpencodeStyles()
+		m.refreshVP()
+		return m, nil
+	case tea.PasteMsg:
+		if m.providerSetup != nil {
+			_, cmd := m.providerSetup.Update(msg)
+			return m, cmd
+		}
+		m.sel = nil
+		return m.thinPaste(msg)
+	case tea.KeyPressMsg:
+		m.sel = nil
+		return m.thinKey(msg)
+	case tea.MouseMsg:
+		return m.thinMouse(msg)
+
+	case textMsg:
+		m.flushThink()
+		m.current += string(msg)
+		if i := strings.LastIndexByte(m.current, '\n'); i >= 0 {
+			m.appendAssistant(m.current[:i])
+			m.current = m.current[i+1:]
+		}
+		return m, nil
+	case thinkMsg:
+		if m.showThinking {
+			// reasoning streams into one expandable "+ Thought" block: the
+			// transient "+ Thinking…" line shows while it runs (viewBody) and
+			// flushThink collapses the text with its duration when it ends
+			m.flushCurrent()
+			if m.thinkStart.IsZero() {
+				m.thinkStart = m.nowFn()
+			}
+			m.ocThink += string(msg)
+			m.inThink = true
+		}
+		return m, nil
+	case toolCallMsg:
+		row := dimStyle.Render("⋯ " + msg.name + " " + queuedSubject(msg.name, msg.args))
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == blockToolQueued && m.blocks[i].toolID == msg.id {
+				m.blocks[i].text, m.blocks[i].stale = row, true
+				m.refreshVP()
+				return m, nil
+			}
+		}
+		m.blocks = append(m.blocks, block{kind: blockToolQueued, text: row, toolID: msg.id, toolName: msg.name, toolArgs: msg.args})
+		m.refreshVP()
+		return m, nil
+	case toolStartMsg:
+		m.flushThink()
+		m.flushCurrent()
+		for i := range slices.Backward(m.blocks) {
+			if m.blocks[i].kind == blockToolQueued && m.blocks[i].toolID == msg.id {
+				m.blocks = slices.Delete(m.blocks, i, i+1)
+				break
+			}
+		}
+		row := toolStyle.Render("⚒ "+toolVerb(msg.name)+" ") + dimStyle.Render(msg.args)
+		m.blocks = append(m.blocks, block{kind: blockToolRun, text: row, toolID: msg.id, toolRunning: true, toolName: msg.name, toolArgs: msg.args})
+		m.refreshVP()
+		return m, nil
+	case toolOutputMsg:
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if block := &m.blocks[i]; block.kind == blockToolRun && block.toolRunning && block.toolID == msg.id {
+				block.live, block.stale = lastLines(msg.text, 3), true
+				m.refreshVP()
+				break
+			}
+		}
+		return m, nil
+	case toolEndMsg:
+		m.finishTool(msg)
+		return m, nil
+
+	case meEditedMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("/me: editor failed: " + msg.err.Error()))
+		} else {
+			m.append(dimStyle.Render("✓ me.md saved — applies at the next turn"))
+		}
+		return m, nil
+	case noticeMsg:
+		m.append(dimStyle.Render(string(msg)))
+		return m, nil
+	case discardMsg:
+		// Keep what was shown (the notice that follows explains it) but drop
+		// tool rows still queued from the discarded attempt: they never run.
+		m.flushThink()
+		m.flushCurrent()
+		m.blocks = slices.DeleteFunc(m.blocks, func(b block) bool { return b.kind == blockToolQueued })
+		m.refreshVP()
+		return m, nil
+	case usageMsg:
+		m.lastResp = llm.Usage(msg)
+		return m, nil
+	case quitArmMsg:
+		m.quit1 = false
+		return m, nil
+	case escArmMsg:
+		m.esc1, m.escClr = false, false
+		return m, nil
+	case imageMsg:
+		switch {
+		case msg.err != nil:
+			m.append(errStyle.Render("image paste failed: " + msg.err.Error()))
+		case msg.path == "":
+			m.append(dimStyle.Render("(no image on clipboard)"))
+		default:
+			// Register the image and drop a compact [Image N] chip into the
+			// input instead of the raw path; expandImageChips restores the
+			// path when the text is sent.
+			m.imageSeq++
+			img := pastedImage{n: m.imageSeq, path: msg.path, display: msg.display}
+			m.images = append(m.images, img)
+			chip := img.chipText() + " "
+			// A chip glued to the word before it expands to "word@path", which
+			// the daemon's whitespace split never sees as a mention.
+			row := []rune(strings.Split(m.input.Value(), "\n")[m.input.Line()])
+			if col := m.input.Column(); col > 0 && !unicode.IsSpace(row[col-1]) {
+				chip = " " + chip
+			}
+			m.input.InsertString(chip)
+			m.refreshMenu()
+		}
+		return m, nil
+	case spinner.TickMsg:
+		if !m.busy && !m.anyAgentRunning() {
+			m.spinning = false // the loop lapses; Update re-arms it when the next turn starts
+			return m, nil
+		}
+		var command tea.Cmd
+		m.spin, command = m.spin.Update(msg)
+		if command == nil { // a tick for a spinner that no longer exists: let Update re-arm
+			m.spinning = false
+		}
+		return m, command
+	}
+
+	var command tea.Cmd
+	m.input, command = m.input.Update(message)
+	return m, command
+}
+
+func clientCommandNeedsSnapshot(operation string) bool {
+	switch operation {
+	case "history.clear", "history.rewind", "history.compact", "history.compact.retry",
+		"goal.set", "goal.run", "goal.from-context",
+		"agent.control", "agent.delete", "capability.revoke":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	if mouse.Mod.Contains(tea.ModShift) {
+		return m, nil
+	}
+	_, isClick := msg.(tea.MouseClickMsg)
+	_, isWheel := msg.(tea.MouseWheelMsg)
+	press := isClick || isWheel
+	if m.msgActions != nil && press {
+		m.msgActions = nil
+		return m, nil
+	}
+	// The columns own the mouse over their cells: the wheel scrolls the REPL
+	// panel (and nothing over the left column), and a press in either never
+	// seeds a chat selection (selPoint/inputPoint only bound Y). Motion and
+	// release still flow to handleMouseSelect so a drag that started in the
+	// chat completes wherever the pointer ends.
+	r := m.frameNow()
+	inPanel := inRect(r.side, mouse.X, mouse.Y)
+	inColumn := inPanel || inRect(r.left, mouse.X, mouse.Y)
+	if inColumn && press {
+		switch {
+		case mouse.Button == tea.MouseWheelUp && inPanel:
+			m.replScroll += 3 // the view clamps to the history
+		case mouse.Button == tea.MouseWheelDown && inPanel:
+			m.replScroll = max(m.replScroll-3, 0)
+		case mouse.Button == tea.MouseLeft:
+			m.sel = nil // like any press: drop the old highlight
+		}
+		return m, nil
+	}
+	if handled, command := m.handleMouseSelect(msg); handled {
+		return m, command
+	}
+	if inColumn {
+		return m, nil
+	}
+	if isClick && mouse.Button == tea.MouseLeft {
+		m.clickAt(mouse.X, mouse.Y)
+		return m, nil
+	}
+	var command tea.Cmd
+	m.vp, command = m.vp.Update(msg)
+	m.follow = m.vp.AtBottom()
+	if isWheel && mouse.Button == tea.MouseWheelUp && m.vp.YOffset() == 0 {
+		command = tea.Batch(command, m.requestOlderHistory())
+	}
+	return m, command
+}
+
+func (m *model) finishTool(msg toolEndMsg) {
+	header := -1
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		block := &m.blocks[i]
+		if block.kind == blockToolRun && block.toolRunning && block.toolID == msg.id {
+			block.toolRunning = false
+			block.toolFailed = strings.HasPrefix(msg.result, "Error:")
+			block.live = ""
+			block.text = toolHeaderRow(msg.name, block.toolArgs, block.toolFailed)
+			block.stale = true
+			header = i
+			break
+		}
+	}
+	result := block{kind: blockTool, text: msg.result}
+	if header >= 0 && header+1 < len(m.blocks) {
+		m.blocks = append(m.blocks[:header+1], append([]block{result}, m.blocks[header+1:]...)...)
+		for i := range m.msgBlock {
+			if m.msgBlock[i] > header {
+				m.msgBlock[i]++
+			}
+		}
+	} else {
+		m.blocks = append(m.blocks, result)
+	}
+	m.keepFollow()
+	m.refreshVP()
+}
+
+func (m *model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return m.thinKey(msg) }

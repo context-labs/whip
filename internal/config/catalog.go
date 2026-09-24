@@ -5,29 +5,35 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
+
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // catalogTTL is how long a provider's fetched model list stays fresh.
 const catalogTTL = 24 * time.Hour
 
+// Catalogs written before this format used a restrictive model allowlist.
+const catalogDiscoveryVersion = 1
+
 // Catalog is the cached model list of one provider.
 type Catalog struct {
-	FetchedAt time.Time       `json:"fetchedAt"`
-	BaseURL   string          `json:"baseUrl"`
-	Models    []ModelInfoLite `json:"models"`
+	DiscoveryVersion int             `json:"discoveryVersion,omitempty"`
+	AccountID        string          `json:"accountId,omitempty"` // private cache scope for subscription routes
+	FetchedAt        time.Time       `json:"fetchedAt"`
+	BaseURL          string          `json:"baseUrl"`
+	Models           []ModelInfoLite `json:"models"`
 }
 
 // ModelInfoLite is the subset of the provider's /models entry whip uses.
 type ModelInfoLite struct {
-	ID                  string   `json:"id"`
-	ContextLength       int      `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
-	MaxCompletionTokens int      `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
-	ReasoningEfforts    []string `json:"reasoningEfforts,omitempty"`
-	InPrice             float64  `json:"inPrice,omitempty"`         // USD per prompt token, 0 if unadvertised
-	OutPrice            float64  `json:"outPrice,omitempty"`        // USD per completion token, 0 if unadvertised
-	CacheReadPrice      float64  `json:"cacheReadPrice,omitempty"`  // USD per cached prompt token, 0 = bill at InPrice
-	InputModalities     []string `json:"inputModalities,omitempty"` // provider-advertised input types (["text","image"])
+	Pricing             llm.Pricing `json:"pricing,omitzero"` // Raw rates preserve absent versus explicitly free prices.
+	ID                  string      `json:"id"`
+	ContextLength       int         `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
+	MaxCompletionTokens int         `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
+	ReasoningEfforts    []string    `json:"reasoningEfforts,omitzero"`
+	InputModalities     []string    `json:"inputModalities,omitzero"` // provider-advertised input types (["text","image"])
 }
 
 // SupportsVision reports whether the catalog advertises image input for a model
@@ -36,7 +42,7 @@ type ModelInfoLite struct {
 func (c Catalog) SupportsVision(id string) (vision, found bool) {
 	for _, mi := range c.Models {
 		if mi.ID == id {
-			if len(mi.InputModalities) == 0 {
+			if mi.InputModalities == nil {
 				return false, false
 			}
 			if slices.Contains(mi.InputModalities, "image") {
@@ -70,16 +76,29 @@ func (c Catalog) MaxCompletionTokens(id string) int {
 	return 0
 }
 
-// Pricing reports the advertised per-token USD rates for a model id; ok is
-// false when the catalog has no entry for it or the entry has no prices, in
-// which case callers should hide cost rather than show $0.
-func (c Catalog) Pricing(id string) (in, out, cacheRead float64, ok bool) {
-	for _, mi := range c.Models {
-		if mi.ID == id {
-			return mi.InPrice, mi.OutPrice, mi.CacheReadPrice, mi.InPrice > 0 || mi.OutPrice > 0
-		}
+// ModelPricing returns the provider's advertised rates for this exact model.
+// Empty fields remain unknown; "0" remains an explicitly free rate.
+func (c Catalog) ModelPricing(id string) llm.Pricing {
+	if model := c.Find(id); model != nil {
+		return model.Pricing
 	}
-	return 0, 0, 0, false
+	return llm.Pricing{}
+}
+
+// ModelLimits resolves the same context and response ceilings for every route.
+func (c Catalog) ModelLimits(id string, model Model) (contextLimit, maxOutput int) {
+	contextLimit = model.ContextWindow()
+	if value := c.ContextLength(id); value > 0 {
+		contextLimit = value
+	}
+	maxOutput = model.MaxOut
+	if maxOutput <= 0 {
+		maxOutput = c.MaxCompletionTokens(id)
+	}
+	if maxOutput <= 0 {
+		maxOutput = contextLimit
+	}
+	return contextLimit, maxOutput
 }
 
 // Find returns the catalog entry for a model id (nil when unadvertised).
@@ -122,7 +141,15 @@ func catalogPath() (string, error) {
 // LoadCatalogs reads ~/.whip/models.json. A missing or unreadable file is
 // not an error and yields an empty (non-nil) map, so callers can always write
 // into the result.
+var catalogMu sync.Mutex
+
 func LoadCatalogs() map[string]Catalog {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	return loadCatalogsUnlocked()
+}
+
+func loadCatalogsUnlocked() map[string]Catalog {
 	cats := map[string]Catalog{}
 	p, err := catalogPath()
 	if err != nil {
@@ -140,6 +167,12 @@ func LoadCatalogs() map[string]Catalog {
 
 // SaveCatalogs writes ~/.whip/models.json.
 func SaveCatalogs(cats map[string]Catalog) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	return saveCatalogsUnlocked(cats)
+}
+
+func saveCatalogsUnlocked(cats map[string]Catalog) error {
 	p, err := catalogPath()
 	if err != nil {
 		return err
@@ -148,8 +181,50 @@ func SaveCatalogs(cats map[string]Catalog) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, append(data, '\n'), 0o600)
+	file, err := os.CreateTemp(filepath.Dir(p), ".models-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(file.Name()) }()
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), p)
 }
 
 // Stale reports whether the cached catalog should be refetched.
 func (c Catalog) Stale() bool { return time.Since(c.FetchedAt) > catalogTTL }
+
+// NeedsDiscovery also refreshes caches produced by an older discovery policy.
+// This is host-only bookkeeping; clients continue to use the advertised TTL.
+func (c Catalog) NeedsDiscovery() bool {
+	return c.DiscoveryVersion != catalogDiscoveryVersion || c.Stale()
+}
+
+// UpdateCatalog merges one host-fetched catalog without replacing concurrently
+// refreshed providers.
+func UpdateCatalog(provider string, catalog Catalog) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	catalogs := loadCatalogsUnlocked()
+	catalog.DiscoveryVersion = catalogDiscoveryVersion
+	catalogs[provider] = catalog
+	return saveCatalogsUnlocked(catalogs)
+}
+
+// DeleteCatalog removes only the named provider's cache, preserving concurrent
+// updates to every other route.
+func DeleteCatalog(provider string) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	catalogs := loadCatalogsUnlocked()
+	if _, ok := catalogs[provider]; !ok {
+		return nil
+	}
+	delete(catalogs, provider)
+	return saveCatalogsUnlocked(catalogs)
+}

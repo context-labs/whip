@@ -22,7 +22,7 @@ func TestNoGapBetweenLastReplyAndInput(t *testing.T) {
 	m.appendAssistantBlock("Doing well, thanks for asking! Ready to dig into some code whenever you are. What are you working on?")
 	m.layout()
 
-	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	lines := strings.Split(ansi.Strip(viewStr(m)), "\n")
 
 	// locate the input box and the last assistant line
 	inputRow, lastReplyRow := -1, -1
@@ -37,8 +37,8 @@ func TestNoGapBetweenLastReplyAndInput(t *testing.T) {
 	if inputRow < 0 || lastReplyRow < 0 {
 		t.Fatalf("could not find reply (%d) or input (%d) rows:\n%s", lastReplyRow, inputRow, strings.Join(lines, "\n"))
 	}
-	// allow at most one blank separator line between the reply and the prompt
-	if gap := inputRow - lastReplyRow - 1; gap > 1 {
+	// allow the blank separator line plus the prompt panel's padding row
+	if gap := inputRow - lastReplyRow - 1; gap > 2 {
 		t.Fatalf("found %d blank rows between last reply (row %d) and input (row %d):\n%s",
 			gap, lastReplyRow, inputRow, strings.Join(lines, "\n"))
 	}

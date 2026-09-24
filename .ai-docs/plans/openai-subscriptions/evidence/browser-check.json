@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-09",
+  "surface": "production web assets served by an isolated integration-test daemon",
+  "browser": "Codex in-app browser",
+  "checks": [
+    "OpenAI (ChatGPT subscription) appears in provider choices and sign-in actions",
+    "An unconnected subscription displays Not signed in and hides API-key inputs/actions",
+    "The production UI and daemon successfully request a real device code from OpenAI",
+    "Reloading settings recovers the same active login and verification controls",
+    "Cancel sign-in produces cancelled and removes the code and verification controls",
+    "Connected Pro account and email displayed accurately",
+    "All five discovered subscription models appear in the new-session selector",
+    "A new session created with gpt-5.6-luna completes a real subscription response in the production UI",
+    "Disconnect provider shows Not signed in and removes the test credentials and account catalog"
+  ],
+  "accountSecurityChanged": true,
+  "accountAuthorizationCompleted": true,
+  "liveInferenceCompleted": true,
+  "testDaemonStopped": true,
+  "notes": "Live tests used an isolated WHIP home. The test login was removed through the UI, and the test daemon was stopped. The installed application and its defaults were not changed.",
+  "accountSecurityChangeAuthorized": true
+}

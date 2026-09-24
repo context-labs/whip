@@ -1,0 +1,164 @@
+name: release desktop
+
+on:
+  push:
+    tags: ['desktop-v*']
+
+# Never cancel a publication between its immutable uploads and feed promotion.
+concurrency:
+  group: desktop-publishing
+  cancel-in-progress: false
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: github.repository == 'context-labs/whip'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+      source: ${{ steps.release.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require an immutable release tag on the release branch
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/whip-rlm
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync } from 'node:fs';
+          const match = /^desktop-v(\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(process.env.RELEASE_TAG ?? '');
+          if (!match || match[1].length > 100) throw new Error('Use desktop-vMAJOR.MINOR.PATCH or desktop-vMAJOR.MINOR.PATCH-beta.N');
+          const source = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${match[1]}\nchannel=${match[1].includes('-') ? 'beta' : 'stable'}\nsource=${source}\n`);
+          NODE
+
+  ci:
+    needs: metadata
+    uses: ./.github/workflows/ci-whipcode.yml
+
+  security:
+    needs: metadata
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/security-whipcode.yml
+
+  desktop:
+    needs: [metadata, ci, security]
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      renderer-artifact: whipcode-ci-renderer
+      version: ${{ needs.metadata.outputs.version }}
+      channel: ${{ needs.metadata.outputs.channel }}
+    secrets: inherit
+
+  linux:
+    needs: [metadata, ci, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: whipcode-ci-renderer
+          path: apps/web
+      - run: node scripts/pack-web.mjs --release
+      - name: Build the matching standalone Linux backend
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist/desktop-linux
+          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" -o dist/desktop-linux/whipcode-linux-x64 ./cmd/whip
+          dist/desktop-linux/whipcode-linux-x64 _desktop-runtime-info > dist/desktop-linux/linux-runtime.json
+      - name: Verify the Linux payload and its embedded renderer
+        run: node apps/desktop/scripts/linux-smoke.mjs dist/desktop-linux/whipcode-linux-x64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-release-linux
+          path: dist/desktop-linux
+          if-no-files-found: error
+
+  candidate:
+    needs: [metadata, desktop, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      SOURCE_SHA: ${{ needs.metadata.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: desktop-release-arm64
+          path: candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: desktop-release-linux
+          path: candidate
+      - name: Assemble and verify the complete candidate
+        run: node apps/desktop/scripts/release-candidate.mjs assemble candidate
+      - name: Attest the exact final bytes and source identity
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: candidate/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-candidate
+          path: candidate
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  stage:
+    needs: [metadata, candidate]
+    uses: ./.github/workflows/desktop-publish.yml
+    with:
+      channel: ${{ needs.metadata.outputs.channel }}
+      source: ${{ needs.metadata.outputs.source }}
+      mode: stage
+    secrets: inherit
+    permissions:
+      contents: write
+      attestations: read
+
+  promote:
+    needs: [metadata, stage]
+    uses: ./.github/workflows/desktop-publish.yml
+    with:
+      channel: ${{ needs.metadata.outputs.channel }}
+      source: ${{ needs.metadata.outputs.source }}
+      mode: promote
+    secrets: inherit
+    permissions:
+      contents: write
+      attestations: read

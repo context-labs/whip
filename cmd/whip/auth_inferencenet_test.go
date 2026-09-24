@@ -1,11 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/inferencenet"
 )
 
@@ -34,6 +38,7 @@ func TestAuthInferenceNetBYOKNoKey(t *testing.T) {
 }
 
 func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
+	useTestDaemon(t)
 	t.Setenv("WHIP_HOME", t.TempDir())
 	if err := authCLI([]string{"inference-net", "status"}); err != nil {
 		t.Errorf("status on a fresh home should not error: %v", err)
@@ -50,6 +55,7 @@ func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
 }
 
 func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
+	useTestDaemon(t)
 	t.Setenv("WHIP_HOME", t.TempDir())
 	// Point the remote calls at a dead local port so they fail fast (and the
 	// test never reaches the real relay); the local state is still cleared.
@@ -67,44 +73,200 @@ func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
 	}
 }
 
+func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv(config.InferenceNetEnvVar, "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer good" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"data":[{"id":"kimi-k3-fast"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	defer inferencenet.SetURLsForTest("", "", srv.URL)()
+	redirectAuthRequests(t, srv.URL, "api.inference.net", "/v1")
+	useTestDaemon(t)
+
+	if err := authCLI([]string{"inference-net", "login", "--key", "bad"}); err == nil {
+		t.Fatal("rejected key was accepted")
+	}
+	if err := authCLI([]string{"inference-net", "login", "--key", " good\n"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := cfg.Providers[config.InferenceNetProvider]
+	if provider.APIKey != "good" || provider.APIKeyEnv != "" {
+		t.Fatalf("persisted provider = %+v", provider)
+	}
+
+	t.Setenv(config.InferenceNetEnvVar, "good")
+	if err := authCLI([]string{"inference-net", "login", "--env"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider = cfg.Providers[config.InferenceNetProvider]
+	if provider.APIKey != "" || provider.APIKeyEnv != config.InferenceNetEnvVar {
+		t.Fatalf("persisted env provider = %+v", provider)
+	}
+	if err := inferencenet.SaveAuth(inferencenet.Auth{UserEmail: "user@example.com", ProjectID: "project", ProjectName: "Project", MachineKey: "key", MachineKeyName: "whip-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inferenceNetStatusCLI(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCLIChooser(t *testing.T) {
-	for _, tc := range []struct {
+	withInput := func(input string, choose func() (string, error)) (string, error) {
+		t.Helper()
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.WriteString(input); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdin
+		os.Stdin = reader
+		defer func() {
+			os.Stdin = old
+			_ = reader.Close()
+		}()
+		return choose()
+	}
+
+	for _, test := range []struct {
 		name    string
 		input   string
 		options []string
 		want    string
 		wantErr bool
 	}{
-		{name: "defaults to first option", input: "\n", options: []string{"personal", "work"}, want: "personal"},
-		{name: "selects numbered option", input: "2\n", options: []string{"personal", "work"}, want: "work"},
-		{name: "rejects invalid choice", input: "3\n", options: []string{"personal", "work"}, wantErr: true},
-		{name: "reads a project name", input: "new project\n", want: "new project"},
+		{name: "free text", input: "project\n", want: "project"},
+		{name: "default", input: "\n", options: []string{"first", "second"}, want: "first"},
+		{name: "selection", input: "2\n", options: []string{"first", "second"}, want: "second"},
+		{name: "invalid", input: "3\n", options: []string{"first", "second"}, wantErr: true},
+		{name: "closed input", wantErr: true},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, w, err := os.Pipe()
+		t.Run(test.name, func(t *testing.T) {
+			got, err := withInput(test.input, func() (string, error) {
+				return cliChooser("project", "Choose", test.options)
+			})
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("choice=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestProviderChoiceUsesStableIDsWithDuplicateNames(t *testing.T) {
+	for _, test := range []struct {
+		name, input, want string
+		choices           []daemon.ProviderChoice
+		wantErr           bool
+	}{
+		{name: "no workspaces", wantErr: true},
+		{name: "one workspace", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
+		{name: "duplicate names", input: "2\n", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
+		{name: "new project", input: "2\n", choices: []daemon.ProviderChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
+		{name: "invalid choice", input: "3\n", choices: []daemon.ProviderChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := w.WriteString(tc.input); err != nil {
+			if _, err := writer.WriteString(test.input); err != nil {
 				t.Fatal(err)
 			}
-			if err := w.Close(); err != nil {
-				t.Fatal(err)
-			}
-			original := os.Stdin
-			os.Stdin = r
-			t.Cleanup(func() {
-				os.Stdin = original
-				_ = r.Close()
-			})
-
-			got, err := cliChooser("project", "Choose a project", tc.options)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("cliChooser() error = %v, want error=%t", err, tc.wantErr)
-			}
-			if got != tc.want {
-				t.Fatalf("cliChooser() = %q, want %q", got, tc.want)
+			_ = writer.Close()
+			previous := os.Stdin
+			os.Stdin = reader
+			t.Cleanup(func() { os.Stdin = previous; _ = reader.Close() })
+			got, err := chooseProviderID("workspace", test.choices)
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("selected %q, error %v; want %q, error %t", got, err, test.want, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
+	t.Setenv(config.InferenceNetEnvVar, "")
+	useTestDaemon(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/device/code", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`)
+	})
+	mux.HandleFunc("/api/auth/device/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"session-token"}`)
+	})
+	mux.HandleFunc("/api/auth/get-session", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"user":{"email":"dev@example.com","id":"user-1"}}`)
+	})
+	mux.HandleFunc("/api/auth/organization/list", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"id":"user-1","name":"Personal","slug":"personal"}]`)
+	})
+	mux.HandleFunc("/api/auth/organization/set-active", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{}`)
+	})
+	mux.HandleFunc("/api/rest/projects", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"id":"project-1","name":"Primary"}]`)
+	})
+	mux.HandleFunc("/api/rest/api-keys", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"id":"key-1","key":"machine-secret"}`)
+	})
+	mux.HandleFunc("/api/rest/api-keys/key-1", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{}`)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	defer inferencenet.SetURLsForTest(server.URL, server.URL, server.URL)()
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // openBrowser reports false without launching an app
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.WriteString("\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	previousInput := os.Stdin
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = previousInput
+		_ = reader.Close()
+	}()
+
+	if err := authCLI([]string{"inference-net", "login"}); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := inferencenet.LoadAuth()
+	if err != nil || auth.ProjectID != "project-1" || auth.MachineKey != "machine-secret" {
+		t.Fatalf("device auth = %+v, %v", auth, err)
+	}
+	if err := authCLI([]string{"inference-net", "key", "rotate"}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := inferencenet.LoadAuth()
+	if err != nil || rotated.MachineKeyID != "key-1" || rotated.MachineKey == "" {
+		t.Fatalf("rotated auth = %+v, %v", rotated, err)
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.Providers[config.InferenceNetProvider].BaseURL == "" {
+		t.Fatalf("inference provider = %+v, %v", cfg.Providers[config.InferenceNetProvider], err)
 	}
 }

@@ -1,0 +1,266 @@
+[
+  {
+    "id": "light",
+    "titleVerified": true
+  },
+  {
+    "id": "dark",
+    "titleVerified": true
+  },
+  {
+    "id": "aura",
+    "titleVerified": true
+  },
+  {
+    "id": "aura-light",
+    "titleVerified": true
+  },
+  {
+    "id": "ayu",
+    "titleVerified": true
+  },
+  {
+    "id": "ayu-light",
+    "titleVerified": true
+  },
+  {
+    "id": "carbonfox",
+    "titleVerified": true
+  },
+  {
+    "id": "carbonfox-light",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin-frappe",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin-frappe-light",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin-light",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin-macchiato",
+    "titleVerified": true
+  },
+  {
+    "id": "catppuccin-macchiato-light",
+    "titleVerified": true
+  },
+  {
+    "id": "claude-code",
+    "titleVerified": true
+  },
+  {
+    "id": "cobalt2",
+    "titleVerified": true
+  },
+  {
+    "id": "cobalt2-light",
+    "titleVerified": true
+  },
+  {
+    "id": "cursor",
+    "titleVerified": true
+  },
+  {
+    "id": "cursor-light",
+    "titleVerified": true
+  },
+  {
+    "id": "dracula",
+    "titleVerified": true
+  },
+  {
+    "id": "dracula-light",
+    "titleVerified": true
+  },
+  {
+    "id": "everforest",
+    "titleVerified": true
+  },
+  {
+    "id": "everforest-light",
+    "titleVerified": true
+  },
+  {
+    "id": "flexoki",
+    "titleVerified": true
+  },
+  {
+    "id": "flexoki-light",
+    "titleVerified": true
+  },
+  {
+    "id": "github",
+    "titleVerified": true
+  },
+  {
+    "id": "github-light",
+    "titleVerified": true
+  },
+  {
+    "id": "gruvbox",
+    "titleVerified": true
+  },
+  {
+    "id": "gruvbox-light",
+    "titleVerified": true
+  },
+  {
+    "id": "kanagawa",
+    "titleVerified": true
+  },
+  {
+    "id": "kanagawa-light",
+    "titleVerified": true
+  },
+  {
+    "id": "material",
+    "titleVerified": true
+  },
+  {
+    "id": "material-light",
+    "titleVerified": true
+  },
+  {
+    "id": "matrix",
+    "titleVerified": true
+  },
+  {
+    "id": "matrix-light",
+    "titleVerified": true
+  },
+  {
+    "id": "mercury",
+    "titleVerified": true
+  },
+  {
+    "id": "mercury-light",
+    "titleVerified": true
+  },
+  {
+    "id": "monokai",
+    "titleVerified": true
+  },
+  {
+    "id": "monokai-light",
+    "titleVerified": true
+  },
+  {
+    "id": "nightowl",
+    "titleVerified": true
+  },
+  {
+    "id": "nightowl-light",
+    "titleVerified": true
+  },
+  {
+    "id": "nord",
+    "titleVerified": true
+  },
+  {
+    "id": "nord-light",
+    "titleVerified": true
+  },
+  {
+    "id": "one-dark",
+    "titleVerified": true
+  },
+  {
+    "id": "one-dark-light",
+    "titleVerified": true
+  },
+  {
+    "id": "opencode",
+    "titleVerified": true
+  },
+  {
+    "id": "opencode-light",
+    "titleVerified": true
+  },
+  {
+    "id": "orng",
+    "titleVerified": true
+  },
+  {
+    "id": "orng-light",
+    "titleVerified": true
+  },
+  {
+    "id": "osaka-jade",
+    "titleVerified": true
+  },
+  {
+    "id": "osaka-jade-light",
+    "titleVerified": true
+  },
+  {
+    "id": "palenight",
+    "titleVerified": true
+  },
+  {
+    "id": "palenight-light",
+    "titleVerified": true
+  },
+  {
+    "id": "rosepine",
+    "titleVerified": true
+  },
+  {
+    "id": "rosepine-light",
+    "titleVerified": true
+  },
+  {
+    "id": "solarized",
+    "titleVerified": true
+  },
+  {
+    "id": "solarized-light",
+    "titleVerified": true
+  },
+  {
+    "id": "synthwave84",
+    "titleVerified": true
+  },
+  {
+    "id": "synthwave84-light",
+    "titleVerified": true
+  },
+  {
+    "id": "tokyonight",
+    "titleVerified": true
+  },
+  {
+    "id": "tokyonight-light",
+    "titleVerified": true
+  },
+  {
+    "id": "vercel",
+    "titleVerified": true
+  },
+  {
+    "id": "vercel-light",
+    "titleVerified": true
+  },
+  {
+    "id": "vesper",
+    "titleVerified": true
+  },
+  {
+    "id": "zenburn",
+    "titleVerified": true
+  },
+  {
+    "id": "zenburn-light",
+    "titleVerified": true
+  }
+]

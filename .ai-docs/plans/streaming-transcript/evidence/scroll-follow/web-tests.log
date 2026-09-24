@@ -1,0 +1,37 @@
+
+> whip-clients@0.0.0 test:web
+> vitest run --config apps/web/vitest.config.ts
+
+
+ RUN  v5.0.0 /Users/samheutmaker/Desktop/context-labs/src/rlm/whip
+
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+
+ Test Files  66 passed (66)
+      Tests  658 passed (658)
+   Start at  09:22:59
+   Duration  48.24s (environment 26%, tests 25%, transform 24%, import 20%, setup 4%)
+
+Environment  jsdom was created 66 times · 178.43s total, 26% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+

@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -47,17 +45,6 @@ func TestCompletions(t *testing.T) {
 	if len(cs) != 1 || cs[0].Text != "inference" {
 		t.Fatalf("provider completion: %v", texts(cs))
 	}
-	// paths
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "alpha.txt"), nil, 0o644)
-	os.Mkdir(filepath.Join(dir, "alphadir"), 0o755)
-	head, cs = completions("fix "+dir+"/al", models, provs, nil, nil)
-	if head != "fix " || len(cs) != 2 {
-		t.Fatalf("path completion: %q %v", head, texts(cs))
-	}
-	if cs[1].Text != filepath.Join(dir, "alphadir")+"/" {
-		t.Fatalf("dir should get trailing slash: %v", texts(cs))
-	}
 	// no match
 	_, cs = completions("/nope", models, provs, nil, nil)
 	if len(cs) != 0 {
@@ -68,9 +55,5 @@ func TestCompletions(t *testing.T) {
 		if _, cs = completions(in, models, provs, nil, nil); len(cs) != 0 {
 			t.Fatalf("%q: expected no candidates, got %v", in, texts(cs))
 		}
-	}
-	// but @ mentions inside slash args still complete
-	if _, cs = completions("/goal fix @"+dir+"/al", models, provs, nil, nil); len(cs) != 2 {
-		t.Fatalf("@ inside slash args: %v", texts(cs))
 	}
 }

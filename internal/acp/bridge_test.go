@@ -1,314 +1,1010 @@
 package acp
 
-// End-to-end bridge tests: a fake ACP client (SDK ClientSideConnection) talks
-// to the Bridge over in-memory pipes, with the agent loop pointed at a
-// scripted httptest provider (the agent_test.go pattern). This pins the whole
-// path: NDJSON framing, dispatch while a turn runs, streaming updates, tool
-// cards, permissions, cancel, queueing, load replay.
-
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acpsdk "github.com/coder/acp-go-sdk"
 
-	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tools"
 )
 
-// --- fake client ----------------------------------------------------------
-
-type permAnswer struct {
-	optionID string // "" = cancelled outcome
-	err      error
+type fakeACPBackend struct {
+	mu       sync.Mutex
+	next     int
+	newErr   error
+	listErr  error
+	roots    map[string]*fakeRoot
+	attached map[string]map[string]mcp.ServerConfig
 }
 
-type fakeClient struct {
-	mu      sync.Mutex
-	updates []acp.SessionNotification
-	perms   []acp.RequestPermissionRequest
-	answer  func(acp.RequestPermissionRequest) permAnswer // nil = allow-once
+type fakeRoot struct {
+	mu            sync.Mutex
+	id            string
+	cwd           string
+	title         string
+	messages      []llm.Message
+	events        []daemon.ProtocolEvent
+	presentation  []session.SnapshotEvent
+	permissions   []session.PermissionSnapshot
+	remember      string
+	external      bool
+	modeError     string
+	modeChanges   int
+	snapshotError string
+	snapshotCalls int
+	connections   []*fakeConnection
+	lastSubmit    daemon.SubmitPayload
+	lastAnswer    questionAnswer
+	questions     []session.LifecycleEvent // open user.ask prompts a snapshot lists
+	cancel        chan struct{}
+	permission    chan bool
+	question      chan questionAnswer
+	decisions     int
+	closeCount    int
 }
 
-func (c *fakeClient) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
-	c.mu.Lock()
-	c.updates = append(c.updates, n)
-	c.mu.Unlock()
-	return nil
+func newFakeBackend(t *testing.T) *fakeACPBackend {
+	t.Helper()
+	return &fakeACPBackend{roots: make(map[string]*fakeRoot), attached: make(map[string]map[string]mcp.ServerConfig)}
 }
 
-func (c *fakeClient) RequestPermission(_ context.Context, p acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	c.mu.Lock()
-	c.perms = append(c.perms, p)
-	ans := c.answer
-	c.mu.Unlock()
-	if ans == nil {
-		ans = func(acp.RequestPermissionRequest) permAnswer { return permAnswer{optionID: optAllowOnce} }
+func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	if b.newErr != nil {
+		return nil, b.newErr
 	}
-	a := ans(p)
-	if a.err != nil {
-		return acp.RequestPermissionResponse{}, a.err
+	b.mu.Lock()
+	b.next++
+	id := fmt.Sprintf("root-%d", b.next)
+	root := &fakeRoot{
+		id: id, cwd: cwd, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1),
 	}
-	if a.optionID == "" {
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
-		}, nil
+	b.roots[id] = root
+	b.attached[id] = servers
+	b.mu.Unlock()
+	return b.client(ctx, root)
+}
+
+func (b *fakeACPBackend) LoadRoot(ctx context.Context, id, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	b.mu.Lock()
+	root := b.roots[id]
+	if root != nil {
+		b.attached[id] = servers
 	}
-	return acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(a.optionID)}},
+	b.mu.Unlock()
+	if root == nil {
+		return nil, errors.New("no session")
+	}
+	return b.client(ctx, root)
+}
+
+func (b *fakeACPBackend) client(ctx context.Context, root *fakeRoot) (*daemon.RootClient, error) {
+	client, err := daemon.NewRootClient(daemon.RootClientOptions{
+		ClientID: "acp-test", RootID: root.id,
+		Connector: func(context.Context, map[string]int64) (daemon.RootConnection, error) {
+			return newFakeConnection(root), nil
+		},
+		RetryMin: time.Millisecond, RetryMax: 5 * time.Millisecond,
+	})
+	if err != nil {
+		return nil, err
+	}
+	client.Start()
+	if err := client.WaitLive(ctx); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return client, nil
+}
+
+func (b *fakeACPBackend) ListSessions(context.Context, int) ([]session.Meta, error) {
+	if b.listErr != nil {
+		return nil, b.listErr
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]session.Meta, 0, len(b.roots))
+	for _, root := range b.roots {
+		root.mu.Lock()
+		out = append(out, session.Meta{ID: root.id, CWD: root.cwd, Title: root.title, UpdatedAt: time.Now()})
+		root.mu.Unlock()
+	}
+	return out, nil
+}
+
+func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.next++
+	id := fmt.Sprintf("root-%d", b.next)
+	b.roots[id] = &fakeRoot{
+		id: id, cwd: cwd, messages: messages, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1),
+	}
+	return id
+}
+
+type fakeConnection struct {
+	root   *fakeRoot
+	events chan daemon.ProtocolEvent
+	done   chan struct{}
+	once   sync.Once
+}
+
+func newFakeConnection(root *fakeRoot) *fakeConnection {
+	connection := &fakeConnection{root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
+	root.mu.Lock()
+	root.connections = append(root.connections, connection)
+	root.mu.Unlock()
+	return connection
+}
+
+func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
+	result := daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}
+	switch params.Operation {
+	case "permission.mode":
+		c.root.mu.Lock()
+		modeError := c.root.modeError
+		c.root.mu.Unlock()
+		if modeError != "" {
+			result.Status, result.Error = "failed", modeError
+			return result, nil
+		}
+		var payload struct {
+			External bool `json:"external_permissions"`
+		}
+		_ = json.Unmarshal(params.Payload, &payload)
+		c.root.mu.Lock()
+		c.root.external = payload.External
+		c.root.modeChanges++
+		c.root.mu.Unlock()
+		mode := "automatic"
+		if payload.External {
+			mode = "prompt"
+		}
+		update, _ := json.Marshal(daemon.SessionUpdateEvent{PermissionMode: &mode})
+		c.emitRaw("session.permission_mode.updated", update)
+		return result, nil
+	case "cancel":
+		select {
+		case c.root.cancel <- struct{}{}:
+		default:
+		}
+		return result, nil
+	case "submit":
+		return c.submit(ctx, params, result)
+	case "question.answer":
+		var answer questionAnswer
+		if err := json.Unmarshal(params.Payload, &answer); err != nil {
+			return daemon.CommandResult{}, err
+		}
+		c.root.mu.Lock()
+		c.root.lastAnswer = answer
+		c.root.mu.Unlock()
+		select {
+		case c.root.question <- answer:
+		default:
+		}
+		return result, nil
+	default:
+		return result, nil
+	}
+}
+
+func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams, result daemon.CommandResult) (daemon.CommandResult, error) {
+	var payload daemon.SubmitPayload
+	if err := json.Unmarshal(params.Payload, &payload); err != nil {
+		return daemon.CommandResult{}, err
+	}
+	c.root.mu.Lock()
+	c.root.lastSubmit = payload
+	c.root.messages = append(c.root.messages, llm.Message{Role: "user", Content: payload.Text, Parts: payload.Parts})
+	c.root.mu.Unlock()
+	if strings.Contains(payload.Text, "events") {
+		c.emit("stream.reasoning", daemon.StreamEvent{Text: "thinking"})
+		c.emit("stream.tool.started", daemon.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a.go"}`})
+		c.emit("stream.tool.completed", daemon.StreamEvent{ID: "tool-1", Name: "read", Result: "contents"})
+		c.emit("stream.usage", daemon.StreamEvent{Usage: &daemon.UsageEvent{Used: 7, Size: 100}})
+		plan, _ := json.Marshal(daemon.PlanEvent{Items: []daemon.PlanItem{{Content: "check", Status: "completed"}}})
+		c.emit("stream.plan", daemon.StreamEvent{Result: string(plan)})
+	}
+	if strings.Contains(payload.Text, "permission") {
+		c.emitRaw("permission.pending", []byte(`{"permission_id":"permission-1","operation_id":"operation-1","operation":"write","canonical_path":"/tmp/a.go","command":"/tmp/a.go","rule":"/tmp/a.go"}`))
+		select {
+		case allow := <-c.root.permission:
+			if !allow {
+				result.Status, result.Error = "failed", "permission denied"
+				c.emitRaw("turn.failed", nil)
+				return result, nil
+			}
+		case <-c.root.cancel:
+			result.Status, result.Error = "failed", "context canceled"
+			c.emitRaw("turn.failed", nil)
+			return result, nil
+		case <-ctx.Done():
+			return daemon.CommandResult{}, ctx.Err()
+		}
+	}
+	if strings.Contains(payload.Text, "question") {
+		c.emitRaw("question.pending", []byte(`{"question_id":"question-1","question":"Which database?","options":[{"label":"SQLite","description":"embedded"},{"label":"Postgres"}]}`))
+		select {
+		case <-c.root.question:
+		case <-ctx.Done():
+			return daemon.CommandResult{}, ctx.Err()
+		}
+	}
+	answer := "answer"
+	c.emit("stream.text", daemon.StreamEvent{Text: answer})
+	c.root.mu.Lock()
+	c.root.title = "Test session"
+	c.root.messages = append(c.root.messages, llm.Message{Role: "assistant", Content: answer})
+	c.root.mu.Unlock()
+	c.emitRaw("turn.succeeded", nil)
+	result.Output = answer
+	return result, nil
+}
+
+func (c *fakeConnection) emit(kind string, stream daemon.StreamEvent) {
+	payload, _ := json.Marshal(stream)
+	c.emitRaw(kind, payload)
+}
+
+func (c *fakeConnection) emitRaw(kind string, payload []byte) {
+	c.root.mu.Lock()
+	seq := int64(len(c.root.events) + 1)
+	event := daemon.ProtocolEvent{RootID: c.root.id, Seq: seq, Kind: kind, Payload: payload}
+	c.root.events = append(c.root.events, event)
+	connections := append([]*fakeConnection{}, c.root.connections...)
+	c.root.mu.Unlock()
+	for _, connection := range connections {
+		select {
+		case <-connection.done:
+		case connection.events <- event:
+		}
+	}
+}
+
+func (c *fakeConnection) Replay(_ context.Context, params daemon.ReplayParams) (daemon.ReplayResult, error) {
+	c.root.mu.Lock()
+	defer c.root.mu.Unlock()
+	result := daemon.ReplayResult{Latest: int64(len(c.root.events))}
+	for _, event := range c.root.events {
+		if event.Seq > params.Cursor {
+			result.Events = append(result.Events, event)
+		}
+	}
+	return result, nil
+}
+
+func (c *fakeConnection) Snapshot(context.Context, string) (session.RootSnapshot, error) {
+	c.root.mu.Lock()
+	defer c.root.mu.Unlock()
+	c.root.snapshotCalls++
+	// The root client takes its initial snapshot before the bridge reads it.
+	if c.root.snapshotError != "" && c.root.snapshotCalls > 1 {
+		return session.RootSnapshot{}, errors.New(c.root.snapshotError)
+	}
+	mode := "automatic"
+	if c.root.external {
+		mode = "prompt"
+	}
+	return session.RootSnapshot{
+		RootID: c.root.id, Cursor: int64(len(c.root.events)),
+		PermissionMode: mode,
+		Meta:           session.Meta{ID: c.root.id, CWD: c.root.cwd, Title: c.root.title},
+		Messages:       append([]llm.Message(nil), c.root.messages...),
+		Presentation:   append([]session.SnapshotEvent(nil), c.root.presentation...),
+		Permissions:    append([]session.PermissionSnapshot(nil), c.root.permissions...),
+		Questions:      append([]session.LifecycleEvent(nil), c.root.questions...),
 	}, nil
 }
 
-// Unused client methods (no fs/terminal/elicitation capabilities advertised).
-func (c *fakeClient) ReadTextFile(context.Context, acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	return acp.ReadTextFileResponse{}, acp.NewMethodNotFound("fs/read_text_file")
+func (c *fakeConnection) DecidePermission(_ context.Context, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
+	c.root.mu.Lock()
+	c.root.decisions++
+	c.root.remember = decision.Remember
+	c.root.mu.Unlock()
+	select {
+	case c.root.permission <- decision.Allow:
+	default:
+	}
+	return daemon.PermissionDecisionResult{OperationID: "operation-1"}, nil
 }
 
-func (c *fakeClient) WriteTextFile(context.Context, acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	return acp.WriteTextFileResponse{}, acp.NewMethodNotFound("fs/write_text_file")
-}
-
-func (c *fakeClient) CreateTerminal(context.Context, acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
-	return acp.CreateTerminalResponse{}, acp.NewMethodNotFound("terminal/create")
-}
-
-func (c *fakeClient) KillTerminal(context.Context, acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	return acp.KillTerminalResponse{}, nil
-}
-
-func (c *fakeClient) TerminalOutput(context.Context, acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	return acp.TerminalOutputResponse{}, acp.NewMethodNotFound("terminal/output")
-}
-
-func (c *fakeClient) ReleaseTerminal(context.Context, acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
-	return acp.ReleaseTerminalResponse{}, nil
-}
-
-func (c *fakeClient) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	return acp.WaitForTerminalExitResponse{}, nil
-}
-
-func (c *fakeClient) UnstableCompleteElicitation(context.Context, acp.UnstableCompleteElicitationNotification) error {
+func (c *fakeConnection) Events() <-chan daemon.ProtocolEvent { return c.events }
+func (c *fakeConnection) Done() <-chan struct{}               { return c.done }
+func (c *fakeConnection) Err() error                          { return nil }
+func (c *fakeConnection) Close() error {
+	c.once.Do(func() {
+		c.root.mu.Lock()
+		c.root.closeCount++
+		c.root.mu.Unlock()
+		close(c.done)
+	})
 	return nil
 }
 
-func (c *fakeClient) UnstableCreateElicitation(context.Context, acp.UnstableCreateElicitationRequest) (acp.UnstableCreateElicitationResponse, error) {
-	return acp.UnstableCreateElicitationResponse{}, acp.NewMethodNotFound("elicitation/create")
+type fakeACPClient struct {
+	permissionGate <-chan struct{}
+	mu             sync.Mutex
+	updates        []acpsdk.SessionNotification
+	perms          []acpsdk.RequestPermissionRequest
+	answer         string
 }
 
-func (c *fakeClient) UnstableConnectMcp(context.Context, acp.UnstableConnectMcpRequest) (acp.UnstableConnectMcpResponse, error) {
-	return acp.UnstableConnectMcpResponse{}, acp.NewMethodNotFound("mcp/connect")
+func (c *fakeACPClient) SessionUpdate(_ context.Context, update acpsdk.SessionNotification) error {
+	c.mu.Lock()
+	c.updates = append(c.updates, update)
+	c.mu.Unlock()
+	return nil
 }
 
-func (c *fakeClient) UnstableDisconnectMcp(context.Context, acp.UnstableDisconnectMcpRequest) (acp.UnstableDisconnectMcpResponse, error) {
-	return acp.UnstableDisconnectMcpResponse{}, acp.NewMethodNotFound("mcp/disconnect")
+func (c *fakeACPClient) RequestPermission(ctx context.Context, request acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+	c.mu.Lock()
+	c.perms = append(c.perms, request)
+	answer := c.answer
+	c.mu.Unlock()
+	if c.permissionGate != nil {
+		select {
+		case <-c.permissionGate:
+		case <-ctx.Done():
+			return acpsdk.RequestPermissionResponse{}, ctx.Err()
+		}
+	}
+	if answer == "" {
+		answer = optAllowOnce
+	}
+	return acpsdk.RequestPermissionResponse{Outcome: acpsdk.RequestPermissionOutcome{
+		Selected: &acpsdk.RequestPermissionOutcomeSelected{OptionId: acpsdk.PermissionOptionId(answer)},
+	}}, nil
 }
 
-func (c *fakeClient) snapshot() []acp.SessionNotification {
+func (c *fakeACPClient) ReadTextFile(context.Context, acpsdk.ReadTextFileRequest) (acpsdk.ReadTextFileResponse, error) {
+	return acpsdk.ReadTextFileResponse{}, acpsdk.NewMethodNotFound("fs/read_text_file")
+}
+
+func (c *fakeACPClient) WriteTextFile(context.Context, acpsdk.WriteTextFileRequest) (acpsdk.WriteTextFileResponse, error) {
+	return acpsdk.WriteTextFileResponse{}, acpsdk.NewMethodNotFound("fs/write_text_file")
+}
+
+func (c *fakeACPClient) CreateTerminal(context.Context, acpsdk.CreateTerminalRequest) (acpsdk.CreateTerminalResponse, error) {
+	return acpsdk.CreateTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/create")
+}
+
+func (c *fakeACPClient) KillTerminal(context.Context, acpsdk.KillTerminalRequest) (acpsdk.KillTerminalResponse, error) {
+	return acpsdk.KillTerminalResponse{}, nil
+}
+
+func (c *fakeACPClient) TerminalOutput(context.Context, acpsdk.TerminalOutputRequest) (acpsdk.TerminalOutputResponse, error) {
+	return acpsdk.TerminalOutputResponse{}, acpsdk.NewMethodNotFound("terminal/output")
+}
+
+func (c *fakeACPClient) ReleaseTerminal(context.Context, acpsdk.ReleaseTerminalRequest) (acpsdk.ReleaseTerminalResponse, error) {
+	return acpsdk.ReleaseTerminalResponse{}, nil
+}
+
+func (c *fakeACPClient) WaitForTerminalExit(context.Context, acpsdk.WaitForTerminalExitRequest) (acpsdk.WaitForTerminalExitResponse, error) {
+	return acpsdk.WaitForTerminalExitResponse{}, nil
+}
+
+func (c *fakeACPClient) UnstableCompleteElicitation(context.Context, acpsdk.UnstableCompleteElicitationNotification) error {
+	return nil
+}
+
+func (c *fakeACPClient) UnstableCreateElicitation(context.Context, acpsdk.UnstableCreateElicitationRequest) (acpsdk.UnstableCreateElicitationResponse, error) {
+	return acpsdk.UnstableCreateElicitationResponse{}, acpsdk.NewMethodNotFound("elicitation/create")
+}
+
+func (c *fakeACPClient) UnstableConnectMcp(context.Context, acpsdk.UnstableConnectMcpRequest) (acpsdk.UnstableConnectMcpResponse, error) {
+	return acpsdk.UnstableConnectMcpResponse{}, acpsdk.NewMethodNotFound("mcp/connect")
+}
+
+func (c *fakeACPClient) UnstableDisconnectMcp(context.Context, acpsdk.UnstableDisconnectMcpRequest) (acpsdk.UnstableDisconnectMcpResponse, error) {
+	return acpsdk.UnstableDisconnectMcpResponse{}, acpsdk.NewMethodNotFound("mcp/disconnect")
+}
+
+func (c *fakeACPClient) kinds() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]acp.SessionNotification(nil), c.updates...)
+	result := make([]string, 0, len(c.updates))
+	for _, notification := range c.updates {
+		update := notification.Update
+		switch {
+		case update.UserMessageChunk != nil:
+			result = append(result, "user")
+		case update.AgentMessageChunk != nil:
+			result = append(result, "agent")
+		case update.AgentThoughtChunk != nil:
+			result = append(result, "thought")
+		case update.ToolCall != nil:
+			result = append(result, "tool")
+		case update.ToolCallUpdate != nil:
+			result = append(result, "tool-update")
+		case update.Plan != nil:
+			result = append(result, "plan")
+		case update.UsageUpdate != nil:
+			result = append(result, "usage")
+		case update.SessionInfoUpdate != nil:
+			result = append(result, "title")
+		}
+	}
+	return result
 }
 
-func (c *fakeClient) waitFor(t *testing.T, cond func(acp.SessionNotification) bool, what string) acp.SessionNotification {
+type acpFixture struct {
+	bridge *Bridge
+	client *fakeACPClient
+	conn   *acpsdk.ClientSideConnection
+}
+
+func newACPFixture(t *testing.T, backend *fakeACPBackend, client *fakeACPClient) *acpFixture {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		for _, u := range c.snapshot() {
-			if cond(u) {
-				return u
+	if client == nil {
+		client = &fakeACPClient{}
+	}
+	agentRead, clientWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRead, agentWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewBridge("test", backend, true, map[string]mcp.ServerConfig{"base": {URL: "https://base.invalid"}})
+	agentConnection := acpsdk.NewAgentSideConnection(bridge, agentWrite, agentRead)
+	bridge.SetAgentConnection(agentConnection)
+	connection := acpsdk.NewClientSideConnection(client, clientWrite, clientRead)
+	t.Cleanup(func() {
+		bridge.CloseAll()
+		_ = agentWrite.Close()
+		_ = clientWrite.Close()
+		_ = agentRead.Close()
+		_ = clientRead.Close()
+	})
+	return &acpFixture{bridge: bridge, client: client, conn: connection}
+}
+
+func (f *acpFixture) initialize(t *testing.T) {
+	t.Helper()
+	response, err := f.conn.Initialize(t.Context(), acpsdk.InitializeRequest{ProtocolVersion: acpsdk.ProtocolVersionNumber})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.AgentCapabilities.LoadSession || response.AgentInfo == nil || response.AgentInfo.Name != "whip" {
+		t.Fatalf("initialize response = %+v", response)
+	}
+}
+
+func (f *acpFixture) newSession(t *testing.T) acpsdk.SessionId {
+	t.Helper()
+	response, err := f.conn.NewSession(t.Context(), acpsdk.NewSessionRequest{
+		Cwd:        t.TempDir(),
+		McpServers: []acpsdk.McpServer{{Http: &acpsdk.McpServerHttpInline{Name: "client", Type: "http", Url: "https://client.invalid", Headers: []acpsdk.HttpHeader{}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Modes == nil || response.Modes.CurrentModeId != ModeAsk {
+		t.Fatalf("new session modes = %+v", response.Modes)
+	}
+	return response.SessionId
+}
+
+func TestBridgeDaemonCutoverMapsEventsAndContent(t *testing.T) {
+	backend := newFakeBackend(t)
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	response, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{
+		SessionId: id,
+		Prompt: []acpsdk.ContentBlock{
+			acpsdk.TextBlock("events"),
+			{Image: &acpsdk.ContentBlockImage{Type: "image", MimeType: "image/png", Data: "aQ=="}},
+		},
+	})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("prompt = %+v, %v", response, err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && len(fixture.client.kinds()) < 7 {
+		time.Sleep(time.Millisecond)
+	}
+	kinds := strings.Join(fixture.client.kinds(), ",")
+	for _, want := range []string{"thought", "tool", "tool-update", "usage", "plan", "agent", "title"} {
+		if !strings.Contains(kinds, want) {
+			t.Errorf("updates %q missing %q", kinds, want)
+		}
+	}
+	backend.mu.Lock()
+	root := backend.roots[string(id)]
+	servers := backend.attached[string(id)]
+	backend.mu.Unlock()
+	root.mu.Lock()
+	parts := len(root.lastSubmit.Parts)
+	external := root.external
+	root.mu.Unlock()
+	if parts != 1 || !external {
+		t.Fatalf("daemon submit parts=%d external_permissions=%v", parts, external)
+	}
+	if _, ok := servers["base"]; !ok || servers["client"].URL == "" {
+		t.Fatalf("merged MCP servers = %#v", servers)
+	}
+}
+
+func TestBridgeLoadReplaysBeforeResponseAndLists(t *testing.T) {
+	backend := newFakeBackend(t)
+	cwd := t.TempDir()
+	id := backend.seed(cwd,
+		llm.Message{Role: "user", Content: "remember"},
+		llm.Message{Role: "assistant", Content: "remembered"},
+	)
+	presentation, _ := json.Marshal(daemon.StreamEvent{Text: "unfinished thought"})
+	backend.roots[id].presentation = []session.SnapshotEvent{{Seq: 1, Kind: "stream.reasoning", Payload: presentation}}
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	response, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: acpsdk.SessionId(id), Cwd: cwd, McpServers: []acpsdk.McpServer{}})
+	if err != nil || response.Modes == nil {
+		t.Fatalf("load = %+v, %v", response, err)
+	}
+	kinds := fixture.client.kinds()
+	if len(kinds) < 3 || kinds[0] != "user" || kinds[1] != "agent" || kinds[2] != "thought" {
+		t.Fatalf("load replay order = %v", kinds)
+	}
+	listed, err := fixture.conn.ListSessions(t.Context(), acpsdk.ListSessionsRequest{Cwd: &cwd})
+	if err != nil || len(listed.Sessions) != 1 || listed.Sessions[0].SessionId != acpsdk.SessionId(id) {
+		t.Fatalf("list = %+v, %v", listed, err)
+	}
+	if _, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: acpsdk.SessionId(id), Cwd: cwd, McpServers: []acpsdk.McpServer{}}); err == nil {
+		t.Fatal("duplicate load succeeded")
+	}
+}
+
+func TestBridgeSessionAttachmentPreservesSavedPermissionMode(t *testing.T) {
+	for _, method := range []string{"new", "load"} {
+		t.Run(method, func(t *testing.T) {
+			backend := newFakeBackend(t)
+			cwd := t.TempDir()
+			id := backend.seed(cwd)
+			root := backend.roots[id]
+			root.external = false
+			root.modeError = "attachments must not change permissions"
+			bridge := NewBridge("test", &seededACPBackend{fakeACPBackend: backend, id: id}, false, nil)
+			t.Cleanup(bridge.CloseAll)
+			var modes *acpsdk.SessionModeState
+			switch method {
+			case "new":
+				response, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: cwd})
+				if err != nil {
+					t.Fatal(err)
+				}
+				modes = response.Modes
+			case "load":
+				response, err := bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+					SessionId: acpsdk.SessionId(id), Cwd: cwd,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				modes = response.Modes
 			}
+			if modes == nil || modes.CurrentModeId != ModeAuto {
+				t.Fatalf("attached session modes = %+v, want saved auto", modes)
+			}
+			root.mu.Lock()
+			defer root.mu.Unlock()
+			if root.external || root.modeChanges != 0 {
+				t.Fatalf("attachment changed permissions: external=%t changes=%d", root.external, root.modeChanges)
+			}
+		})
+	}
+}
+
+func waitACPMode(t *testing.T, fixture *acpFixture, id acpsdk.SessionId, want string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		s := fixture.bridge.getSession(id)
+		s.mu.Lock()
+		mode := s.mode
+		s.mu.Unlock()
+		fixture.client.mu.Lock()
+		var notified acpsdk.SessionModeId
+		for _, notification := range fixture.client.updates {
+			if notification.SessionId == id && notification.Update.CurrentModeUpdate != nil {
+				notified = notification.Update.CurrentModeUpdate.CurrentModeId
+			}
+		}
+		fixture.client.mu.Unlock()
+		if mode == want && string(notified) == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mode=%q notified=%q, want %q", mode, notified, want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestBridgePermissionModeChangesReachOtherClients(t *testing.T) {
+	backend := newFakeBackend(t)
+	first := newACPFixture(t, backend, nil)
+	first.initialize(t)
+	id := first.newSession(t)
+	root := backend.roots[string(id)]
+	second := newACPFixture(t, backend, nil)
+	second.initialize(t)
+	if _, err := second.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: id, Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{
+		SessionId: id, ModeId: ModeAuto,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, first, id, ModeAuto)
+	waitACPMode(t, second, id, ModeAuto)
+	if _, err := second.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{
+		SessionId: id, ModeId: ModeAsk,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, first, id, ModeAsk)
+	waitACPMode(t, second, id, ModeAsk)
+	response, err := first.conn.Prompt(t.Context(), acpsdk.PromptRequest{
+		SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")},
+	})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("permission after remote mode change = %+v, %v", response, err)
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.modeChanges != 2 || !root.external {
+		t.Fatalf("mode changes=%d external=%t, want two explicit changes ending in ask", root.modeChanges, root.external)
+	}
+}
+
+func TestBridgeReconnectRestoresPermissionModeFromSnapshot(t *testing.T) {
+	backend := newFakeBackend(t)
+	id := backend.seed(t.TempDir())
+	root := backend.roots[id]
+	root.external = false
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	if _, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: acpsdk.SessionId(id), Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root.mu.Lock()
+	root.external = true
+	connection := root.connections[0]
+	root.mu.Unlock()
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, fixture, acpsdk.SessionId(id), ModeAsk)
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.modeChanges != 0 {
+		t.Fatalf("reconnect changed saved permissions %d times", root.modeChanges)
+	}
+}
+
+func TestBridgePermissionAndModesWithoutCredentials(t *testing.T) {
+	backend := newFakeBackend(t)
+	client := &fakeACPClient{answer: optAllowAlways}
+	fixture := newACPFixture(t, backend, client)
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	response, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")}})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("permission prompt = %+v, %v", response, err)
+	}
+	client.mu.Lock()
+	permissionRequests := len(client.perms)
+	client.mu.Unlock()
+	backend.mu.Lock()
+	root := backend.roots[string(id)]
+	backend.mu.Unlock()
+	root.mu.Lock()
+	decisions, remember := root.decisions, root.remember
+	root.mu.Unlock()
+	if permissionRequests != 1 || decisions != 1 || remember != "tree" {
+		t.Fatalf("permission requests=%d decisions=%d remember=%q", permissionRequests, decisions, remember)
+	}
+	client.mu.Lock()
+	options := client.perms[0].Options
+	client.mu.Unlock()
+	if len(options) != 3 || string(options[2].OptionId) != optAllowAlways || options[2].Name != "Always allow write /tmp/a.go in this tree" {
+		t.Fatalf("permission options = %+v", options)
+	}
+	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err != nil {
+		t.Fatalf("auto mode: %v", err)
+	}
+	waitACPMode(t, fixture, id, ModeAuto)
+	if _, err := fixture.conn.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: id, Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	})
+	if err != nil || loaded.Modes == nil || loaded.Modes.CurrentModeId != ModeAuto {
+		t.Fatalf("load after explicit auto mode = %+v, %v", loaded, err)
+	}
+}
+
+func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
+	backend := newFakeBackend(t)
+	client := &fakeACPClient{answer: "1"}
+	fixture := newACPFixture(t, backend, client)
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	backend.mu.Lock()
+	root := backend.roots[string(id)]
+	backend.mu.Unlock()
+
+	response, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("question")}})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("question prompt = %+v, %v", response, err)
+	}
+	client.mu.Lock()
+	requests := append([]acpsdk.RequestPermissionRequest(nil), client.perms...)
+	client.answer = optDismiss
+	client.mu.Unlock()
+	if len(requests) != 1 || string(requests[0].ToolCall.ToolCallId) != "question-question-1-0" || *requests[0].ToolCall.Title != "Which database?" {
+		t.Fatalf("permission requests = %+v", requests)
+	}
+	options := requests[0].Options
+	if len(options) != 3 || options[0].Name != "SQLite - embedded" || options[1].Name != "Postgres" || options[1].Kind != acpsdk.PermissionOptionKindAllowOnce ||
+		string(options[0].OptionId) != "0" || string(options[1].OptionId) != "1" ||
+		string(options[2].OptionId) != optDismiss || options[2].Kind != acpsdk.PermissionOptionKindRejectOnce {
+		t.Fatalf("question options = %+v", options)
+	}
+	root.mu.Lock()
+	answer := root.lastAnswer
+	root.mu.Unlock()
+	if answer.ID != "question-1" || len(answer.Answer) != 1 || answer.Answer[0] != "Postgres" || answer.Dismissed {
+		t.Fatalf("question.answer payload = %+v", answer)
+	}
+
+	if _, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("question")}}); err != nil {
+		t.Fatal(err)
+	}
+	root.mu.Lock()
+	answer = root.lastAnswer
+	root.mu.Unlock()
+	if !answer.Dismissed || len(answer.Answer) != 0 {
+		t.Fatalf("dismissed payload = %+v", answer)
+	}
+}
+
+func TestBridgeLoadSessionPromptsTheOpenQuestion(t *testing.T) {
+	backend := newFakeBackend(t)
+	cwd := t.TempDir()
+	id := backend.seed(cwd, llm.Message{Role: "user", Content: "pick"})
+	backend.roots[id].questions = []session.LifecycleEvent{{
+		AgentID: "root-agent", QuestionID: "question-9", Question: "Which database?",
+		Options: []session.QuestionOption{{Label: "SQLite"}, {Label: "Postgres"}},
+	}}
+	fixture := newACPFixture(t, backend, &fakeACPClient{answer: "1"})
+	fixture.initialize(t)
+	if _, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: acpsdk.SessionId(id), Cwd: cwd, McpServers: []acpsdk.McpServer{}}); err != nil {
+		t.Fatal(err)
+	}
+	root := backend.roots[id]
+	deadline := time.Now().Add(time.Second)
+	for {
+		root.mu.Lock()
+		answer := root.lastAnswer
+		root.mu.Unlock()
+		if answer.ID == "question-9" {
+			if len(answer.Answer) != 1 || answer.Answer[0] != "Postgres" || answer.Dismissed {
+				t.Fatalf("question.answer payload = %+v", answer)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loading a session with an open question did not prompt for it")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %s; updates so far: %s", what, summarizeUpdates(c.snapshot()))
-	return acp.SessionNotification{}
 }
 
-func summarizeUpdates(us []acp.SessionNotification) string {
-	var b strings.Builder
-	for _, u := range us {
-		fmt.Fprintf(&b, "%s ", updateKind(u.Update))
-	}
-	return b.String()
-}
-
-func updateKind(u acp.SessionUpdate) string {
-	switch {
-	case u.AgentMessageChunk != nil:
-		return "agent_chunk"
-	case u.UserMessageChunk != nil:
-		return "user_chunk"
-	case u.AgentThoughtChunk != nil:
-		return "thought_chunk"
-	case u.ToolCall != nil:
-		return "tool_call(" + string(u.ToolCall.ToolCallId) + ")"
-	case u.ToolCallUpdate != nil:
-		s := ""
-		if u.ToolCallUpdate.Status != nil {
-			s = string(*u.ToolCallUpdate.Status)
-		}
-		return "tool_call_update(" + string(u.ToolCallUpdate.ToolCallId) + "," + s + ")"
-	case u.Plan != nil:
-		return "plan"
-	case u.UsageUpdate != nil:
-		return "usage"
-	default:
-		return "other"
-	}
-}
-
-// --- fake provider ---------------------------------------------------------
-
-// step is one scripted provider response: either streamed text or a tool call.
-type step struct {
-	text     string
-	toolName string
-	toolArgs string
-	block    <-chan struct{} // if non-nil, the stream waits for this channel before finishing
-}
-
-// scriptServer serves each step in order, then repeats the last. It records
-// every request's messages for assertions.
-func scriptServer(t *testing.T, steps []step) *httptest.Server {
-	t.Helper()
-	var mu sync.Mutex
-	call := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		mu.Lock()
-		i := call
-		call++
-		mu.Unlock()
-		if i >= len(steps) {
-			i = len(steps) - 1
-		}
-		st := steps[i]
-		w.Header().Set("Content-Type", "text/event-stream")
-		if st.toolName != "" {
-			args, _ := json.Marshal(st.toolArgs)
-			fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_%d","type":"function","function":{"name":%q,"arguments":%s}}]}}]}`+"\n\n", i, st.toolName, string(args))
-		} else {
-			text, _ := json.Marshal(st.text)
-			fmt.Fprintf(w, `data: {"choices":[{"delta":{"content":%s},"finish_reason":"stop"}]}`+"\n\n", text)
-		}
-		if st.block != nil {
-			// Flush the delta before blocking: net/http buffers small writes,
-			// and the test gates on seeing this chunk before unblocking.
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
+func TestBridgeConcurrentSessionsAndCloseDetach(t *testing.T) {
+	backend := newFakeBackend(t)
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	first, second := fixture.newSession(t), fixture.newSession(t)
+	var wait sync.WaitGroup
+	for _, id := range []acpsdk.SessionId{first, second} {
+		wait.Go(func() {
+			response, err := fixture.conn.Prompt(context.Background(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("hello")}})
+			if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+				t.Errorf("prompt %s = %+v, %v", id, response, err)
 			}
-			select {
-			case <-st.block:
-			case <-r.Context().Done(): // client cancelled/tore down — never wedge cleanup
-			}
-		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// --- harness ---------------------------------------------------------------
-
-type fixture struct {
-	bridge *Bridge
-	client *fakeClient
-	conn   *acp.ClientSideConnection
-}
-
-// newFixture wires bridge↔client over pipes. newAgent may be nil (each test
-// then uses newSessionWith to control the provider per session).
-func newFixture(t *testing.T, client *fakeClient, store *session.Store, newAgent Factory) *fixture {
-	t.Helper()
-	if client == nil {
-		client = &fakeClient{}
+		})
 	}
-	agentR, clientW, err := os.Pipe()
-	if err != nil {
+	wait.Wait()
+	if _, err := fixture.conn.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: first}); err != nil {
 		t.Fatal(err)
 	}
-	clientR, agentW, err := os.Pipe()
-	if err != nil {
+	backend.mu.Lock()
+	_, retained := backend.roots[string(first)]
+	backend.mu.Unlock()
+	if !retained {
+		t.Fatal("ACP close deleted daemon-owned work")
+	}
+}
+
+func TestFakeConnectionImplementsRootProtocol(t *testing.T) {
+	root := &fakeRoot{id: "root", cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
+	var _ daemon.RootConnection = newFakeConnection(root)
+}
+
+func TestBridgeRejectsUnsupportedAndInvalidProtocolRequests(t *testing.T) {
+	bridge := NewBridge("test", nil, false, map[string]mcp.ServerConfig{
+		"base": {URL: "https://base.invalid"},
+	})
+	unsupported := map[string]func() error{
+		"authenticate": func() error { _, err := bridge.Authenticate(t.Context(), acpsdk.AuthenticateRequest{}); return err },
+		"logout":       func() error { _, err := bridge.Logout(t.Context(), acpsdk.LogoutRequest{}); return err },
+		"resume":       func() error { _, err := bridge.ResumeSession(t.Context(), acpsdk.ResumeSessionRequest{}); return err },
+		"config": func() error {
+			_, err := bridge.SetSessionConfigOption(t.Context(), acpsdk.SetSessionConfigOptionRequest{})
+			return err
+		},
+	}
+	for name, call := range unsupported {
+		err := call()
+		if err == nil {
+			t.Errorf("%s unexpectedly succeeded", name)
+		}
+	}
+	if _, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{}); err == nil {
+		t.Fatal("session without cwd succeeded")
+	}
+	if _, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: t.TempDir()}); err == nil {
+		t.Fatal("session without backend succeeded")
+	}
+	if _, err := bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{}); err == nil {
+		t.Fatal("load without backend succeeded")
+	}
+	if _, err := bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{}); err == nil {
+		t.Fatal("list without backend succeeded")
+	}
+	if _, err := bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("close of unknown session succeeded")
+	}
+	if err := bridge.Cancel(t.Context(), acpsdk.CancelNotification{SessionId: "missing"}); err != nil {
 		t.Fatal(err)
 	}
 
-	b := NewBridge("test", newAgent, store, false, nil)
-	agentConn := acp.NewAgentSideConnection(b, agentW, agentR)
-	b.SetAgentConnection(agentConn) // the SDK's example wires this by hand too
-
-	conn := acp.NewClientSideConnection(client, clientW, clientR)
-	if os.Getenv("ACP_TEST_DEBUG") != "" {
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		conn.SetLogger(logger)
-		agentConn.SetLogger(logger)
-	}
-	t.Cleanup(func() {
-		_ = agentW.Close()
-		_ = clientW.Close()
-		_ = agentR.Close()
-		_ = clientR.Close()
+	merged := bridge.mergeMCPServers([]acpsdk.McpServer{
+		{Stdio: &acpsdk.McpServerStdio{Name: "stdio", Command: "server", Args: []string{"--stdio"}, Env: []acpsdk.EnvVariable{{Name: "TOKEN", Value: "secret"}}}},
+		{Http: &acpsdk.McpServerHttpInline{Name: "http", Type: "http", Url: "https://client.invalid", Headers: []acpsdk.HttpHeader{{Name: "Authorization", Value: "Bearer token"}}}},
+		{Http: &acpsdk.McpServerHttpInline{Name: "base", Type: "http", Url: "https://shadow.invalid"}},
+		{Stdio: &acpsdk.McpServerStdio{Command: "nameless"}},
+		{},
 	})
-	return &fixture{bridge: b, client: client, conn: conn}
-}
-
-func (f *fixture) initialize(t *testing.T) acp.InitializeResponse {
-	t.Helper()
-	resp, err := f.conn.Initialize(context.Background(), acp.InitializeRequest{
-		ProtocolVersion:    acp.ProtocolVersionNumber,
-		ClientCapabilities: acp.ClientCapabilities{},
-	})
-	if err != nil {
-		t.Fatalf("initialize: %v", err)
+	if len(merged) != 3 || strings.Join(merged["stdio"].Command, " ") != "server --stdio" || merged["stdio"].Env["TOKEN"] != "secret" {
+		t.Fatalf("stdio merge = %#v", merged)
 	}
-	return resp
-}
-
-func (f *fixture) newSession(t *testing.T, cwd string) acp.SessionId {
-	t.Helper()
-	resp, err := f.conn.NewSession(context.Background(), acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
-	if err != nil {
-		t.Fatalf("session/new: %v", err)
+	if merged["http"].Headers["Authorization"] != "Bearer token" || merged["base"].URL != "https://base.invalid" {
+		t.Fatalf("http/base merge = %#v", merged)
 	}
-	return resp.SessionId
 }
 
-func (f *fixture) prompt(t *testing.T, id acp.SessionId, text string) (acp.PromptResponse, error) {
-	t.Helper()
-	return f.conn.Prompt(context.Background(), acp.PromptRequest{
-		SessionId: id,
-		Prompt:    []acp.ContentBlock{acp.TextBlock(text)},
-	})
+func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
+	backend := newFakeBackend(t)
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	if _, err := fixture.bridge.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: "missing", ModeId: ModeAsk}); err == nil {
+		t.Fatal("mode change for unknown session succeeded")
+	}
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("prompt for unknown session succeeded")
+	}
+	id := fixture.newSession(t)
+	if _, err := fixture.bridge.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: "dangerous"}); err == nil {
+		t.Fatal("unknown mode succeeded")
+	}
+	s := fixture.bridge.getSession(id)
+	s.turnCh <- struct{}{}
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id}); err == nil {
+		t.Fatal("concurrent prompt succeeded")
+	}
+	<-s.turnCh
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id}); err == nil {
+		t.Fatal("prompt on closed session succeeded")
+	}
+	s.mu.Lock()
+	s.closed = false
+	s.mu.Unlock()
+
+	other := t.TempDir()
+	listed, err := fixture.bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{Cwd: &other})
+	if err != nil || len(listed.Sessions) != 0 {
+		t.Fatalf("filtered sessions = %+v, %v", listed, err)
+	}
+	if _, err := fixture.bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("missing session loaded")
+	}
+	if _, err := fixture.bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: id, Cwd: other}); err == nil {
+		t.Fatal("active session loaded twice")
+	}
+	if _, err := fixture.bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err == nil {
+		t.Fatal("session closed twice")
+	}
+
+	backend.newErr = errors.New("create failed")
+	if _, err := fixture.bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: t.TempDir()}); err == nil {
+		t.Fatal("backend creation error was hidden")
+	}
+	backend.listErr = errors.New("list failed")
+	if _, err := fixture.bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{}); err == nil {
+		t.Fatal("backend list error was hidden")
+	}
 }
 
-// factoryFor returns a Factory whose agents run against srv with extra tools
-// appended to the built-ins (agent.New registers bash/read/write/edit, task,
-// todowrite, memory — clobbering would lose todowrite, which the plan-update
-// test drives).
-func factoryFor(srv *httptest.Server, ts []tools.Tool) Factory {
-	return func(_ context.Context, cwd string, _ map[string]mcp.ServerConfig) (*agent.Agent, *mcp.Manager, error) {
-		ag := agent.New(llm.New(srv.URL, "k"), "m", 4096, "sys")
-		ag.BrowserDisabled = true
-		ag.ComputerDisabled = true
-		if len(ts) > 0 {
-			ag.Tools = append(ts, ag.Tools...)
+func (*fakeConnection) Subscribe(context.Context, string, int64) (daemon.SubscribeResult, error) {
+	return daemon.SubscribeResult{}, nil
+}
+
+func TestBridgeCancelsWhilePermissionDecisionIsPending(t *testing.T) {
+	gate := make(chan struct{})
+	defer close(gate)
+	backend := newFakeBackend(t)
+	fixture := newACPFixture(t, backend, &fakeACPClient{permissionGate: gate})
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	done := make(chan acpsdk.PromptResponse, 1)
+	go func() {
+		response, _ := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{
+			SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")},
+		})
+		done <- response
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		fixture.client.mu.Lock()
+		requests := len(fixture.client.perms)
+		fixture.client.mu.Unlock()
+		if requests == 1 {
+			break
 		}
-		return ag, mcp.NewManager(nil), nil
+		if time.Now().After(deadline) {
+			t.Fatal("permission request was not displayed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := fixture.conn.Cancel(t.Context(), acpsdk.CancelNotification{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-done:
+		if response.StopReason != acpsdk.StopReasonCancelled {
+			t.Fatalf("cancelled prompt = %+v", response)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancel did not stop the prompt waiting for permission")
 	}
 }

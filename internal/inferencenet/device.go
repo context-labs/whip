@@ -9,9 +9,11 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
-var errDeviceCodeExpired = errors.New("the device code expired; run `whip auth inference-net login` again")
+var errDeviceCodeExpired = errors.New(buildinfo.Text("the device code expired; run `whip auth inference-net login` again"))
 
 // deviceCodeResponse is the relay's /api/auth/device/code reply.
 type deviceCodeResponse struct {

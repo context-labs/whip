@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "provider_epoch": {
+      "type": "string"
+    },
+    "tab_id": {
+      "type": "string"
+    },
+    "tab_generation": {
+      "type": "string"
+    },
+    "attachment_id": {
+      "type": "string"
+    },
+    "attachment_generation": {
+      "type": "string"
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "operation_id": {
+      "type": "string"
+    },
+    "document_revision": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string"
+    },
+    "params": true,
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/BrowserProviderEventParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserProviderEventParams",
+  "required": [
+    "root_id",
+    "provider_epoch",
+    "tab_id",
+    "tab_generation",
+    "attachment_id",
+    "attachment_generation",
+    "sequence",
+    "document_revision",
+    "kind"
+  ],
+  "additionalProperties": false
+}

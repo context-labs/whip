@@ -3,29 +3,32 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Provider is an API endpoint that can serve models.
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" or "openai-codex-responses"
-	Auth      string `json:"auth,omitempty"`   // "codex" uses Whip's local Codex OAuth credentials
+	API       string `json:"api"`              // "openai-completions" or "openai-codex"
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
+	Auth      string `json:"auth,omitempty"` // "none" explicitly disables authentication; omitted resolves a key
 }
 
 // Key returns the resolved API key for the provider, "" when none is
 // configured. Unresolvable secret references degrade to "" like a missing
 // key; ResolveKey reports the error for callers that can surface it.
-func (p Provider) Key() string {
-	k, _ := p.ResolveKey()
+func (p Provider) Key(cfg ...*Config) string {
+	k, _ := p.ResolveKey(cfg...)
 	return k
 }
 
@@ -34,28 +37,9 @@ func (p Provider) Key() string {
 // config file and session store hold only references and a missing var only
 // errors when the provider is actually used. The resolved value never enters
 // the event log.
-func (p Provider) ResolveKey() (string, error) {
-	if p.APIKeyEnv != "" {
-		if v := os.Getenv(p.APIKeyEnv); v != "" {
-			return v, nil
-		}
-	}
-	if p.APIKey != "" {
-		k, err := ResolveSecret(p.APIKey)
-		if err != nil {
-			return "", fmt.Errorf("provider %q apiKey: %w", p.Name, err)
-		}
-		return k, nil
-	}
-	// Inference.net fallbacks: the machine key provisioned by
-	// `whip auth inference-net login`, then the inf CLI's stored key.
-	if strings.Contains(p.BaseURL, "api.inference.net") {
-		if k := whipInferenceNetKey(); k != "" {
-			return k, nil
-		}
-		return infKey(), nil
-	}
-	return "", nil
+func (p Provider) ResolveKey(cfg ...*Config) (string, error) {
+	key, _, err := p.resolveKeyWithCredentials(true, DiscoverCredentials(providerCredentialConfigs(p, cfg)...))
+	return key, err
 }
 
 // whipInferenceNetKey reads the machine key from ~/.whip/inference-net.json
@@ -111,7 +95,7 @@ type Model struct {
 	// and the value shown for providers that don't report one.
 	Context int `json:"context,omitempty"`
 	// MaxOut caps OUTPUT tokens (the max_tokens request param). 0 uses the
-	// provider's max_completion_tokens when advertised, else a sane default.
+	// provider's max_completion_tokens when advertised, else the resolved context window.
 	MaxOut int `json:"maxOut,omitempty"`
 	// MaxTokens is the legacy field name for Context (it was misnamed: it held
 	// the context window, not an output cap). Read on load for back-compat.
@@ -150,13 +134,6 @@ func (m Model) ContextWindow() int {
 // conversation's model when it's not in the user's config.
 const DefaultCompactModel = "deepseek-v4-flash-0731"
 
-// DefaultTaskModel is the built-in subagent-model default: subagents are
-// high-volume, self-contained work, so they run on the same cheap fast route
-// compaction uses unless the user pins taskModel or the main model overrides
-// per task. Falls back to the conversation's model when it's not resolvable
-// (an openrouter-only config resolves it via a catalog suffix match first).
-const DefaultTaskModel = DefaultCompactModel
-
 // DefaultCompactPct is the built-in compaction threshold: compact once the
 // estimated context use crosses this percent of the model's context window.
 // 50% keeps compaction deterministic instead of letting the context bloat.
@@ -164,36 +141,28 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	DefaultModel    string `json:"defaultModel"`
-	DefaultProvider string `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort   string `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel    string `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider string `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct      int    `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
-	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
-	Theme           string `json:"theme,omitempty"`           // built-in theme ID, or "" (auto-detect at startup)
-	UIMode          string `json:"uiMode,omitempty"`          // "" (classic whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
-	Sidebar         *bool  `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking        *bool  `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste   *bool  `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds   int    `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	// WorktreeSubagents defaults background subagents to run in their own git
-	// worktree so their file edits stay isolated from the parent's tree and
-	// from each other. The subagent tool's per-call `worktree` arg overrides this.
-	WorktreeSubagents *bool `json:"worktreeSubagents,omitempty"`
-	MaxRetries        int   `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	// Experimental opts into not-yet-stable features by name. Today the only
-	// entry is "workflows" (the dynamic multi-agent workflow tool). Absent or
-	// empty = stable-only. The agent reads this slice wholesale (see
-	// agent.WithExperimental) — no per-feature config block.
-	Experimental []string            `json:"experimental,omitempty"`
-	Providers    map[string]Provider `json:"providers"`
-	// allowEmptySave lets Save write a config with no providers/models — only
-	// RemoveProvider sets it, when the last provider is deliberately removed.
-	allowEmptySave bool
-	Models         map[string]Model `json:"models"`
+	RemoteHosts           []RemoteHost        `json:"remote_hosts,omitempty"`
+	DefaultPermissionMode string              `json:"defaultPermissionMode,omitempty"` // permission mode for new sessions; empty defaults to prompt
+	DefaultModel          string              `json:"defaultModel"`
+	DefaultProvider       string              `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort         string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel          string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider       string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct            int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	Theme                 string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
+	Sidebar               *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Repl                  *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
+	Panel                 string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
+	Mouse                 *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking              *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste         *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds         int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM                   RLMConfig           `json:"rlm,omitzero"`
+	MaxRetries            int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network/stall) before the first delta; 0 = llm.DefaultMaxAttempts, 1 = no retries. A stream that fails after its first delta is regenerated at most llm.DefaultRegenerations times regardless.
+	Providers             map[string]Provider `json:"providers"`
+	ProviderKeySources    ProviderKeySources  `json:"providerKeySources,omitzero"`
+	DisabledProviders     []string            `json:"disabledProviders,omitempty"`
+	Models                map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -202,6 +171,10 @@ type Config struct {
 	// (claude-style .mcp.json, codex-style ~/.codex/config.toml). nil imports
 	// both sources, preserving the pre-gating behavior.
 	MCPImport *MCPImport `json:"mcpImport,omitempty"`
+	// BrandIcons lets the import screen ask DuckDuckGo's icon endpoint for the
+	// logo of an MCP server the app has no bundled mark for, by registrable
+	// domain. nil is on; false keeps every lookup on this machine.
+	BrandIcons *bool `json:"brandIcons,omitempty"`
 	// LSPServers is whip's own LSP server block (whip-native shape; see
 	// internal/lsp.FromConfigMap for the merge semantics). Entries extend or
 	// disable the built-in registry (gopls).
@@ -211,6 +184,29 @@ type Config struct {
 	// Computer configures computer-use (internal/computer): which apps
 	// computer_exec may drive.
 	Computer ComputerConfig `json:"computer,omitzero"`
+	// Permissions is the global "always allow" list consulted before a
+	// permission prompt.
+	Permissions PermissionsConfig `json:"permissions,omitzero"`
+}
+
+// PermissionsConfig entries are "operation:rule", e.g. "bash:go test" — the
+// rule is the arity-collapsed command prefix or the canonical path.
+type PermissionsConfig struct {
+	Allow []string `json:"allow,omitempty"`
+}
+
+// RLMConfig controls the disposable Starlark worker. Zero limit values use
+// the runtime defaults documented by the RLM contract.
+type RLMConfig struct {
+	MaxConcurrentHostCalls int    `json:"maxConcurrentHostCalls,omitempty"`
+	DefaultEngine          string `json:"defaultEngine,omitempty"`
+	Steps                  uint64 `json:"steps,omitempty"`
+	HostRequests           int    `json:"hostRequests,omitempty"`
+	WallMillis             int    `json:"wallMillis,omitempty"`
+	MemoryMiB              int    `json:"memoryMiB,omitempty"`
+	OutputBytes            int    `json:"outputBytes,omitempty"`
+	FrameBytes             int    `json:"frameBytes,omitempty"`
+	MaxWorkers             int    `json:"maxWorkers,omitempty"`
 }
 
 // ComputerConfig gates computer_exec per app (codex's per-bundle-id model).
@@ -236,6 +232,9 @@ type BrowserConfig struct {
 	// the user's real logged-in tab through the whip extension — the only
 	// way onto the default profile on Chrome ≥ 136).
 	Mode string `json:"mode,omitempty"`
+	// Driver selects the implementation used by browser sessions. Empty uses
+	// the built-in default (rod); supported values are "rod" and "chromedp".
+	Driver string `json:"driver,omitempty"`
 	// CDPURL attaches live mode to an explicit DevTools endpoint instead of
 	// the profile scan (http:// or ws://).
 	CDPURL string `json:"cdpUrl,omitempty"`
@@ -257,15 +256,28 @@ type LSPServer struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
-// MCPImport selects which claude/codex MCP server definitions whip imports.
-// A nil source entry (or nil Enabled) leaves that source on. Example:
+// MCPImport selects which imported MCP server definitions whip picks up.
+// Three sources: claude (the user's ~/.claude.json), codex (the user's
+// ~/.codex/config.toml) and project (the repository's .mcp.json in the
+// session cwd). A nil claude or codex entry (or nil Enabled) leaves that
+// source on: they are the user's own files. project is off unless enabled,
+// because a repository author wrote it and enabling it runs those programs
+// at session start. Example:
 //
 //	"mcpImport": {
-//	  "codex": { "enabled": true, "exclude": ["node_repl"] }
+//	  "codex": { "enabled": true, "exclude": ["node_repl"] },
+//	  "project": { "enabled": true }
 //	}
 type MCPImport struct {
-	Claude *MCPImportSource `json:"claude,omitempty"`
-	Codex  *MCPImportSource `json:"codex,omitempty"`
+	Claude  *MCPImportSource `json:"claude,omitempty"`
+	Codex   *MCPImportSource `json:"codex,omitempty"`
+	Project *MCPImportSource `json:"project,omitempty"`
+	// Opencode is the user's ~/.config/opencode files; on unless disabled,
+	// like the other user-owned sources.
+	Opencode *MCPImportSource `json:"opencode,omitempty"`
+	// Offered records that the import screen was shown on this host and
+	// answered (imported or skipped); the app does not offer again by itself.
+	Offered bool `json:"offered,omitempty"`
 }
 
 // MCPImportSource gates one import source. Enabled nil means on; Only, when
@@ -280,6 +292,8 @@ type MCPImportSource struct {
 // MCPServer is the config-file form of an MCP server entry. It mirrors
 // mcp.ServerConfig without importing that package (config is a leaf).
 type MCPServer struct {
+	Origin         string            `json:"origin,omitempty"`
+	Source         string            `json:"source,omitempty"`
 	Command        []string          `json:"command,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 	Cwd            string            `json:"cwd,omitempty"`
@@ -295,16 +309,20 @@ type MCPServer struct {
 // WHIP_HOME overrides the location — used by tests to keep fixture writes
 // far away from the real config.
 func Dir() (string, error) {
-	if d := os.Getenv("WHIP_HOME"); d != "" {
+	if d := os.Getenv(buildinfo.Env("HOME")); d != "" {
 		return d, os.MkdirAll(d, 0o700) //nolint:gosec // G703: WHIP_HOME is the user's own env override for the config dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".whip")
+	dir := buildinfo.Home(home)
 	return dir, os.MkdirAll(dir, 0o700)
 }
+
+// Path is the config file location (~/.whip/config.json, or under WHIP_HOME),
+// for surfaces that tell the person where a write went.
+func Path() (string, error) { return path() }
 
 func path() (string, error) {
 	dir, err := Dir()
@@ -312,52 +330,6 @@ func path() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "config.json"), nil
-}
-
-// Exists reports whether the config file is already on disk. Load creates it
-// when missing, so callers that want to detect a first run (the setup wizard)
-// must check Exists before Load.
-func Exists() bool {
-	p, err := path()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(p)
-	return err == nil
-}
-
-// setupDonePath is the marker the first-run wizard leaves when it completes.
-// The wizard triggers on "no config file AND no marker": any whip subcommand
-// (auth/run/mcp/…) that calls Load on a fresh install creates the config
-// without running the wizard, and the marker keeps that from permanently
-// consuming the first run.
-func setupDonePath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "setup.done"), nil
-}
-
-// SetupDone reports whether the first-run wizard has completed (or a previous
-// version ran enough times to have one).
-func SetupDone() bool {
-	p, err := setupDonePath()
-	if err != nil {
-		return true // can't stat the marker: don't risk a surprise wizard
-	}
-	_, err = os.Stat(p)
-	return err == nil
-}
-
-// MarkSetupDone leaves the wizard-completed marker. Best-effort: a failed
-// write just means the wizard offers again next launch.
-func MarkSetupDone() {
-	p, err := setupDonePath()
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(p, []byte("ok\n"), 0o600)
 }
 
 // fingerprint summarizes a config for the operation log: enough to spot a
@@ -371,6 +343,20 @@ func (c *Config) fingerprint() string {
 // Load reads ~/.whip/config.json, writing a default config on first run. The
 // file is JSONC: comments and trailing commas are allowed.
 func Load() (*Config, error) {
+	configurationMu.Lock()
+	defer configurationMu.Unlock()
+	c, err := loadUnlocked()
+	if err != nil {
+		return nil, err
+	}
+	// Invalid client preferences must not prevent the execution daemon starting.
+	if err := loadClientPreferences(c); err != nil {
+		logf("config.preferences", "could not load client preferences: %v", err)
+	}
+	return c, nil
+}
+
+func loadUnlocked() (*Config, error) {
 	p, err := path()
 	if err != nil {
 		return nil, err
@@ -379,15 +365,18 @@ func Load() (*Config, error) {
 	if os.IsNotExist(err) {
 		cfg := Default()
 		logf("config.load", "missing file, writing defaults (%s)", cfg.fingerprint())
-		return cfg, cfg.Save()
+		return cfg, cfg.saveUnlocked()
 	}
 	if err != nil {
 		return nil, err
 	}
 	var cfg Config
-	if err := parseJSONC(data, &cfg); err != nil {
+	if err := ParseJSONC(data, &cfg); err != nil {
 		logf("config.load", "PARSE FAILURE %s: %v (%d bytes)", p, err, len(data))
 		return nil, fmt.Errorf("parse %s: %w", p, err)
+	}
+	if err := cfg.RLM.Validate(); err != nil {
+		return nil, err
 	}
 	// Recover from a clobbered/empty config: no providers and no models is
 	// never a usable state, so prefer the backup, else regenerate defaults —
@@ -398,7 +387,7 @@ func Load() (*Config, error) {
 		logf("config.load", "CLOBBERED/EMPTY config detected (%d bytes on disk), attempting recovery", len(data))
 		if bak, err := os.ReadFile(p + ".bak"); err == nil {
 			var restored Config
-			if parseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
+			if ParseJSONC(bak, &restored) == nil && (len(restored.Providers) > 0 || len(restored.Models) > 0) {
 				logf("config.load", "restored from .bak (%s)", restored.fingerprint())
 				if len(restored.MCPServers) == 0 && len(cfg.MCPServers) > 0 {
 					restored.MCPServers = cfg.MCPServers // keep the user's servers
@@ -406,14 +395,26 @@ func Load() (*Config, error) {
 				if restored.MCPImport == nil {
 					restored.MCPImport = cfg.MCPImport // keep import gating too
 				}
-				return &restored, restored.Save()
+				if !cfg.ProviderKeySources.IsZero() {
+					restored.ProviderKeySources = cfg.ProviderKeySources
+				}
+				if cfg.DisabledProviders != nil {
+					restored.DisabledProviders = slices.Clone(cfg.DisabledProviders)
+				}
+				if cfg.RLM != (RLMConfig{}) {
+					restored.RLM = cfg.RLM
+				}
+				return &restored, restored.saveUnlocked()
 			}
 		}
 		def := Default()
 		def.MCPServers = cfg.MCPServers // mcp-only configs are valid; keep them
 		def.MCPImport = cfg.MCPImport
+		def.ProviderKeySources = cfg.ProviderKeySources
+		def.DisabledProviders = slices.Clone(cfg.DisabledProviders)
+		def.RLM = cfg.RLM
 		logf("config.load", "no usable .bak; regenerated defaults (%s), keeping %d mcp entries", def.fingerprint(), len(cfg.MCPServers))
-		return def, def.Save()
+		return def, def.saveUnlocked()
 	}
 	logf("config.load", "ok (%s)", cfg.fingerprint())
 	cfg.normalize()
@@ -425,7 +426,6 @@ func Load() (*Config, error) {
 // pointing at it) are migrated transparently. No file write happens here;
 // the next Save persists the rename.
 func (c *Config) normalize() {
-	c.renameProvider(legacyCodexProviderName, CodexProviderName, "openai-codex-responses")
 	p, ok := c.Providers["inference"]
 	if !ok {
 		return
@@ -456,14 +456,23 @@ func (c *Config) normalize() {
 // with providers/models) with a structurally empty one — that path has only
 // ever been reached by a bug, never intentionally.
 func (c *Config) Save() error {
+	configurationMu.Lock()
+	defer configurationMu.Unlock()
+	return c.saveUnlocked()
+}
+
+func (c *Config) saveUnlocked() error {
+	if err := c.RLM.Validate(); err != nil {
+		return err
+	}
 	p, err := path()
 	if err != nil {
 		return err
 	}
-	if len(c.Providers) == 0 && len(c.Models) == 0 && !c.allowEmptySave {
+	if len(c.Providers) == 0 && len(c.Models) == 0 {
 		if existing, err := os.ReadFile(p); err == nil {
 			var cur Config
-			if parseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
+			if ParseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
 				logf("config.save", "REFUSED empty overwrite of healthy config (disk had providers=%d models=%d)", len(cur.Providers), len(cur.Models))
 				return fmt.Errorf("refusing to overwrite %s: existing config has providers/models but the value being saved is empty", p)
 			}
@@ -476,7 +485,7 @@ func (c *Config) Save() error {
 	// log the before/after fingerprint so a bad write is attributable
 	if existing, err := os.ReadFile(p); err == nil && len(existing) > 0 {
 		var cur Config
-		if parseJSONC(existing, &cur) == nil {
+		if ParseJSONC(existing, &cur) == nil {
 			logf("config.save", "before=(%s) after=(%s)", cur.fingerprint(), c.fingerprint())
 		} else {
 			logf("config.save", "before=(unparseable, %d bytes) after=(%s)", len(existing), c.fingerprint())
@@ -496,13 +505,6 @@ func (c *Config) Save() error {
 		logf("config.save", "rename failed: %v", err)
 		return err
 	}
-	if c.allowEmptySave {
-		// Load treats an empty config as corruption and restores the backup;
-		// the user removed their last provider on purpose, so drop it and let
-		// the next start regenerate the shipped defaults.
-		_ = os.Remove(p + ".bak")
-		c.allowEmptySave = false
-	}
 	return nil
 }
 
@@ -515,7 +517,7 @@ func marshalConfig(c *Config) ([]byte, error) {
 	header := "// whip configuration — JSONC: comments and trailing commas are allowed.\n" +
 		"// providers: declare each API endpoint once. models: route each model to one or\n" +
 		"// more providers (first is the default). defaultModel/defaultProvider pick the route.\n" +
-		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex imports, e.g.\n" +
+		"// mcp: whip's own MCP servers; mcpImport: gate claude/codex/project imports, e.g.\n" +
 		"//   \"mcpImport\": { \"codex\": { \"enabled\": true, \"exclude\": [\"node_repl\"] } }\n"
 	out := append([]byte(header), body...)
 	return append(out, '\n'), nil
@@ -524,19 +526,29 @@ func marshalConfig(c *Config) ([]byte, error) {
 // Resolve picks the provider and API model id for a model name.
 // provider may be "" to use the config default routing.
 func (c *Config) Resolve(model, provider string) (Provider, Model, string, error) {
+	_, resolvedProvider, resolvedModel, apiID, err := c.ResolveRoute(model, provider)
+	return resolvedProvider, resolvedModel, apiID, err
+}
+
+// ResolveRoute also returns the selected provider's configuration key. Callers
+// use that identity to look up the catalog for the endpoint actually selected,
+// including when a catalog-only model overrides default routing. An omitted
+// model selects the saved default model/provider pair together.
+func (c *Config) ResolveRoute(model, provider string) (string, Provider, Model, string, error) {
 	if model == "" {
 		model = c.DefaultModel
+		if provider == "" {
+			provider = c.DefaultProvider
+		}
 	}
 	m, ok := c.Models[model]
 	if !ok {
 		// Catalog fallback: a provider-advertised model needs no config entry;
-		// config entries stay authoritative overrides when present. The scan
-		// runs before DefaultProvider applies so a catalog-only id served by
-		// another provider still resolves.
+		// config entries stay authoritative overrides when present.
 		var err error
 		m, provider, err = c.resolveFromCatalog(model, provider)
 		if err != nil {
-			return Provider{}, Model{}, "", err
+			return "", Provider{}, Model{}, "", err
 		}
 	}
 	if provider == "" {
@@ -545,15 +557,16 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 	if provider == "" && len(m.Providers) > 0 {
 		provider = m.Providers[0]
 	}
-	p, ok := c.Providers[provider]
+	providers := c.EffectiveProviders()
+	p, ok := providers[provider]
 	if !ok {
-		return Provider{}, Model{}, "", fmt.Errorf("unknown provider %q (providers: %s)", provider, keys(c.Providers))
+		return "", Provider{}, Model{}, "", fmt.Errorf("provider %q is unavailable (providers: %s)", provider, keys(providers))
 	}
 	id := m.ID
 	if id == "" {
 		id = model
 	}
-	return p, m, id, nil
+	return provider, p, m, id, nil
 }
 
 // UnknownModelError flags a Resolve miss the caller may recover from by
@@ -566,7 +579,7 @@ type UnknownModelError struct {
 }
 
 func (e *UnknownModelError) Error() string {
-	return fmt.Sprintf("unknown model %q (configured: %s; catalog models are listed by /model)", e.Model, e.known)
+	return fmt.Sprintf("unknown model %q (models: %s)", e.Model, e.known)
 }
 
 // resolveFromCatalog synthesizes a Model for an id advertised in a provider's
@@ -581,28 +594,21 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 		mi   *ModelInfoLite
 	}
 	var hits []hit
+	providers := c.EffectiveProviders()
 	for name, cat := range LoadCatalogs() {
 		if provider != "" && name != provider {
 			continue
 		}
-		if _, ok := c.Providers[name]; !ok {
+		if route, ok := providers[name]; !ok || strings.TrimRight(route.BaseURL, "/") != strings.TrimRight(cat.BaseURL, "/") {
 			continue // catalog for a provider no longer configured
 		}
+		cat = EnrichPresetCatalog(name, providers[name], cat)
 		if mi := cat.Find(model); mi != nil {
 			hits = append(hits, hit{name, mi})
 		}
 	}
 	if len(hits) == 0 {
 		return Model{}, "", &UnknownModelError{Model: model, known: keys(c.Models)}
-	}
-	if len(hits) > 1 {
-		// DefaultProvider breaks the tie when it advertises the id too.
-		for _, h := range hits {
-			if h.prov == c.DefaultProvider {
-				hits = []hit{h}
-				break
-			}
-		}
 	}
 	if len(hits) > 1 {
 		names := make([]string, len(hits))
@@ -625,13 +631,14 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 	return m, h.prov, nil
 }
 
-// Snapshot returns a copy of the config safe to read from another goroutine
-// while the original keeps being mutated on the UI goroutine (the subagent
-// model resolver runs on tool workers). Maps are copied one level deep —
+// Snapshot returns an immutable copy suitable for model-resolution closures.
+// Maps are copied one level deep —
 // their struct values are plain data; nested slices are never mutated in
 // place, only replaced wholesale with the map entry.
 func (c *Config) Snapshot() *Config {
 	snap := *c
+	snap.DisabledProviders = slices.Clone(c.DisabledProviders)
+	snap.ProviderKeySources = c.ProviderKeySources.clone()
 	snap.Providers = make(map[string]Provider, len(c.Providers))
 	maps.Copy(snap.Providers, c.Providers)
 	snap.Models = make(map[string]Model, len(c.Models))
@@ -655,7 +662,10 @@ func Default() *Config {
 	return &Config{
 		DefaultModel: "kimi-k3-fast",
 		CompactModel: DefaultCompactModel,
-		UIMode:       "opencode",
+		MCPImport: &MCPImport{
+			Claude: &MCPImportSource{Enabled: new(false)},
+			Codex:  &MCPImportSource{Enabled: new(false)},
+		},
 		//nolint:gosec // G101: APIKeyEnv holds env var NAMES, not credentials
 		Providers: map[string]Provider{
 			"inference-net": {
@@ -672,4 +682,23 @@ func Default() *Config {
 			"deepseek-v4-flash-0731": {Providers: []string{"inference-net"}, Context: 384000},
 		},
 	}
+}
+
+// Engine is the language used by fresh sessions when no selector is supplied.
+func (c RLMConfig) Engine() string {
+	if c.DefaultEngine == "" {
+		return "starlark"
+	}
+	return c.DefaultEngine
+}
+
+// Validate rejects invalid engine or concurrency preferences at configuration I/O.
+func (c RLMConfig) Validate() error {
+	if c.Engine() != "starlark" && c.Engine() != "quickjs" {
+		return fmt.Errorf("unknown rlm.defaultEngine %q", c.DefaultEngine)
+	}
+	if c.MaxConcurrentHostCalls < 0 || c.MaxConcurrentHostCalls > 16 {
+		return errors.New("rlm.maxConcurrentHostCalls must be 1..16, or 0 for the default")
+	}
+	return nil
 }

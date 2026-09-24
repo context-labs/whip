@@ -1,0 +1,10 @@
+{
+  "environment": "whipcode",
+  "app": "whip-eval",
+  "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3",
+  "max_jobs": 90,
+  "shapes": {
+    "harbor": {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000},
+    "pier": {"physical_cpus": 6, "memory_mb": 24576, "min_free_disk_mb": 100000}
+  }
+}

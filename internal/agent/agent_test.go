@@ -39,6 +39,71 @@ func loopServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+type recordedModelBudget struct {
+	estimates []llm.ModelAttempt
+	results   []llm.ModelAttemptResult
+}
+
+func (b *recordedModelBudget) BeginModelAttempt(_ context.Context, estimate llm.ModelAttempt) (llm.ModelPermit, error) {
+	b.estimates = append(b.estimates, estimate)
+	return llm.ModelPermit{MaxTokens: estimate.MaxTokens, Timeout: estimate.Timeout, Settle: func(result llm.ModelAttemptResult) error {
+		b.results = append(b.results, result)
+		return nil
+	}}, nil
+}
+
+func TestEveryAgentCallUsesItsRouteBudget(t *testing.T) {
+	for _, kind := range []string{"turn", "final answer", "compaction"} {
+		t.Run(kind, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request llm.Request
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request.Stream {
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\ndata: [DONE]\n\n")
+				} else {
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`)
+				}
+			}))
+			defer server.Close()
+			ag := newTestAgent(llm.New(server.URL, "fixture"), "root-model", 8192, "system")
+			ag.Pricing = llm.Pricing{Prompt: "0.01", Completion: "0.02"}
+			ag.CompactClient, ag.CompactModel = llm.New(server.URL, "fixture"), "compact-model"
+			ag.CompactPricing = llm.Pricing{Prompt: "0.001", Completion: "0.002"}
+			budget := &recordedModelBudget{}
+			ag.SetModelCallBudget(budget)
+			wantPrices, wantOutput := ag.Pricing, 8192
+			var err error
+			switch kind {
+			case "turn":
+				_, err = ag.Turn(t.Context(), "hello", Events{})
+			case "final answer":
+				_, err = ag.finalAnswer(t.Context(), Events{})
+			case "compaction":
+				for range 8 {
+					ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "question"}, llm.Message{Role: "assistant", Content: "answer"})
+				}
+				err = ag.ManualCompact(t.Context(), Events{})
+				wantPrices, wantOutput = ag.CompactPricing, 4096
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(budget.estimates) != 1 || len(budget.results) != 1 {
+				t.Fatalf("admissions=%d settlements=%d", len(budget.estimates), len(budget.results))
+			}
+			if estimate := budget.estimates[0]; estimate.Pricing != wantPrices || estimate.MaxTokens != wantOutput || estimate.InputTokens == 0 {
+				t.Fatalf("route estimate=%+v", estimate)
+			}
+			if usage := budget.results[0].Usage; !usage.Reported || !budget.results[0].Dispatched || usage.PromptTokens != 12 || usage.CompletionTokens != 3 {
+				t.Fatalf("settled usage=%+v", usage)
+			}
+		})
+	}
+}
+
 func echoTool() tools.Tool {
 	return tools.Tool{
 		Def: llm.NewTool("echo", "echo", `{"type":"object","properties":{"s":{"type":"string"}}}`),
@@ -50,11 +115,22 @@ func echoTool() tools.Tool {
 	}
 }
 
+func newTestAgent(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+	return newTestAgentWithServices(client, model, maxTokens, systemPrompt, tools.NewServices())
+}
+
+func newTestAgentWithServices(client *llm.Client, model string, maxTokens int, systemPrompt string, services *tools.Services) *Agent {
+	value := NewRuntime(client, model, maxTokens, systemPrompt, services)
+	value.Tools = tools.AllWithServices(services)
+	value.Tools = append(value.Tools, tools.BrowserExec(services), tools.ComputerExec(services))
+	return value
+}
+
 func TestTurnLoop(t *testing.T) {
 	srv := loopServer(t)
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.Tools = []tools.Tool{echoTool()}
 
 	var events []string
@@ -84,21 +160,6 @@ func TestTurnLoop(t *testing.T) {
 	}
 }
 
-func TestTurnSendsMaxTokens(t *testing.T) {
-	srv := textServer(t, func(_ int, req llm.Request) string {
-		if req.MaxTokens != 123 {
-			t.Errorf("max tokens = %d, want 123", req.MaxTokens)
-		}
-		return "done"
-	})
-	defer srv.Close()
-
-	ag := New(llm.New(srv.URL, "k"), "m", 123, "sys")
-	if _, err := ag.Turn(context.Background(), "go", Events{}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Each assistant message records its token usage and which model produced it;
 // tool calls record their run time and exit status. All survive for per-turn
 // cost and perf views after the in-memory session totals are gone.
@@ -117,7 +178,7 @@ func TestTurnStampsUsageModelAndToolTiming(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "kimi-k3-fast", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "kimi-k3-fast", 100, "sys")
 	ag.Provider = "inference"
 	ag.Tools = []tools.Tool{echoTool()}
 
@@ -171,7 +232,7 @@ func TestInternalStampsStrippedFromRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	// pre-seed a message loaded from storage with all internal fields set
 	sent := time.Now()
 	u := llm.Usage{PromptTokens: 9}
@@ -197,7 +258,7 @@ func TestInternalStampsStrippedFromRequest(t *testing.T) {
 func TestTurnCancelled(t *testing.T) {
 	srv := loopServer(t)
 	defer srv.Close()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.Tools = []tools.Tool{echoTool()}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { cancel() }()
@@ -217,7 +278,7 @@ func TestTurnAPIError(t *testing.T) {
 	// retries on made it sleep through the full backoff — ~80s for one assert.
 	c := llm.New(srv.URL, "k")
 	c.MaxRetries = 1
-	ag := New(c, "m", 100, "sys")
+	ag := newTestAgent(c, "m", 100, "sys")
 	if _, err := ag.Turn(context.Background(), "go", Events{}); err == nil {
 		t.Fatal("expected error")
 	}
@@ -244,7 +305,7 @@ func TestTurnAuthoredMarksMessage(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	if _, err := ag.TurnAuthored(context.Background(), "i typed this", Events{}); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +344,7 @@ func TestUsageAccumulates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	var fired int
 	for range 3 {
 		if _, err := ag.Turn(context.Background(), "go", Events{
@@ -311,7 +372,7 @@ func TestUsageAccumulates(t *testing.T) {
 func TestUsageMissingLeavesTotalsAlone(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
 	defer srv.Close()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	if _, err := ag.Turn(context.Background(), "go", Events{}); err != nil {
 		t.Fatal(err)
 	}
@@ -333,11 +394,18 @@ func TestSteerContinuesTurn(t *testing.T) {
 	})
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
-	ag.Steer("also do this") // queued before the first response completes
-	var steered []string
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+	// The owner supplies steer-class work at the first loop boundary; the
+	// hook is polled again afterwards and returns nothing, so the turn ends.
+	boundaries := 0
 	final, err := ag.Turn(context.Background(), "go", Events{
-		OnSteer: func(s string) { steered = append(steered, s) },
+		OnBoundary: func() ([]llm.Message, error) {
+			boundaries++
+			if boundaries == 1 {
+				return []llm.Message{{Role: "user", Content: "also do this"}}, nil
+			}
+			return nil, nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -345,81 +413,18 @@ func TestSteerContinuesTurn(t *testing.T) {
 	if final != "ok2" {
 		t.Fatalf("turn should continue after steer, got %q", final)
 	}
-	if len(steered) != 1 || steered[0] != "also do this" {
-		t.Fatalf("OnSteer events: %v", steered)
+	if boundaries != 2 {
+		t.Fatalf("boundary polls = %d, want 2", boundaries)
 	}
 }
 
 func TestNoSteerEndsTurn(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
 	defer srv.Close()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	final, err := ag.Turn(context.Background(), "go", Events{})
 	if err != nil || final != "done" {
 		t.Fatalf("%q %v", final, err)
-	}
-}
-
-func TestTaskToolSpawnsSubagent(t *testing.T) {
-	call := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		call++
-		w.Header().Set("Content-Type", "text/event-stream")
-		switch call {
-		case 1: // outer agent delegates
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"subagent","arguments":"{\"description\":\"probe\",\"prompt\":\"find the answer\"}"}}]}}]}`+"\n\n")
-			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1}}`+"\n\n")
-		case 2: // inner subagent: fresh context, no task tool, gets the prompt
-			if len(req.Messages) != 2 || req.Messages[1].Content != "find the answer" {
-				t.Errorf("subagent context wrong: %+v", req.Messages)
-			}
-			for _, tl := range req.Tools {
-				if tl.Function.Name == "subagent" {
-					t.Error("subagent must not have the task tool")
-				}
-			}
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"the answer is 42"}}]}`+"\n\n")
-			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":70,"completion_tokens":7}}`+"\n\n")
-		case 3: // outer agent sees the report as the tool result
-			last := req.Messages[len(req.Messages)-1]
-			if last.Role != "tool" || last.Content != "the answer is 42" {
-				t.Errorf("task result not fed back: %+v", last)
-			}
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
-			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1}}`+"\n\n")
-		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	defer srv.Close()
-
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
-	final, err := ag.Turn(context.Background(), "go", Events{})
-	if err != nil || final != "done" {
-		t.Fatalf("%q %v", final, err)
-	}
-	if call != 3 {
-		t.Fatalf("expected 3 API calls, got %d", call)
-	}
-	// Spend splits cleanly: the parent's two requests in Usage, the
-	// foreground sub's one request in the ledger, the total counting each once.
-	if u := ag.Usage(); u.PromptTokens != 20 || u.CompletionTokens != 2 {
-		t.Fatalf("parent's own usage should be its two requests (20/2), got %+v", u)
-	}
-	if u := ag.SubUsage()["m @ "]; u.PromptTokens != 70 || u.CompletionTokens != 7 {
-		t.Fatalf("foreground sub's request should be ledgered under its model: %+v", ag.SubUsage())
-	}
-	if u := ag.TotalUsage(); u.PromptTokens != 90 || u.CompletionTokens != 9 {
-		t.Fatalf("total should be 90/9, got %+v", u)
-	}
-}
-
-func TestTaskToolBadArgs(t *testing.T) {
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
-	out := tools.Execute(context.Background(), ag.Tools, "subagent", json.RawMessage(`{bad`))
-	if !strings.HasPrefix(out, "Error") {
-		t.Fatalf("expected error, got %q", out)
 	}
 }
 
@@ -454,7 +459,7 @@ func TestTurnAutoCompactsOnContextLimit(t *testing.T) {
 	srv, pcall := compactionServer(t)
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	// build a history that's compactable: system + enough turns
 	for i := range 8 {
 		ag.Messages = append(ag.Messages,
@@ -484,6 +489,109 @@ func TestTurnAutoCompactsOnContextLimit(t *testing.T) {
 	}
 }
 
+func TestTurnOverflowRetryResetsAfterFailure(t *testing.T) {
+	for _, failure := range []string{"summary", "retry"} {
+		t.Run(failure, func(t *testing.T) {
+			var streams atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req llm.Request
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if req.Stream && streams.Add(1) == 1 {
+					http.Error(w, `{"error":{"code":"context_length_exceeded"}}`, http.StatusBadRequest)
+					return
+				}
+				if !req.Stream && failure == "retry" {
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+					return
+				}
+				http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+			}))
+			defer srv.Close()
+			ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+			ag.Messages = append(ag.Messages,
+				llm.Message{Role: "user", Content: "old question"},
+				llm.Message{Role: "assistant", Content: "old answer"},
+			)
+			// Each new turn exceeds the tail budget, making the preceding turn foldable.
+			input := strings.Repeat("x", 70000)
+			_, err := ag.Turn(t.Context(), input, Events{})
+			if err == nil || !strings.Contains(err.Error(), "fixture failure") {
+				t.Fatalf("first turn error = %v, want fixture failure", err)
+			}
+
+			recovery, calls := compactionServer(t)
+			defer recovery.Close()
+			ag.Client = llm.New(recovery.URL, "k")
+			final, err := ag.Turn(t.Context(), input, Events{})
+			if err != nil {
+				t.Fatalf("next turn must receive its own overflow retry: %v", err)
+			}
+			if final != "recovered" || *calls != 3 {
+				t.Fatalf("next turn = %q, calls = %d; want recovered after fail+summary+retry", final, *calls)
+			}
+		})
+	}
+}
+
+func TestTurnProactiveCompactionResetsAfterFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		if !req.Stream {
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+			return
+		}
+		http.Error(w, `{"error":{"message":"fixture failure"}}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	// The system prompt alone remains over threshold after each fold, stalling the turn.
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, strings.Repeat("s", 12000))
+	ag.ContextLimit = 5000
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "old question"},
+		llm.Message{Role: "assistant", Content: "old answer"},
+	)
+	folds := 0
+	ev := Events{OnCompact: func(int, int) { folds++ }}
+	for turn := range 2 {
+		if _, err := ag.Turn(t.Context(), strings.Repeat("x", 12000), ev); err == nil {
+			t.Fatal("expected provider failure")
+		}
+		if folds != turn+1 {
+			t.Fatalf("turn %d: completed folds = %d, want %d", turn+1, folds, turn+1)
+		}
+	}
+}
+
+func TestCompactClampedTailDoesNotPin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}]}`)
+	}))
+	defer srv.Close()
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "first question"},
+		llm.Message{Role: "assistant", Content: "first answer"},
+		llm.Message{Role: "user", Content: "second question"},
+	)
+	var info CompactInfo
+	err := ag.ManualCompact(t.Context(), Events{
+		OnCompaction: func(_ string, _ int, _ []llm.Message, got CompactInfo) { info = got },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Pinned || ag.Messages[2].Role != "assistant" {
+		t.Fatalf("clamped fold must not report a pin: info=%+v view=%+v", info, ag.Messages)
+	}
+}
+
 func TestCompactDoesNotLoopOnRepeatedContextLimit(t *testing.T) {
 	// every request errors with context_length_exceeded → compaction must
 	// happen once and then the error surfaces (no infinite retry loop)
@@ -504,7 +612,7 @@ func TestCompactDoesNotLoopOnRepeatedContextLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	for i := range 8 {
 		ag.Messages = append(ag.Messages,
 			llm.Message{Role: "user", Content: fmt.Sprintf("q%d", i)},
@@ -561,7 +669,7 @@ func TestProactiveCompactAtFiftyPercent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.ContextLimit = 1000 // default 50% = 500 estimated tokens
 	// 8 user messages × 120 chars ≈ 272 estimated tokens: under the threshold
 	for range 8 {
@@ -588,7 +696,7 @@ func TestCompactThresholdExplicitOverride(t *testing.T) {
 
 	// ~74% of the limit: over the 50% default, under an explicit 80% — no
 	// compaction, and the estimate stays deterministic
-	ag := New(llm.New(srv.URL, "m"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "m"), "m", 100, "sys")
 	ag.ContextLimit = 1000
 	ag.CompactThreshold = 0.8
 	for range 8 {
@@ -608,7 +716,7 @@ func TestCompactThresholdExplicitOverride(t *testing.T) {
 	// was attempted. Single attempt so the assert doesn't wait out the backoff.
 	c2 := llm.New(srv.URL, "m")
 	c2.MaxRetries = 1
-	ag2 := New(c2, "m", 100, "sys")
+	ag2 := newTestAgent(c2, "m", 100, "sys")
 	ag2.ContextLimit = 1000
 	for range 8 {
 		ag2.Messages = append(ag2.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 360)})
@@ -623,14 +731,14 @@ func TestNoProactiveCompactBelowThresholdOrWithoutLimit(t *testing.T) {
 	defer srv.Close()
 
 	// below threshold: estimate well under 50% of the limit
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.ContextLimit = 100000
 	if _, err := ag.Turn(context.Background(), "hi", Events{}); err != nil {
 		t.Fatal(err)
 	}
 
 	// no advertised limit: proactive compaction disabled regardless of size
-	ag2 := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag2 := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag2.Messages = append(ag2.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 4000)})
 	if _, err := ag2.Turn(context.Background(), "hi", Events{}); err != nil {
 		t.Fatal(err)
@@ -654,7 +762,7 @@ func TestCompactUsesCompactModel(t *testing.T) {
 	}))
 	defer sum.Close()
 
-	ag := New(llm.New(main.URL, "k"), "conversation-model", 100, "sys")
+	ag := newTestAgent(llm.New(main.URL, "k"), "conversation-model", 100, "sys")
 	ag.CompactClient = llm.New(sum.URL, "k")
 	ag.CompactModel = "summary-model"
 	for i := range 8 {
@@ -672,7 +780,7 @@ func TestCompactUsesCompactModel(t *testing.T) {
 }
 
 func TestCompactTooLittleHistory(t *testing.T) {
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
 	ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "hi"})
 	if _, _, _, err := ag.compact(context.Background()); err == nil {
 		t.Fatal("expected error compacting a tiny history")
@@ -686,7 +794,7 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 		w.Write([]byte(`{"choices":[{"message":{"content":"sim"}}]}`))
 	}))
 	defer srv.Close()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.ContextLimit = 1000 // tiny window → tail budget clamps to the 2000-token floor
 	// Pad the early turns so they exceed the tail budget and fold. The
 	// tool-call pair comes LAST so it sits in the kept tail; the orphan guard
@@ -732,6 +840,19 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 	}
 }
 
+func TestCompactionRawTailStartSkipsDerivedSummaries(t *testing.T) {
+	before := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "first request"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nnew"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nprior"},
+		{Role: "assistant", Content: "raw tail"},
+	}
+	if got := CompactionRawTailStart(before, len(before)); got != 4 {
+		t.Fatalf("raw tail start=%d", got)
+	}
+}
+
 // SteerImages queues a multimodal user message: the turn continues past it
 // and the injected message carries both the text and the image parts.
 func TestSteerImagesInjectsParts(t *testing.T) {
@@ -743,7 +864,7 @@ func TestSteerImagesInjectsParts(t *testing.T) {
 	})
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.SteerImages("see the screenshot", []llm.ContentPart{llm.ImagePart("png", []byte("img-bytes"))})
 	final, err := ag.Turn(context.Background(), "go", Events{})
 	if err != nil {
@@ -769,7 +890,7 @@ func TestSteerImagesInjectsParts(t *testing.T) {
 // AppendUser adds an unauthored user message outside a turn (the `!` shell
 // escape path).
 func TestAppendUser(t *testing.T) {
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
 	ag.AppendUser("shell output: ok")
 	last := ag.Messages[len(ag.Messages)-1]
 	if last.Role != "user" || last.Content != "shell output: ok" {
@@ -783,12 +904,8 @@ func TestAppendUser(t *testing.T) {
 // SetUsage seeds a resumed session's totals so AddUsage keeps counting from
 // there; ResetUsage zeroes them for /clear.
 func TestSetAndResetUsage(t *testing.T) {
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
 	ag.SetUsage(llm.Usage{PromptTokens: 11, CompletionTokens: 7})
-	ag.SetSubUsage(map[string]llm.Usage{"sub @ provider": {PromptTokens: 3, CompletionTokens: 2}})
-	if u := ag.SubUsage()["sub @ provider"]; u.PromptTokens != 3 || u.CompletionTokens != 2 {
-		t.Fatalf("seeded subagent totals = %+v", ag.SubUsage())
-	}
 	ag.AddUsage(llm.Usage{PromptTokens: 4, CompletionTokens: 1})
 	if u := ag.Usage(); u.PromptTokens != 15 || u.CompletionTokens != 8 {
 		t.Fatalf("seeded totals should keep counting: %+v", u)
@@ -804,7 +921,7 @@ func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	parts := []llm.ContentPart{llm.ImagePart("png", []byte("shot"))}
 	final, err := ag.TurnWithImages(context.Background(), "what's in this image?", parts, Events{})
 	if err != nil || final != "done" {
@@ -819,33 +936,13 @@ func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	}
 }
 
-// SetMCPTools makes the MCP set visible via AllTools and installs the
-// tools.Suggester, so a typo'd mcp__ call gets a "did you mean?" nudge.
-func TestSetMCPToolsInstallsSuggester(t *testing.T) {
-	orig := tools.Suggester
-	tools.Suggester = nil
-	t.Cleanup(func() { tools.Suggester = orig })
-
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
-	mt := tools.Tool{Def: llm.NewTool("mcp__srv__hello", "h", `{"type":"object"}`)}
-	ag.SetMCPTools([]tools.Tool{mt})
-
-	var found bool
-	for _, tl := range ag.AllTools() {
-		if tl.Def.Function.Name == "mcp__srv__hello" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("MCP tool missing from AllTools")
-	}
-	if tools.Suggester == nil {
-		t.Fatal("SetMCPTools should install the suggester")
-	}
+func TestToolSuggesterUsesConfiguredSurface(t *testing.T) {
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag.SetExclusiveTool(tools.Tool{Def: llm.NewTool("rlm_exec", "runtime", `{}`)}, "rlm")
 	// a near-miss call self-corrects through Execute's unknown-tool path
-	out := tools.Execute(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`))
-	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "mcp__srv__hello") {
-		t.Fatalf("typo'd MCP call should suggest the live name, got %q", out)
+	out := tools.ExecuteWithSuggester(context.Background(), ag.AllTools(), "rlm_exe", json.RawMessage(`{}`), ag.suggest)
+	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "rlm_exec") {
+		t.Fatalf("typo'd tool call should suggest the configured name, got %q", out)
 	}
 }
 
@@ -913,7 +1010,7 @@ func TestManualCompactFiresEvent(t *testing.T) {
 		w.Write([]byte(`{"choices":[{"message":{"content":"sim"}}]}`))
 	}))
 	defer srv.Close()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	for i := range 8 {
 		ag.Messages = append(ag.Messages,
 			llm.Message{Role: "user", Content: fmt.Sprintf("q%d", i)},
@@ -937,7 +1034,7 @@ func TestManualCompactFiresEvent(t *testing.T) {
 	}
 
 	// Too little history: the error surfaces instead of a silent no-op.
-	empty := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	empty := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	if err := empty.ManualCompact(context.Background(), Events{}); err == nil {
 		t.Fatal("ManualCompact on a fresh agent should report too little history")
 	}
@@ -946,7 +1043,7 @@ func TestManualCompactFiresEvent(t *testing.T) {
 // MessagesSnapshot hands out a copy — mutating it must not touch the agent's
 // transcript (the TUI reads it while a turn runs).
 func TestMessagesSnapshotIsACopy(t *testing.T) {
-	ag := New(nil, "m", 0, "sys")
+	ag := newTestAgent(nil, "m", 0, "sys")
 	ag.AppendUser("hello")
 	snap := ag.MessagesSnapshot()
 	if len(snap) != len(ag.Messages) {
@@ -969,80 +1066,97 @@ func TestTruncateField(t *testing.T) {
 
 // A compaction must announce itself (start), and its result must carry which
 // model wrote the summary plus that call's usage — the UI renders both in the
-// transcript. Proven here on the proactive path with a tiny context limit so
-// the first request crosses the threshold.
+// transcript. All eventful paths must announce a real fold exactly once.
 func TestCompactionEventsCarryModelAndUsage(t *testing.T) {
-	var startFiredBeforeSummary atomic.Bool
-	var sawSummaryCall atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		if !req.Stream { // the compaction summary call
-			sawSummaryCall.Store(true)
-			if !startFiredBeforeSummary.Load() {
-				t.Error("OnCompactStart must fire before the summary call runs")
-			}
-			w.Write([]byte(`{"choices":[{"message":{"content":"folded summary"}}],` +
-				`"usage":{"prompt_tokens":1500,"completion_tokens":120}}`))
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	defer srv.Close()
+	for _, mode := range []string{"proactive", "overflow", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			var overflowRejected atomic.Bool
+			var startFiredBeforeSummary atomic.Bool
+			var sawSummaryCall atomic.Bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req llm.Request
+				json.NewDecoder(r.Body).Decode(&req)
+				if !req.Stream { // the compaction summary call
+					sawSummaryCall.Store(true)
+					if !startFiredBeforeSummary.Load() {
+						t.Error("OnCompactStart must fire before the summary call runs")
+					}
+					w.Write([]byte(`{"choices":[{"message":{"content":"folded summary"}}],` +
+						`"usage":{"prompt_tokens":1500,"completion_tokens":120}}`))
+					return
+				}
+				if mode == "overflow" && overflowRejected.CompareAndSwap(false, true) {
+					http.Error(w, `{"error":{"code":"context_length_exceeded"}}`, http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
+				fmt.Fprint(w, "data: [DONE]\n\n")
+			}))
+			defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "summarizer-model", 100, "sys")
-	ag.ContextLimit = 400     // tiny limit…
-	ag.CompactThreshold = 0.1 // …so any history crosses 40 estimated tokens
-	for i := range 8 {
-		ag.Messages = append(ag.Messages,
-			llm.Message{Role: "user", Content: fmt.Sprintf("question %d about the thing", i)},
-			llm.Message{Role: "assistant", Content: fmt.Sprintf("answer %d about the thing", i)},
-		)
-	}
-	var starts, dones int
-	var startTook, startEst int
-	var doneInfo CompactInfo
-	final, err := ag.Turn(context.Background(), "keep going", Events{
-		OnCompactStart: func(took, est int) {
-			starts++
-			startTook, startEst = took, est
-			startFiredBeforeSummary.Store(true)
-		},
-		OnCompacted: func(sum string, cutoff int, info CompactInfo) {
-			dones++
-			doneInfo = info
-		},
-	})
-	if err != nil {
-		t.Fatalf("turn: %v", err)
-	}
-	if final != "done" {
-		t.Fatalf("final: %q", final)
-	}
-	if !sawSummaryCall.Load() {
-		t.Fatal("no summary call ran — the tiny limit should have forced a proactive compaction")
-	}
-	if starts != 1 || dones != 1 {
-		t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
-	}
-	// startTook is the PRE-compaction message count (what OnCompact's took
-	// param means). With the token-budgeted tail the post-compaction length
-	// can exceed it on a tiny history (the ≥2000-token budget keeps nearly all
-	// of it, plus the summary message), so assert only that it fired and is
-	// plausible, not an exact post/pre relationship.
-	if startTook < 2 {
-		t.Fatalf("start should report the pre-compaction count, got %d", startTook)
-	}
-	if startEst <= 0 {
-		t.Fatalf("start should carry a positive token estimate, got %d", startEst)
-	}
-	if doneInfo.Model != "summarizer-model" {
-		t.Fatalf("done should name the model that wrote the summary, got %q", doneInfo.Model)
-	}
-	if doneInfo.Usage.PromptTokens != 1500 || doneInfo.Usage.CompletionTokens != 120 {
-		t.Fatalf("done should carry the summary call's usage, got %+v", doneInfo.Usage)
+			ag := newTestAgent(llm.New(srv.URL, "k"), "summarizer-model", 100, "sys")
+			if mode == "proactive" {
+				ag.ContextLimit = 400     // tiny limit…
+				ag.CompactThreshold = 0.1 // …so any history crosses 40 estimated tokens
+			}
+			for i := range 8 {
+				ag.Messages = append(ag.Messages,
+					llm.Message{Role: "user", Content: fmt.Sprintf("question %d about the thing", i)},
+					llm.Message{Role: "assistant", Content: fmt.Sprintf("answer %d about the thing", i)},
+				)
+			}
+			var starts, dones int
+			var startTook, startEst int
+			var doneInfo CompactInfo
+			ev := Events{
+				OnCompactStart: func(took, est int) {
+					starts++
+					startTook, startEst = took, est
+					startFiredBeforeSummary.Store(true)
+				},
+				OnCompacted: func(sum string, cutoff int, info CompactInfo) {
+					dones++
+					doneInfo = info
+				},
+			}
+			var final string
+			var err error
+			if mode == "manual" {
+				err = ag.ManualCompact(t.Context(), ev)
+			} else {
+				final, err = ag.Turn(t.Context(), "keep going", ev)
+			}
+			if err != nil {
+				t.Fatalf("compaction: %v", err)
+			}
+			if mode != "manual" && final != "done" {
+				t.Fatalf("final: %q", final)
+			}
+			if !sawSummaryCall.Load() {
+				t.Fatal("no summary call ran")
+			}
+			if starts != 1 || dones != 1 {
+				t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
+			}
+			// startTook is the PRE-compaction message count (what OnCompact's took
+			// param means). With the token-budgeted tail the post-compaction length
+			// can exceed it on a tiny history (the ≥2000-token budget keeps nearly all
+			// of it, plus the summary message), so assert only that it fired and is
+			// plausible, not an exact post/pre relationship.
+			if startTook < 2 {
+				t.Fatalf("start should report the pre-compaction count, got %d", startTook)
+			}
+			if startEst <= 0 {
+				t.Fatalf("start should carry a positive token estimate, got %d", startEst)
+			}
+			if doneInfo.Model != "summarizer-model" {
+				t.Fatalf("done should name the model that wrote the summary, got %q", doneInfo.Model)
+			}
+			if doneInfo.Usage.PromptTokens != 1500 || doneInfo.Usage.CompletionTokens != 120 {
+				t.Fatalf("done should carry the summary call's usage, got %+v", doneInfo.Usage)
+			}
+		})
 	}
 }
 
@@ -1059,7 +1173,7 @@ func TestCompactionInfoLabelsDedicatedRoute(t *testing.T) {
 	}))
 	defer sum.Close()
 
-	ag := New(llm.New(main.URL, "k"), "conversation-model", 100, "sys")
+	ag := newTestAgent(llm.New(main.URL, "k"), "conversation-model", 100, "sys")
 	ag.CompactClient = llm.New(sum.URL, "k")
 	ag.CompactModel = "summary-model"
 	for i := range 8 {

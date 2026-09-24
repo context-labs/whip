@@ -1,0 +1,524 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/session"
+)
+
+func TestCodeFromPartialArgs(t *testing.T) {
+	cases := map[string]string{
+		`{"code": "n = 1\nprint(\"hi\")"}`: "n = 1\nprint(\"hi\")",
+		`{"code": "n = 1\nprint(\"hi`:      "n = 1\nprint(\"hi",
+		`{"code": "tab\t\u00e9`:            "tab\té",
+		`{"code": "trail\`:                 "trail",
+		`{"other": 1}`:                     "",
+		`{"co`:                             "",
+	}
+	for args, want := range cases {
+		if got := codeFromPartialArgs(args); got != want {
+			t.Fatalf("codeFromPartialArgs(%q) = %q, want %q", args, got, want)
+		}
+	}
+}
+
+func replTestModel(t *testing.T, termWidth int) *model {
+	t.Helper()
+	m := &model{
+		cfg: &config.Config{}, input: newInput(), termWidth: termWidth, height: 40, now: time.Now,
+		sessTitle: "Repl session", replPanel: true,
+		clientView: clientPresentation{agents: []session.RuntimeAgent{
+			{ID: "root-agent", LifecyclePhase: "running"},
+			{ID: "child", ParentID: "root-agent", Name: "w3", LifecyclePhase: "running"},
+		}},
+	}
+	m.recalcWidth()
+	return m
+}
+
+func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
+	m := replTestModel(t, 140)
+	if m.panelWidth() != (140-opencodeLeftMargin)/2 || m.leftVisible() {
+		t.Fatalf("panel width = %d left=%v (the REPL displaces the left column below %d columns and takes half the terminal)", m.panelWidth(), m.leftVisible(), replMinWide)
+	}
+	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f`})
+	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
+	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
+	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", Name: "files.list", Args: "path=.", Text: "12ms"})
+	m.replApply("root-agent", "stream.tool.output", daemon.StreamEvent{ID: "c1", Text: "a.go\n"})
+	m.replApply("child", "stream.tool.call", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
+	m.replApply("child", "stream.tool.started", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
+	running := m.replPanelView(30)
+	for _, want := range []string{"REPL · root", "1 cell", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go"} {
+		if !strings.Contains(running, want) {
+			t.Fatalf("running panel missing %q:\n%s", want, running)
+		}
+	}
+	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":3,"output":"a.go\nb.go\n","steps":42}`})
+	m.replRestart("root-agent", 9, 1)
+	done := m.replPanelView(30)
+	for _, want := range []string{"42 steps", "b.go", "⇒ ", "restarted · restored 9 · 1 skipped"} {
+		if !strings.Contains(done, want) {
+			t.Fatalf("finished panel missing %q:\n%s", want, done)
+		}
+	}
+	if height := strings.Count(done, "\n") + 1; height != 30 {
+		t.Fatalf("panel height = %d", height)
+	}
+	for line := range strings.SplitSeq(done, "\n") {
+		if w := ansi.StringWidth(line); w != m.panelWidth() {
+			t.Fatalf("panel row width %d != %d: %q", w, m.panelWidth(), ansi.Strip(line))
+		}
+		if strings.ContainsRune(ansi.Strip(line), '\uFFFD') {
+			t.Fatalf("panel row contains a replacement character: %q", ansi.Strip(line))
+		}
+	}
+	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c2", Name: "rlm_exec", Result: "Error: <rlm-cell>:1:1: undefined: nope"})
+	if failed := m.replPanelView(30); !strings.Contains(failed, "✗ <rlm-cell>:1:1: undefined: nope") || !strings.Contains(failed, "In [2]") {
+		t.Fatalf("failed cell not rendered:\n%s", failed)
+	}
+	for _, tc := range []struct{ term, want int }{{sidebarMinWidth, 59}, {160, 58}, {180, 68}, {240, 98}} { // half of the terminal, or of what the left column leaves
+		m.termWidth = tc.term
+		if m.panelWidth() != tc.want {
+			t.Fatalf("panel width at %d columns = %d, want %d", tc.term, m.panelWidth(), tc.want)
+		}
+	}
+}
+
+func TestReplPanelToggleChordAndCommand(t *testing.T) {
+	const term = 160
+	m := &model{cfg: &config.Config{}, input: newInput(), termWidth: term, now: time.Now, clientState: ClientDisconnected}
+	next, _ := m.thinKey(ctrlKey('x'))
+	m = next.(*model)
+	next, _ = m.thinKey(keyRunes("r"))
+	m = next.(*model)
+	if !m.replPanel || m.width != term-(1+leftWidth+1)-1-(term-(1+leftWidth+1))/2-1 {
+		t.Fatalf("chord toggle replPanel=%v width=%d", m.replPanel, m.width)
+	}
+	next, _ = m.thinCommand("/repl")
+	m = next.(*model)
+	if m.replPanel || m.width != term-(1+leftWidth+1)-1 {
+		t.Fatalf("command toggle replPanel=%v width=%d", m.replPanel, m.width)
+	}
+	next, _ = m.thinKey(ctrlKey('r'))
+	m = next.(*model)
+	if !m.replPanel || m.width != term-(1+leftWidth+1)-1-(term-(1+leftWidth+1))/2-1 {
+		t.Fatalf("ctrl+r toggle replPanel=%v width=%d", m.replPanel, m.width)
+	}
+	next, _ = m.thinKey(ctrlKey('r'))
+	m = next.(*model)
+	if m.replPanel {
+		t.Fatal("ctrl+r did not toggle the REPL panel back off")
+	}
+	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "Context") {
+		t.Fatalf("left column did not return after toggling off: %q", sidebar)
+	}
+}
+
+func TestReplRebuildsFromStoredPresentation(t *testing.T) {
+	m := replTestModel(t, 140)
+	encode := func(event daemon.StreamEvent) []byte {
+		payload, _ := json.Marshal(event)
+		return payload
+	}
+	m.clientView.agentPresentations = map[string][]session.SnapshotEvent{"child": {
+		{Seq: 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Args: `{"code": "memo = 1"}`})},
+		{Seq: 2, Kind: "stream.tool.completed", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Result: `{"value":null,"steps":3}`})},
+	}}
+	m.agentOpen = "child"
+	m.replRebuild()
+	if view := ansi.Strip(m.replPanelView(12)); !strings.Contains(view, "In [1]") || !strings.Contains(view, "memo = 1") || !strings.Contains(view, "3 steps") || strings.Contains(view, "In[1]") {
+		t.Fatalf("rebuilt child panel (a replayed, completed cell is not current activity):\n%s", view)
+	}
+}
+
+func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
+	m := replTestModel(t, 140)
+	for i := 1; i <= 30; i++ {
+		id := fmt.Sprintf("call-%d", i)
+		args := fmt.Sprintf(`{"code":"x = %d"}`, i)
+		m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: args})
+		m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1}`})
+	}
+	view := m.replPanelView(20)
+	if !strings.Contains(view, "In [30]") || strings.Contains(view, "In [1]") {
+		t.Fatalf("panel should follow the newest cell:\n%s", view)
+	}
+	wheel := func(x int, up bool) {
+		next, _ := m.thinMouse(wheelMsg(x, 5, up))
+		m = next.(*model)
+	}
+	inPanel := m.frameNow().side.Min.X // the panel's first column
+	for range 5 {
+		wheel(inPanel, true)
+	}
+	view = m.replPanelView(20)
+	if m.replScroll != 15 || strings.Contains(view, "In [30]") || !strings.Contains(view, "↓ 15 more lines") {
+		t.Fatalf("scroll=%d view:\n%s", m.replScroll, view)
+	}
+	wheel(inPanel-1, true) // the divider column belongs to the chat side
+	wheel(10, true)        // over the chat: the panel stays put
+	if m.replScroll != 15 {
+		t.Fatalf("chat wheel moved the panel: %d", m.replScroll)
+	}
+	for range 1000 {
+		wheel(inPanel, true)
+	}
+	view = m.replPanelView(20)
+	if !strings.Contains(view, "In [1]") {
+		t.Fatalf("scrolled past the top:\n%s", view)
+	}
+	for range 2000 {
+		wheel(inPanel, false)
+	}
+	if view = m.replPanelView(20); m.replScroll != 0 || !strings.Contains(view, "In [30]") {
+		t.Fatalf("scroll=%d after wheel down:\n%s", m.replScroll, view)
+	}
+	for line := range strings.SplitSeq(view, "\n") {
+		if w := ansi.StringWidth(line); w != m.panelWidth() {
+			t.Fatalf("row width %d != %d: %q", w, m.panelWidth(), ansi.Strip(line))
+		}
+	}
+}
+
+func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
+	m := compactCmdModel()
+	m.applyOpencodeStyles()
+	m.replPanel = true
+	m.Update(mkWinSize(160, 30))
+	if !m.replVisible() || m.panelWidth() != (160-(1+leftWidth+1))/2 {
+		t.Fatalf("setup: replVisible=%v panelWidth=%d", m.replVisible(), m.panelWidth())
+	}
+	m.append("hello world")
+	m.append("second block here")
+	next, _ := m.Update(keyRunes(" ")) // settle layout
+	m = next.(*model)
+	m.input.SetValue("")
+	viewStr(m)
+	rowY := func(r int) int { return blockRowY(m, r) }
+	y0, y1 := rowY(m.blocks[0].y0), rowY(m.blocks[1].y0)
+	panelX := m.termWidth - 10
+	next, _ = m.Update(clickMsg(panelX, y0))
+	m = next.(*model)
+	next, _ = m.Update(dragMsg(panelX, y1))
+	m = next.(*model)
+	if m.sel != nil {
+		t.Fatalf("a press in the REPL panel started a chat selection: %+v", m.sel)
+	}
+	// A drag that starts in the chat still completes when it ends over the panel.
+	next, _ = m.Update(clickMsg(m.frameNow().main.Min.X+1, y0))
+	m = next.(*model)
+	next, _ = m.Update(dragMsg(panelX, y1))
+	m = next.(*model)
+	if m.sel == nil || m.sel.anchor == m.sel.cur {
+		t.Fatalf("chat drag ending over the panel lost its selection: %+v", m.sel)
+	}
+}
+
+func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
+	m := replTestModel(t, 140)
+	clock := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return clock }
+	encode := func(event daemon.StreamEvent) []byte {
+		payload, _ := json.Marshal(event)
+		return payload
+	}
+	var seq int64
+	cellEvents := func(i int) []session.SnapshotEvent {
+		id := fmt.Sprintf("call-%d", i)
+		started := daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: fmt.Sprintf(`{"code":"x = %d"}`, i)}
+		completed := daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1,"steps":2}`}
+		seq += 2
+		return []session.SnapshotEvent{
+			{Seq: seq - 1, Kind: "stream.tool.started", Payload: encode(started)},
+			{Seq: seq, Kind: "stream.tool.completed", Payload: encode(completed)},
+		}
+	}
+	// Cells that were already in the daemon's snapshot when the TUI connected: no clock.
+	for i := 1; i <= 30; i++ {
+		m.clientView.presentation = append(m.clientView.presentation, cellEvents(i)...)
+	}
+	m.replRebuild()
+	view := m.replPanelView(20)
+	if strings.Contains(view, "0ms") || !strings.Contains(view, "In [30]") {
+		t.Fatalf("replayed cells must render without a fabricated duration:\n%s", view)
+	}
+	// A live cell (recordClientStream path) keeps its measured duration across later snapshots.
+	live := func(kind string, event daemon.StreamEvent) {
+		seq++
+		payload := encode(event)
+		m.recordClientStream(daemon.ProtocolEvent{Seq: seq, Kind: kind, Payload: payload})
+	}
+	live("stream.tool.started", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Args: `{"code":"x = 31"}`})
+	clock = clock.Add(2 * time.Second)
+	live("stream.tool.completed", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Result: `{"value":1}`})
+	if view = m.replPanelView(20); !strings.Contains(view, "In [31]  2.0s") {
+		t.Fatalf("live cell duration missing:\n%s", view)
+	}
+	inPanel := m.frameNow().side.Min.X
+	for range 5 {
+		next, _ := m.thinMouse(wheelMsg(inPanel, 5, true))
+		m = next.(*model)
+	}
+	before := m.replPanelView(20)
+	// The turn ends: the daemon's next snapshot carries no presentation at all.
+	m.clientView.presentation = nil
+	clock = clock.Add(time.Minute)
+	m.replRebuild()
+	if after := m.replPanelView(20); m.replScroll != 15 || after != before {
+		t.Fatalf("snapshot after turn end lost history or moved the panel (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
+	}
+	// Replaying the same events again (another snapshot) adds nothing.
+	liveStarted, liveCompleted := seq-1, seq // stored seqs never change; a higher seq on a finished ID is a reused ID
+	m.clientView.presentation = cellEvents(31)
+	m.clientView.presentation[0].Seq, m.clientView.presentation[1].Seq = liveStarted, liveCompleted
+	m.replRebuild()
+	if got := len(m.repl["root-agent"].cells); got != 31 {
+		t.Fatalf("replayed snapshot duplicated cells: %d", got)
+	}
+	// New rows arriving below keep the scrolled-up content anchored.
+	live("stream.tool.started", daemon.StreamEvent{ID: "call-32", Name: "rlm_exec", Args: `{"code":"x = 32"}`})
+	after := m.replPanelView(20)
+	beforeRows, afterRows := strings.Split(before, "\n"), strings.Split(after, "\n")
+	if m.replScroll <= 15 || beforeRows[6] != afterRows[6] || beforeRows[10] != afterRows[10] {
+		t.Fatalf("new rows shifted the scrolled view (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
+	}
+	// An idle child's cells stay visible even though snapshots drop them.
+	m.recordClientStream(daemon.ProtocolEvent{Seq: seq + 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "c-1", Name: "rlm_exec", Args: `{"code":"y = 1"}`})})
+	m.clientView.agentPresentations = nil
+	m.replRebuild()
+	m.agentOpen = "child"
+	if view = ansi.Strip(m.replPanelView(20)); !strings.Contains(view, "REPL · w3") || !strings.Contains(view, "y = 1") {
+		t.Fatalf("child history lost after snapshot:\n%s", view)
+	}
+}
+
+func TestAgentTreeReturnsToRoot(t *testing.T) {
+	m := replTestModel(t, 140)
+	m.agentOpen = "child"
+	rows := m.runtimeAgentRows()
+	if len(rows) != 2 || rows[0].agent.ID != "root-agent" || rows[1].depth != 1 {
+		t.Fatalf("tree rows = %+v", rows)
+	}
+	if tree, _ := m.agentRows(40, nil, 6); len(tree) != 2 || !strings.Contains(ansi.Strip(tree[0]), "running root") || !strings.Contains(ansi.Strip(tree[1]), "w3") {
+		t.Fatalf("tree rendering: %q", tree)
+	}
+	if view := ansi.Strip(m.replPanelView(20)); strings.Contains(view, "running") || !strings.Contains(view, "REPL · w3") {
+		t.Fatalf("the REPL panel shows the open agent's cells, not the tree:\n%s", view)
+	}
+	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
+	next, _ := m.thinKey(ctrlKey('t'))
+	m = next.(*model)
+	if !m.agentsFocus || m.agentSel != 1 {
+		t.Fatalf("focus=%v sel=%d", m.agentsFocus, m.agentSel)
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyUp))
+	m = next.(*model)
+	next, _ = m.thinKey(keyMsg(tea.KeyEnter))
+	m = next.(*model)
+	if m.agentOpen != "" || m.agentsFocus {
+		t.Fatalf("enter on the root row did not return to root: open=%q focus=%v", m.agentOpen, m.agentsFocus)
+	}
+	// esc while the tree is focused also leaves an open child.
+	m.agentOpen = "child"
+	next, _ = m.thinKey(keyMsg(tea.KeyDown))
+	m = next.(*model)
+	if !m.agentsFocus {
+		t.Fatal("↓ on an empty input should focus the tree")
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyEsc))
+	m = next.(*model)
+	if m.agentOpen != "" || m.agentsFocus {
+		t.Fatalf("esc with the tree focused: open=%q focus=%v", m.agentOpen, m.agentsFocus)
+	}
+	// ctrl+x s on the root row is a no-op rather than a stop request; on the
+	// child it stops it.
+	next, _ = m.thinKey(ctrlKey('t'))
+	m = next.(*model)
+	next, _ = m.thinKey(keyMsg(tea.KeyUp))
+	m = next.(*model)
+	m.thinKey(ctrlKey('x'))
+	if _, command := m.thinKey(keyRunes("s")); command != nil {
+		t.Fatal("ctrl+x s on the root row should not submit a stop")
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyDown))
+	m = next.(*model)
+	m.client, m.clientState = &Client{}, ClientLive // the stop is a daemon action
+	m.thinKey(ctrlKey('x'))
+	_, command := m.thinKey(keyRunes("s"))
+	if command == nil {
+		t.Fatal("ctrl+x s on a child should submit a stop")
+	}
+	if msg, ok := command().(clientCommandMsg); !ok || msg.action.Operation != "agent.control" {
+		t.Fatalf("stop chord sent %T", command())
+	}
+	// the leader works while the tree is focused: ctrl+x b hides the sidebar
+	m.thinKey(ctrlKey('x'))
+	m.thinKey(keyRunes("b"))
+	if !m.sidebarHide {
+		t.Fatal("ctrl+x b should work while the agent tree is focused")
+	}
+}
+
+func TestReplPanelKeepsRowsOnOneLineAndWrapsCodeLosslessly(t *testing.T) {
+	m := replTestModel(t, 140)
+	code := "x = \"" + strings.Repeat("a", 200) + "\"\n\tif x:\n\t\tprint(x)"
+	args, _ := json.Marshal(map[string]string{"code": code})
+	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: string(args)})
+	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", Name: "shell.run", Args: "command=a\tb\nc\r", Text: "1ms", Result: "boom\nline two"})
+	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":"v\tw\nz","output":"col1\tcol2\r\nnext"}`})
+	view := m.replPanelView(40)
+	rows := strings.Split(view, "\n")
+	if len(rows) != 40 {
+		t.Fatalf("panel height %d != 40", len(rows))
+	}
+	for _, line := range rows {
+		if w := ansi.StringWidth(line); w != m.panelWidth() {
+			t.Fatalf("row width %d != %d: %q", w, m.panelWidth(), ansi.Strip(line))
+		}
+	}
+	if plain := ansi.Strip(view); strings.Count(plain, "a") < 200 || strings.Contains(plain, "\t") {
+		t.Fatalf("wrapped code lost characters or kept tabs:\n%s", plain)
+	}
+}
+
+func TestAgentsDockReturnsWhenThePanelCannotShowTheTree(t *testing.T) {
+	m := replTestModel(t, sidebarMinWidth-1)
+	if m.agentsDock() != "" {
+		t.Fatal("the dock stays hidden until /dock shows it")
+	}
+	m.dockShow = true
+	if m.agentsDock() == "" {
+		t.Fatal("narrow opencode terminal has no agent tree anywhere")
+	}
+	m.termWidth = 140 // the REPL panel displaces the left column: the dock stays
+	if m.agentsDock() == "" {
+		t.Fatal("REPL without the left column has no agent tree anywhere")
+	}
+	m.termWidth = replMinWide
+	if m.agentsDock() != "" {
+		t.Fatal("with the left column showing the tree lives in the Agents panel only")
+	}
+	m.sidebarHide = true
+	if m.agentsDock() == "" {
+		t.Fatal("hidden left column has no agent tree anywhere")
+	}
+}
+
+func TestAgentDetailsFitTheChatColumn(t *testing.T) {
+	m := replTestModel(t, 140)
+	m.width = 40
+	m.agentOpen = "child"
+	m.clientView.agents[1].CWD = strings.Repeat("/very-long-directory", 6)
+	for line := range strings.SplitSeq(m.agentDetails(), "\n") {
+		if w := ansi.StringWidth(line); w > 40 {
+			t.Fatalf("details row %d cols wide: %q", w, ansi.Strip(line))
+		}
+	}
+}
+
+func TestReplHostLifecycle(t *testing.T) {
+	m := replTestModel(t, 140)
+	cell := func(id, code string) {
+		m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+		m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+	}
+	host := func(kind, invocation, name, status, duration, result string) {
+		m.replApply("root-agent", kind, daemon.StreamEvent{ID: "c1", InvocationID: invocation, Name: name, Args: "path=README.md", HostStatus: status, Text: duration, Result: result})
+	}
+	view := func() string { return ansi.Strip(m.replPanelView(30)) }
+	expect := func(what string, want ...string) {
+		t.Helper()
+		got := view()
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Fatalf("%s: panel missing %q:\n%s", what, w, got)
+			}
+		}
+	}
+
+	cell("c1", "print(1)")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "")
+	expect("running", "In [1]", "→ files.read(path=README.md) …")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "") // duplicate delivery
+	host("stream.cell.host", "1:1", "files.read", "completed", "8ms", "")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "") // late start after completion
+	if got := view(); strings.Count(got, "→ files.read") != 1 || !strings.Contains(got, "→ files.read(path=README.md) 8ms") || strings.Contains(got, ") …") {
+		t.Fatalf("completion did not settle the started row in place:\n%s", got)
+	}
+
+	host("stream.cell.host.started", "1:2", "shell.run", "", "", "")
+	host("stream.cell.host", "1:2", "shell.run", "failed", "1s", "boom")
+	host("stream.cell.host.started", "1:3", "shell.run", "", "", "")
+	host("stream.cell.host", "1:3", "shell.run", "cancelled", "2s", "context canceled")
+	host("stream.cell.host.started", "1:4", "files.write", "", "", "")
+	host("stream.cell.host", "1:4", "files.write", "failed", "3s", "") // the daemon truncated the error away
+	host("stream.cell.host", "", "context.read", "", "4ms", "")        // completion-only history from an older daemon
+	host("stream.cell.host.started", "1:5", "agents.wait", "", "", "")
+	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":null,"output":"","steps":5}`})
+	expect("outcomes",
+		"→ shell.run(path=README.md) ✗ boom",
+		"→ shell.run(path=README.md) cancelled",
+		"→ files.write(path=README.md) ✗ failed",
+		"→ context.read(path=README.md) 4ms",
+		"→ agents.wait(path=README.md) unknown",
+		"5 steps")
+	if got := view(); strings.Contains(got, "✗ context canceled") {
+		t.Fatalf("a cancelled host rendered as a failure:\n%s", got)
+	}
+
+	// A provider reusing the tool-call ID next turn opens a new cell.
+	cell("c1", "print(2)")
+	host("stream.cell.host.started", "2:1", "files.list", "", "", "")
+	got := view()
+	first, second, listing := strings.Index(got, "In [1]"), strings.Index(got, "In [2]"), strings.Index(got, "→ files.list")
+	if first < 0 || second < first || listing < second || !strings.Contains(got, "print(1)") || !strings.Contains(got, "print(2)") {
+		t.Fatalf("reused tool-call ID did not open a new cell that owns the new host row:\n%s", got)
+	}
+
+	// A long summary is clipped before the status, never instead of it.
+	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", InvocationID: "2:1", Name: "files.list", Args: strings.Repeat("path=very/long/", 20), HostStatus: "completed", Text: "12ms"})
+	for line := range strings.SplitSeq(view(), "\n") {
+		if !strings.Contains(line, "→ files.list") {
+			continue
+		}
+		if !strings.Contains(line, "…") || !strings.Contains(line, "12ms") {
+			t.Fatalf("narrow host row lost its status: %q", line)
+		}
+		return
+	}
+	t.Fatal("the new cell's host row was not rendered")
+}
+
+func TestDockCommandAndTreeFocusFollowVisibility(t *testing.T) {
+	m := replTestModel(t, sidebarMinWidth-1)
+	next, _ := m.thinCommand("/dock")
+	m = next.(*model)
+	if !m.dockShow || m.agentsDock() == "" {
+		t.Fatal("/dock did not show the dock")
+	}
+	next, _ = m.thinCommand("/dock")
+	m = next.(*model)
+	if m.dockShow || m.agentsDock() != "" {
+		t.Fatal("/dock did not hide the dock")
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyDown)) // ↓ on an empty input: nothing shows the tree
+	m = next.(*model)
+	if m.agentsFocus {
+		t.Fatal("↓ focused a tree that nothing shows")
+	}
+	next, _ = m.thinKey(ctrlKey('t'))
+	m = next.(*model)
+	if !m.dockShow || !m.agentsFocus || m.agentsDock() == "" {
+		t.Fatalf("ctrl+t must show the dock and focus it: dock=%v focus=%v", m.dockShow, m.agentsFocus)
+	}
+}

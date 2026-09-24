@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -43,8 +43,8 @@ func TestRenderMarkdownFallback(t *testing.T) {
 	// width<=0 is clamped to the minimum render width, never passed through
 	// unwrapped (that was the overflow bug)
 	out := renderMarkdown("plain text", 0)
-	plain := strings.Join(strings.Fields(ansi.Strip(out)), " ")
-	if plain != "plain text" {
+	plain := strings.Join(strings.Fields(ansi.Strip(out)), "")
+	if plain != "plaintext" { // a degenerate width may break a word across rows
 		t.Errorf("content must survive the clamp, got %q", out)
 	}
 	for l := range strings.SplitSeq(out, "\n") {
@@ -91,8 +91,8 @@ func TestAppendAssistantRendersMarkdown(t *testing.T) {
 		t.Fatalf("assistant text should be stored raw (blockAssistant), got %v", m.blocks[0].kind)
 	}
 	rendered := ansi.Strip(m.blocks[0].render(80))
-	if !strings.HasPrefix(rendered, "● ") {
-		t.Errorf("first line should carry the marker: %q", rendered)
+	if !strings.HasPrefix(rendered, "   results:") {
+		t.Errorf("first line should be the indented body without a marker: %q", rendered)
 	}
 	if !strings.Contains(rendered, "• one") || !strings.Contains(rendered, "• two") {
 		t.Errorf("list should be rendered: %q", rendered)
@@ -106,8 +106,8 @@ func TestAppendAssistantRendersMarkdown(t *testing.T) {
 		t.Fatalf("continuation should merge into the open block, got %d blocks", len(m.blocks))
 	}
 	full := ansi.Strip(m.blocks[0].render(80))
-	if strings.Count(full, "● ") != 1 {
-		t.Errorf("continuation segment must not add a second marker:\n%s", full)
+	if strings.Count(full, "results:") != 1 {
+		t.Errorf("continuation segment must render as one document:\n%s", full)
 	}
 	if !strings.Contains(full, "more text") {
 		t.Errorf("merged content missing: %q", full)
@@ -181,41 +181,5 @@ func TestRenderMarkdownTableNarrow(t *testing.T) {
 	plain := ansi.Strip(out)
 	if !strings.Contains(plain, "internal/agent") || !strings.Contains(plain, "wrap") {
 		t.Errorf("wrapped table lost content:\n%s", plain)
-	}
-}
-
-// sanitizeInputView closes every styled line (the input box is written raw
-// into the frame — an un-closed SGR piece from bubbles' cursor-line render
-// bleeds its style into the status line below, seen as "colors go wrong"
-// after a large paste + ctrl+j). Unlike sanitizeView it never trims trailing
-// padding: opencode's prompt box and the drag-selection highlight live there.
-func TestSanitizeInputView(t *testing.T) {
-	// an unterminated styled line gets a reset appended
-	in := "\x1b[31mred text"
-	got := sanitizeInputView(in)
-	if !strings.HasSuffix(got, "\x1b[0m") {
-		t.Fatalf("unterminated line must gain a reset, got %q", got)
-	}
-	// already-closed lines are untouched
-	in = "\x1b[31mred\x1b[0m"
-	if got := sanitizeInputView(in); got != in {
-		t.Fatalf("closed line changed: %q", got)
-	}
-	// multi-line: every line handled independently
-	in = "\x1b[7mrow1\x1b[0m\n\x1b[32mrow2"
-	got = sanitizeInputView(in)
-	want := "\x1b[7mrow1\x1b[0m\n\x1b[32mrow2\x1b[0m"
-	if got != want {
-		t.Fatalf("multi-line sanitize = %q, want %q", got, want)
-	}
-	// trailing styled padding survives (sanitizeView would strip it — that
-	// breaks opencode's panel fill)
-	in = "\x1b[48;5;236mtext   \x1b[0m"
-	if got := sanitizeInputView(in); got != in {
-		t.Fatalf("styled padding must survive input sanitize, got %q", got)
-	}
-	// plain text passes through unchanged
-	if got := sanitizeInputView("hello"); got != "hello" {
-		t.Fatalf("plain text changed: %q", got)
 	}
 }

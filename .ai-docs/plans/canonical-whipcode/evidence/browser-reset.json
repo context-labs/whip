@@ -1,0 +1,27 @@
+[
+  {
+    "origin": "http://localhost:3000",
+    "deleted": 12,
+    "remaining": 0
+  },
+  {
+    "origin": "http://localhost:3000",
+    "deleted": 3,
+    "remaining": 0
+  },
+  {
+    "origin": "http://localhost:3000",
+    "deleted": 3,
+    "remaining": 0
+  },
+  {
+    "origin": "http://localhost:3000",
+    "deleted": 3,
+    "remaining": 0
+  },
+  {
+    "origin": "http://127.0.0.1:55352",
+    "deleted": 0,
+    "remaining": 0
+  }
+]

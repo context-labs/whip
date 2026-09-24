@@ -5,7 +5,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
+
+func TestDesktopUpdateDoesNotRunStandaloneInstaller(t *testing.T) {
+	argsFile := stubShell(t, "99")
+	previous := buildinfo.UpdateOwner
+	buildinfo.UpdateOwner = "desktop"
+	t.Cleanup(func() { buildinfo.UpdateOwner = previous })
+	var updateErr error
+	output := captureStdout(t, func() { updateErr = updateCLI() })
+	if updateErr != nil || !strings.Contains(output, "updated by Whip desktop") {
+		t.Fatalf("desktop update: %q, %v", output, updateErr)
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Fatalf("desktop update invoked standalone installer: %v", err)
+	}
+}
 
 // stubShell puts a fake `sh` first (and only) in PATH so updateCLI can never
 // reach the network or run the real installer. The stub records its args and
@@ -24,6 +41,10 @@ func stubShell(t *testing.T, exitCode string) (argsFile string) {
 
 func TestUpdateCLIRunsInstaller(t *testing.T) {
 	argsFile := stubShell(t, "0")
+	previousRestart := restartDaemonAfterUpdate
+	restarted := false
+	restartDaemonAfterUpdate = func() error { restarted = true; return nil }
+	t.Cleanup(func() { restartDaemonAfterUpdate = previousRestart })
 
 	var err error
 	out := captureStdout(t, func() { err = updateCLI() })
@@ -32,6 +53,9 @@ func TestUpdateCLIRunsInstaller(t *testing.T) {
 	}
 	if !strings.Contains(out, "whip updated") {
 		t.Errorf("success message missing:\n%s", out)
+	}
+	if !restarted {
+		t.Fatal("successful update did not request daemon restart")
 	}
 	args, rerr := os.ReadFile(argsFile)
 	if rerr != nil {

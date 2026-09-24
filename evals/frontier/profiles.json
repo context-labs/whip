@@ -1,0 +1,70 @@
+{
+  "full": {
+    "task_ids": [
+      "datacurve/anko-typed-variable-bindings",
+      "datacurve/arktype-json-schema-refs-dependencies",
+      "datacurve/expr-try-catch-errors",
+      "datacurve/fastapi-deprecation-response-headers",
+      "datacurve/httpx-multipart-response-parsing",
+      "datacurve/katex-multicolumn-array-spans",
+      "datacurve/meriyah-explicit-resource-declarations",
+      "datacurve/python-statemachine-state-data-scoping",
+      "datacurve/scc-bounded-memory-spilling",
+      "terminal-bench/build-cython-ext",
+      "terminal-bench/chess-best-move",
+      "terminal-bench/code-from-image",
+      "terminal-bench/constraints-scheduling",
+      "terminal-bench/db-wal-recovery",
+      "terminal-bench/dna-insert",
+      "terminal-bench/extract-elf",
+      "terminal-bench/gcode-to-text",
+      "terminal-bench/git-leak-recovery",
+      "terminal-bench/kv-store-grpc",
+      "terminal-bench/largest-eigenval",
+      "terminal-bench/log-summary-date-ranges",
+      "terminal-bench/merge-diff-arc-agi-task",
+      "terminal-bench/modernize-scientific-stack",
+      "terminal-bench/multi-source-data-merger",
+      "terminal-bench/openssl-selfsigned-cert",
+      "terminal-bench/polyglot-c-py",
+      "terminal-bench/regex-log",
+      "terminal-bench/sanitize-git-repo",
+      "terminal-bench/sqlite-db-truncate",
+      "terminal-bench/vulnerable-secret"
+    ],
+    "version": 1
+  },
+  "medium": {
+    "task_ids": [
+      "terminal-bench/regex-log",
+      "terminal-bench/openssl-selfsigned-cert",
+      "terminal-bench/build-cython-ext",
+      "terminal-bench/code-from-image",
+      "terminal-bench/kv-store-grpc",
+      "terminal-bench/db-wal-recovery",
+      "datacurve/anko-typed-variable-bindings",
+      "datacurve/httpx-multipart-response-parsing",
+      "terminal-bench/constraints-scheduling",
+      "terminal-bench/largest-eigenval",
+      "terminal-bench/merge-diff-arc-agi-task",
+      "terminal-bench/dna-insert",
+      "datacurve/fastapi-deprecation-response-headers",
+      "datacurve/arktype-json-schema-refs-dependencies",
+      "datacurve/meriyah-explicit-resource-declarations"
+    ],
+    "version": 1
+  },
+  "smoke": {
+    "task_ids": [
+      "terminal-bench/regex-log",
+      "terminal-bench/openssl-selfsigned-cert",
+      "terminal-bench/build-cython-ext",
+      "terminal-bench/code-from-image",
+      "terminal-bench/kv-store-grpc",
+      "terminal-bench/db-wal-recovery",
+      "datacurve/anko-typed-variable-bindings",
+      "datacurve/httpx-multipart-response-parsing"
+    ],
+    "version": 1
+  }
+}

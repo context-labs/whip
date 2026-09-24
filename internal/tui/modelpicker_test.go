@@ -17,25 +17,27 @@ func TestBuildModelItems(t *testing.T) {
 			"alpha": {Providers: []string{"a", "ghost"}},
 		},
 	}
-	items := buildModelItems(cfg)
-	if len(items) != 4 {
+	items := buildModelItems(cfg, nil)
+	if len(items) != 3 {
 		t.Fatalf("items: %+v", items)
 	}
 	// models sorted alphabetically
-	if items[0].model != "alpha" || items[2].model != "zeta" {
+	if items[0].model != "alpha" || items[1].model != "zeta" {
 		t.Fatalf("model order: %+v", items)
 	}
 	// provider order per model preserved
-	if items[2].provider != "b" || items[3].provider != "a" {
+	if items[1].provider != "b" || items[2].provider != "a" {
 		t.Fatalf("provider order: %+v", items)
 	}
 	if items[0].url != "https://a" {
 		t.Fatalf("url: %+v", items[0])
 	}
-	if items[1].provider != "ghost" || items[1].url != "" {
-		t.Fatalf("unknown provider should keep empty url: %+v", items[1])
+	for _, item := range items {
+		if item.provider == "ghost" {
+			t.Fatal("unavailable configured route remained selectable")
+		}
 	}
-	if got := buildModelItems(&config.Config{}); len(got) != 0 {
+	if got := buildModelItems(&config.Config{}, nil); len(got) != 0 {
 		t.Fatalf("empty config: %+v", got)
 	}
 }
@@ -113,23 +115,23 @@ func TestResolveModelFuzzy(t *testing.T) {
 	}
 
 	// exact name passes through
-	if got, ok, _ := resolveModelFuzzy(cfg, "claude-opus-4"); !ok || got != "claude-opus-4" {
+	if got, ok, _ := resolveModelFuzzy(cfg, "claude-opus-4", nil); !ok || got != "claude-opus-4" {
 		t.Fatalf("exact passthrough: %q %v", got, ok)
 	}
 
 	// unique substring resolves
-	if got, ok, _ := resolveModelFuzzy(cfg, "sonnet"); !ok || got != "claude-sonnet-4" {
+	if got, ok, _ := resolveModelFuzzy(cfg, "sonnet", nil); !ok || got != "claude-sonnet-4" {
 		t.Fatalf("substring resolve: %q %v", got, ok)
 	}
 
 	// ambiguous prefix reports candidates
-	got, ok, alts := resolveModelFuzzy(cfg, "claude")
+	got, ok, alts := resolveModelFuzzy(cfg, "claude", nil)
 	if ok || len(alts) != 2 {
 		t.Fatalf("ambiguous resolve: %q %v %v", got, ok, alts)
 	}
 
 	// no match at all
-	if _, ok, _ := resolveModelFuzzy(cfg, "zzz"); ok {
+	if _, ok, _ := resolveModelFuzzy(cfg, "zzz", nil); ok {
 		t.Fatal("no-match should not resolve")
 	}
 }

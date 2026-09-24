@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -11,10 +12,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -67,25 +70,83 @@ func TestDefaultTransportStdio(t *testing.T) {
 	}
 }
 
+func TestManagedTransportUsesProcessScope(t *testing.T) {
+	processes := capability.NewProcessManager()
+	m := NewManager(nil)
+	dir := t.TempDir()
+	m.SetProcessOptions(processes, "root", dir, map[string]string{"SESSION": "one"})
+	t.Setenv("WHIP_TEST_MCP_SECRET", "resolved")
+	transport, err := m.defaultTransport(context.Background(), ServerConfig{
+		Command: []string{"server", "--stdio"},
+		Env:     map[string]string{"SERVER": "two", "SECRET": "$WHIP_TEST_MCP_SECRET", "MISSING": "$WHIP_TEST_MCP_UNSET_VAR"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, ok := transport.(*managedTransport)
+	if !ok {
+		t.Fatalf("transport type %T", transport)
+	}
+	if managed.rootID != "root" || managed.cwd != dir || managed.env["SESSION"] != "one" || managed.env["SERVER"] != "two" {
+		t.Fatalf("managed scope = %+v", managed)
+	}
+	// The managed path resolves references at spawn like the fallback path:
+	// a "$VAR" reaches the child as its value, never the literal, and an
+	// unset reference is dropped instead of spawning "KEY=".
+	if managed.env["SECRET"] != "resolved" {
+		t.Errorf("managed env SECRET = %q, want resolved value", managed.env["SECRET"])
+	}
+	if _, present := managed.env["MISSING"]; present {
+		t.Errorf("managed env kept unresolvable MISSING entry")
+	}
+}
+
 func TestFlattenResultEdges(t *testing.T) {
 	multi := flattenResult(&sdkmcp.CallToolResult{Content: []sdkmcp.Content{
 		&sdkmcp.TextContent{Text: "one"},
 		&sdkmcp.TextContent{Text: "two"},
 	}})
-	if multi != "one\ntwo" {
-		t.Errorf("two text parts = %q", multi)
+	if multi.Text != "one\ntwo" {
+		t.Errorf("two text parts = %q", multi.Text)
 	}
-	if got := flattenResult(&sdkmcp.CallToolResult{}); got != "(no output)" {
-		t.Errorf("empty result = %q", got)
+	if got := flattenResult(&sdkmcp.CallToolResult{}); got.Text != "(no output)" {
+		t.Errorf("empty result = %q", got.Text)
 	}
-	if got := flattenResult(&sdkmcp.CallToolResult{IsError: true}); got != "Error: (no output)" {
-		t.Errorf("empty error result = %q", got)
+	if got := flattenResult(&sdkmcp.CallToolResult{IsError: true}); got.Text != "Error: (no output)" {
+		t.Errorf("empty error result = %q", got.Text)
 	}
 	// A resource part with no contents contributes nothing rather than a
 	// half-rendered placeholder.
 	got := flattenResult(&sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.EmbeddedResource{}}})
-	if got != "(no output)" {
-		t.Errorf("empty embedded resource = %q", got)
+	if got.Text != "(no output)" {
+		t.Errorf("empty embedded resource = %q", got.Text)
+	}
+	// Structured content rides along with text instead of being dropped by it:
+	// an ahrefs-style result carries a human summary and a machine payload.
+	both := flattenResult(&sdkmcp.CallToolResult{
+		Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: "summary"}},
+		StructuredContent: map[string]any{"rows": 2},
+	})
+	if !strings.HasPrefix(both.Text, "summary\n{") || !strings.Contains(both.Text, `"rows": 2`) {
+		t.Errorf("text+structured = %q", both.Text)
+	}
+	// Binary parts keep a numbered placeholder in the text and travel as
+	// attachments whose Placeholder matches it exactly.
+	media := flattenResult(&sdkmcp.CallToolResult{Content: []sdkmcp.Content{
+		&sdkmcp.TextContent{Text: "shot"},
+		&sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte{1, 2, 3}},
+		&sdkmcp.ImageContent{MIMEType: "image/jpeg", Data: []byte{4}},
+	}})
+	if len(media.Attachments) != 2 {
+		t.Fatalf("attachments = %+v", media.Attachments)
+	}
+	for i, a := range media.Attachments {
+		if !strings.Contains(media.Text, a.Placeholder) || !strings.HasPrefix(a.Placeholder, fmt.Sprintf("[image %d: ", i+1)) {
+			t.Errorf("attachment %d placeholder %q not in text %q", i, a.Placeholder, media.Text)
+		}
+	}
+	if string(media.Attachments[0].Data) != "\x01\x02\x03" || media.Attachments[1].MIME != "image/jpeg" {
+		t.Errorf("attachment payloads = %+v", media.Attachments)
 	}
 }
 
@@ -129,7 +190,7 @@ func TestSetBlockedAndBlockedByPolicy(t *testing.T) {
 	if len(b) != 2 || b[0].Name != "alpha" || b[1].Name != "zeta" {
 		t.Fatalf("blocked = %+v, want name-sorted alpha,zeta", b)
 	}
-	if b[0].Status != StatusDisabled || b[0].Note != "blocked by mcpImport" || b[0].Source != ".mcp.json" {
+	if b[0].Status != StatusBlocked || b[0].Note != "blocked by mcpImport" || b[0].Source != ".mcp.json" {
 		t.Errorf("blocked[0] = %+v", b[0])
 	}
 	if !m.BlockedByPolicy("zeta") || !m.BlockedByPolicy("alpha") {
@@ -140,11 +201,12 @@ func TestSetBlockedAndBlockedByPolicy(t *testing.T) {
 	}
 }
 
-// TestInstructionsBlockSortedAndEmpty: no instructions → no block; several →
-// name-sorted sections.
-func TestInstructionsBlockSortedAndEmpty(t *testing.T) {
-	if got := NewManager(nil).InstructionsBlock(); got != "" {
-		t.Errorf("no servers → %q, want empty", got)
+// Instructions are requested per server, with missing sources explicit.
+func TestInstructionsPerServerAndMissing(t *testing.T) {
+	empty := NewManager(nil)
+	defer empty.Close()
+	if _, _, _, err := empty.Instructions("missing"); err == nil {
+		t.Fatal("missing server appeared empty")
 	}
 
 	mk := func(name, instr string) *sdkmcp.Server {
@@ -164,17 +226,18 @@ func TestInstructionsBlockSortedAndEmpty(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	block := m.InstructionsBlock()
-	ai, zi := strings.Index(block, "alpha rules"), strings.Index(block, "zeta rules")
-	if ai < 0 || zi < 0 || ai > zi {
-		t.Errorf("instructions must be name-sorted:\n%s", block)
+	for _, name := range []string{"alpha", "zeta"} {
+		text, generation, _, err := m.Instructions(name)
+		if err != nil || text != name+" rules" || generation == "" {
+			t.Fatalf("instructions %s = %q, %q, %v", name, text, generation, err)
+		}
 	}
 }
 
@@ -248,7 +311,7 @@ func TestCallToolTimeout(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
@@ -268,7 +331,7 @@ func TestCallWaitsForLateConnect(t *testing.T) {
 	m := NewManager(map[string]ServerConfig{"late": testCfg("late")})
 	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
 		<-release
-		return serveTestServer(t, "late"), nil
+		return serveTestServer(t, m, "late"), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
@@ -341,7 +404,7 @@ func TestConnectListToolsFailureClosesSession(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
@@ -361,9 +424,9 @@ func TestConnectListToolsFailureClosesSession(t *testing.T) {
 // manager is closing throws the session away instead of storing it.
 func TestConnectDuringCloseDiscardsSession(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	m.closed = true
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 
 	s := m.servers["docs"]
 	s.connect(context.Background(), m) // synchronous: no lifecycle goroutine started
@@ -389,7 +452,7 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 	m := NewManager(map[string]ServerConfig{"docs": testCfg("docs")})
 	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
 		connects.Add(1)
-		return serveTestServer(t, "docs"), nil
+		return serveTestServer(t, m, "docs"), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
@@ -420,40 +483,33 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 }
 
 // TestRunRefusesReconnectWhenDisabled: /mcp reconnect on a disabled server
-// re-asserts disabled instead of resurrecting it behind the user's back.
+// refuses the request instead of resurrecting it behind the user's back.
 func TestRunRefusesReconnectWhenDisabled(t *testing.T) {
-	var connects, changes atomic.Int64
-	m := NewManager(map[string]ServerConfig{"dead": testCfg("dead")})
-	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
-		connects.Add(1)
-		return nil, errors.New("spawn failed")
-	}
-	t.Cleanup(m.Close)
-	m.SetOnChange(func() { changes.Add(1) })
-	m.Start(context.Background())
-	waitReady(t, m) // settles failed; no live session, so nothing races the disable
+	synctest.Test(t, func(t *testing.T) {
+		var connects atomic.Int64
+		m := NewManager(map[string]ServerConfig{"dead": testCfg("dead")})
+		m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+			connects.Add(1)
+			return nil, errors.New("spawn failed")
+		}
+		defer m.Close()
+		m.Start(t.Context())
+		synctest.Wait()
 
-	if !m.Disable("dead") {
-		t.Fatal("disable returned false")
-	}
-	before := changes.Load()
-	if !m.Reconnect("dead") {
-		t.Fatal("reconnect returned false")
-	}
-	waitDrained(t, m.servers["dead"])
-	deadline := probeDeadline()
-	for changes.Load() == before && !deadline.Done() {
-		deadline.Sleep()
-	}
-	if changes.Load() == before {
-		t.Fatal("run() never handled the reconnect for the disabled server")
-	}
-	if st := m.Statuses()[0]; st.Status != StatusDisabled {
-		t.Errorf("status after reconnecting a disabled server = %+v", st)
-	}
-	if got := connects.Load(); got != 1 {
-		t.Errorf("disabled server dialed %d times, want only the initial attempt", got)
-	}
+		if !m.Disable("dead") {
+			t.Fatal("disable returned false")
+		}
+		if m.Reconnect("dead") {
+			t.Fatal("reconnect accepted a disabled server")
+		}
+		synctest.Wait()
+		if st := m.Statuses()[0]; st.Status != StatusDisabled {
+			t.Errorf("status after reconnecting a disabled server = %+v", st)
+		}
+		if got := connects.Load(); got != 1 {
+			t.Errorf("disabled server dialed %d times, want only the initial attempt", got)
+		}
+	})
 }
 
 // TestReconnectDropsLiveSession: /mcp reconnect on a healthy server tears the
@@ -494,6 +550,59 @@ func TestReconnectDropsLiveSession(t *testing.T) {
 	}
 }
 
+func TestProcessScopeChangeReconnects(t *testing.T) {
+	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	m.SetProcessOptions(processes, "one", t.TempDir(), nil)
+	m.Start(context.Background())
+	waitReady(t, m)
+	srv := m.servers["docs"]
+	srv.mu.Lock()
+	gen := srv.gen
+	srv.mu.Unlock()
+	m.SetProcessOptions(processes, "two", t.TempDir(), nil)
+	deadline := probeDeadline()
+	for !deadline.Done() {
+		srv.mu.Lock()
+		ready := srv.status == StatusReady && srv.sess != nil && srv.gen > gen
+		srv.mu.Unlock()
+		if ready {
+			return
+		}
+		deadline.Sleep()
+	}
+	t.Fatalf("server did not reconnect after process scope changed: %+v", m.Statuses())
+}
+
+func TestProcessScopeChangeInvalidatesInflightConnect(t *testing.T) {
+	var connects atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	m := NewManager(map[string]ServerConfig{"docs": testCfg("docs")})
+	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+		if connects.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return serveTestServer(t, m, "docs"), nil
+	}
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() {
+		m.Close()
+		_ = processes.Close()
+	})
+	m.SetProcessOptions(processes, "one", t.TempDir(), nil)
+	m.Start(context.Background())
+	<-started
+	m.SetProcessOptions(processes, "two", t.TempDir(), nil)
+	close(release)
+	waitReady(t, m)
+	if got := connects.Load(); got != 2 {
+		t.Fatalf("process scope change made %d connections, want 2", got)
+	}
+}
+
 // waitDrained blocks until the lifecycle goroutine has taken the queued
 // reconnect request off the channel.
 func waitDrained(t *testing.T, s *server) {
@@ -520,9 +629,9 @@ func TestKickAutoReconnectDeclines(t *testing.T) {
 
 	// Closing manager: whip is shutting down.
 	closing := NewManager(nil)
-	closing.onChangeMu.Lock()
+	closing.mu.Lock()
 	closing.closed = true
-	closing.onChangeMu.Unlock()
+	closing.mu.Unlock()
 	s2 := newSrv(ServerConfig{Command: []string{"x"}})
 	s2.kickAutoReconnect(closing)
 
@@ -594,5 +703,27 @@ func TestProbeContextCancelled(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
 		t.Errorf("probe waited %s, should have given up with the caller's context", elapsed)
+	}
+}
+
+// TestSourceErrorsAreStatusRows: an unreadable discovery source shows up in
+// the status snapshot as a failed row named by source, so "no tools" and
+// "the codex config failed to parse" never look the same.
+func TestSourceErrorsAreStatusRows(t *testing.T) {
+	m := NewManager(nil)
+	t.Cleanup(m.Close)
+	m.SetSourceErrors(map[string]error{
+		CodexPath():       errors.New("codex config: line 3: expected key = value"),
+		"/repo/.mcp.json": errors.New("unexpected end of JSON input"),
+	})
+	rows := m.SourceErrors()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].Name != ".mcp.json" || rows[0].Status != StatusUnreadable || rows[0].Status.String() != "unreadable" || !strings.Contains(rows[0].Err, "unexpected end") || rows[0].Source != "/repo/.mcp.json" {
+		t.Errorf("project row = %+v", rows[0])
+	}
+	if rows[1].Name != "codex config" || rows[1].Status != StatusUnreadable || !strings.Contains(rows[1].Err, "line 3") {
+		t.Errorf("codex row = %+v", rows[1])
 	}
 }

@@ -1,0 +1,1030 @@
+package rlm
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/context-labs/whip/internal/tools"
+)
+
+func TestWorkerProcess(t *testing.T) {
+	separator := slices.Index(os.Args, "--")
+	if separator < 0 {
+		return
+	}
+	args := os.Args[separator+1:]
+	if len(args) > 0 && (args[0] == "-test-final-frames" || args[0] == "-test-idle-frames") {
+		reader := bufio.NewReader(os.Stdin)
+		hello, _ := readFrame(reader, 1<<20)
+		descriptor, _ := ResolveEngine(hello.Engine)
+		_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+		request := frame{ID: hello.ID + 1}
+		if args[0] == "-test-final-frames" {
+			request, _ = readFrame(reader, 1<<20)
+		}
+		for _, output := range []string{"first", "first\nsecond", "first\nsecond\nthird"} {
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "output", ID: request.ID, Output: output})
+		}
+		if args[0] == "-test-final-frames" {
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: request.ID, Value: 42, HasValue: true, Output: "first\nsecond\nthird"})
+		} else {
+			_, _ = reader.ReadByte()
+		}
+		os.Exit(0)
+	}
+	if len(args) >= 3 && args[0] == "-test-exit" {
+		if args[1] == "execution" {
+			reader := bufio.NewReader(os.Stdin)
+			hello, _ := readFrame(reader, 1<<20)
+			descriptor, _ := ResolveEngine(hello.Engine)
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+			_, _ = readFrame(reader, 1<<20)
+		}
+		switch args[2] {
+		case "nonzero":
+			fmt.Fprint(os.Stderr, "worker failure detail")
+			os.Exit(23)
+		case "killed":
+			process, _ := os.FindProcess(os.Getpid())
+			if err := process.Kill(); err != nil {
+				panic(err)
+			}
+			select {}
+		default:
+			os.Exit(0)
+		}
+	}
+	if len(args) >= 2 && args[0] == "-test-protocol-response" {
+		if args[1] != "stderr" {
+			reader := bufio.NewReader(os.Stdin)
+			hello, _ := readFrame(reader, 1<<20)
+			descriptor, _ := ResolveEngine(hello.Engine)
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+			_, _ = readFrame(reader, 1<<20)
+		}
+		switch args[1] {
+		case "mismatch":
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: 99})
+		case "unexpected":
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "host_response", ID: 1})
+		case "invalid-operation":
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "host_request", ID: 1, Module: "files", Operation: "missing"})
+		case "stderr":
+			fmt.Fprint(os.Stderr, "worker diagnostic")
+			os.Exit(2)
+		}
+		return
+	}
+	if len(args) >= 2 && args[0] == "-test-child-pid" {
+		child := exec.CommandContext(context.Background(), "/bin/sh", "-c", "sleep 60")
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := os.WriteFile(args[1], []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		args = args[2:]
+	}
+	if len(args) >= 2 && args[0] == "-test-env-report" {
+		if err := os.WriteFile(args[1], []byte(os.Getenv("WHIP_RLM_CANARY")), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		args = args[2:]
+	}
+	if err := WorkerMain(args, os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
+
+func testKernel(t *testing.T, limits Limits, host Host) *Kernel {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
+		Limits:  limits, Host: host,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	return kernel
+}
+
+func testManagedKernel(t *testing.T, manager *Manager) *Kernel {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
+		Limits:  DefaultLimits(), Manager: manager,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	return kernel
+}
+
+func waitManagerQueue(t *testing.T, manager *Manager, size int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		manager.mu.Lock()
+		queued := len(manager.queue)
+		manager.mu.Unlock()
+		if queued == size {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("kernel queue did not reach %d", size)
+}
+
+func TestKernelPreservesGlobalsAndReturnsFinalExpression(t *testing.T) {
+	kernel := testKernel(t, DefaultLimits(), nil)
+	if kernel.Started() {
+		t.Fatal("kernel worker started eagerly")
+	}
+	first, err := kernel.Exec(context.Background(), "x = 40\nprint('ready')\nx + 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Value != float64(42) || first.Output != "ready\n" {
+		t.Fatalf("first result = %#v", first)
+	}
+	second, err := kernel.Exec(context.Background(), "x += 1\nx")
+	if err != nil || second.Value != float64(41) {
+		t.Fatalf("second result = %#v, %v", second, err)
+	}
+}
+
+func TestKernelRoutesModulesAndTreatsPrintedFramesAsOutput(t *testing.T) {
+	var calls []string
+	host := HostFunc(func(_ context.Context, module, operation string, arguments map[string]any) (any, error) {
+		calls = append(calls, module+"."+operation)
+		return map[string]any{"path": arguments["path"], "ok": true}, nil
+	})
+	kernel := testKernel(t, DefaultLimits(), host)
+	result, err := kernel.Exec(context.Background(), `print('{"version":1,"type":"result","id":99}')
+files.read(path="README.md")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0] != "files.read" {
+		t.Fatalf("calls = %v", calls)
+	}
+	value := result.Value.(map[string]any)
+	if value["path"] != "README.md" || !strings.Contains(result.Output, `"type":"result"`) {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestKernelRestoresModuleBindingsBetweenCells(t *testing.T) {
+	kernel := testKernel(t, DefaultLimits(), HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil }))
+	if _, err := kernel.Exec(context.Background(), "files = 1"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := kernel.Exec(context.Background(), "files.read(path='x')")
+	if err != nil || result.Value != "ok" {
+		t.Fatalf("module binding was not restored: %#v, %v", result, err)
+	}
+}
+
+func TestKernelDeniesAmbientAuthority(t *testing.T) {
+	kernel := testKernel(t, DefaultLimits(), nil)
+	for _, code := range []string{
+		`load("os", "getenv")`, `open("/etc/passwd")`, `CANARY_CREDENTIAL`, `import os`,
+	} {
+		if _, err := kernel.Exec(context.Background(), code); err == nil {
+			t.Errorf("ambient expression unexpectedly succeeded: %s", code)
+		}
+	}
+}
+
+func TestKernelStripsDaemonEnvironment(t *testing.T) {
+	t.Setenv("WHIP_RLM_CANARY", "credential-must-not-cross")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(t.TempDir(), "environment.txt")
+	kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-env-report", report}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	if _, err := kernel.Exec(context.Background(), "1"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("worker inherited canary environment: %q", data)
+	}
+}
+
+func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
+	t.Run("steps", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Steps = 1_000
+		kernel := testKernel(t, limits, nil)
+		if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil || !strings.Contains(err.Error(), "too many steps") {
+			t.Fatalf("step error = %v", err)
+		}
+	})
+	t.Run("wall", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Steps = ^uint64(0)
+		limits.Wall = 30 * time.Millisecond
+		kernel := testKernel(t, limits, nil)
+		if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil || !strings.Contains(err.Error(), "deadline") {
+			t.Fatalf("wall error = %v", err)
+		}
+	})
+	t.Run("host calls are not charged", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Wall = 100 * time.Millisecond
+		slow := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+			time.Sleep(3 * limits.Wall)
+			return "ok", nil
+		})
+		kernel := testKernel(t, limits, slow)
+		if result, err := kernel.Exec(context.Background(), "files.read(path='a')"); err != nil || result.Value != "ok" {
+			t.Fatalf("slow host call tripped the cell clock: %+v err=%v", result, err)
+		}
+	})
+	t.Run("compute after a host call is charged", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Steps = ^uint64(0)
+		limits.Wall = 100 * time.Millisecond
+		slow := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+			time.Sleep(limits.Wall / 2)
+			return "ok", nil
+		})
+		kernel := testKernel(t, limits, slow)
+		if _, err := kernel.Exec(context.Background(), "files.read(path='a')\nwhile True:\n  pass"); err == nil || !strings.Contains(err.Error(), "Starlark compute exceeded") {
+			t.Fatalf("compute after host call error = %v", err)
+		}
+	})
+	t.Run("output", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.OutputBytes = 32
+		kernel := testKernel(t, limits, nil)
+		if _, err := kernel.Exec(context.Background(), `print("x" * 100)`); err == nil || !strings.Contains(err.Error(), "output limit") {
+			t.Fatalf("output error = %v", err)
+		}
+	})
+	t.Run("host requests", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.HostRequests = 1
+		kernel := testKernel(t, limits, HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil }))
+		if _, err := kernel.Exec(context.Background(), "files.read(path='a')\nfiles.read(path='b')"); err == nil || !strings.Contains(err.Error(), "host request limit") {
+			t.Fatalf("host request error = %v", err)
+		}
+	})
+	t.Run("frame", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.FrameBytes = 256
+		kernel := testKernel(t, limits, nil)
+		if _, err := kernel.Exec(context.Background(), strings.Repeat("x", 512)); !errors.Is(err, ErrFrameLimit) {
+			t.Fatalf("frame error = %v", err)
+		}
+	})
+	t.Run("memory", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.MemoryBytes = 32 << 20
+		if raceEnabled {
+			// ThreadSanitizer's baseline exceeds the production stress limit;
+			// parent-side RSS enforcement still bounds this race-build worker.
+			limits.MemoryBytes = defaultMemoryBytes
+		}
+		limits.Steps = ^uint64(0)
+		limits.Wall = 3 * time.Second
+		kernel := testKernel(t, limits, nil)
+		_, err := kernel.Exec(context.Background(), "items = []\nwhile True:\n  items.append('x' * 65536)")
+		if err == nil {
+			t.Fatal("allocation pressure unexpectedly succeeded")
+		}
+		if _, restartErr := kernel.Exec(context.Background(), "1"); restartErr != nil {
+			t.Fatalf("kernel did not restart after memory termination: %v (original %v)", restartErr, err)
+		}
+	})
+}
+
+func TestKernelReservationAndCrashRestart(t *testing.T) {
+	limits := DefaultLimits()
+	limits.MaxWorkers = 1
+	manager := NewManager(1)
+	executable, _ := os.Executable()
+	newKernel := func() *Kernel {
+		kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: limits, Manager: manager})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(kernel.Close)
+		return kernel
+	}
+	first, second := newKernel(), newKernel()
+	if _, err := first.Exec(context.Background(), "x = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Exec(context.Background(), "1"); err != nil {
+		t.Fatalf("LRU replacement: %v", err)
+	}
+	if first.Started() || manager.State(first) != KernelCold {
+		t.Fatalf("first kernel was not suspended: started=%v state=%s", first.Started(), manager.State(first))
+	}
+	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("globals survived suspension: %v", err)
+	}
+
+	first.mu.Lock()
+	pid := first.worker.command.Process.Pid
+	first.mu.Unlock()
+	if err := killProcessGroup(pid); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for manager.Active() != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if manager.Active() != 0 {
+		t.Fatal("crashed worker retained its daemon reservation")
+	}
+	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("globals survived worker restart: %v", err)
+	}
+	if _, err := second.Exec(context.Background(), "1"); err != nil {
+		t.Fatalf("reservation after restart = %v", err)
+	}
+}
+
+func TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns(t *testing.T) {
+	manager := NewManager(2)
+	t.Cleanup(manager.Close)
+	kernels := []*Kernel{
+		testManagedKernel(t, manager), testManagedKernel(t, manager),
+		testManagedKernel(t, manager), testManagedKernel(t, manager),
+	}
+	_, _, releaseFirst, err := kernels[0].AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseFirst()
+	_, _, releaseSecond, err := kernels[1].AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSecond()
+
+	type acquisition struct {
+		index   int
+		release func()
+		err     error
+	}
+	acquired := make(chan acquisition, 2)
+	acquire := func(index int) {
+		_, _, release, acquireErr := kernels[index].AcquireTurn(t.Context())
+		acquired <- acquisition{index: index, release: release, err: acquireErr}
+	}
+	go acquire(2)
+	waitManagerQueue(t, manager, 1)
+	go acquire(3)
+	waitManagerQueue(t, manager, 2)
+	if manager.Active() != 2 {
+		t.Fatalf("resident workers=%d, want 2", manager.Active())
+	}
+
+	releaseSecond()
+	third := <-acquired
+	if third.err != nil || third.index != 2 {
+		t.Fatalf("first queued acquisition=%+v", third)
+	}
+	defer third.release()
+	if manager.State(kernels[0]) != KernelRunning || manager.State(kernels[1]) != KernelCold || manager.State(kernels[2]) != KernelRunning {
+		t.Fatalf("states after first grant=%s,%s,%s", manager.State(kernels[0]), manager.State(kernels[1]), manager.State(kernels[2]))
+	}
+
+	releaseFirst()
+	fourth := <-acquired
+	if fourth.err != nil || fourth.index != 3 {
+		t.Fatalf("second queued acquisition=%+v", fourth)
+	}
+	defer fourth.release()
+	if manager.Active() != 2 || manager.State(kernels[2]) != KernelRunning || manager.State(kernels[3]) != KernelRunning {
+		t.Fatalf("states after second grant=%s,%s active=%d", manager.State(kernels[2]), manager.State(kernels[3]), manager.Active())
+	}
+}
+
+func TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions(t *testing.T) {
+	manager := NewManager(2)
+	t.Cleanup(manager.Close)
+	kernels := make([]*Kernel, 10)
+	for index := range kernels {
+		kernels[index] = testManagedKernel(t, manager)
+	}
+	if _, err := kernels[0].Exec(t.Context(), "x = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[1].Exec(t.Context(), "x = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[0].Exec(t.Context(), "x += 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[2].Exec(t.Context(), "x = 3"); err != nil {
+		t.Fatal(err)
+	}
+	if manager.State(kernels[1]) != KernelCold || manager.State(kernels[0]) != KernelResident {
+		t.Fatalf("LRU states first=%s second=%s", manager.State(kernels[0]), manager.State(kernels[1]))
+	}
+	for index := 3; index < len(kernels); index++ {
+		if _, err := kernels[index].Exec(t.Context(), fmt.Sprintf("x = %d", index)); err != nil {
+			t.Fatalf("retained session %d: %v", index, err)
+		}
+		if manager.Active() > 2 {
+			t.Fatalf("resident workers=%d after session %d", manager.Active(), index)
+		}
+	}
+	started := 0
+	for _, kernel := range kernels {
+		if kernel.Started() {
+			started++
+		}
+	}
+	if started != 2 {
+		t.Fatalf("resident subprocesses=%d, want 2", started)
+	}
+}
+
+func TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown(t *testing.T) {
+	manager := NewManager(1)
+	first := testManagedKernel(t, manager)
+	queued := testManagedKernel(t, manager)
+	shutdown := testManagedKernel(t, manager)
+	_, _, release, err := first.AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancelled := make(chan error, 1)
+	go func() {
+		_, _, _, acquireErr := queued.AcquireTurn(ctx)
+		cancelled <- acquireErr
+	}()
+	waitManagerQueue(t, manager, 1)
+	if _, _, _, duplicateErr := queued.AcquireTurn(t.Context()); duplicateErr == nil || !strings.Contains(duplicateErr.Error(), "already queued") {
+		t.Fatalf("duplicate waiter error=%v", duplicateErr)
+	}
+	cancel()
+	if err := <-cancelled; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled acquisition=%v", err)
+	}
+	waitManagerQueue(t, manager, 0)
+
+	closed := make(chan error, 1)
+	go func() {
+		_, _, _, acquireErr := shutdown.AcquireTurn(t.Context())
+		closed <- acquireErr
+	}()
+	waitManagerQueue(t, manager, 1)
+	manager.Close()
+	if err := <-closed; !errors.Is(err, ErrManagerClosed) {
+		t.Fatalf("shutdown acquisition=%v", err)
+	}
+}
+
+func TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning(t *testing.T) {
+	manager := NewManager(1)
+	t.Cleanup(manager.Close)
+	kernel := testManagedKernel(t, manager)
+	ctx, start, release, err := kernel.AcquireTurn(t.Context())
+	if err != nil || start.Restarted {
+		t.Fatalf("first lease start=%+v err=%v", start, err)
+	}
+	if err := kernel.Suspend(); !errors.Is(err, ErrKernelRunning) {
+		t.Fatalf("suspend running kernel=%v", err)
+	}
+	if _, err := kernel.Exec(ctx, "scratch = 41"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := kernel.Exec(ctx, "scratch + 1")
+	if err != nil || result.Value != float64(42) {
+		t.Fatalf("same-turn scratch=%#v err=%v", result, err)
+	}
+	release()
+	if err := kernel.Suspend(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, start, release, err = kernel.AcquireTurn(t.Context())
+	if err != nil || !start.Restarted || start.Restore != nil {
+		t.Fatalf("second lease start=%+v err=%v", start, err)
+	}
+	defer release()
+	if _, err := kernel.Exec(ctx, "scratch"); err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("scratch survived suspension: %v", err)
+	}
+}
+
+func TestKernelDeadlineReapsProcessGroup(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidPath := filepath.Join(t.TempDir(), "child.pid")
+	limits := DefaultLimits()
+	limits.Wall = 50 * time.Millisecond
+	limits.Steps = ^uint64(0)
+	kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-child-pid", pidPath}, Limits: limits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil {
+		t.Fatal("infinite cell did not hit wall limit")
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("worker descendant %d survived process-group kill", pid)
+}
+
+func TestKernelSerializesConcurrentCells(t *testing.T) {
+	kernel := testKernel(t, DefaultLimits(), nil)
+	var wait sync.WaitGroup
+	for range 4 {
+		wait.Go(func() {
+			if _, err := kernel.Exec(context.Background(), "value = 1"); err != nil {
+				t.Errorf("Exec: %v", err)
+			}
+		})
+	}
+	wait.Wait()
+}
+
+func TestKernelRejectsMalformedWorkerProtocol(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		response string
+		want     string
+	}{
+		{response: "mismatch", want: "mismatched RLM evaluation result"},
+		{response: "unexpected", want: "unexpected RLM worker frame"},
+		{response: "invalid-operation", want: "unknown RLM operation"},
+		{response: "stderr", want: "worker diagnostic"},
+	}
+	for _, test := range tests {
+		t.Run(test.response, func(t *testing.T) {
+			kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-protocol-response", test.response}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			if _, err := kernel.Exec(context.Background(), "1"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("protocol error = %v", err)
+			}
+		})
+	}
+}
+
+func TestKernelLifecycleAndDiagnosticsBoundaries(t *testing.T) {
+	for _, limits := range []Limits{
+		{HostRequests: -1},
+		{Wall: time.Nanosecond},
+		{MemoryBytes: math.MaxInt64},
+		{OutputBytes: -1},
+		{FrameBytes: -1},
+		{MaxWorkers: -1},
+	} {
+		if _, err := NewKernel(KernelOptions{Command: []string{"unused"}, Limits: limits}); err == nil {
+			t.Fatalf("invalid limits accepted: %+v", limits)
+		}
+	}
+	manager := NewManager(0)
+	if manager.Active() != 0 {
+		t.Fatalf("new manager active count = %d", manager.Active())
+	}
+	kernel, err := NewKernel(KernelOptions{Command: []string{"/path/that/does/not/exist"}, Manager: manager})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernel.Exec(context.Background(), "1"); err == nil {
+		t.Fatal("missing worker executable succeeded")
+	}
+	if manager.Active() != 0 {
+		t.Fatal("failed worker start leaked a manager reservation")
+	}
+	kernel.Close()
+	kernel.Close()
+	if _, err := kernel.Exec(context.Background(), "1"); !errors.Is(err, ErrKernelClosed) {
+		t.Fatalf("closed kernel error = %v", err)
+	}
+
+	buffer := &limitedBuffer{limit: 4}
+	if written, err := buffer.Write([]byte("abcdef")); err != nil || written != 6 || buffer.String() != "abcd" {
+		t.Fatalf("limited buffer = %q, %d, %v", buffer.String(), written, err)
+	}
+	if written, err := buffer.Write([]byte("z")); err != nil || written != 1 || buffer.String() != "abcd" {
+		t.Fatalf("full limited buffer = %q, %d, %v", buffer.String(), written, err)
+	}
+	if err := killProcessGroup(0); err != nil {
+		t.Fatalf("zero process group: %v", err)
+	}
+}
+
+func TestKernelReportsWorkerExit(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		for _, phase := range []string{"startup", "execution"} {
+			for _, outcome := range []string{"clean", "nonzero", "killed"} {
+				t.Run(engine+"/"+phase+"/"+outcome, func(t *testing.T) {
+					kernel, err := NewKernel(KernelOptions{Engine: engine, Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-exit", phase, outcome}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(kernel.Close)
+					_, err = kernel.Exec(t.Context(), "1")
+					if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), engine+" worker exited during "+phase) {
+						t.Fatalf("missing exit context or underlying EOF: %v", err)
+					}
+					var exit *exec.ExitError
+					switch outcome {
+					case "clean":
+						if errors.As(err, &exit) || !strings.Contains(err.Error(), "exit status 0") {
+							t.Fatalf("clean exit: %v", err)
+						}
+					case "nonzero":
+						if !errors.As(err, &exit) || exit.ExitCode() != 23 || !strings.Contains(err.Error(), "worker failure detail") {
+							t.Fatalf("nonzero exit: %v", err)
+						}
+					case "killed":
+						if !errors.As(err, &exit) || !strings.Contains(err.Error(), "signal: killed") || strings.Contains(err.Error(), "signing") {
+							t.Fatalf("killed worker: %v", err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestKernelDrainsFinalFramesAfterWorkerExit(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		t.Run(engine, func(t *testing.T) {
+			kernel, err := NewKernel(KernelOptions{Engine: engine, Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-final-frames"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			var updates []string
+			ctx = tools.WithOnUpdate(ctx, func(output string) {
+				updates = append(updates, output)
+				if len(updates) == 1 {
+					// Exec holds kernel.mu here. Keep the reader backpressured until
+					// Wait publishes exit; buffered output must still reach the caller.
+					select {
+					case <-kernel.worker.done:
+					case <-ctx.Done():
+					}
+				}
+			})
+			result, err := kernel.Exec(ctx, "42")
+			if err != nil || fmt.Sprint(result.Value) != "42" || result.Output != "first\nsecond\nthird" {
+				t.Fatalf("worker exit lost final result: %+v, %v", result, err)
+			}
+			if !slices.Equal(updates, []string{"first", "first\nsecond", "first\nsecond\nthird"}) {
+				t.Fatalf("worker exit lost output frames: %q", updates)
+			}
+		})
+	}
+}
+
+func TestKernelRetiresBackpressuredReader(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"close", "suspend"} {
+		t.Run(action, func(t *testing.T) {
+			kernel, err := NewKernel(KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-idle-frames"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			if err := kernel.Start(); err != nil {
+				t.Fatal(err)
+			}
+			kernel.mu.Lock()
+			process := kernel.worker
+			kernel.mu.Unlock()
+			deadline := time.Now().Add(5 * time.Second)
+			for len(process.frames) != cap(process.frames) {
+				if time.Now().After(deadline) {
+					t.Fatal("worker did not fill its bounded frame queue")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			stopped := make(chan error, 1)
+			go func() {
+				if action == "suspend" {
+					stopped <- kernel.Suspend()
+					return
+				}
+				kernel.Close()
+				stopped <- nil
+			}()
+			select {
+			case err := <-stopped:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("retirement blocked behind unread output")
+			}
+			select {
+			case <-process.readDone:
+			default:
+				t.Fatal("retirement leaked the reader goroutine")
+			}
+			select {
+			case <-process.done:
+			default:
+				t.Fatal("retirement returned before worker exit")
+			}
+		})
+	}
+}
+
+func TestKernelWorkerExitPreservesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	kernel := &Kernel{}
+	process := &workerProcess{done: make(chan struct{})}
+	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	close(process.done)
+	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+type memoryScratch struct {
+	mu       sync.Mutex
+	program  string
+	manifest SnapshotManifest
+	saves    int
+}
+
+func (store *memoryScratch) Load(context.Context) (string, SnapshotManifest, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.program, store.manifest, nil
+}
+
+func (store *memoryScratch) Save(_ context.Context, program string, manifest SnapshotManifest) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.program, store.manifest = program, manifest
+	store.saves++
+	return nil
+}
+
+func (store *memoryScratch) count() int {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.saves
+}
+
+func TestKernelScratchSurvivesSuspensionAndMidTurnRestart(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(1)
+	t.Cleanup(manager.Close)
+	limits := DefaultLimits()
+	limits.Wall = 300 * time.Millisecond
+	limits.Steps = ^uint64(0)
+	store := &memoryScratch{}
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
+		Limits:  limits, Manager: manager, Scratch: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+
+	ctx, start, release, err := kernel.AcquireTurn(t.Context())
+	if err != nil || start.Restarted || start.Restore != nil {
+		t.Fatalf("first lease start=%+v err=%v", start, err)
+	}
+	if _, err := kernel.Exec(ctx, "scratch = 41\ndef bump(x):\n    return x + 1"); err != nil {
+		t.Fatal(err)
+	}
+	if store.count() != 1 {
+		t.Fatalf("saves after first cell = %d", store.count())
+	}
+	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) || result.Restored != nil {
+		t.Fatalf("same-turn cell = %+v err=%v", result, err)
+	}
+	if store.count() != 1 {
+		t.Fatalf("unchanged scratch was saved again: %d", store.count())
+	}
+	release()
+	if err := kernel.Suspend(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, start, release, err = kernel.AcquireTurn(t.Context())
+	if err != nil || !start.Restarted || start.Restore == nil {
+		t.Fatalf("second lease start=%+v err=%v", start, err)
+	}
+	if !slices.Equal(start.Restore.Restored, []string{"scratch", "bump"}) || len(start.Restore.Failed) != 0 {
+		t.Fatalf("restore report = %+v", start.Restore)
+	}
+	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) {
+		t.Fatalf("restored scratch = %+v err=%v", result, err)
+	}
+	// A cell that hits the wall clock kills the worker mid-turn; the next
+	// cell runs on a replacement that revived the scratch first.
+	if _, err := kernel.Exec(ctx, "while True:\n  pass"); err == nil {
+		t.Fatal("infinite cell did not hit the wall limit")
+	}
+	result, err := kernel.Exec(ctx, "bump(scratch)")
+	if err != nil || result.Value != float64(42) || result.Restored == nil || !slices.Contains(result.Restored.Restored, "scratch") {
+		t.Fatalf("mid-turn restore = %+v err=%v", result, err)
+	}
+	release()
+}
+
+func TestKernelStreamsOutputAndReportsHostCalls(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []HostCall
+	host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil })
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
+		OnHostCall: func(call HostCall) { calls = append(calls, call) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	var snapshots []string
+	ctx := tools.WithOnUpdate(tools.WithToolCallID(context.Background(), "call-1"), func(soFar string) { snapshots = append(snapshots, soFar) })
+	result, err := kernel.Exec(ctx, "print('first')\nfiles.write(path='a.txt', content='secret-body')\nprint('second')")
+	if err != nil || result.Output != "first\nsecond\n" {
+		t.Fatalf("result = %+v err=%v", result, err)
+	}
+	if len(snapshots) == 0 || snapshots[0] != "first\n" {
+		t.Fatalf("output snapshots = %q", snapshots)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("host calls = %+v", calls)
+	}
+	call := calls[0]
+	if call.CallID != "call-1" || call.Module != "files" || call.Operation != "write" || call.Err != "" || call.Duration < 0 {
+		t.Fatalf("host call = %+v", call)
+	}
+	if !strings.Contains(call.Summary, "path=a.txt") || !strings.Contains(call.Summary, "content=<11 bytes>") || strings.Contains(call.Summary, "secret") {
+		t.Fatalf("host call summary leaked or lost detail: %q", call.Summary)
+	}
+}
+
+func TestHostCallSummaryRedactsPayloads(t *testing.T) {
+	summary := hostCallSummary(map[string]any{
+		"path": "/tmp/" + strings.Repeat("x", 100), "content": "top secret", "recipient": "parent", "limit": 50,
+	})
+	for _, want := range []string{"content=<10 bytes>", "recipient=parent", "limit=50", "path=/tmp/"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary %q missing %q", summary, want)
+		}
+	}
+	if strings.Contains(summary, "secret") || strings.Contains(summary, strings.Repeat("x", 90)) {
+		t.Fatalf("summary is unbounded or leaks payload: %q", summary)
+	}
+	if hostCallSummary(nil) != "" {
+		t.Fatal("empty arguments should summarize to nothing")
+	}
+}
+
+func TestHostInvocationsStartBeforeDispatchAndSettleOnCancellation(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := make(chan HostCall, 4)
+	ends := make(chan HostCall, 4)
+	entered := make(chan struct{}, 4)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	host := HostFunc(func(ctx context.Context, _, _ string, _ map[string]any) (any, error) {
+		entered <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
+		OnHostStart: func(call HostCall) { starts <- call },
+		OnHostCall:  func(call HostCall) { ends <- call },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	done := make(chan error, 1)
+	go func() {
+		_, err := kernel.Exec(tools.WithToolCallID(ctx, "same-call"), "files.write(path='a', content='secret')")
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host did not start")
+	}
+	var start HostCall
+	select {
+	case start = <-starts:
+	default:
+		t.Fatal("host was entered before its start callback")
+	}
+	select {
+	case <-ends:
+		t.Fatal("completion emitted while the host is blocked")
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled call succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled call did not finish")
+	}
+	end := <-ends
+	if start.InvocationID == "" || start.InvocationID != end.InvocationID || start.CallID != "same-call" {
+		t.Fatalf("invocation identity changed: start=%+v end=%+v", start, end)
+	}
+	if start.Duration != 0 || start.Err != "" || end.Err == "" || end.Duration <= 0 || end.Status != "cancelled" {
+		t.Fatalf("incorrect lifecycle: start=%+v end=%+v", start, end)
+	}
+	if start.Summary != end.Summary || strings.Contains(start.Summary, "secret") {
+		t.Fatalf("unsafe summary: %q / %q", start.Summary, end.Summary)
+	}
+}

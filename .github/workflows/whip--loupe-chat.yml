@@ -38,7 +38,7 @@ jobs:
       contains(github.event.comment.body, '@loupe') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
       - name: Install whip (latest release)
         continue-on-error: true
         env:
@@ -53,7 +53,7 @@ jobs:
           whip --version || true
       - name: Load loupe secrets from Infisical
         continue-on-error: true
-        uses: Infisical/secrets-action@v1.0.17
+        uses: Infisical/secrets-action@v1.0.15
         with:
           method: "oidc"
           identity-id: ${{ env.INFISICAL_IDENTITY_ID }}
@@ -63,7 +63,7 @@ jobs:
           include-imports: true
       - name: Respond
         continue-on-error: true
-        uses: context-labs/loupe@main
+        uses: context-labs/loupe@v0
         with:
           config: .loupe/config.json
         env:

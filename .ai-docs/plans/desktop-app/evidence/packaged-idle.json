@@ -1,0 +1,3717 @@
+{
+  "recordedAt": "2026-09-08T06:47:56.211Z",
+  "purpose": "Signed app settled idle OS sampling; startup probe disabled during idle window",
+  "clock": "Parent/main Darwin mach_continuous_time via hrtime; renderer mark correlated through native executeJavaScript call/return",
+  "timingSemantics": "shell lower/upper bound the existing renderer mark. connected/usable lower/upper bracket an observation, not the unknown readiness transition. Report only conservative upperMs. Polling is 25 ms; each usable observation waits for fonts and two animation frames (250 ms bound). Probe wall time includes that wait and IPC, not CPU time; initial report write/datasync is additional startup overhead.",
+  "completed": true,
+  "interrupted": false,
+  "archiveSHA256": "3e1122b39186e854fb48a23fa064cdba2c35df1914aad9d75b821f34fb9d8430",
+  "environment": {
+    "cpu": "Apple M4 Max",
+    "totalMemoryBytes": 137438953472,
+    "darwin": "25.3.0",
+    "node": "v24.14.1",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "SHELL": "/bin/zsh",
+    "applicationHOME": "dedicated empty fixture user directory",
+    "applicationTMPDIR": "dedicated fixture directory",
+    "inheritedCredentials": false
+  },
+  "evidence": {
+    "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+    "version": "0.1.0",
+    "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+    "nativeFiles": {
+      "whip": {
+        "bytes": 40952416,
+        "sha256": "3ec4ec44c1b1e750e8e407f975a14eabc79547d2de2b7dfd7e0a6faf2b0e9a49"
+      },
+      "whip-computer": {
+        "bytes": 431824,
+        "sha256": "6ab90f228957f9bebb0888144f407dae98d77865c3a2c552411ac13319df29a7"
+      }
+    },
+    "source": {
+      "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+      "dirty": true,
+      "lockfile": "f2600c94e7ca7ced68a33ba9e933b8b4dbce18800fe6d5f2e765c6d191470f85"
+    },
+    "compatibility": {
+      "protocolMajor": 4,
+      "protocolMinor": 1,
+      "schemaVersion": 10
+    },
+    "teamId": "JAPWPV5JY2",
+    "fuses": {
+      "0": 48,
+      "1": 49,
+      "2": 48,
+      "3": 48,
+      "4": 49,
+      "5": 49,
+      "6": 48,
+      "7": 48,
+      "8": 49,
+      "version": "1"
+    },
+    "signed": true,
+    "notarized": false
+  },
+  "fixture": {
+    "providerRequests": 2,
+    "retainedAnswer": "Verified Whip desktop startup fixture: 42",
+    "daemonTransport": "private Unix socket",
+    "providerClosedDuringMeasurements": true
+  },
+  "requested": {
+    "settleSeconds": 30,
+    "sampleSeconds": 60
+  },
+  "statistics": {
+    "first-install": {
+      "attempted": 0,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 0
+      },
+      "usableUpperMs": {
+        "count": 0
+      },
+      "probeWallMs": {
+        "count": 0
+      },
+      "maxProbeBracketMs": {
+        "count": 0
+      }
+    },
+    "warm-attach": {
+      "attempted": 0,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 0
+      },
+      "usableUpperMs": {
+        "count": 0
+      },
+      "probeWallMs": {
+        "count": 0
+      },
+      "maxProbeBracketMs": {
+        "count": 0
+      }
+    },
+    "retained-start": {
+      "attempted": 0,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 0
+      },
+      "usableUpperMs": {
+        "count": 0
+      },
+      "probeWallMs": {
+        "count": 0
+      },
+      "maxProbeBracketMs": {
+        "count": 0
+      }
+    }
+  },
+  "results": [
+    {
+      "scenario": "prepare",
+      "warmup": true,
+      "schema": 1,
+      "runId": "44ff18f7bb173c2393bc795786306a5e",
+      "pid": 89194,
+      "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "home",
+      "windowCreatedMs": 385.494292,
+      "domReadyMs": 471.792084,
+      "shell": {
+        "lowerMs": 471.25691697615815,
+        "upperMs": 484.1242089761581
+      },
+      "connected": {
+        "lowerMs": 1429.900125,
+        "upperMs": 1459.651917
+      },
+      "usable": {
+        "lowerMs": 1429.900125,
+        "upperMs": 1459.651917
+      },
+      "finishedMs": 1459.733209,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": true,
+        "session": false,
+        "transcript": false,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 37,
+        "wallMs": 57.73266799999999,
+        "maxWallMs": 29.751792
+      },
+      "receivedMs": 1461.931417,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "prepare-session",
+      "warmup": true,
+      "schema": 1,
+      "runId": "80e2ced1ba3fe5253bfe68a88680065c",
+      "pid": 89311,
+      "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 519.551792,
+      "domReadyMs": 610.330209,
+      "shell": {
+        "lowerMs": 626.913875,
+        "upperMs": 655.408875
+      },
+      "connected": {
+        "lowerMs": 876.500709,
+        "upperMs": 894.14875
+      },
+      "usable": {
+        "lowerMs": 876.500709,
+        "upperMs": 894.14875
+      },
+      "finishedMs": 894.240125,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 92.61195900000001,
+        "maxWallMs": 28.495
+      },
+      "receivedMs": 908.070792,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "idle",
+      "warmup": false,
+      "runId": "10be32cf11b7cc036075c352c0721b29",
+      "pid": 89367,
+      "state": "complete",
+      "systemBeforeLaunch": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                              143501.\nPages active:                           2065001.\nPages inactive:                         2033517.\nPages speculative:                        30283.\nPages throttled:                              0.\nPages wired down:                        791006.\nPages purgeable:                           3597.\n\"Translation faults\":               18806426261.\nPages copy-on-write:                  606011411.\nPages zero filled:                   4922664241.\nPages reactivated:                    417730637.\nPages purged:                          77933629.\nFile-backed pages:                      1089346.\nAnonymous pages:                        3039455.\nPages stored in compressor:             8003582.\nPages occupied by compressor:           3245601.\nDecompressions:                       342168765.\nCompressions:                         419636426.\nPageins:                              158506592.\nPageouts:                                803347.\nSwapins:                                7611384.\nSwapouts:                              10564119.\n",
+      "idle": {
+        "settleSeconds": 30,
+        "requestedSampleSeconds": 60,
+        "snapshots": [
+          {
+            "atMs": 34178.8729375,
+            "scanMs": 77.52737499999785,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.47,
+                "rssKiB": 215232,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.17,
+                "rssKiB": 91280,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48624,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.33,
+                "rssKiB": 163312,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.36,
+                "rssKiB": 48752,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 39255.302020999996,
+            "scanMs": 73.11570800000482,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.51,
+                "rssKiB": 213664,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.17,
+                "rssKiB": 91280,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48624,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.4,
+                "rssKiB": 159488,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.41,
+                "rssKiB": 48944,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 44330.5527505,
+            "scanMs": 74.65016699999978,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.51,
+                "rssKiB": 213616,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.17,
+                "rssKiB": 91280,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48688,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.41,
+                "rssKiB": 160048,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.46,
+                "rssKiB": 49040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 49406.484188,
+            "scanMs": 75.66170799999963,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.52,
+                "rssKiB": 213664,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.17,
+                "rssKiB": 91280,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48656,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.42,
+                "rssKiB": 160160,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.52,
+                "rssKiB": 49216,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 54483.380417,
+            "scanMs": 76.95075000000361,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.53,
+                "rssKiB": 214192,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.17,
+                "rssKiB": 91296,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48656,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.44,
+                "rssKiB": 161872,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.57,
+                "rssKiB": 49216,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 59562.901646,
+            "scanMs": 79.37845799999923,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.73,
+                "rssKiB": 231344,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.24,
+                "rssKiB": 99744,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48656,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.63,
+                "rssKiB": 175296,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.63,
+                "rssKiB": 49248,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 64643.489334,
+            "scanMs": 80.94174999999814,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.95,
+                "rssKiB": 232656,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.35,
+                "rssKiB": 98960,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48672,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.87,
+                "rssKiB": 183664,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.69,
+                "rssKiB": 49936,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 69730.3688755,
+            "scanMs": 90.34091699999408,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.16,
+                "rssKiB": 235312,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.48,
+                "rssKiB": 104672,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48672,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.12,
+                "rssKiB": 196432,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.76,
+                "rssKiB": 50080,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 74814.91075,
+            "scanMs": 75.6085000000021,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.44,
+                "rssKiB": 235664,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.79,
+                "rssKiB": 109984,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48640,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.67,
+                "rssKiB": 211680,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.81,
+                "rssKiB": 50096,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 79899.392292,
+            "scanMs": 91.27008400000341,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.66,
+                "rssKiB": 236032,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.9,
+                "rssKiB": 110960,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48640,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.89,
+                "rssKiB": 213040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.88,
+                "rssKiB": 50144,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 84983.18918799999,
+            "scanMs": 74.78954199999862,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.7,
+                "rssKiB": 236240,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.91,
+                "rssKiB": 105840,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48640,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.92,
+                "rssKiB": 213328,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.93,
+                "rssKiB": 50160,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 90059.191709,
+            "scanMs": 74.69199999999546,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.73,
+                "rssKiB": 235712,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.91,
+                "rssKiB": 105840,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48640,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.94,
+                "rssKiB": 214176,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.98,
+                "rssKiB": 50160,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          },
+          {
+            "atMs": 95135.547292,
+            "scanMs": 75.32116599999426,
+            "application": [
+              {
+                "pid": 89367,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.77,
+                "rssKiB": 235888,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/MacOS/Whip"
+              },
+              {
+                "pid": 89376,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.91,
+                "rssKiB": 105840,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89377,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 0.05,
+                "rssKiB": 48640,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+              },
+              {
+                "pid": 89388,
+                "ppid": 89367,
+                "started": "Tue Sep  8 00:46:24 2026",
+                "cpuSeconds": 1.97,
+                "rssKiB": 215280,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 89293,
+                "ppid": 1,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 1.03,
+                "rssKiB": 50160,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              },
+              {
+                "pid": 89302,
+                "ppid": 89293,
+                "started": "Tue Sep  8 00:46:22 2026",
+                "cpuSeconds": 0.03,
+                "rssKiB": 33040,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+              }
+            ]
+          }
+        ],
+        "systemBeforeSettle": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                              124519.\nPages active:                           2061824.\nPages inactive:                         2030254.\nPages speculative:                        30321.\nPages throttled:                              0.\nPages wired down:                        816733.\nPages purgeable:                           3359.\n\"Translation faults\":               18806519541.\nPages copy-on-write:                  606013300.\nPages zero filled:                   4922679541.\nPages reactivated:                    417730637.\nPages purged:                          77933629.\nFile-backed pages:                      1089661.\nAnonymous pages:                        3032738.\nPages stored in compressor:             8003556.\nPages occupied by compressor:           3245592.\nDecompressions:                       342168798.\nCompressions:                         419636426.\nPageins:                              158506936.\nPageouts:                                803347.\nSwapins:                                7611384.\nSwapouts:                              10564119.\n",
+        "systemAfterSettle": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                              107493.\nPages active:                           2110463.\nPages inactive:                         2078513.\nPages speculative:                        31374.\nPages throttled:                              0.\nPages wired down:                        737923.\nPages purgeable:                          23741.\n\"Translation faults\":               18817418053.\nPages copy-on-write:                  606153826.\nPages zero filled:                   4923303423.\nPages reactivated:                    417730914.\nPages purged:                          77934391.\nFile-backed pages:                      1092701.\nAnonymous pages:                        3127649.\nPages stored in compressor:             7998218.\nPages occupied by compressor:           3243401.\nDecompressions:                       342174606.\nCompressions:                         419636426.\nPageins:                              158518137.\nPageouts:                                803347.\nSwapins:                                7611384.\nSwapouts:                              10564119.\n",
+        "systemAfterSampling": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                               74531.\nPages active:                           2130662.\nPages inactive:                         2095913.\nPages speculative:                        46826.\nPages throttled:                              0.\nPages wired down:                        731073.\nPages purgeable:                          16371.\n\"Translation faults\":               18839660770.\nPages copy-on-write:                  606451099.\nPages zero filled:                   4924908744.\nPages reactivated:                    417731342.\nPages purged:                          77966420.\nFile-backed pages:                      1141899.\nAnonymous pages:                        3131502.\nPages stored in compressor:             7980289.\nPages occupied by compressor:           3230285.\nDecompressions:                       342193265.\nCompressions:                         419636426.\nPageins:                              158585187.\nPageouts:                                803358.\nSwapins:                                7611384.\nSwapouts:                              10564119.\n",
+        "elapsedSeconds": 60.95667435450001,
+        "statistics": {
+          "application": {
+            "stableProcessSet": true,
+            "processCount": 4,
+            "cpuSeconds": 3.6799999999999997,
+            "averageCPUPercentOfOneCore": 6.037074756733888,
+            "rssMiB": {
+              "mean": 548.9555288461538,
+              "min": 501.03125,
+              "max": 594.40625
+            }
+          },
+          "daemon": {
+            "stableProcessSet": true,
+            "processCount": 2,
+            "cpuSeconds": 0.67,
+            "averageCPUPercentOfOneCore": 1.0991413279923112,
+            "rssMiB": {
+              "mean": 80.7295673076923,
+              "min": 79.875,
+              "max": 81.25
+            }
+          }
+        },
+        "applicationFootprint": {
+          "stdout": "======================================================================\nWhip Helper (Renderer) [89388]: 64-bit    Footprint: 95831552 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 49725440 B           0 B      983040 B      11453    app-specific tag 16\n 38912000 B           0 B    23281664 B       1266    app-specific tag 14\n  1755450 B      327680 B           0 B         45    __DATA\n  1066496 B           0 B           0 B          1    page table\n   749989 B           0 B           0 B        151    __DATA_DIRTY\n   704512 B           0 B           0 B         46    stack\n   589824 B           0 B           0 B         11    MALLOC metadata\n   294912 B           0 B           0 B          4    MALLOC_SMALL\n   163840 B           0 B           0 B          7    Mach message\n   163840 B           0 B           0 B          1    libdispatch\n   147456 B           0 B           0 B         20    untagged (VM_ALLOCATE)\n    98569 B           0 B           0 B         63    unused dyld shared cache area\n    98280 B           0 B           0 B          2    __TPRO_CONST\n    81920 B           0 B           0 B          1    MALLOC_TINY\n    33840 B           0 B           0 B         19    __AUTH\n    16384 B           0 B           0 B          1    ColorSync\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          1    Activity Tracing\n    16384 B           0 B           0 B          1    PROTECTED_MEMORY\n        0 B    68550656 B           0 B          2    __TEXT\n        0 B     4014080 B           0 B          6    __DATA_CONST\n        0 B     2457600 B           0 B          4    mapped file\n        0 B       16384 B           0 B          1    __LINKEDIT\n        0 B           0 B           0 B          3    app-specific tag 1\n        ---           ---           ---        ---    ---\n 94651904 B    75366400 B    24264704 B      13112    TOTAL\n\nShared with Whip Helper [89376], Whip Helper [89377], Whip [89367]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          3    untagged (VM_ALLOCATE)\n        0 B     3440640 B           0 B          7    mapped file\n        0 B     1261568 B           0 B         20    __LINKEDIT\n        0 B      294912 B           0 B         16    __TEXT\n        ---           ---           ---        ---    ---\n    65536 B     4997120 B           0 B         46    TOTAL\n\nShared with Whip Helper [89376]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   999424 B           0 B           0 B          9    untagged (VM_ALLOCATE)\n        ---           ---           ---        ---    ---\n   999424 B           0 B           0 B          9    TOTAL\n\nShared with Whip [89367]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   114688 B           0 B           0 B          4    untagged (VM_ALLOCATE)\n        0 B     1671168 B           0 B          2    mapped file\n        ---           ---           ---        ---    ---\n   114688 B     1671168 B           0 B          6    TOTAL\n\nShared with Whip [89367], Whip Helper [89377]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B      753664 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n        0 B      753664 B           0 B          1    TOTAL\n\nAuxiliary data:\n    phys_footprint: 95880704 B\n    phys_footprint_peak: 95880704 B\n\n======================================================================\nWhip Helper [89376]: 64-bit    Footprint: 71419032 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 38912000 B           0 B           0 B         22    IOSurface\n 15040512 B           0 B    12451840 B        815    app-specific tag 14\n  5767168 B           0 B           0 B         22    Owned physical footprint (unmapped) (graphics)\n  2818048 B           0 B    33751040 B        318    IOAccelerator (graphics)\n  1622016 B           0 B           0 B         32    stack\n  1347413 B      114688 B           0 B         65    __DATA\n   820376 B           0 B           0 B          1    page table\n   819200 B           0 B           0 B         12    MALLOC metadata\n   812966 B           0 B           0 B        188    __DATA_DIRTY\n   688128 B           0 B           0 B          5    MALLOC_SMALL\n   393216 B           0 B           0 B          1    libdispatch\n   129988 B           0 B           0 B         78    unused dyld shared cache area\n   114688 B           0 B           0 B          1    __AUTH_CONST\n    98304 B           0 B           0 B          4    Mach message\n    98304 B           0 B           0 B          2    IOAccelerator\n    98280 B           0 B           0 B          2    __TPRO_CONST\n    81920 B           0 B           0 B          1    MALLOC_TINY\n    68953 B           0 B           0 B         22    __AUTH\n    65536 B           0 B           0 B          7    untagged (VM_ALLOCATE)\n    49152 B     1409024 B           0 B          7    __DATA_CONST\n    49152 B           0 B           0 B          3    ColorSync\n    49152 B           0 B           0 B          3    IOKit\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          1    Activity Tracing\n        0 B      917504 B           0 B          8    mapped file\n        0 B           0 B           0 B         46    Owned physical footprint (unmapped)\n        ---           ---           ---        ---    ---\n 69977240 B     2441216 B    46202880 B       1669    TOTAL\n\nShared with Whip Helper [89377], Whip [89367], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          3    untagged (VM_ALLOCATE)\n        0 B     1261568 B           0 B         20    __LINKEDIT\n        0 B      507904 B           0 B          7    mapped file\n        0 B      294912 B           0 B         16    __TEXT\n        ---           ---           ---        ---    ---\n    65536 B     2064384 B           0 B         46    TOTAL\n\nShared with Whip [89367]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   311296 B           0 B           0 B         18    untagged (VM_ALLOCATE)\n    32768 B           0 B           0 B          3    IOKit\n    16384 B           0 B           0 B          1    CoreGraphics\n    16384 B           0 B           0 B          1    IOAccelerator\n        0 B     6848512 B           0 B          3    mapped file\n        0 B     2424832 B           0 B          2    __TEXT\n        0 B       32768 B           0 B          2    __LINKEDIT\n        0 B           0 B           0 B          7    IOSurface\n        ---           ---           ---        ---    ---\n   376832 B     9306112 B           0 B         37    TOTAL\n\nShared with Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   999424 B           0 B           0 B          9    untagged (VM_ALLOCATE)\n        ---           ---           ---        ---    ---\n   999424 B           0 B           0 B          9    TOTAL\n\nShared with Whip Helper [89377]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B    34783232 B           0 B          4    __TEXT\n        0 B       16384 B           0 B          2    __LINKEDIT\n        ---           ---           ---        ---    ---\n        0 B    34799616 B           0 B          6    TOTAL\n\nShared with Whip [89367], Whip Helper [89377]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          1    PROTECTED_MEMORY\n        0 B           0 B           0 B          3    __DATA\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          4    TOTAL\n\nAuxiliary data:\n    phys_footprint: 71468184 B\n    phys_footprint_peak: 704840856 B\n\n======================================================================\nWhip [89367]: 64-bit    Footprint: 48678712 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 25198592 B           0 B    12468224 B       1069    app-specific tag 14\n  9027584 B           0 B    44548096 B      11945    app-specific tag 16\n  2342830 B       98304 B           0 B        126    __DATA\n  2008956 B           0 B           0 B        392    __DATA_DIRTY\n  1474560 B           0 B           0 B          6    MALLOC_SMALL\n  1279800 B           0 B           0 B          1    page table\n  1261568 B           0 B           0 B         14    MALLOC metadata\n   966656 B           0 B           0 B         71    stack\n   933888 B           0 B           0 B         53    CoreAnimation\n   524288 B           0 B           0 B          1    libdispatch\n   409600 B           0 B           0 B          3    CoreUI image data\n   393216 B           0 B           0 B         37    untagged (VM_ALLOCATE)\n   392134 B           0 B           0 B        175    unused dyld shared cache area\n   335144 B           0 B           0 B         54    __AUTH\n   262144 B           0 B           0 B          2    Accelerate image backing stores\n   131072 B           0 B           0 B          1    IOSurface\n   131072 B           0 B           0 B          4    Mach message\n   114688 B           0 B           0 B          1    __AUTH_CONST\n    98304 B           0 B           0 B          6    Owned physical footprint (unmapped)\n    98280 B           0 B           0 B          2    __TPRO_CONST\n    81920 B           0 B           0 B          1    MALLOC_TINY\n    49152 B     2818048 B           0 B          7    __DATA_CONST\n    49152 B           0 B           0 B          1    IOAccelerator\n    32768 B           0 B           0 B          1    Activity Tracing\n    32768 B           0 B           0 B          2    CoreGraphics\n    16384 B           0 B           0 B          2    IOAccelerator (graphics)\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          2    Foundation\n    16384 B           0 B           0 B          1    IOKit\n    16384 B           0 B           0 B          1    ColorSync\n        0 B    67469312 B           0 B          3    __TEXT\n        0 B    17121280 B           0 B         49    mapped file\n        0 B       32768 B           0 B          2    __LINKEDIT\n        ---           ---           ---        ---    ---\n 47712056 B    87539712 B    57016320 B      14038    TOTAL\n\nShared with Whip Helper [89377]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   131072 B           0 B           0 B          1    untagged (VM_ALLOCATE)\n        ---           ---           ---        ---    ---\n   131072 B           0 B           0 B          1    TOTAL\n\nShared with Whip Helper [89376], Whip Helper [89377], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          3    untagged (VM_ALLOCATE)\n        0 B     7028736 B           0 B          7    mapped file\n        0 B     1261568 B           0 B         20    __LINKEDIT\n        0 B      294912 B           0 B         16    __TEXT\n        ---           ---           ---        ---    ---\n    65536 B     8585216 B           0 B         46    TOTAL\n\nShared with Whip Helper [89376]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   409600 B           0 B           0 B         18    untagged (VM_ALLOCATE)\n    32768 B           0 B           0 B          3    IOKit\n    16384 B           0 B           0 B          1    CoreGraphics\n    16384 B           0 B           0 B          1    IOAccelerator\n        0 B     6373376 B           0 B          3    mapped file\n        0 B     2424832 B           0 B          2    __TEXT\n        0 B       32768 B           0 B          2    __LINKEDIT\n        0 B           0 B           0 B          7    IOSurface\n        ---           ---           ---        ---    ---\n   475136 B     8830976 B           0 B         37    TOTAL\n\nShared with Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n   294912 B           0 B           0 B          4    untagged (VM_ALLOCATE)\n        0 B     1310720 B           0 B          2    mapped file\n        ---           ---           ---        ---    ---\n   294912 B     1310720 B           0 B          6    TOTAL\n\nShared with Whip Helper [89376], Whip Helper [89377]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          1    PROTECTED_MEMORY\n        0 B           0 B           0 B          3    __DATA\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          4    TOTAL\n\nShared with Whip Helper [89377], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B      753664 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n        0 B      753664 B           0 B          1    TOTAL\n\nAuxiliary data:\n    phys_footprint: 48727864 B\n    phys_footprint_peak: 102401776 B\n\n======================================================================\nWhip Helper [89377]: 64-bit    Footprint: 7062464 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n  2654208 B           0 B     3047424 B        519    app-specific tag 14\n  1083012 B      147456 B           0 B         37    __DATA\n   672704 B           0 B           0 B          1    page table\n   672213 B           0 B           0 B        158    __DATA_DIRTY\n   573440 B           0 B           0 B         11    MALLOC metadata\n   360448 B           0 B           0 B         24    stack\n   278528 B           0 B           0 B          3    MALLOC_SMALL\n   229376 B           0 B           0 B          1    libdispatch\n   111471 B           0 B           0 B         59    unused dyld shared cache area\n    98280 B           0 B           0 B          2    __TPRO_CONST\n    81920 B           0 B           0 B          1    MALLOC_TINY\n    32768 B           0 B           0 B          2    Mach message\n    32768 B           0 B           0 B          4    untagged (VM_ALLOCATE)\n    17488 B           0 B           0 B         12    __AUTH\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          1    Activity Tracing\n        0 B      950272 B           0 B          6    __DATA_CONST\n        0 B       81920 B           0 B          2    mapped file\n        0 B           0 B           0 B          2    app-specific tag 1\n        ---           ---           ---        ---    ---\n  6931392 B     1179648 B     3047424 B        848    TOTAL\n\nShared with Whip [89367]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          1    untagged (VM_ALLOCATE)\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          1    TOTAL\n\nShared with Whip Helper [89376], Whip [89367], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    65536 B           0 B           0 B          3    untagged (VM_ALLOCATE)\n        0 B     1261568 B           0 B         20    __LINKEDIT\n        0 B      311296 B           0 B          7    mapped file\n        0 B      294912 B           0 B         16    __TEXT\n        ---           ---           ---        ---    ---\n    65536 B     1867776 B           0 B         46    TOTAL\n\nShared with Whip Helper [89376]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B    34783232 B           0 B          4    __TEXT\n        0 B       16384 B           0 B          2    __LINKEDIT\n        ---           ---           ---        ---    ---\n        0 B    34799616 B           0 B          6    TOTAL\n\nShared with Whip Helper [89376], Whip [89367]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          1    PROTECTED_MEMORY\n        0 B           0 B           0 B          3    __DATA\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          4    TOTAL\n\nShared with Whip [89367], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          1    TOTAL\n\nAuxiliary data:\n    phys_footprint: 7111616 B\n    phys_footprint_peak: 7259072 B\n\n======================================================================\nShared Cache F3E3CB1B-1C09-3CC5-AD72-F0800F1F475F\n======================================================================\n\nShared with Whip Helper [89376], Whip Helper [89377], Whip [89367], Whip Helper (Renderer) [89388]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B          4    .note.gnu.proper\n        0 B           0 B           0 B       4110    __DATA_CONST\n        0 B           0 B           0 B          4    __FONT_DATA\n        0 B           0 B           0 B       9515    unused dyld shared cache area\n        0 B           0 B           0 B       2450    __AUTH\n        0 B           0 B           0 B       2586    __DATA_DIRTY\n        0 B           0 B           0 B       4078    __AUTH_CONST\n        0 B           0 B           0 B          4    __INFO_FILTER\n        0 B           0 B           0 B       4198    __TEXT\n        0 B           0 B           0 B          8    __LINKEDIT\n        0 B           0 B           0 B          4    __CTF\n        0 B           0 B           0 B       3618    __DATA\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B      30579    TOTAL\n\n======================================================================\nSummary Footprint: 221255056 B\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 81805312 B           0 B    51249152 B       3669    app-specific tag 14\n 58753024 B           0 B    45531136 B      23398    app-specific tag 16\n 39043072 B           0 B           0 B         37    IOSurface\n  6528705 B      688128 B           0 B       3894    __DATA\n  5767168 B           0 B           0 B         22    Owned physical footprint (unmapped) (graphics)\n  4244124 B           0 B           0 B       3475    __DATA_DIRTY\n  3839376 B           0 B           0 B          4    page table\n  3653632 B           0 B           0 B        173    stack\n  3244032 B           0 B           0 B         48    MALLOC metadata\n  2834432 B           0 B    33751040 B        320    IOAccelerator (graphics)\n  2736128 B           0 B           0 B         18    MALLOC_SMALL\n  2555904 B           0 B           0 B        144    untagged (VM_ALLOCATE)\n  1310720 B           0 B           0 B          4    libdispatch\n   933888 B           0 B           0 B         53    CoreAnimation\n   732162 B           0 B           0 B       9890    unused dyld shared cache area\n   455425 B           0 B           0 B       2557    __AUTH\n   425984 B           0 B           0 B         17    Mach message\n   409600 B           0 B           0 B          3    CoreUI image data\n   393120 B           0 B           0 B          8    __TPRO_CONST\n   327680 B           0 B           0 B          4    MALLOC_TINY\n   262144 B           0 B           0 B          2    Accelerate image backing stores\n   229376 B           0 B           0 B       4080    __AUTH_CONST\n   163840 B           0 B           0 B          5    IOAccelerator\n    98304 B     9191424 B           0 B       4136    __DATA_CONST\n    98304 B           0 B           0 B         10    IOKit\n    98304 B           0 B           0 B         52    Owned physical footprint (unmapped)\n    81920 B           0 B           0 B          4    Activity Tracing\n    81920 B           0 B           0 B          5    ColorSync\n    65536 B           0 B           0 B          4    os_alloc_once\n    49152 B           0 B           0 B          4    CoreGraphics\n    16384 B           0 B           0 B          4    PROTECTED_MEMORY\n    16384 B           0 B           0 B          2    Foundation\n        0 B   173522944 B           0 B       4225    __TEXT\n        0 B    42647552 B           0 B        104    mapped file\n        0 B     1359872 B           0 B         35    __LINKEDIT\n        0 B           0 B           0 B          5    app-specific tag 1\n        0 B           0 B           0 B          4    .note.gnu.proper\n        0 B           0 B           0 B          4    __FONT_DATA\n        0 B           0 B           0 B          4    __INFO_FILTER\n        0 B           0 B           0 B          4    __CTF\n        ---           ---           ---        ---    ---\n221255056 B   227409920 B   130531328 B      60439    TOTAL\n\n\n",
+          "data": {
+            "unit": "byte",
+            "bytes per unit": 1,
+            "start_time": {
+              "mach_absolute_time_ns": 778559694656625,
+              "mach_continuous_time_ns": 990310447884625,
+              "wall_time_s": 810542875.46037,
+              "date": "2026-09-08T00:47:55.460-06:00"
+            },
+            "processes": [
+              {
+                "name": "Whip Helper (Renderer)",
+                "pid": 89388,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 95831552,
+                "categories": {
+                  "__TPRO_CONST": {
+                    "dirty": 98280,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "app-specific tag 16": {
+                    "dirty": 49725440,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 983040,
+                    "wired": 0,
+                    "regions": 11453
+                  },
+                  "page table": {
+                    "dirty": 1066496,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "app-specific tag 1": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__DATA": {
+                    "dirty": 1755450,
+                    "swapped": 0,
+                    "clean": 327680,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 45
+                  },
+                  "Mach message": {
+                    "dirty": 163840,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "ColorSync": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 81920,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 68550656,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 4014080,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 6
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH": {
+                    "dirty": 33840,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 19
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 147456,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 20
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 749989,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 151
+                  },
+                  "libdispatch": {
+                    "dirty": 163840,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 98569,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 63
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 589824,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 11
+                  },
+                  "Activity Tracing": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "stack": {
+                    "dirty": 704512,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 46
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 294912,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 16384,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 2457600,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "app-specific tag 14": {
+                    "dirty": 38912000,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 23281664,
+                    "wired": 0,
+                    "regions": 1266
+                  },
+                  "PROTECTED_MEMORY": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 95880704,
+                  "phys_footprint": 95880704
+                }
+              },
+              {
+                "name": "Whip Helper",
+                "pid": 89376,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 71419032,
+                "categories": {
+                  "__AUTH_CONST": {
+                    "dirty": 114688,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "page table": {
+                    "dirty": 820376,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 1347413,
+                    "swapped": 0,
+                    "clean": 114688,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 65
+                  },
+                  "IOAccelerator (graphics)": {
+                    "dirty": 2818048,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 33751040,
+                    "wired": 0,
+                    "regions": 318
+                  },
+                  "Mach message": {
+                    "dirty": 98304,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "Owned physical footprint (unmapped)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 46
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 81920,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "IOAccelerator": {
+                    "dirty": 98304,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "ColorSync": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "IOSurface": {
+                    "dirty": 38912000,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 22
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 1409024,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH": {
+                    "dirty": 68953,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 22
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "IOKit": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "Owned physical footprint (unmapped) (graphics)": {
+                    "dirty": 5767168,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 65536,
+                    "regions": 22
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 812966,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 188
+                  },
+                  "libdispatch": {
+                    "dirty": 393216,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 129988,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 78
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 819200,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 12
+                  },
+                  "Activity Tracing": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "stack": {
+                    "dirty": 1622016,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 32
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 688128,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 5
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 917504,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 8
+                  },
+                  "app-specific tag 14": {
+                    "dirty": 15040512,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 12451840,
+                    "wired": 0,
+                    "regions": 815
+                  },
+                  "__TPRO_CONST": {
+                    "dirty": 98280,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 704840856,
+                  "phys_footprint": 71468184
+                }
+              },
+              {
+                "name": "Whip",
+                "pid": 89367,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 48678712,
+                "categories": {
+                  "IOAccelerator": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 2342830,
+                    "swapped": 0,
+                    "clean": 98304,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 126
+                  },
+                  "Activity Tracing": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 2008956,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 392
+                  },
+                  "Accelerate image backing stores": {
+                    "dirty": 262144,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "app-specific tag 16": {
+                    "dirty": 9027584,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 44548096,
+                    "wired": 0,
+                    "regions": 11945
+                  },
+                  "stack": {
+                    "dirty": 966656,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 71
+                  },
+                  "CoreUI image data": {
+                    "dirty": 409600,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__AUTH": {
+                    "dirty": 335144,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 54
+                  },
+                  "libdispatch": {
+                    "dirty": 524288,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 32768,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "page table": {
+                    "dirty": 1279800,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "IOSurface": {
+                    "dirty": 131072,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "IOAccelerator (graphics)": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 17121280,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 49
+                  },
+                  "app-specific tag 14": {
+                    "dirty": 25198592,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 12468224,
+                    "wired": 0,
+                    "regions": 1069
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 1261568,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 14
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 1474560,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 6
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 393216,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 37
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 2818048,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "Foundation": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 392134,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 175
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 67469312,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 81920,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH_CONST": {
+                    "dirty": 114688,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "CoreAnimation": {
+                    "dirty": 933888,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 53
+                  },
+                  "CoreGraphics": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "Mach message": {
+                    "dirty": 131072,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "IOKit": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "Owned physical footprint (unmapped)": {
+                    "dirty": 98304,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 6
+                  },
+                  "ColorSync": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__TPRO_CONST": {
+                    "dirty": 98280,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 102401776,
+                  "phys_footprint": 48727864
+                }
+              },
+              {
+                "name": "Whip Helper",
+                "pid": 89377,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 7062464,
+                "categories": {
+                  "page table": {
+                    "dirty": 672704,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "app-specific tag 1": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__DATA": {
+                    "dirty": 1083012,
+                    "swapped": 0,
+                    "clean": 147456,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 37
+                  },
+                  "Mach message": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 81920,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 950272,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 6
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH": {
+                    "dirty": 17488,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 12
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "libdispatch": {
+                    "dirty": 229376,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 672213,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 158
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 111471,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 59
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 573440,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 11
+                  },
+                  "Activity Tracing": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "stack": {
+                    "dirty": 360448,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 24
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 278528,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 81920,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "app-specific tag 14": {
+                    "dirty": 2654208,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 3047424,
+                    "wired": 0,
+                    "regions": 519
+                  },
+                  "__TPRO_CONST": {
+                    "dirty": 98280,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 7259072,
+                  "phys_footprint": 7111616
+                }
+              }
+            ],
+            "errors": [],
+            "warnings": [],
+            "summary": {
+              "IOAccelerator": {
+                "dirty": 163840,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 5
+              },
+              "__DATA": {
+                "dirty": 6528705,
+                "swapped": 0,
+                "clean": 688128,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 3894
+              },
+              "Activity Tracing": {
+                "dirty": 81920,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "app-specific tag 1": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 5
+              },
+              ".note.gnu.proper": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "__DATA_DIRTY": {
+                "dirty": 4244124,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 3475
+              },
+              "Accelerate image backing stores": {
+                "dirty": 262144,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "app-specific tag 16": {
+                "dirty": 58753024,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 45531136,
+                "wired": 0,
+                "regions": 23398
+              },
+              "stack": {
+                "dirty": 3653632,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 173
+              },
+              "CoreUI image data": {
+                "dirty": 409600,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 3
+              },
+              "__AUTH": {
+                "dirty": 455425,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2557
+              },
+              "libdispatch": {
+                "dirty": 1310720,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "__LINKEDIT": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 1359872,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 35
+              },
+              "__FONT_DATA": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "page table": {
+                "dirty": 3839376,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "IOSurface": {
+                "dirty": 39043072,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 37
+              },
+              "PROTECTED_MEMORY": {
+                "dirty": 16384,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "IOAccelerator (graphics)": {
+                "dirty": 2834432,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 33751040,
+                "wired": 0,
+                "regions": 320
+              },
+              "commpage (reserved)": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "app-specific tag 14": {
+                "dirty": 81805312,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 51249152,
+                "wired": 0,
+                "regions": 3669
+              },
+              "mapped file": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 42647552,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 104
+              },
+              "MALLOC metadata": {
+                "dirty": 3244032,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 48
+              },
+              "MALLOC_SMALL": {
+                "dirty": 2736128,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 18
+              },
+              "untagged (VM_ALLOCATE)": {
+                "dirty": 2555904,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 144
+              },
+              "os_alloc_once": {
+                "dirty": 65536,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "__DATA_CONST": {
+                "dirty": 98304,
+                "swapped": 0,
+                "clean": 9191424,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4136
+              },
+              "unused dyld shared cache area": {
+                "dirty": 732162,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 9890
+              },
+              "__INFO_FILTER": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "Owned physical footprint (unmapped) (graphics)": {
+                "dirty": 5767168,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 65536,
+                "regions": 22
+              },
+              "Foundation": {
+                "dirty": 16384,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__CTF": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "__TEXT": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 173522944,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4225
+              },
+              "GPU Carveout (reserved)": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "MALLOC_TINY": {
+                "dirty": 327680,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "__AUTH_CONST": {
+                "dirty": 229376,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4080
+              },
+              "ColorSync": {
+                "dirty": 81920,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 5
+              },
+              "CoreGraphics": {
+                "dirty": 49152,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "Mach message": {
+                "dirty": 425984,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 17
+              },
+              "IOKit": {
+                "dirty": 98304,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 10
+              },
+              "Owned physical footprint (unmapped)": {
+                "dirty": 98304,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 52
+              },
+              "CoreAnimation": {
+                "dirty": 933888,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 53
+              },
+              "__TPRO_CONST": {
+                "dirty": 393120,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 8
+              },
+              "total": {
+                "dirty": 221255056,
+                "swapped": 0,
+                "clean": 227409920,
+                "reclaimable": 130531328,
+                "wired": 65536,
+                "regions": 60439
+              }
+            },
+            "total footprint": 221255056,
+            "shared": [
+              {
+                "pids": [
+                  89376,
+                  89377,
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89388,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 3440640,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1261568,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 20
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 294912,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 16
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89388
+                ],
+                "specific_to_pid": 89388,
+                "categories": {
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 999424,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 9
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89388,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1671168,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 114688,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89377,
+                  89388
+                ],
+                "specific_to_pid": 89388,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 753664,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89377,
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89376,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 507904,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1261568,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 20
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 294912,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 16
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89367
+                ],
+                "specific_to_pid": 89376,
+                "categories": {
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 2424832,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "IOKit": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "IOSurface": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 32768,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "CoreGraphics": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "IOAccelerator": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 6848512,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 311296,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 18
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89388
+                ],
+                "specific_to_pid": 89376,
+                "categories": {
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 999424,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 9
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89377
+                ],
+                "categories": {
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 34783232,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 16384,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89367,
+                  89377
+                ],
+                "specific_to_pid": 89376,
+                "categories": {
+                  "PROTECTED_MEMORY": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89377
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 131072,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89377,
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 7028736,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1261568,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 20
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 294912,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 16
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89367
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 2424832,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "IOKit": {
+                    "dirty": 32768,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "IOSurface": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 32768,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "CoreGraphics": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "IOAccelerator": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 6373376,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 409600,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 18
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1310720,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 294912,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89367,
+                  89377
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "PROTECTED_MEMORY": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89377,
+                  89388
+                ],
+                "specific_to_pid": 89367,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 753664,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89377
+                ],
+                "specific_to_pid": 89377,
+                "categories": {
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89377,
+                  89367,
+                  89388
+                ],
+                "specific_to_pid": 89377,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 311296,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 7
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 1261568,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 20
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 294912,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 16
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89367,
+                  89377
+                ],
+                "specific_to_pid": 89377,
+                "categories": {
+                  "PROTECTED_MEMORY": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89367,
+                  89377,
+                  89388
+                ],
+                "specific_to_pid": 89377,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89376,
+                  89377,
+                  89367,
+                  89388
+                ],
+                "shared-cache": "F3E3CB1B-1C09-3CC5-AD72-F0800F1F475F",
+                "categories": {
+                  ".note.gnu.proper": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4110
+                  },
+                  "__FONT_DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 9515
+                  },
+                  "__AUTH": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2450
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2586
+                  },
+                  "__AUTH_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4078
+                  },
+                  "__INFO_FILTER": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4198
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 8
+                  },
+                  "__CTF": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "__DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3618
+                  }
+                }
+              }
+            ],
+            "end_time": {
+              "mach_absolute_time_ns": 778559973477125,
+              "mach_continuous_time_ns": 990310726705125,
+              "wall_time_s": 810542875.739192,
+              "date": "2026-09-08T00:47:55.739-06:00"
+            },
+            "page size": 16384
+          }
+        },
+        "daemonFootprint": {
+          "stdout": "======================================================================\nwhip [89293]: 64-bit    Footprint: 27968088 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 21872640 B           0 B      425984 B        141    untagged (VM_ALLOCATE)\n  3178496 B      606208 B           0 B          1    __DATA_CONST\n   954883 B      196608 B           0 B         25    __DATA\n   426584 B           0 B           0 B          1    page table\n   360448 B           0 B           0 B         10    MALLOC metadata\n   338605 B           0 B           0 B         57    __DATA_DIRTY\n   294912 B           0 B           0 B         32    stack\n   229376 B           0 B           0 B          4    MALLOC_SMALL\n    81920 B           0 B           0 B          1    MALLOC_TINY\n    81688 B           0 B           0 B         35    unused dyld shared cache area\n    49128 B           0 B           0 B          2    __TPRO_CONST\n    16384 B           0 B           0 B          1    MALLOC_NANO\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          1    Activity Tracing\n     1104 B           0 B           0 B          5    __AUTH\n        0 B       32768 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n 27918936 B      835584 B      425984 B        320    TOTAL\n\nShared with whip [89302]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    49152 B           0 B           0 B          2    untagged (VM_ALLOCATE)\n        0 B    17498112 B           0 B          2    __TEXT\n        0 B      851968 B           0 B          2    __LINKEDIT\n        0 B           0 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n    49152 B    18350080 B           0 B          7    TOTAL\n\nAuxiliary data:\n    phys_footprint: 28017240 B\n    phys_footprint_peak: 28050008 B\n\n======================================================================\nwhip [89302]: 64-bit    Footprint: 17908288 B (16384 bytes per page)\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 12058624 B           0 B           0 B        103    untagged (VM_ALLOCATE)\n  3178496 B      557056 B           0 B          1    __DATA_CONST\n   922132 B      163840 B           0 B         16    __DATA\n   410176 B           0 B           0 B          1    page table\n   344064 B           0 B           0 B         10    MALLOC metadata\n   338605 B           0 B           0 B         57    __DATA_DIRTY\n   180224 B           0 B           0 B         18    stack\n   180224 B           0 B           0 B          3    MALLOC_SMALL\n    81671 B           0 B           0 B         32    unused dyld shared cache area\n    65536 B           0 B           0 B          1    MALLOC_TINY\n    49128 B           0 B           0 B          2    __TPRO_CONST\n    16384 B           0 B           0 B          1    MALLOC_NANO\n    16384 B           0 B           0 B          1    os_alloc_once\n    16384 B           0 B           0 B          1    Activity Tracing\n     1104 B           0 B           0 B          5    __AUTH\n        ---           ---           ---        ---    ---\n 17859136 B      720896 B           0 B        254    TOTAL\n\nShared with whip [89293]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n    49152 B           0 B           0 B          2    untagged (VM_ALLOCATE)\n        0 B    17498112 B           0 B          2    __TEXT\n        0 B      851968 B           0 B          2    __LINKEDIT\n        0 B           0 B           0 B          1    mapped file\n        ---           ---           ---        ---    ---\n    49152 B    18350080 B           0 B          7    TOTAL\n\nAuxiliary data:\n    phys_footprint: 17957440 B\n    phys_footprint_peak: 17957440 B\n\n======================================================================\nShared Cache F3E3CB1B-1C09-3CC5-AD72-F0800F1F475F\n======================================================================\n\nShared with whip [89293], whip [89302]:\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B        284    __AUTH\n        0 B           0 B           0 B        450    __DATA_DIRTY\n        0 B           0 B           0 B        551    __DATA\n        0 B           0 B           0 B        692    __TEXT\n        0 B           0 B           0 B        674    __DATA_CONST\n        0 B           0 B           0 B        676    __AUTH_CONST\n        0 B           0 B           0 B       1641    unused dyld shared cache area\n        0 B           0 B           0 B          2    __CTF\n        0 B           0 B           0 B          2    __FONT_DATA\n        0 B           0 B           0 B          4    __LINKEDIT\n        ---           ---           ---        ---    ---\n        0 B           0 B           0 B       4976    TOTAL\n\n======================================================================\nSummary Footprint: 45827224 B\n======================================================================\n\n      Dirty         Clean   Reclaimable    Regions    Category\n        ---           ---           ---        ---    ---\n 33980416 B           0 B      425984 B        248    untagged (VM_ALLOCATE)\n  6356992 B     1163264 B           0 B        676    __DATA_CONST\n  1877015 B      360448 B           0 B        592    __DATA\n   836760 B           0 B           0 B          2    page table\n   704512 B           0 B           0 B         20    MALLOC metadata\n   677210 B           0 B           0 B        564    __DATA_DIRTY\n   475136 B           0 B           0 B         50    stack\n   409600 B           0 B           0 B          7    MALLOC_SMALL\n   163359 B           0 B           0 B       1708    unused dyld shared cache area\n   147456 B           0 B           0 B          2    MALLOC_TINY\n    98256 B           0 B           0 B          4    __TPRO_CONST\n    32768 B           0 B           0 B          2    os_alloc_once\n    32768 B           0 B           0 B          2    Activity Tracing\n    32768 B           0 B           0 B          2    MALLOC_NANO\n     2208 B           0 B           0 B        294    __AUTH\n        0 B    17498112 B           0 B        694    __TEXT\n        0 B      851968 B           0 B          6    __LINKEDIT\n        0 B       32768 B           0 B          3    mapped file\n        0 B           0 B           0 B          2    __CTF\n        0 B           0 B           0 B        676    __AUTH_CONST\n        0 B           0 B           0 B          2    __FONT_DATA\n        ---           ---           ---        ---    ---\n 45827224 B    19906560 B      425984 B       5560    TOTAL\n\n\n",
+          "data": {
+            "unit": "byte",
+            "bytes per unit": 1,
+            "start_time": {
+              "mach_absolute_time_ns": 778560041271500,
+              "mach_continuous_time_ns": 990310794499500,
+              "wall_time_s": 810542875.806986,
+              "date": "2026-09-08T00:47:55.807-06:00"
+            },
+            "processes": [
+              {
+                "name": "whip",
+                "pid": 89293,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 27968088,
+                "categories": {
+                  "stack": {
+                    "dirty": 294912,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 32
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 360448,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 10
+                  },
+                  "page table": {
+                    "dirty": 426584,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 3178496,
+                    "swapped": 0,
+                    "clean": 606208,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 81688,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 35
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 21872640,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 425984,
+                    "wired": 409600,
+                    "regions": 141
+                  },
+                  "MALLOC_NANO": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH": {
+                    "dirty": 1104,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 5
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 338605,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 57
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 229376,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 32768,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "Activity Tracing": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__TPRO_CONST": {
+                    "dirty": 49128,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 81920,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 954883,
+                    "swapped": 0,
+                    "clean": 196608,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 25
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 28050008,
+                  "phys_footprint": 28017240
+                }
+              },
+              {
+                "name": "whip",
+                "pid": 89302,
+                "translated": false,
+                "page size": 16384,
+                "footprint": 17908288,
+                "categories": {
+                  "stack": {
+                    "dirty": 180224,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 18
+                  },
+                  "MALLOC metadata": {
+                    "dirty": 344064,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 10
+                  },
+                  "page table": {
+                    "dirty": 410176,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 3178496,
+                    "swapped": 0,
+                    "clean": 557056,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "commpage (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 81671,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 32
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 12058624,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 196608,
+                    "regions": 103
+                  },
+                  "MALLOC_NANO": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "os_alloc_once": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 338605,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 57
+                  },
+                  "MALLOC_SMALL": {
+                    "dirty": 180224,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 3
+                  },
+                  "GPU Carveout (reserved)": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__AUTH": {
+                    "dirty": 1104,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 5
+                  },
+                  "Activity Tracing": {
+                    "dirty": 16384,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__TPRO_CONST": {
+                    "dirty": 49128,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "MALLOC_TINY": {
+                    "dirty": 65536,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__DATA": {
+                    "dirty": 922132,
+                    "swapped": 0,
+                    "clean": 163840,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 16
+                  }
+                },
+                "auxiliary": {
+                  "phys_footprint_peak": 17957440,
+                  "phys_footprint": 17957440
+                }
+              }
+            ],
+            "errors": [],
+            "warnings": [],
+            "summary": {
+              "__CTF": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__AUTH_CONST": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 676
+              },
+              "page table": {
+                "dirty": 836760,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__FONT_DATA": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__DATA": {
+                "dirty": 1877015,
+                "swapped": 0,
+                "clean": 360448,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 592
+              },
+              "MALLOC_TINY": {
+                "dirty": 147456,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__TEXT": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 17498112,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 694
+              },
+              "__DATA_CONST": {
+                "dirty": 6356992,
+                "swapped": 0,
+                "clean": 1163264,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 676
+              },
+              "GPU Carveout (reserved)": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__AUTH": {
+                "dirty": 2208,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 294
+              },
+              "untagged (VM_ALLOCATE)": {
+                "dirty": 33980416,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 425984,
+                "wired": 606208,
+                "regions": 248
+              },
+              "os_alloc_once": {
+                "dirty": 32768,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__DATA_DIRTY": {
+                "dirty": 677210,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 564
+              },
+              "unused dyld shared cache area": {
+                "dirty": 163359,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 1708
+              },
+              "MALLOC metadata": {
+                "dirty": 704512,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 20
+              },
+              "Activity Tracing": {
+                "dirty": 32768,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "MALLOC_SMALL": {
+                "dirty": 409600,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 7
+              },
+              "stack": {
+                "dirty": 475136,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 50
+              },
+              "MALLOC_NANO": {
+                "dirty": 32768,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__LINKEDIT": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 851968,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 6
+              },
+              "mapped file": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 32768,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 3
+              },
+              "commpage (reserved)": {
+                "dirty": 0,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 2
+              },
+              "__TPRO_CONST": {
+                "dirty": 98256,
+                "swapped": 0,
+                "clean": 0,
+                "reclaimable": 0,
+                "wired": 0,
+                "regions": 4
+              },
+              "total": {
+                "dirty": 45827224,
+                "swapped": 0,
+                "clean": 19906560,
+                "reclaimable": 425984,
+                "wired": 606208,
+                "regions": 5560
+              }
+            },
+            "total footprint": 45827224,
+            "shared": [
+              {
+                "pids": [
+                  89293,
+                  89302
+                ],
+                "specific_to_pid": 89293,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 851968,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 17498112,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89293,
+                  89302
+                ],
+                "specific_to_pid": 89302,
+                "categories": {
+                  "mapped file": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 851968,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 17498112,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "untagged (VM_ALLOCATE)": {
+                    "dirty": 49152,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  }
+                }
+              },
+              {
+                "pids": [
+                  89293,
+                  89302
+                ],
+                "shared-cache": "F3E3CB1B-1C09-3CC5-AD72-F0800F1F475F",
+                "categories": {
+                  "__AUTH": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 284
+                  },
+                  "__DATA_DIRTY": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 450
+                  },
+                  "__DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 551
+                  },
+                  "__TEXT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 692
+                  },
+                  "__DATA_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 674
+                  },
+                  "__AUTH_CONST": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 676
+                  },
+                  "unused dyld shared cache area": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 1641
+                  },
+                  "__CTF": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__FONT_DATA": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 2
+                  },
+                  "__LINKEDIT": {
+                    "dirty": 0,
+                    "swapped": 0,
+                    "clean": 0,
+                    "reclaimable": 0,
+                    "wired": 0,
+                    "regions": 4
+                  }
+                }
+              }
+            ],
+            "end_time": {
+              "mach_absolute_time_ns": 778560078021875,
+              "mach_continuous_time_ns": 990310831249875,
+              "wall_time_s": 810542875.843737,
+              "date": "2026-09-08T00:47:55.844-06:00"
+            },
+            "page size": 16384
+          }
+        }
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "scenario": "retained",
+      "state": "stopped"
+    }
+  ],
+  "ownedGuiPids": [
+    89194,
+    89311,
+    89367,
+    89376,
+    89377,
+    89388
+  ],
+  "ownedDaemonPids": [
+    89258,
+    89293,
+    89302
+  ]
+}

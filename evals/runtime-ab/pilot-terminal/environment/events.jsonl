@@ -1,0 +1,7 @@
+{"id":"r1","kind":"purchase","amount_cents":1500,"customer":"a"}
+{"id":"r2","kind":"purchase","amount_cents":899,"customer":"b"}
+{"id":"r1","kind":"purchase","amount_cents":1500,"customer":"a"}
+{"id":"r3","kind":"refund","amount_cents":200,"customer":"a"}
+{"id":"r4","kind":"purchase","amount_cents":700,"customer":"c"}
+{"id":"r5","kind":"refund","amount_cents":100,"customer":"b"}
+{"id":"r6","kind":"purchase","amount_cents":301,"customer":"b"}

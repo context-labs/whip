@@ -1,0 +1,51 @@
+{
+  "recordedAt": "2026-09-08T07:37:22.793Z",
+  "source": {
+    "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+    "dirty": true
+  },
+  "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+  "checks": {
+    "taskCheck": true,
+    "webTests": 257,
+    "sdkTests": 196,
+    "nativeTests": 65,
+    "packagingPublicationTests": 75,
+    "goRaceAll": true,
+    "goDesktopIntegrationRace": true,
+    "sdkPackedImports": true,
+    "appUIPackedProductionAndDevelopment": true,
+    "chromiumProductChecks": 16,
+    "firefoxProductChecks": 15,
+    "stagedLocalLifecycle": true,
+    "mcpHTTPRace": true,
+    "mcpHTTPRegressions": 6,
+    "browserFixtureCleanupRace": true,
+    "cliCaptureDeadlockFixed": true,
+    "signedDMGAndZIPVerified": true,
+    "signedRetainedWorkerContinuity": true,
+    "localLifecycleFixtureCleanup": true,
+    "notarizedAppAndDMGVerified": true
+  },
+  "notes": [
+    "Final task check and go test -race ./... passed after the MCP HTTP lifetime fix and browser/CLI test-fixture fixes, with isolated HOME and no global WHIP_HOME override.",
+    "The browser fixture now joins its owned Chrome process before removing profiles; affected tests passed 12 race repetitions plus the full suite.",
+    "CLI stdout capture uses a temporary file after a pipe-capacity deadlock was observed in TestBrowserInstall. The helper received read-only adversarial review; full CLI and race suites pass.",
+    "Browser fixture selectors updated to match existing model, reasoning and pause controls.",
+    "Signed distribution, notarized update and OS acceptance are tracked separately.",
+    "Three original MCP HTTP shutdown/deadline regressions fail on baseline and pass after the connection-lifetime fix. Six focused regressions and full MCP/repository race suites pass.",
+    "Final signed package passed full extracted ZIP/mounted DMG verification. Three real worker turns and staged reconnection/lifecycle passed with isolated homes and fixture cleanup. Smoke TMPDIR was shortened after macOS rejected a Unix socket path over its size limit. No performance measurements were repeated.",
+    "Apple accepted the rebuilt app and DMG using the validated local Keychain profile. Both archives passed stapling/Gatekeeper and full app-tree verification. Source code and the renderer are unchanged from the preceding correctness/continuity run; prior continuity and performance evidence retain their original native hashes. No live update feed or release was published."
+  ],
+  "performance": {
+    "stoppedAtUserRequest": true,
+    "complete": false,
+    "details": "Signed startup and three mixed idle runs retained; staged load run stopped with an unresolved stored-message download fixture locator; browser performance follow-up cancelled."
+  },
+  "package": {
+    "bundleDigest": "4b116f632a2e3a22ca6ff130aa3234462c791bb5390b3ba78c64bcee46d540bc",
+    "nativeSHA256": "d74411f83503b1db3cd986e0ad28ea3149a9681e9981ca990570c58a6de8209f",
+    "signed": true,
+    "notarized": true
+  }
+}

@@ -8,15 +8,15 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-	"unicode/utf8"
+	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
 
-// In-app drag selection. whip enables mouse reporting (?1000 clicks/wheel +
-// ?1002 button-motion), and enabling ANY mouse mode makes most terminals
+// In-app drag selection. whip enables mouse reporting (?1002 button-motion;
+// ?1003 all-motion inside tmux), and enabling ANY mouse mode makes most terminals
 // (Ghostty, kitty, …) hand the drag to the app instead of starting a native
 // selection — so with capture on there is no drag-to-copy unless the app
 // implements it. We track the dragged range over the transcript viewport,
@@ -52,10 +52,8 @@ type selection struct {
 }
 
 // selPoint converts ABSOLUTE screen coords to a selection endpoint. Content
-// row r renders at screen row viewTop + 3 (header + hint + blank) +
-// (r + contentPad - YOffset) - vpLead, where vpLead is the top blank rows
-// viewportView dropped. Invert that:
-// content row = y - viewTop - 3 - contentPad + YOffset + vpLead.
+// row r renders at transcript-local row (r + contentPad - YOffset); invert
+// that from the point's coordinates inside the transcript rectangle.
 //
 // clamp=false (a press): rows outside the block range return ok=false — a
 // press on the header, input box, or dock must NOT start a selection (it
@@ -63,35 +61,43 @@ type selection struct {
 // outside clamp to the nearest content row so an overshooting drag selects to
 // the start/end.
 func (m *model) selPoint(x, y int, clamp bool) (selPos, bool) {
-	if len(m.blocks) == 0 || m.viewH == 0 { // viewH 0: nothing rendered yet
+	tr := m.frameNow().transcript
+	if len(m.blocks) == 0 || tr.Empty() {
 		return selPos{}, false
 	}
-	row := y - m.viewTop - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	reg, lx, ly := m.hit(x, y)
+	if !clamp && reg != regTranscript { // a press elsewhere (sidebar, input, chrome) is not a selection
+		return selPos{}, false
+	}
+	if clamp { // a drag may leave the rectangle: measure from it anyway
+		lx, ly = x-tr.Min.X, y-tr.Min.Y
+	}
+	row := ly - m.contentPad() + m.vp.YOffset()
 	first, last := m.blocks[0].y0, m.blocks[len(m.blocks)-1].y1
 	if !clamp && (row < first || row > last) {
 		return selPos{}, false
 	}
 	row = max(min(row, last), first)
 	w := ansi.StringWidth(m.contentLine(row))
-	return selPos{row: row, col: max(min(x-m.vpXOff(), w), 0)}, true
+	return selPos{row: row, col: max(min(lx, w), 0)}, true
 }
 
 // inInputRow reports whether an absolute screen row is inside the input box.
 func (m *model) inInputRow(y int) bool {
-	return m.inputTop >= 0 && y >= m.inputTop && y < m.inputTop+len(m.inputLines)
+	it := m.frameNow().inputText
+	return !it.Empty() && y >= it.Min.Y && y < it.Max.Y
 }
 
 // inputPoint converts absolute screen coords in the input box to a selection
 // endpoint (region=input). clamp=true (drag motion) clamps the row into the
 // box; clamp=false (a press) returns ok=false outside it.
 func (m *model) inputPoint(x, y int, clamp bool) (selPos, bool) {
-	if m.inputTop < 0 || len(m.inputLines) == 0 {
+	it := m.frameNow().inputText
+	if it.Empty() || len(m.inputLines) == 0 {
 		return selPos{}, false
 	}
-	if m.uiMode == opencodeMode {
-		x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "┃  "
-	}
-	row := y - m.inputTop
+	x -= it.Min.X
+	row := y - it.Min.Y
 	if !clamp && (row < 0 || row >= len(m.inputLines)) {
 		return selPos{}, false
 	}
@@ -112,9 +118,8 @@ func (m *model) contentLine(r int) string {
 		if r < b.y0 || r > b.y1 {
 			continue
 		}
-		rows := strings.Split(ansi.Strip(b.rendered), "\n")
-		if r-b.y0 < len(rows) {
-			return strings.TrimRight(rows[r-b.y0], " \t")
+		if r-b.y0 < len(b.rows) {
+			return strings.TrimRight(ansi.Strip(b.rows[r-b.y0]), " \t")
 		}
 		return ""
 	}
@@ -181,108 +186,6 @@ func selCols(lo, hi selPos, r, lineWidth int) (int, int) {
 	return start, max(end, start)
 }
 
-// highlightInput repaints the selected range in reverse video on the input
-// box's rendered view. Called from viewBody when the selection lives in the
-// input region. Row r maps directly to input view line r (the input box is
-// not scrolled/trimmed the way the transcript viewport is).
-func (m *model) highlightInput(iv string) string {
-	if m.sel == nil || !m.sel.anchor.input {
-		return iv
-	}
-	lines := strings.Split(iv, "\n")
-	lo, hi := selOrder(*m.sel)
-	for r := lo.row; r <= hi.row && r < len(lines); r++ {
-		start, end := selCols(lo, hi, r, ansi.StringWidth(lines[r]))
-		lines[r] = reverseRange(lines[r], start, end)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// highlightSelection repaints the selected range in reverse video on the FULL
-// (untrimmed) viewport view, before viewportView trims pad rows. Content row r
-// renders at view row r + contentPad - YOffset. Painting pre-trim means the
-// reversed rows can't change how many blank rows the trim drops, so the
-// transcript never shifts when a drag starts or ends.
-func (m *model) highlightSelection(view string) string {
-	if m.sel == nil {
-		return view
-	}
-	lines := strings.Split(view, "\n")
-	lo, hi := selOrder(*m.sel)
-	base := m.contentPad() - m.vp.YOffset // view row = content row + base
-	for r := lo.row; r <= hi.row; r++ {
-		si := r + base
-		if si < 0 || si >= len(lines) {
-			continue
-		}
-		start, end := selCols(lo, hi, r, ansi.StringWidth(lines[si]))
-		lines[si] = reverseRange(lines[si], start, end)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// reverseRange applies SGR reverse video to the cells [start, end) of a
-// possibly ANSI-styled line (escape sequences pass through untouched, and the
-// count is in display cells, not bytes or runes).
-func reverseRange(line string, start, end int) string {
-	if start >= end {
-		return line
-	}
-	var b strings.Builder
-	col := 0
-	on := false
-	for i := 0; i < len(line); {
-		if line[i] == 0x1b {
-			j := i + 1 // pass the whole escape sequence through
-			if j < len(line) && line[j] == '[' {
-				for j++; j < len(line) && (line[j] < 0x40 || line[j] > 0x7e); j++ {
-				}
-				j++ // the final byte
-			} else if j < len(line) && line[j] == ']' {
-				// OSC (hyperlinks): runs to BEL or ST (ESC \). Skipping only
-				// ESC ] would print the URI as text.
-				for j++; j < len(line); j++ {
-					if line[j] == '\a' {
-						j++
-						break
-					}
-					if line[j] == 0x1b && j+1 < len(line) && line[j+1] == '\\' {
-						j += 2
-						break
-					}
-				}
-			} else if j < len(line) {
-				j++
-			}
-			b.WriteString(line[i:j])
-			if on {
-				// styled lines carry SGR resets mid-text (glamour styles text
-				// in chunks, each ending with \x1b[0m) and a reset cancels
-				// reverse video too — re-assert it or the highlight visibly
-				// dies at the first reset inside the range.
-				b.WriteString("\x1b[7m")
-			}
-			i = j
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(line[i:])
-		if !on && col >= start && col < end {
-			b.WriteString("\x1b[7m")
-			on = true
-		} else if on && col >= end {
-			b.WriteString("\x1b[27m")
-			on = false
-		}
-		b.WriteRune(r)
-		col += runewidth.RuneWidth(r)
-		i += size
-	}
-	if on {
-		b.WriteString("\x1b[27m")
-	}
-	return b.String()
-}
-
 // copyText puts s on the system clipboard: OSC 52 first (terminal-owned,
 // works over SSH; tmux needs set-clipboard on), then a platform tool for
 // terminals that swallow OSC 52 (Terminal.app). Both are attempted — a
@@ -325,59 +228,84 @@ type selScrollTick struct{}
 // tool-block expand still works. cmd is the edge-scroll tick when a drag sits
 // past the viewport's top/bottom.
 func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) {
-	switch msg.Action {
-	case tea.MouseActionPress:
+	mouse := msg.Mouse()
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		m.sel = nil                  // like any press: drops the old highlight, scrolls as usual
+		return m.floatingOpen(), nil // a dialog owns the wheel: nothing scrolls underneath it
+	case tea.MouseClickMsg:
 		m.sel = nil // any new press drops the old highlight
-		if msg.Button != tea.MouseButtonLeft {
+		if m.floatingOpen() || m.menu != nil {
+			return true, nil // presses never reach what a dialog or the completion menu covers
+		}
+		if mouse.Button != tea.MouseLeft {
 			return false, nil
+		}
+		if reg, _, _ := m.hit(mouse.X, mouse.Y); reg == regPill { // "↓ N more lines": back to the newest rows
+			m.vp.GotoBottom()
+			m.follow = true
+			return true, nil
 		}
 		// Input box: a press there starts an input-region selection. The textarea
 		// doesn't use mouse for editing, so consuming it costs nothing.
-		if p, ok := m.inputPoint(msg.X, msg.Y, false); ok {
+		if p, ok := m.inputPoint(mouse.X, mouse.Y, false); ok {
 			m.sel = &selection{anchor: p, cur: p}
 			return true, nil
 		}
-		p, ok := m.selPoint(msg.X, msg.Y, false)
+		p, ok := m.selPoint(mouse.X, mouse.Y, false)
 		if !ok {
 			return false, nil
 		}
+		if n := m.clickCount(mouse.X, mouse.Y); n >= 2 {
+			if sel, ok := m.selectAround(p, n); ok { // double: the word, triple: the row
+				m.sel = &sel
+				copyText(m.selText(sel))
+				return true, m.showToast("Copied to clipboard")
+			}
+		}
 		m.sel = &selection{anchor: p, cur: p}
 		return true, nil // consumed: the viewport must not scroll on this press
-	case tea.MouseActionMotion:
+	case tea.MouseMotionMsg:
 		if m.sel == nil || m.sel.done {
 			return false, nil
 		}
 		// The drag stays in the anchor's region: input-anchored drags clamp into
 		// the input box; transcript-anchored drags clamp into the blocks.
 		if m.sel.anchor.input {
-			if p, ok := m.inputPoint(msg.X, msg.Y, true); ok {
+			if p, ok := m.inputPoint(mouse.X, mouse.Y, true); ok {
 				m.sel.cur = p
 			}
 			return true, nil // the input box doesn't scroll; no edge tick
 		}
-		if p, ok := m.selPoint(msg.X, msg.Y, true); ok {
+		if p, ok := m.selPoint(mouse.X, mouse.Y, true); ok {
 			m.sel.cur = p
 		}
-		m.selDragX, m.selDragY = msg.X, msg.Y
+		m.selDragX, m.selDragY = mouse.X, mouse.Y
 		return true, m.selEdgeScroll()
-	case tea.MouseActionRelease:
+	case tea.MouseReleaseMsg:
 		if m.sel == nil || m.sel.done {
 			return false, nil
+		}
+		// the release is the last word on where the drag ended: the filter may
+		// have thinned the final motion event
+		if m.sel.anchor.input {
+			if p, ok := m.inputPoint(mouse.X, mouse.Y, true); ok {
+				m.sel.cur = p
+			}
+		} else if p, ok := m.selPoint(mouse.X, mouse.Y, true); ok {
+			m.sel.cur = p
 		}
 		if m.sel.anchor != m.sel.cur { // a real drag: copy, keep the highlight
 			m.sel.done = true
 			copyText(m.selText(*m.sel))
-			if ocActive {
-				return true, m.showToast("Copied to clipboard")
-			}
-			return true, nil
+			return true, m.showToast("Copied to clipboard")
 		}
 		inputClick := m.sel.anchor.input
 		m.sel = nil
 		if inputClick {
 			return true, nil // a no-drag click in the input box is just focus
 		}
-		m.clickAt(msg.X, msg.Y) // no drag: the press was a click all along
+		m.clickAt(mouse.X, mouse.Y) // no drag: the press was a click all along
 		return true, nil
 	}
 	return false, nil
@@ -393,13 +321,13 @@ func (m *model) selEdgeScroll() tea.Cmd {
 	if m.sel == nil || m.sel.done {
 		return nil
 	}
-	top := m.viewTop + m.vpTopRows() // header + tips + blank (0 in opencode mode)
-	bottom := top + m.vp.Height - 1
+	tr := m.frameNow().transcript
+	top, bottom := tr.Min.Y, tr.Max.Y-1
 	switch {
-	case m.selDragY < top && m.vp.YOffset > 0:
-		m.vp.SetYOffset(m.vp.YOffset - 1)
+	case m.selDragY <= top && m.vp.YOffset() > 0: // the top row is the edge (nothing above it)
+		m.vp.SetYOffset(m.vp.YOffset() - 1)
 	case m.selDragY > bottom && !m.vp.AtBottom():
-		m.vp.SetYOffset(m.vp.YOffset + 1)
+		m.vp.SetYOffset(m.vp.YOffset() + 1)
 	default:
 		return nil
 	}
@@ -411,26 +339,24 @@ func (m *model) selEdgeScroll() tea.Cmd {
 }
 
 // clickAt replays the click actions a press inside the transcript would have
-// triggered (tool-block expand/collapse). Dock rows and the ⚡ header control
-// are handled before handleMouseSelect sees the event, so only the transcript
-// area reaches here. Row math matches selPoint (y is an absolute screen row).
+// triggered (message actions, tool-block expand/collapse). Only a point inside
+// the transcript rectangle acts: the sidebar, the gap and the chrome sharing
+// the row never do. Row math matches selPoint (y is an absolute screen row).
 func (m *model) clickAt(x, y int) {
-	y -= m.viewTop
-	if y <= m.vpTopRows()-2 || m.palette != nil || m.menu != nil || m.viewH == 0 {
+	if m.floatingOpen() || m.menu != nil {
 		return
 	}
-	// bound x like updateHover does: a click in the sidebar or the gap
-	// columns must not act on the transcript block sharing that row
-	if x < m.vpXOff() || x >= m.vpXOff()+m.width {
+	reg, _, ly := m.hit(x, y)
+	if reg != regTranscript {
 		return
 	}
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := ly - m.contentPad() + m.vp.YOffset()
 	for i := range m.blocks {
 		if row < m.blocks[i].y0 || row > m.blocks[i].y1 {
 			continue
 		}
-		// opencode mode: clicking a message opens the Message Actions dialog
-		if ocActive && (m.blocks[i].kind == blockUser || m.blocks[i].kind == blockAssistant) {
+		// clicking a message opens the Message Actions dialog
+		if m.blocks[i].kind == blockUser || m.blocks[i].kind == blockAssistant {
 			m.msgActions = &msgActions{block: i}
 			return
 		}
@@ -439,4 +365,78 @@ func (m *model) clickAt(x, y int) {
 			return
 		}
 	}
+}
+
+// clickMark remembers the last press for multi-click detection.
+type clickMark struct {
+	at   time.Time
+	x, y int
+	n    int
+}
+
+// multiClickWindow is how quickly presses on the same cell chain into a
+// double or triple click.
+const multiClickWindow = 400 * time.Millisecond
+
+// clickCount records a press and returns its position in the chain: 1 for a
+// single click, 2 for a double, 3 for a triple (then it wraps).
+func (m *model) clickCount(x, y int) int {
+	now := m.nowFn()
+	lc := m.lastClick
+	if lc.n > 0 && lc.x == x && lc.y == y && now.Sub(lc.at) <= multiClickWindow && lc.n < 3 {
+		lc.n++
+	} else {
+		lc.n = 1
+	}
+	lc.at, lc.x, lc.y = now, x, y
+	m.lastClick = lc
+	return lc.n
+}
+
+// selectAround builds a completed selection of the word (n == 2) or the whole
+// row (n >= 3) at a transcript point.
+func (m *model) selectAround(p selPos, n int) (selection, bool) {
+	line := m.contentLine(p.row)
+	width := ansi.StringWidth(line)
+	if width == 0 {
+		return selection{}, false
+	}
+	start, end := 0, width
+	if n == 2 {
+		start, end = wordBounds(line, p.col)
+		if start >= end {
+			return selection{}, false
+		}
+	}
+	return selection{anchor: selPos{row: p.row, col: start}, cur: selPos{row: p.row, col: end}, done: true}, true
+}
+
+// wordBounds returns the [start, end) cell range of the word under cell col:
+// a run of non-space cells.
+func wordBounds(line string, col int) (int, int) {
+	cells := make([]int, 0, len(line)) // start cell of every rune
+	widths := make([]int, 0, len(line))
+	c := 0
+	for _, r := range line {
+		cells = append(cells, c)
+		w := runewidth.RuneWidth(r)
+		widths = append(widths, w)
+		c += w
+	}
+	runes := []rune(line)
+	i := 0
+	for i < len(runes) && cells[i]+widths[i] <= col {
+		i++
+	}
+	if i >= len(runes) || unicode.IsSpace(runes[i]) {
+		return 0, 0
+	}
+	lo, hi := i, i
+	for lo > 0 && !unicode.IsSpace(runes[lo-1]) {
+		lo--
+	}
+	for hi+1 < len(runes) && !unicode.IsSpace(runes[hi+1]) {
+		hi++
+	}
+	return cells[lo], cells[hi] + widths[hi]
 }

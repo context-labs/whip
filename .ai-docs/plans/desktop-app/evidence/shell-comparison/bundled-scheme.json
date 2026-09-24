@@ -1,0 +1,414 @@
+{
+  "runs": [
+    {
+      "engine": "electrobun",
+      "id": "electrobun-1",
+      "mode": "bundled-scheme",
+      "warmup": false,
+      "result": "usable",
+      "events": [
+        {
+          "kind": "shell-ready",
+          "at": 506,
+          "elapsedMs": 4460.212417
+        },
+        {
+          "kind": "usable",
+          "at": 644,
+          "url": "views://bundle/",
+          "secure": true,
+          "viewport": [
+            1200,
+            800
+          ],
+          "features": {
+            "uuid": "43f7e2c6-a6b4-437a-ab3c-b61ac16f1773",
+            "sha256Bytes": 32,
+            "webLock": true,
+            "storage": {
+              "localStorage": true,
+              "sessionStorage": true,
+              "indexedDB": true,
+              "previous": "electrobun-3"
+            }
+          },
+          "body": "WHIP\n\nNew session\nSearch sessions\nSettings\nConnect to host\n\nThis Mac\nThe saved connection is unavailable. Choose an execution host to continue.\n\nWhat would you like to work on?\nStart a conversation. Give your agents a direction, follow their progress, and step in when they need you.\nConnect to your execution host to begin.\n\n",
+          "bodyColor": "rgb(238, 238, 238)",
+          "fontFamily": "\"Inter Variable\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+          "styles": 2,
+          "fonts": [
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "loaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            }
+          ],
+          "messages": 0,
+          "composer": false,
+          "svg": 8,
+          "elapsedMs": 4572.581875
+        }
+      ],
+      "processTree": [
+        {
+          "pid": 43673,
+          "ppid": 43654,
+          "rssKiB": 1632,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/launcher"
+        },
+        {
+          "pid": 43674,
+          "ppid": 43673,
+          "rssKiB": 430080,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail"
+        }
+      ],
+      "webkitNewOutsideTreeCandidates": [
+        {
+          "pid": 43773,
+          "ppid": 1,
+          "rssKiB": 29808,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+        },
+        {
+          "pid": 43774,
+          "ppid": 1,
+          "rssKiB": 18928,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+        },
+        {
+          "pid": 43778,
+          "ppid": 1,
+          "rssKiB": 84704,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+        }
+      ],
+      "treeRSSKiB": 431712,
+      "candidateRSSKiB": 133440,
+      "controlConnected": true,
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "Launcher starting on macos...\nCurrent directory: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS\nSpawning: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/../Resources/main.js\nChild process spawned with PID 43674\n"
+    },
+    {
+      "engine": "electron",
+      "id": "electron-2",
+      "mode": "bundled-scheme",
+      "warmup": false,
+      "result": "usable",
+      "events": [
+        {
+          "kind": "shell-ready",
+          "at": 927.2000000476837,
+          "elapsedMs": 2040.887208000001
+        },
+        {
+          "kind": "usable",
+          "at": 1042.8999999761581,
+          "url": "whip-compare://bundle/",
+          "secure": true,
+          "viewport": [
+            1200,
+            800
+          ],
+          "features": {
+            "uuid": "e93929f4-48a1-43cf-9676-72bdeaecca28",
+            "sha256Bytes": 32,
+            "webLock": true,
+            "storage": {
+              "localStorage": true,
+              "sessionStorage": true,
+              "indexedDB": true,
+              "previous": "electron-2"
+            }
+          },
+          "body": "WHIP\nNew session\nSearch sessions\nSettings\nConnect to host\nThis Mac\nThe saved connection is unavailable. Choose an execution host to continue.\nWhat would you like to work on?\n\nStart a conversation. Give your agents a direction, follow their progress, and step in when they need you.\n\nConnect to your execution host to begin.",
+          "bodyColor": "rgb(238, 238, 238)",
+          "fontFamily": "\"Inter Variable\", -apple-system, \"system-ui\", \"Segoe UI\", sans-serif",
+          "styles": 1,
+          "fonts": [
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "loaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            }
+          ],
+          "messages": 0,
+          "composer": false,
+          "svg": 8,
+          "elapsedMs": 2156.815667
+        }
+      ],
+      "processTree": [
+        {
+          "pid": 43917,
+          "ppid": 43872,
+          "rssKiB": 146672,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+        },
+        {
+          "pid": 43895,
+          "ppid": 43872,
+          "rssKiB": 50816,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+        },
+        {
+          "pid": 43892,
+          "ppid": 43872,
+          "rssKiB": 95136,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+        },
+        {
+          "pid": 43872,
+          "ppid": 43654,
+          "rssKiB": 171296,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+        }
+      ],
+      "webkitNewOutsideTreeCandidates": [],
+      "treeRSSKiB": 463920,
+      "candidateRSSKiB": 0,
+      "controlConnected": true,
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "COMPARE control-quit\nCOMPARE before-quit\nCOMPARE close\nCOMPARE closed\nCOMPARE will-quit\n"
+    },
+    {
+      "engine": "electrobun",
+      "id": "electrobun-3",
+      "mode": "bundled-scheme",
+      "warmup": false,
+      "result": "usable",
+      "events": [
+        {
+          "kind": "shell-ready",
+          "at": 169,
+          "elapsedMs": 2160.456957999999
+        },
+        {
+          "kind": "usable",
+          "at": 280,
+          "url": "views://bundle/",
+          "secure": true,
+          "viewport": [
+            1200,
+            800
+          ],
+          "features": {
+            "uuid": "fd83cf16-d7b1-4651-9360-9e908c369957",
+            "sha256Bytes": 32,
+            "webLock": true,
+            "storage": {
+              "localStorage": true,
+              "sessionStorage": true,
+              "indexedDB": true,
+              "previous": "electrobun-1"
+            }
+          },
+          "body": "WHIP\n\nNew session\nSearch sessions\nSettings\nConnect to host\n\nThis Mac\nThe saved connection is unavailable. Choose an execution host to continue.\n\nWhat would you like to work on?\nStart a conversation. Give your agents a direction, follow their progress, and step in when they need you.\nConnect to your execution host to begin.\n\n",
+          "bodyColor": "rgb(238, 238, 238)",
+          "fontFamily": "\"Inter Variable\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+          "styles": 2,
+          "fonts": [
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "Inter Variable",
+              "status": "loaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            },
+            {
+              "family": "JetBrains Mono Variable",
+              "status": "unloaded"
+            }
+          ],
+          "messages": 0,
+          "composer": false,
+          "svg": 8,
+          "elapsedMs": 2264.6227499999986
+        }
+      ],
+      "processTree": [
+        {
+          "pid": 44277,
+          "ppid": 43654,
+          "rssKiB": 1680,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/launcher"
+        },
+        {
+          "pid": 44278,
+          "ppid": 44277,
+          "rssKiB": 435872,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail"
+        }
+      ],
+      "webkitNewOutsideTreeCandidates": [
+        {
+          "pid": 44402,
+          "ppid": 1,
+          "rssKiB": 30128,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+        },
+        {
+          "pid": 44404,
+          "ppid": 1,
+          "rssKiB": 18960,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+        },
+        {
+          "pid": 44405,
+          "ppid": 1,
+          "rssKiB": 88080,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+        }
+      ],
+      "treeRSSKiB": 437552,
+      "candidateRSSKiB": 137168,
+      "controlConnected": true,
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "Launcher starting on macos...\nCurrent directory: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS\nSpawning: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/../Resources/main.js\nChild process spawned with PID 44278\n"
+    }
+  ]
+}

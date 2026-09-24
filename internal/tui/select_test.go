@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -17,19 +16,18 @@ func selTestModel() *model {
 	m.Update(mkWinSize(80, 30))
 	m.append("hello world")
 	m.append("second block here")
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // settle layout
+	tm, _ := m.Update(keyRunes(" ")) // settle layout
 	m = tm.(*model)
 	m.input.SetValue("")
 	return m
 }
 
 // blockRowY maps content row r to the ABSOLUTE screen row where it renders:
-// viewTop + 3 (header + hint + blank) + (r + contentPad - YOffset) - vpLead,
-// matching the trimmed view viewportView produces. Mouse events carry
-// absolute screen coordinates, so tests must aim there too.
+// the transcript rectangle's top plus (r + contentPad - YOffset). Mouse
+// events carry absolute screen coordinates, so tests must aim there too.
 func blockRowY(m *model, r int) int {
-	m.View() // ensure viewTop/vpLead are current (View/viewportView record them)
-	return m.viewTop + 3 + (r + m.contentPad() - m.vp.YOffset) - m.vpLead
+	viewStr(m) // settle the frame
+	return m.frameNow().transcript.Min.Y + (r + m.contentPad() - m.vp.YOffset())
 }
 
 // Full Update-path drag: press, motion, release must select + copy the
@@ -38,17 +36,17 @@ func blockRowY(m *model, r int) int {
 func TestDragSelectsHighlightsCopies(t *testing.T) {
 	m := selTestModel()
 	y := blockRowY(m, m.blocks[1].y0) // "second block here"
-	before := m.View()
+	before := viewStr(m)
 
-	tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: y})
+	tm, _ := m.Update(clickMsg(m.frameNow().main.Min.X+0, y))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 6, Y: y})
+	tm, _ = m.Update(dragMsg(m.frameNow().main.Min.X+6, y))
 	m = tm.(*model)
 	if m.sel == nil {
 		t.Fatal("motion did not start a selection")
 	}
-	during := m.View()
-	if !strings.Contains(during, "\x1b[7msecond\x1b[27m") {
+	during := viewStr(m)
+	if !strings.Contains(during, "\x1b[7msecond") { // the cell renderer closes the run with a full reset
 		t.Fatalf("View must highlight the dragged range:\n%q", during)
 	}
 	// the highlight must not move the text: "second block here" stays on the
@@ -65,7 +63,7 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 		t.Fatalf("text shifted during drag: before row %d, during row %d", rowOf(before), rowOf(during))
 	}
 
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 6, Y: y})
+	tm, _ = m.Update(releaseMsg(m.frameNow().main.Min.X+6, y))
 	m = tm.(*model)
 	if m.sel == nil || !m.sel.done {
 		t.Fatal("release must keep a done selection for the highlight")
@@ -74,12 +72,12 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 		t.Fatalf("copied %q, want %q", got, "second")
 	}
 	// after release the highlight is gone but the text still doesn't move
-	after := m.View()
+	after := viewStr(m)
 	if rowOf(before) != rowOf(after) {
 		t.Fatalf("text shifted after release: before row %d, after row %d", rowOf(before), rowOf(after))
 	}
 	// a keypress clears the highlight
-	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	tm, _ = m.Update(keyRunes("x"))
 	m = tm.(*model)
 	if m.sel != nil {
 		t.Fatal("keypress must clear the selection highlight")
@@ -91,10 +89,10 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 func TestClickIsNotASelection(t *testing.T) {
 	m := selTestModel()
 	y := blockRowY(m, m.blocks[0].y0)
-	if handled, _ := m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: y}); !handled {
+	if handled, _ := m.handleMouseSelect(clickMsg(2, y)); !handled {
 		t.Fatal("press inside the block range is consumed (the viewport must not scroll on it)")
 	}
-	if handled, _ := m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 2, Y: y}); !handled {
+	if handled, _ := m.handleMouseSelect(releaseMsg(2, y)); !handled {
 		t.Fatal("release is consumed (it replays the click)")
 	}
 	if m.sel != nil {
@@ -109,9 +107,9 @@ func TestClickExpandsToolBlock(t *testing.T) {
 	m.appendRaw(blockTool, "one\ntwo\nthree\nfour\nfive\nsix\nseven")
 	m.refreshVP()
 	y := blockRowY(m, m.blocks[0].y0)
-	tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 3, Y: y})
+	tm, _ := m.Update(clickMsg(3, y))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 3, Y: y})
+	tm, _ = m.Update(releaseMsg(3, y))
 	m = tm.(*model)
 	if !m.blocks[0].expanded {
 		t.Fatal("click must still expand the tool block")
@@ -128,12 +126,12 @@ func TestClickExpandsToolBlock(t *testing.T) {
 // the last block still clamps (motion only).
 func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 	m := selTestModel()
-	m.View()
+	viewStr(m)
 	for _, y := range []int{0, 1, m.height - 1} { // header rows + status line
 		if m.inInputRow(y) {
 			continue // the input box is its own selectable region now
 		}
-		if handled, _ := m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: y}); handled {
+		if handled, _ := m.handleMouseSelect(clickMsg(2, y)); handled {
 			t.Fatalf("press on non-selectable row %d must not be consumed", y)
 		}
 		if m.sel != nil {
@@ -141,9 +139,9 @@ func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 		}
 	}
 	// but a drag that starts on the transcript and overshoots below clamps
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: blockRowY(m, m.blocks[0].y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 80, Y: m.height - 1})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 80, Y: m.height - 1})
+	m.handleMouseSelect(clickMsg(0, blockRowY(m, m.blocks[0].y0)))
+	m.handleMouseSelect(dragMsg(80, m.height-1))
+	m.handleMouseSelect(releaseMsg(80, m.height-1))
 	if got := m.selText(*m.sel); got != "hello world\n\nsecond block here" {
 		t.Fatalf("overshooting drag selected %q", got)
 	}
@@ -153,9 +151,9 @@ func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 func TestDragBackward(t *testing.T) {
 	m := selTestModel()
 	y := blockRowY(m, m.blocks[1].y0) // "second block here"
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 17, Y: y})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 7, Y: y})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 7, Y: y})
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+17, y))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+7, y))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+7, y))
 	if got := m.selText(*m.sel); got != "block here" {
 		t.Fatalf("backward drag selected %q, want %q", got, "block here")
 	}
@@ -168,22 +166,22 @@ func TestInputDragSelectsHighlightsCopies(t *testing.T) {
 	m.input.SetValue("copy me from input")
 	tm, _ := m.Update(mkWinSize(80, 30))
 	m = tm.(*model)
-	m.View()
-	iy := m.inputTop
+	viewStr(m)
+	iy := m.frameNow().inputText.Min.Y
 	if iy < 0 {
 		t.Fatal("inputTop must be set after View")
 	}
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	tm, _ = m.Update(clickMsg(2, iy))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 15, Y: iy})
+	tm, _ = m.Update(dragMsg(15, iy))
 	m = tm.(*model)
 	if m.sel == nil || !m.sel.anchor.input {
 		t.Fatal("a drag over the input box must start an input-region selection")
 	}
-	if !strings.Contains(m.View(), "\x1b[7m") {
-		t.Fatalf("input selection must paint a highlight:\n%q", m.View())
+	if !strings.Contains(viewStr(m), "\x1b[7m") {
+		t.Fatalf("input selection must paint a highlight:\n%q", viewStr(m))
 	}
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 15, Y: iy})
+	tm, _ = m.Update(releaseMsg(15, iy))
 	m = tm.(*model)
 	if m.sel == nil || !m.sel.done {
 		t.Fatal("release must keep a done selection for the highlight")
@@ -200,16 +198,16 @@ func TestInputClickThenType(t *testing.T) {
 	m.input.SetValue("")
 	tm, _ := m.Update(mkWinSize(80, 30))
 	m = tm.(*model)
-	m.View()
-	iy := m.inputTop
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	viewStr(m)
+	iy := m.frameNow().inputText.Min.Y
+	tm, _ = m.Update(clickMsg(2, iy))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	tm, _ = m.Update(releaseMsg(2, iy))
 	m = tm.(*model)
 	if m.sel != nil {
 		t.Fatal("a no-drag input click must leave no selection")
 	}
-	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+	tm, _ = m.Update(keyRunes("hello"))
 	m = tm.(*model)
 	if m.input.Value() != "hello" {
 		t.Fatalf("typing after an input click broke: input=%q", m.input.Value())
@@ -220,9 +218,9 @@ func TestInputClickThenType(t *testing.T) {
 // blocks pastes as a blank line, exactly like a terminal's native copy.
 func TestDragAcrossBlocks(t *testing.T) {
 	m := selTestModel()
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 6, Y: blockRowY(m, m.blocks[0].y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 6, Y: blockRowY(m, m.blocks[1].y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 6, Y: blockRowY(m, m.blocks[1].y0)})
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[0].y0)))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[1].y0)))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[1].y0)))
 	if got := m.selText(*m.sel); got != "world\n\nsecond" {
 		t.Fatalf("cross-block drag selected %q, want %q", got, "world\n\nsecond")
 	}
@@ -235,13 +233,13 @@ func TestCopyKeepsParagraphBreaks(t *testing.T) {
 	m := compactCmdModel()
 	m.Update(mkWinSize(80, 30))
 	m.append("para one\n\npara two")
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // settle layout
+	tm, _ := m.Update(keyRunes(" ")) // settle layout
 	m = tm.(*model)
 	m.input.SetValue("")
 	b := m.blocks[0]
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: blockRowY(m, b.y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 8, Y: blockRowY(m, b.y1)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 8, Y: blockRowY(m, b.y1)})
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+0, blockRowY(m, b.y0)))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+8, blockRowY(m, b.y1)))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+8, blockRowY(m, b.y1)))
 	if got := m.selText(*m.sel); got != "para one\n\npara two" {
 		t.Fatalf("paragraph break lost: copied %q", got)
 	}
@@ -251,7 +249,7 @@ func TestCopyKeepsParagraphBreaks(t *testing.T) {
 // the renderer's word-aware wrap (a space consumed by the break is gone).
 func TestContentLineWrapped(t *testing.T) {
 	m := compactCmdModel()
-	m.Update(mkWinSize(10, 30))
+	m.Update(mkWinSize(13, 30))   // 13 columns minus the 2-column left margin and the 1-column right margin
 	m.append("abcdefghij klmnop") // wraps at width 10: "abcdefghij" / "klmnop"
 	b := m.blocks[0]
 	if got := m.contentLine(b.y0); got != "abcdefghij" {
@@ -259,26 +257,6 @@ func TestContentLineWrapped(t *testing.T) {
 	}
 	if got := m.contentLine(b.y0 + 1); got != "klmnop" {
 		t.Fatalf("row 1: got %q", got)
-	}
-}
-
-// reverseRange wraps the requested cells in reverse video without disturbing
-// text outside the range or ANSI sequences inside it.
-func TestReverseRange(t *testing.T) {
-	if got := reverseRange("hello world", 0, 5); got != "\x1b[7mhello\x1b[27m world" {
-		t.Fatalf("got %q", got)
-	}
-	styled := "\x1b[31mhello\x1b[0m world"
-	got := reverseRange(styled, 6, 11)
-	if !strings.Contains(got, "\x1b[31mhello\x1b[0m") || !strings.Contains(got, "\x1b[7mworld\x1b[27m") {
-		t.Fatalf("styled line mangled: %q", got)
-	}
-	// an SGR reset INSIDE the range cancels reverse video — it must be
-	// re-asserted or the highlight visibly dies at the reset (glamour-styled
-	// lines reset after every chunk, cutting the highlight mid-row)
-	got = reverseRange("ab\x1b[0mcd", 0, 4)
-	if !strings.Contains(got, "\x1b[0m\x1b[7mcd") {
-		t.Fatalf("reverse video must be re-asserted after a reset: %q", got)
 	}
 }
 
@@ -292,30 +270,30 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 	for i := range 60 {
 		m.append(fmt.Sprintf("line-%02d", i))
 	}
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	tm, _ := m.Update(keyRunes(" "))
 	m = tm.(*model)
 	m.input.SetValue("")
-	m.View()
-	if m.vp.YOffset == 0 {
+	viewStr(m)
+	if m.vp.YOffset() == 0 {
 		t.Fatal("test setup: viewport must start scrolled to the bottom")
 	}
-	start := m.vp.YOffset
+	start := m.vp.YOffset()
 
 	// press inside the transcript, then drag up past the header
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: m.viewTop + 5})
-	handled, cmd := m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 2, Y: m.viewTop})
+	m.handleMouseSelect(clickMsg(2, 5))
+	handled, cmd := m.handleMouseSelect(dragMsg(2, 0))
 	if !handled || cmd == nil {
 		t.Fatalf("edge drag must be handled and arm the scroll tick (handled=%v cmd=%v)", handled, cmd != nil)
 	}
-	if m.vp.YOffset != start-1 {
-		t.Fatalf("edge drag must scroll up one line: %d -> %d", start, m.vp.YOffset)
+	if m.vp.YOffset() != start-1 {
+		t.Fatalf("edge drag must scroll up one line: %d -> %d", start, m.vp.YOffset())
 	}
 
 	// parked pointer: each tick keeps scrolling until the top, then disarms
 	for i := 0; i < 200 && m.selEdgeScroll() != nil; i++ {
 	}
-	if m.vp.YOffset != 0 {
-		t.Fatalf("ticks must scroll to the top, YOffset=%d", m.vp.YOffset)
+	if m.vp.YOffset() != 0 {
+		t.Fatalf("ticks must scroll to the top, YOffset=%d", m.vp.YOffset())
 	}
 	if m.selEdgeScroll() != nil {
 		t.Fatal("at the top the tick must disarm")
@@ -330,33 +308,13 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 	if m.selEdgeScroll() == nil {
 		t.Fatal("drag below the viewport must scroll down")
 	}
-	if m.vp.YOffset != 1 {
-		t.Fatalf("bottom edge must scroll down one line, YOffset=%d", m.vp.YOffset)
+	if m.vp.YOffset() != 1 {
+		t.Fatalf("bottom edge must scroll down one line, YOffset=%d", m.vp.YOffset())
 	}
 
 	// release ends the drag: the tick no-ops from then on
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 2, Y: m.viewTop})
+	m.handleMouseSelect(releaseMsg(2, 0))
 	if m.selEdgeScroll() != nil {
 		t.Fatal("after release the tick must disarm")
-	}
-}
-
-// An OSC 8 hyperlink is an escape sequence, not text: highlighting a line that
-// carries one must pass the whole sequence through (URI included) and only
-// reverse the visible cells. Before the fix the URI leaked onto the screen
-// as "8;;file:///…" and the line's cell count exploded.
-func TestReverseRangeSkipsOSC8Hyperlink(t *testing.T) {
-	for _, term := range []string{"\x1b\\", "\a"} {
-		line := "at \x1b]8;;file:///tmp/x.md" + term + "/tmp/x.md\x1b]8;;" + term + " ok"
-		got := reverseRange(line, 3, 12)
-		if s := ansi.Strip(got); s != "at /tmp/x.md ok" {
-			t.Fatalf("visible text changed: %q", s)
-		}
-		if !strings.Contains(got, "\x1b]8;;file:///tmp/x.md"+term) {
-			t.Fatalf("hyperlink URI not passed through intact: %q", got)
-		}
-		if want := "\x1b[7m/tmp/x.md"; !strings.Contains(got, want) {
-			t.Fatalf("path not reversed: %q", got)
-		}
 	}
 }

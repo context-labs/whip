@@ -82,7 +82,7 @@ func newTestManager(t *testing.T, cfgs map[string]ServerConfig) *Manager {
 	t.Helper()
 	m := NewManager(cfgs)
 	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
-		return serveTestServer(t, cfg.Command[0]), nil // Command[0] is the server name in tests
+		return serveTestServer(t, m, cfg.Command[0]), nil // Command[0] is the server name in tests
 	}
 	t.Cleanup(m.Close)
 	return m
@@ -92,7 +92,7 @@ func newTestManager(t *testing.T, cfgs map[string]ServerConfig) *Manager {
 // client transport. The server is connected (not Run) so a client
 // disconnect ends just the session, leaving the server able to accept a
 // reconnect on a fresh transport — like a real stdio server respawn.
-func serveTestServer(t *testing.T, name string) *sdkmcp.InMemoryTransport {
+func serveTestServer(t *testing.T, m *Manager, name string) *sdkmcp.InMemoryTransport {
 	t.Helper()
 	srv := newTestServer(name)
 	clientT, serverT := sdkmcp.NewInMemoryTransports()
@@ -100,7 +100,7 @@ func serveTestServer(t *testing.T, name string) *sdkmcp.InMemoryTransport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ss.Close() })
+	t.Cleanup(func() { m.Close(); ss.Close() })
 	return clientT
 }
 
@@ -120,6 +120,14 @@ func TestManagerConnectAndCall(t *testing.T) {
 	out := tools.Execute(context.Background(), ts, "mcp__docs__greet", json.RawMessage(`{"name":"whip"}`))
 	if out != "hi whip" {
 		t.Errorf("greet = %q", out)
+	}
+	listed, err := m.ListTools("docs")
+	if err != nil || len(listed) != 4 || listed[1].Name != "greet" {
+		t.Fatalf("RLM tool metadata = %+v, %v", listed, err)
+	}
+	direct, err := m.Call(context.Background(), "docs", "greet", json.RawMessage(`{"name":"runtime"}`))
+	if err != nil || direct != "hi runtime" {
+		t.Fatalf("RLM direct call = %q, %v", direct, err)
 	}
 
 	st := m.Statuses()
@@ -148,7 +156,7 @@ func TestManagerStructuredAndMedia(t *testing.T) {
 		t.Errorf("structured = %q", out)
 	}
 	out = tools.Execute(context.Background(), ts, "mcp__docs__media", nil)
-	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image content omitted: image/png, 3 bytes]") {
+	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image 1: image/png, 3 bytes]") {
 		t.Errorf("media = %q", out)
 	}
 }
@@ -364,7 +372,7 @@ func TestManagerAutoReconnectGivesUp(t *testing.T) {
 	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
 		connects.Add(1)
 		if connects.Load() == 1 {
-			return serveTestServer(t, "flaky"), nil // first connect succeeds
+			return serveTestServer(t, m, "flaky"), nil // first connect succeeds
 		}
 		return nil, errors.New("server keeps dying") // every reconnect fails
 	}
@@ -388,14 +396,67 @@ func TestManagerAutoReconnectGivesUp(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// Let any in-flight last attempt settle, then assert: failed, capped.
+	// Let any in-flight last attempt settle, then assert: failed, and every
+	// budgeted attempt was actually made (a failed redial re-arms the next).
 	time.Sleep(200 * time.Millisecond)
 	st := m.Statuses()[0]
 	if st.Status != StatusFailed {
 		t.Errorf("flaky should end failed, got %v", st.Status)
 	}
-	if got := connects.Load(); got > int64(autoReconnectMax)+1 {
-		t.Errorf("connect attempts = %d, want <= initial + %d retries", got, autoReconnectMax)
+	if got := connects.Load(); got != int64(autoReconnectMax)+1 {
+		t.Errorf("connect attempts = %d, want initial + exactly %d retries", got, autoReconnectMax)
+	}
+	s.mu.Lock()
+	tries := s.autoTries
+	s.mu.Unlock()
+	if tries != autoReconnectMax {
+		t.Errorf("autoTries = %d, want %d", tries, autoReconnectMax)
+	}
+}
+
+// TestManagerAutoReconnectRecoversAfterFailedRedial: the first redial after a
+// drop fails and the second succeeds. The manager must chain to the second
+// attempt on its own instead of stopping after one failure.
+func TestManagerAutoReconnectRecoversAfterFailedRedial(t *testing.T) {
+	t.Setenv("WHIP_TEST_MCP_BACKOFF_MS", "10")
+
+	var connects atomic.Int64
+	m := NewManager(map[string]ServerConfig{"flaky": testCfg("flaky")})
+	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
+		switch connects.Add(1) {
+		case 2:
+			return nil, errors.New("server still restarting")
+		default:
+			return serveTestServer(t, m, "flaky"), nil
+		}
+	}
+	t.Cleanup(m.Close)
+	m.Start(context.Background())
+	waitReady(t, m)
+
+	s := m.servers["flaky"]
+	s.mu.Lock()
+	sess := s.sess
+	droppedGen := s.gen
+	s.mu.Unlock()
+	sess.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	recovered := false
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		recovered = s.status == StatusReady && s.sess != nil && s.gen > droppedGen
+		s.mu.Unlock()
+		if recovered {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !recovered {
+		t.Fatalf("second redial never recovered: %+v", m.Statuses()[0])
+	}
+	if got := connects.Load(); got != 3 {
+		t.Errorf("connect attempts = %d, want initial + failed redial + successful redial", got)
 	}
 }
 
@@ -452,17 +513,16 @@ func TestNormalizeSchemaDoesNotMutateSharedInput(t *testing.T) {
 	}
 }
 
-func TestFlattenTruncates(t *testing.T) {
-	big := strings.Repeat("x", 60_000)
+func TestFlattenPreservesLargeText(t *testing.T) {
+	big := strings.Repeat("x", 60_000) + "middle evidence" + strings.Repeat("y", 60_000)
 	res := &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: big}}}
 	out := flattenResult(res)
-	if len(out) > 60_0000 || !strings.Contains(out, "bytes elided from the middle") {
-		t.Errorf("truncation missing, len=%d", len(out))
+	if out.Text != big {
+		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out.Text), len(big))
 	}
 }
 
-// TestServerInstructions: a server that publishes instructions shows up in
-// the system-prompt block; servers without instructions don't; sorted by name.
+// TestServerInstructions verifies per-server guidance from initialization.
 func TestServerInstructions(t *testing.T) {
 	// ServerOptions.Instructions flows into the initialize result.
 	srvWithInstr := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "docs"}, &sdkmcp.ServerOptions{Instructions: "Call ping to check liveness. Always pass a name."})
@@ -479,21 +539,21 @@ func TestServerInstructions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { ss.Close() })
+			t.Cleanup(func() { m.Close(); ss.Close() })
 			return ct, nil
 		}
-		return serveTestServer(t, cfg.Command[0]), nil
+		return serveTestServer(t, m, cfg.Command[0]), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	block := m.InstructionsBlock()
-	if !strings.Contains(block, `<server name="docs">`) || !strings.Contains(block, "Call ping to check liveness") {
-		t.Errorf("block missing docs instructions:\n%s", block)
+	text, generation, _, err := m.Instructions("docs")
+	if err != nil || generation == "" || !strings.Contains(text, "Call ping to check liveness") {
+		t.Fatalf("instructions=%q generation=%q error=%v", text, generation, err)
 	}
-	if strings.Contains(block, `"plain"`) {
-		t.Errorf("server without instructions must not appear:\n%s", block)
+	if text, _, _, err := m.Instructions("plain"); err != nil || text != "" {
+		t.Fatalf("plain instructions=%q error=%v", text, err)
 	}
 
 	// After the docs session drops, its instructions leave the block.
@@ -581,17 +641,5 @@ func TestStatusString(t *testing.T) {
 		if got := s.String(); got != w {
 			t.Errorf("Status(%d).String() = %q, want %q", s, got, w)
 		}
-	}
-}
-
-func TestSetOnChange(t *testing.T) {
-	m := NewManager(nil)
-	m.FireOnChangeForTest() // nil callback must be a no-op, not a panic
-	fired := 0
-	m.SetOnChange(func() { fired++ })
-	m.FireOnChangeForTest()
-	m.FireOnChangeForTest()
-	if fired != 2 {
-		t.Fatalf("callback fired %d times, want 2", fired)
 	}
 }

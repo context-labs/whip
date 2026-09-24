@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -43,17 +41,7 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	defer srv.Close()
 
 	sent := time.Now()
-	msgs := []Message{
-		{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent},
-		{
-			Role:           "assistant",
-			Content:        "a Codex response",
-			ResponseID:     "msg-codex",
-			ResponsePhase:  "commentary",
-			CodexReasoning: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"rs-codex","encrypted_content":"encrypted"}`)},
-			ToolCalls:      []ToolCall{{ID: "call-codex", ItemID: "fc-codex"}},
-		},
-	}
+	msgs := []Message{{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent}}
 	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +50,6 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	}
 	if strings.Contains(string(body), "sent_at") {
 		t.Fatalf("SentAt timestamp leaked to provider: %s", body)
-	}
-	if strings.Contains(string(body), "response_id") || strings.Contains(string(body), "response_phase") || strings.Contains(string(body), "codex_reasoning") || strings.Contains(string(body), "item_id") {
-		t.Fatalf("Codex item metadata leaked to provider: %s", body)
 	}
 }
 
@@ -407,9 +392,8 @@ func TestModelInfoPricingParsed(t *testing.T) {
 	if mi.Pricing == nil {
 		t.Fatal("pricing block should unmarshal")
 	}
-	in, out, cr := mi.Pricing.Rates()
-	if in != 1e-6 || out != 5e-6 || cr != 1e-7 {
-		t.Fatalf("rates: in=%v out=%v cr=%v", in, out, cr)
+	if *mi.Pricing != (Pricing{Prompt: "0.000001000000", Completion: "0.000005000000", InputCacheRead: "0.000000100000"}) {
+		t.Fatalf("rates changed: %+v", mi.Pricing)
 	}
 }
 
@@ -420,34 +404,6 @@ func TestModelInfoPricingOmitted(t *testing.T) {
 	}
 	if mi.Pricing != nil {
 		t.Fatalf("pricing should stay nil when unadvertised: %+v", mi.Pricing)
-	}
-}
-
-func TestSessionCost(t *testing.T) {
-	cached := func(n int) Usage {
-		u := Usage{PromptTokens: 10000, CompletionTokens: 1000}
-		u.PromptTokensDetails = &struct {
-			CachedTokens int `json:"cached_tokens"`
-		}{CachedTokens: n}
-		return u
-	}
-	cases := []struct {
-		name               string
-		u                  Usage
-		in, out, cacheRead float64
-		want               float64
-	}{
-		{"no cache", Usage{PromptTokens: 10000, CompletionTokens: 1000}, 1e-6, 5e-6, 0, 0.015},
-		{"partial cache with cache rate", cached(8000), 1e-6, 5e-6, 1e-7, 0.0078},
-		{"cache billed at input rate when no cache rate", cached(8000), 1e-6, 5e-6, 0, 0.015},
-		{"zero usage", Usage{}, 1e-6, 5e-6, 1e-7, 0},
-	}
-	for _, c := range cases {
-		// float64 multiplication can't hit these decimals exactly; compare
-		// with tolerance rather than ==.
-		if got := SessionCost(c.u, c.in, c.out, c.cacheRead); math.Abs(got-c.want) > 1e-12 {
-			t.Errorf("%s: SessionCost = %v, want %v", c.name, got, c.want)
-		}
 	}
 }
 
@@ -534,50 +490,146 @@ func TestMessageUnmarshalPlainString(t *testing.T) {
 	}
 }
 
-// stripInternal must not mutate the caller's history: ToolCalls share a
-// backing array with the live conversation, so zeroing bookkeeping in place
-// would erase DurationMs/ExitCode before the session is persisted.
-func TestStripInternalLeavesCallerToolCallsIntact(t *testing.T) {
-	tc := ToolCall{ID: "c1", Type: "function", ItemID: "fc-1", DurationMs: 1234, ExitCode: 2}
-	tc.Function.Name = "bash"
-	history := []Message{{Role: "assistant", ToolCalls: []ToolCall{tc}}}
-	out := stripInternal(history, false)
-	if got := out[0].ToolCalls[0]; got.DurationMs != 0 || got.ExitCode != 0 || got.ItemID != "" {
-		t.Fatalf("wire copy should be stripped: %+v", got)
-	}
-	if got := history[0].ToolCalls[0]; got.DurationMs != 1234 || got.ExitCode != 2 || got.ItemID != "fc-1" {
-		t.Fatalf("caller's history was mutated: %+v", got)
+func TestAttemptAccountingPreservesUsageOnFailureAndRetry(t *testing.T) {
+	previousSleep := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	t.Cleanup(func() { sleep = previousSleep })
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				if requests == 1 {
+					w.WriteHeader(http.StatusBadGateway)
+					fmt.Fprint(w, `{"error":{"message":"temporary failure"},"usage":{"prompt_tokens":7,"completion_tokens":3}}`)
+					return
+				}
+				if stream {
+					fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\ndata: {\"error\":{\"message\":\"failed after usage\"}}\n\n")
+				} else {
+					fmt.Fprint(w, `{"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2}}`)
+				}
+			}))
+			defer server.Close()
+			client := New(server.URL, "test")
+			client.MaxRetries = 2
+			admitted := 0
+			var settled []ModelAttemptResult
+			request := Request{Model: "fixture", Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				admitted++
+				return func(usage ModelAttemptResult) error { settled = append(settled, usage); return nil }, nil
+			})}
+			var usage Usage
+			var err error
+			if stream {
+				_, usage, err = client.Stream(t.Context(), request, nil, nil, nil)
+			} else {
+				_, usage, err = client.Complete(t.Context(), request)
+			}
+			if err == nil || admitted != 2 || len(settled) != 2 || requests != 2 {
+				t.Fatalf("admitted=%d settled=%+v requests=%d err=%v", admitted, settled, requests, err)
+			}
+			if !settled[0].Usage.Reported || !settled[0].Dispatched || !settled[1].Usage.Reported || usage.PromptTokens != 11 || usage.CompletionTokens != 5 {
+				t.Fatalf("usage=%+v settled=%+v", usage, settled)
+			}
+		})
 	}
 }
 
-// The OpenAI client also treats a shown tool-call row as visible output: a
-// transport failure after it surfaces instead of replaying the row.
-func TestStreamDoesNotRetryAfterToolCallRow(t *testing.T) {
-	noSleep(t)
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\"}}]}}]}\n\n")
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		// connection drops without [DONE]/finish: normally retryable
-		if hj, ok := w.(http.Hijacker); ok {
-			if conn, _, err := hj.Hijack(); err == nil {
-				_ = conn.Close()
+func TestAttemptAccountingDistinguishesUnknownZeroAndLocalFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		reported       bool
+	}{
+		{name: "absent", response: `{"choices":[{"message":{"content":"ok"}}]}`},
+		{name: "zero", response: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":0,"completion_tokens":0}}`, reported: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, tc.response) }))
+			defer server.Close()
+			client := New(server.URL, "test")
+			var settled ModelAttemptResult
+			_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				return func(u ModelAttemptResult) error { settled = u; return nil }, nil
+			})})
+			if err != nil || !settled.Dispatched || settled.Usage.Reported != tc.reported {
+				t.Fatalf("settled=%+v err=%v", settled, err)
 			}
-		}
-	}))
-	defer srv.Close()
-	c := New(srv.URL, "k")
-	c.MaxRetries = 3
-	rows := 0
-	_, _, _ = c.Stream(context.Background(), Request{Model: "m"}, nil, nil, func(string, string, string) { rows++ })
-	if rows == 0 {
-		t.Fatal("fixture should surface a tool-call row")
+		})
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("a shown tool-call row must block the retry, got %d attempts", calls.Load())
+	t.Run("before dispatch", func(t *testing.T) {
+		client := New(":invalid", "test")
+		client.MaxRetries = 1
+		var settled ModelAttemptResult
+		_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+			return func(u ModelAttemptResult) error { settled = u; return nil }, nil
+		})})
+		if err == nil || settled.Dispatched {
+			t.Fatalf("settled=%+v err=%v", settled, err)
+		}
+	})
+}
+
+func TestAttemptAdmissionAndSettlementFailuresStopRetry(t *testing.T) {
+	for _, admission := range []bool{false, true} {
+		t.Run(fmt.Sprintf("admission=%t", admission), func(t *testing.T) {
+			requests, hooks := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				http.Error(w, "retry", http.StatusBadGateway)
+			}))
+			defer server.Close()
+			client := New(server.URL, "test")
+			client.MaxRetries = 4
+			sentinel := errors.New("budget failure")
+			_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				hooks++
+				if admission {
+					return nil, sentinel
+				}
+				return func(ModelAttemptResult) error { return sentinel }, nil
+			})})
+			want := 1
+			if admission {
+				want = 0
+			}
+			if !errors.Is(err, sentinel) || hooks != 1 || requests != want {
+				t.Fatalf("hooks=%d requests=%d err=%v", hooks, requests, err)
+			}
+		})
+	}
+}
+
+func TestCancelledAttemptSettlesUnknownUsageOnce(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				cancel()
+			}))
+			defer server.Close()
+			client := New(server.URL, "fixture")
+			settlements := 0
+			request := Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				return func(usage ModelAttemptResult) error {
+					settlements++
+					if !usage.Dispatched || usage.Usage.Reported {
+						t.Errorf("cancelled usage=%+v", usage)
+					}
+					return nil
+				}, nil
+			})}
+			if stream {
+				_, _, _ = client.Stream(ctx, request, nil, nil, nil)
+			} else {
+				_, _, _ = client.Complete(ctx, request)
+			}
+			if settlements != 1 {
+				t.Fatalf("settlements=%d", settlements)
+			}
+		})
 	}
 }

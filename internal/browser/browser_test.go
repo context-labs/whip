@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // noEnvCDP skips the test when explicit CDP env endpoints bypass discovery.
@@ -48,7 +50,11 @@ func TestProfileScanFindsPortFile(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	prof := filepath.Join(home, ".config", "google-chrome")
+	profiles := profileDirs()
+	if len(profiles) == 0 {
+		t.Skip("no browser profile locations on this platform")
+	}
+	prof := profiles[0]
 	if err := os.MkdirAll(prof, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +248,11 @@ func TestCheckPrivateURL(t *testing.T) {
 		"http://100.64.1.2/", // CGNAT
 		"http://[::1]/",
 	} {
-		if err := CheckPrivateURL(ctx, u); err == nil {
+		if err := CheckPrivateURL(ctx, u, false); err == nil {
 			t.Errorf("%s must be blocked", u)
 		}
 	}
-	if err := CheckPrivateURL(ctx, "https://example.com/"); err != nil {
+	if err := CheckPrivateURL(ctx, "https://example.com/", false); err != nil {
 		t.Errorf("example.com must pass: %v", err)
 	}
 }
@@ -405,12 +411,13 @@ func (f *fakeBackend) Mode() Mode                      { return f.mode }
 func (f *fakeBackend) Obtained() Obtained              { return f.obtained }
 func (f *fakeBackend) Close() error                    { f.closed = true; return nil }
 
-// stubOpen replaces the session open hook for one test.
-func stubOpen(t *testing.T, fn func(context.Context, Mode, string) (Backend, error)) {
+func testManager(t *testing.T, mode Mode, fn func(context.Context, Mode, string) (Backend, error)) *Manager {
 	t.Helper()
-	old := openNamed
-	openNamed = fn
-	t.Cleanup(func() { openNamed = old })
+	m := NewManager(mode)
+	m.open = func(ctx context.Context, mode Mode, name, _ string, _ []string, _ *capability.ProcessManager, _ string) (Backend, error) {
+		return fn(ctx, mode, name)
+	}
+	return m
 }
 
 // A live-mode session that fell back reports the notice once, prepended to
@@ -430,10 +437,9 @@ func TestSessionFallbackNotice(t *testing.T) {
 		return out
 	}
 
-	stubOpen(t, func(_ context.Context, m Mode, _ string) (Backend, error) {
+	m := testManager(t, ModeLive, func(_ context.Context, m Mode, _ string) (Backend, error) {
 		return &fakeBackend{mode: m, obtained: ObtainedLaunched}, nil
 	})
-	m := NewManager(ModeLive)
 	s, err := m.Session("")
 	if err != nil {
 		t.Fatal(err)
@@ -456,10 +462,9 @@ func TestSessionFallbackNotice(t *testing.T) {
 	}
 
 	// Live attach that actually attached: no notice.
-	stubOpen(t, func(_ context.Context, m Mode, _ string) (Backend, error) {
+	m2 := testManager(t, ModeLive, func(_ context.Context, m Mode, _ string) (Backend, error) {
 		return &fakeBackend{mode: m, obtained: ObtainedLive}, nil
 	})
-	m2 := NewManager(ModeLive)
 	s2, _ := m2.Session("")
 	if got := lines(s2, 1)[0]; got != "result" {
 		t.Fatalf("real live attach must be silent: %q", got)
@@ -470,10 +475,9 @@ func TestSessionFallbackNotice(t *testing.T) {
 // falls back again.
 func TestSessionNoticeRearmedOnReopen(t *testing.T) {
 	ctx := context.Background()
-	stubOpen(t, func(_ context.Context, m Mode, _ string) (Backend, error) {
+	m := testManager(t, ModeLive, func(_ context.Context, m Mode, _ string) (Backend, error) {
 		return &fakeBackend{mode: m, obtained: ObtainedLaunched}, nil
 	})
-	m := NewManager(ModeLive)
 	s, _ := m.Session("")
 	if _, err := s.Do(ctx, func(Backend) (string, error) { return "r1", nil }); err != nil {
 		t.Fatal(err)
@@ -485,6 +489,62 @@ func TestSessionNoticeRearmedOnReopen(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, fallbackNotice) {
 		t.Fatalf("reopened fallback must re-notify: %q", out)
+	}
+}
+
+func TestManagersKeepLaunchOptionsIsolated(t *testing.T) {
+	t.Setenv("WHIP_BROWSER_DRIVER", "")
+	type launch struct {
+		driver string
+		env    string
+	}
+	launches := make(chan launch, 2)
+	open := func(_ context.Context, mode Mode, _, driver string, env []string, _ *capability.ProcessManager, _ string) (Backend, error) {
+		launches <- launch{driver: driver, env: strings.Join(env, ",")}
+		return &fakeBackend{mode: mode, obtained: ObtainedLive}, nil
+	}
+	one, two := NewManager(ModeHeadless), NewManager(ModeHeadless)
+	one.open, two.open = open, open
+	one.SwitchDriver(DriverChromedp)
+	one.SetEnvironment([]string{"SESSION=one"})
+	two.SetEnvironment([]string{"SESSION=two"})
+	for _, manager := range []*Manager{one, two} {
+		session, err := manager.Session("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := session.Do(t.Context(), func(Backend) (string, error) { return "ok", nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := map[launch]bool{<-launches: true, <-launches: true}
+	if !got[launch{DriverChromedp, "SESSION=one"}] || !got[launch{DriverRod, "SESSION=two"}] {
+		t.Fatalf("launch options crossed managers: %v", got)
+	}
+}
+
+func TestManagerScopesLaunchesByProcessRoot(t *testing.T) {
+	manager := NewManager(ModeDedicated)
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
+	var name, root string
+	manager.open = func(_ context.Context, mode Mode, sessionName, _ string, _ []string, got *capability.ProcessManager, rootID string) (Backend, error) {
+		if got != processes {
+			t.Fatal("process manager was not forwarded")
+		}
+		name, root = sessionName, rootID
+		return &fakeBackend{mode: mode}, nil
+	}
+	manager.SetProcessOptions(processes, "root-one", []string{"PATH=/bin"})
+	session, err := manager.Session("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Do(t.Context(), func(Backend) (string, error) { return "ok", nil }); err != nil {
+		t.Fatal(err)
+	}
+	if name != "root-one-default" || root != "root-one" {
+		t.Fatalf("launch name=%q root=%q", name, root)
 	}
 }
 

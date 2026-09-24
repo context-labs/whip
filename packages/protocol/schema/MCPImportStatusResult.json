@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "claude": {
+      "type": "boolean"
+    },
+    "codex": {
+      "type": "boolean"
+    },
+    "project": {
+      "type": "boolean"
+    },
+    "opencode": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/MCPImportStatusResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPImportStatusResult",
+  "required": [
+    "claude",
+    "codex",
+    "project",
+    "opencode"
+  ],
+  "additionalProperties": false
+}

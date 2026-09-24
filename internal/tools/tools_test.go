@@ -1,20 +1,26 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 func run(t *testing.T, name, args string) string {
 	t.Helper()
-	return Execute(context.Background(), All(), name, json.RawMessage(args))
+	return Execute(context.Background(), directTools(), name, json.RawMessage(args))
 }
 
 func TestToolRoundTrip(t *testing.T) {
@@ -154,24 +160,23 @@ type mockInteractiveRunner struct {
 	returnThis string
 }
 
-func (m *mockInteractiveRunner) Run(_ context.Context, command string, timeout time.Duration, keys <-chan []byte) string {
-	m.gotCommand = command
-	m.gotTimeout = timeout
-	m.gotKeys = keys
+func (m *mockInteractiveRunner) Run(_ context.Context, opts bashrun.Options) string {
+	m.gotCommand = opts.Command
+	m.gotTimeout = opts.Timeout
+	m.gotKeys = opts.Keys
 	return m.returnThis
 }
 
 // TestBashToolInteractiveHook verifies that bash with interactive:true hands
-// off to the installed InteractiveBash runner, passing command+timeout+keys,
+// off to the injected runner, passing command+timeout+keys,
 // and returns whatever the runner returns. It also confirms the hook is
 // consulted only when interactive is true.
 func TestBashToolInteractiveHook(t *testing.T) {
 	mock := &mockInteractiveRunner{returnThis: "PASSWORD_ACCEPTED\n(exit: 0)"}
-	prev := InteractiveBash
-	InteractiveBash = mock
-	defer func() { InteractiveBash = prev }()
+	services := NewServices()
+	services.SetInteractive(mock)
 
-	out := run(t, "bash", `{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`)
+	out := Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`))
 	if out != "PASSWORD_ACCEPTED\n(exit: 0)" {
 		t.Fatalf("interactive bash should return runner output verbatim: %q", out)
 	}
@@ -187,7 +192,7 @@ func TestBashToolInteractiveHook(t *testing.T) {
 
 	// interactive:false must NOT call the runner even when it's installed
 	mock.gotCommand = ""
-	out = run(t, "bash", `{"command":"echo nohook"}`)
+	out = Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"echo nohook"}`))
 	if mock.gotCommand != "" {
 		t.Fatalf("non-interactive call should not reach the runner: %q", mock.gotCommand)
 	}
@@ -220,7 +225,7 @@ func TestEditDiffLineNumbers(t *testing.T) {
 func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
-	w := writeTool()
+	w := writeTool(NewServices())
 	out, err := w.Run(context.Background(), json.RawMessage(`{"path":"`+p+`","content":"a\nb\n"}`))
 	if err != nil || strings.Contains(out, "```diff") {
 		t.Fatalf("fresh write should carry no diff: %q, %v", out, err)
@@ -234,84 +239,268 @@ func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	}
 }
 
-// Binary tool output must be replaced with a compact placeholder instead of
-// having raw NUL/control bytes or base64 garbage injected into the
-// conversation. isBinary drives the read/bash gate; read exercises the full
-// path with a real binary file, bash with a synthetic binary stream.
-func TestBinaryOutputPlaceholder(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []byte
-		want bool
-	}{
-		{name: "empty text", in: nil, want: false},
-		{name: "plain text", in: []byte("package main\nimport \"fmt\"\nfunc main() { fmt.Println(\"hi\") }\n"), want: false},
-		{name: "utf8 text", in: []byte("héllo wörld → ütf8 ✓\n"), want: false},
-		{name: "single nul", in: []byte{0x00}, want: true},
-		{name: "nul in text", in: append([]byte("abc"), 0x00, 'd', 'e', 'f'), want: true},
-		{name: "invalid utf8", in: []byte{0xff, 0xfe, 0x00, 'x'}, want: true}, // BOM-ish, not valid
-		{name: "control heavy", in: bytes.Repeat([]byte{0x01}, 100), want: true},
-		{name: "whitespace controls ok", in: []byte("line1\n\tline2\rline3\f\v"), want: false},
-		// Regression: multi-byte runes anywhere in the buffer (including past a
-		// hard 1KB boundary position) must not read as binary — the UTF-8 check
-		// covers the whole buffer, so there is no probe cut to straddle.
-		{name: "utf8 multi-byte deep in buffer", in: append(bytes.Repeat([]byte("a"), 1023), []byte("é世界")...), want: false},
-		// Regression: ANSI-colored output (ls/grep --color) is ESC-heavy but not
-		// binary — ESC is excluded from the control-byte count.
-		{name: "ansi colored output", in: []byte("\x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1mBold\x1b[0m normal text here\n"), want: false},
-		// Regression: output that starts as clean text but turns binary later
-		// must still be caught — the NUL scan covers the whole buffer.
-		{name: "text then binary deep in buffer", in: append(bytes.Repeat([]byte("a"), 1124), 0x00, 0x01), want: true},
-		// Regression: a Latin-1 file (smart quotes, no NULs) has invalid UTF-8
-		// bytes anywhere in the buffer — it must read as binary.
-		{name: "latin1 interior bytes stay binary", in: append(bytes.Repeat([]byte("a"), 1023), 0x93, 0x94, 0x92), want: true},
-		// Regression (review): an INVALID sequence — E0 80 is an overlong
-		// encoding lead with an illegal second byte — must read as binary.
-		{name: "invalid overlong stays binary", in: append(bytes.Repeat([]byte("a"), 1022), 0xE0, 0x80), want: true},
-		// C1 lead byte (0xC0/0xC1 are never legal UTF-8).
-		{name: "c1 lead stays binary", in: append(bytes.Repeat([]byte("a"), 1023), 0xC1, 0xBF), want: true},
-		// Regression (review round 4): invalid UTF-8 deep in the buffer with no
-		// NULs (a log file with corrupt bytes partway through) must still be
-		// binary — the UTF-8 check covers the whole buffer, not just the prefix.
-		{name: "invalid utf8 deep in buffer stays binary", in: append(bytes.Repeat([]byte("a"), 1124), 0x93, 0x94), want: true},
-		// Regression (review round 5): a NUL-free control-junk tail (text then
-		// 4KB of 0x01) passes NUL/UTF-8 — the density check must cover the whole
-		// buffer too, not just a prefix.
-		{name: "control junk tail in buffer", in: append(bytes.Repeat([]byte("a"), 1024), bytes.Repeat([]byte{0x01}, 4096)...), want: true},
+func TestServicesKeepHostHooksIsolated(t *testing.T) {
+	one, two := NewServices(), NewServices()
+	browserOne, browserTwo := browser.NewManager(browser.ModeHeadless), browser.NewManager(browser.ModeLive)
+	one.SetBrowser(browserOne, true)
+	two.SetBrowser(browserTwo, false)
+	one.SetComputerPolicy(computer.NewPolicy([]string{"One"}, nil, true))
+	two.SetComputerPolicy(computer.NewPolicy([]string{"Two"}, nil, true))
+	oneCtx, twoCtx := WithServices(t.Context(), one), WithServices(t.Context(), two)
+
+	if one.Browser() != browserOne || two.Browser() != browserTwo {
+		t.Fatal("browser managers crossed service boundaries")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isBinary(tt.in); got != tt.want {
-				t.Fatalf("isBinary(%q) = %v, want %v", tt.in, got, tt.want)
+	if err := gateApp(oneCtx, "One"); err != nil {
+		t.Fatalf("first policy denied its app: %v", err)
+	}
+	if err := gateApp(twoCtx, "One"); err == nil {
+		t.Fatal("second policy inherited the first service's approval")
+	}
+
+	noteGeneration(oneCtx, "App", &computer.AppState{Generation: 7})
+	if genFor(oneCtx, "App") != 7 || genFor(twoCtx, "App") != 0 {
+		t.Fatal("computer generations crossed service boundaries")
+	}
+
+	var oneShots, twoShots int
+	one.SetScreenshotSink(func(shots [][]byte) { oneShots += len(shots) })
+	two.SetScreenshotSink(func(shots [][]byte) { twoShots += len(shots) })
+	one.screenshots()([][]byte{{1}})
+	if oneShots != 1 || twoShots != 0 {
+		t.Fatal("screenshot callback crossed service boundaries")
+	}
+}
+
+func TestServicesKeepProcessScopesIsolated(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	one, two := NewServices(), NewServices()
+	one.processes, one.processCwd, one.processEnv, one.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "one"}, "one"
+	two.processes, two.processCwd, two.processEnv, two.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "two"}, "two"
+
+	type result struct{ output string }
+	results := make(chan result, 2)
+	for _, services := range []*Services{one, two} {
+		go func() {
+			out, err := services.computerAutomation(t.Context()).Run(t.Context(), "sh", "-c", `printf '%s:%s' "$WHIP_SESSION_ID" "$PWD"`)
+			if err != nil {
+				results <- result{"error: " + err.Error()}
+				return
+			}
+			results <- result{string(out)}
+		}()
+	}
+	got := map[string]bool{(<-results).output: true, (<-results).output: true}
+	if !got["one:"+one.processCwd] || !got["two:"+two.processCwd] {
+		t.Fatalf("process scopes crossed: %v", got)
+	}
+}
+
+func canonicalDir(t *testing.T, dir string) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestWorkspaceProcessHonorsPermissionAndEnvironment(t *testing.T) {
+	t.Setenv("WHIP_CHILD_VALUE", "parent")
+	services, ledger, _, authority := newMCPServices(t)
+	values := map[string]string{"WHIP_CHILD_VALUE": "child"}
+	services.SetProcessEnvironment(values)
+	values["WHIP_CHILD_VALUE"] = "changed caller map"
+	services.ProcessOptions().Env["WHIP_CHILD_VALUE"] = "changed returned map"
+	command := `printf '%s' "$WHIP_CHILD_VALUE"; printf done > proof.txt`
+	var prompt GateRequest
+	services.SetGate(func(_ context.Context, request GateRequest) (GateDecision, string) {
+		prompt = request
+		return GateReject, "not permitted"
+	})
+	if _, err := services.RunWorkspaceProcess(t.Context(), "/bin/sh", "-c", command); err == nil {
+		t.Fatal("workspace process ignored denial")
+	}
+	proof := filepath.Join(services.ProcessOptions().Cwd, "proof.txt")
+	if _, err := os.Stat(proof); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("denied process changed the workspace: %v", err)
+	}
+	if prompt.Tool != "workspace_process" || !strings.Contains(prompt.Command, command) {
+		t.Fatalf("permission prompt lost the process arguments: %+v", prompt)
+	}
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
+	out, err := services.RunWorkspaceProcess(t.Context(), "/bin/sh", "-c", command)
+	if err != nil || string(out) != "child" {
+		t.Fatalf("workspace process environment = %q, %v", out, err)
+	}
+	if data, err := os.ReadFile(proof); err != nil || string(data) != "done" {
+		t.Fatalf("approved process result = %q, %v", data, err)
+	}
+	if os.Getenv("WHIP_CHILD_VALUE") != "parent" {
+		t.Fatal("child process settings changed the daemon environment")
+	}
+	admission := ledger.lastAdmission()
+	if admission.Request.RootID != authority.RootID || admission.Mutation != capability.MutationWorkspace || !admission.RequirePermission {
+		t.Fatalf("workspace process bypassed its authority: %+v", admission)
+	}
+	services.SetScreenshotSink(func([][]byte) { t.Error("parent screenshot sink reached a clone") })
+	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), ledger.Processes(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !services.ScreenshotsEnabled() || clone.ScreenshotsEnabled() {
+		t.Fatal("authority clone inherited an agent-specific screenshot destination")
+	}
+}
+
+func TestServicesValidationPaths(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	ledger := &countingLedger{}
+	workspaces := capability.NewWorkspaces()
+	authority := capability.Authority{
+		RootID: "root", AgentID: "agent",
+		Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"},
+	}
+	for _, tc := range []struct {
+		name       string
+		ledger     capability.Ledger
+		workspaces *capability.Workspaces
+		processes  *capability.ProcessManager
+		authority  capability.Authority
+	}{
+		{"nil ledger", nil, workspaces, processes, authority},
+		{"nil workspaces", ledger, nil, processes, authority},
+		{"nil processes", ledger, workspaces, nil, authority},
+		{"missing authority", ledger, workspaces, processes, capability.Authority{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := NewServices().BindDispatcher(tc.ledger, tc.workspaces, tc.processes, tc.authority); err == nil {
+				t.Fatal("BindDispatcher accepted incomplete authority")
 			}
 		})
 	}
 
-	// read: a real binary file straight through the read tool.
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "blob.bin")
-	raw := append(bytes.Repeat([]byte{0x01, 0x02, 0x03}, 40), 0x00, 0x00, 0x00) // ~120 bytes binary
-	if err := os.WriteFile(bin, raw, 0o644); err != nil {
+	services := NewServices()
+	root := t.TempDir()
+	workspace, err := workspaces.Open(root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	out := run(t, "read", fmt.Sprintf(`{"path":%q}`, bin))
-	want := fmt.Sprintf("[binary: %s, %s]", bin, bytesHuman(len(raw)))
-	if out != want {
-		t.Fatalf("read placeholder:\n got %q\nwant %q", out, want)
-	}
-
-	// bash: a command that streams binary bytes. NULs can't travel through a
-	// shell string argument, so write a binary file and cat it.
-	if out := run(t, "bash", fmt.Sprintf(`{"command":"cat %s | head -c 200"}`, bin)); !strings.Contains(out, "not shown") {
-		t.Fatalf("bash binary output not replaced: %q", out)
-	}
-
-	// A plain-text read still returns line-numbered content.
-	txt := filepath.Join(dir, "text.txt")
-	if err := os.WriteFile(txt, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+	services.workspace = workspace
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out := run(t, "read", fmt.Sprintf(`{"path":%q}`, txt)); !strings.Contains(out, "2\ttwo") {
-		t.Fatalf("text read should stay intact: %q", out)
+	for _, path := range []string{file, filepath.Join(root, "missing"), filepath.Join(root, "..", "outside")} {
+		if _, err := services.ResolveWorkingDirectory(path); err == nil {
+			t.Errorf("ResolveWorkingDirectory(%q) succeeded", path)
+		}
 	}
+
+	services.dispatcher = capability.NewDispatcher(nil, nil, nil)
+	if _, err := services.run(context.Background(), "missing", nil); err == nil || !strings.Contains(err.Error(), "unknown host operation") {
+		t.Fatalf("unknown operation error = %v", err)
+	}
+}
+
+type workspaceRootLedger struct {
+	capability.Ledger
+	root string
+	err  error
+}
+
+func (l workspaceRootLedger) WorkspaceRoot(context.Context, string) (string, error) {
+	return l.root, l.err
+}
+
+func TestServicesRemainingPaths(t *testing.T) {
+	services := NewServices()
+	policy := computer.NewPolicy(nil, nil, false)
+	services.SetComputerPolicy(policy)
+	if services.ComputerPolicy() != policy {
+		t.Fatal("computer policy was not retained")
+	}
+
+	dir := canonicalDir(t, t.TempDir())
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("unbound working directory = %q, %v", got, err)
+	}
+	workspace, err := capability.NewWorkspaces().Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.workspace = workspace
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("bound working directory = %q, %v", got, err)
+	}
+
+	out, err := NewServices().RunProcess(t.Context(), "sh", "-c", "printf direct")
+	if err != nil || string(out) != "direct" {
+		t.Fatalf("direct process = %q, %v", out, err)
+	}
+	if len(AllWithServices(nil)) != len(All()) {
+		t.Fatal("nil services changed the advertised tools")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("unknown host tool did not panic")
+			}
+		}()
+		hostTool(NewServices(), "missing")
+	}()
+
+	direct := services.wrap(Tool{Def: llm.NewTool("direct", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "direct", nil
+	}})
+	ctx := context.WithValue(t.Context(), dispatchCallKey{}, capability.Call{})
+	if got, err := direct.Run(ctx, nil); err != nil || got != "direct" {
+		t.Fatalf("direct dispatch = %q, %v", got, err)
+	}
+	for _, args := range []json.RawMessage{json.RawMessage(`{bad`), json.RawMessage(`{}`)} {
+		if _, err := toolPath(args); err == nil {
+			t.Fatalf("toolPath accepted %q", args)
+		}
+	}
+	if got := ExecuteWithSuggester(t.Context(), []Tool{{Def: llm.NewTool("empty", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "", nil
+	}}}, "empty", nil, nil); got != "(no output)" {
+		t.Fatalf("empty output = %q", got)
+	}
+
+	denied := NewServices()
+	denied.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateReject, "denied" })
+	for _, tool := range []Tool{bashTool(denied), writeTool(denied), editTool(denied)} {
+		args := json.RawMessage(`{"command":"true"}`)
+		if tool.Def.Function.Name != "bash" {
+			args = json.RawMessage(`{"path":"file","old_string":"x","new_string":"y","content":"x"}`)
+		}
+		if _, err := tool.Run(t.Context(), args); err == nil || !strings.Contains(err.Error(), "denied") {
+			t.Errorf("%s gate error = %v", tool.Def.Function.Name, err)
+		}
+	}
+	if _, err := writeTool(NewServices()).Run(t.Context(), json.RawMessage(fmt.Sprintf(`{"path":%q,"content":"x"}`, dir))); err == nil {
+		t.Fatal("write accepted a directory target")
+	}
+	if got := editDiff(strings.Repeat("x", 201), "y", 1); !strings.Contains(got, "…") {
+		t.Fatalf("long diff line was not shortened: %q", got)
+	}
+
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	authority := capability.Authority{RootID: "root", AgentID: "agent", Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"}}
+	for _, ledger := range []capability.Ledger{
+		workspaceRootLedger{err: errors.New("root failed")},
+		workspaceRootLedger{root: filepath.Join(t.TempDir(), "missing")},
+	} {
+		if err := NewServices().BindDispatcher(ledger, capability.NewWorkspaces(), processes, authority); err == nil {
+			t.Fatal("BindDispatcher accepted a failing workspace root")
+		}
+	}
+
+	browserManager := browser.NewManager(browser.ModeHeadless)
+	services.SetBrowser(browserManager, false)
+	services.Close()
 }

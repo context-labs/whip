@@ -5,11 +5,15 @@ import (
 	"testing"
 )
 
-// Smoke test against a real codex config when one exists — skipped in CI.
-// Reproduces the two startup-report failures from a francesco-shaped config:
-// a bogus "incident_io.tools.ask_telemetry" server, and an Unauthorized
-// incident_io with no way to express auth.
+// Smoke test against a real codex config. Opt-in: it reads the developer's
+// ~/.codex/config.toml, so it only runs with WHIP_TEST_REAL_CODEX=1 and never
+// prints header values. Reproduces the two startup-report failures from a
+// francesco-shaped config: a bogus "incident_io.tools.ask_telemetry" server,
+// and an Unauthorized incident_io with no way to express auth.
 func TestRealCodexConfigSmoke(t *testing.T) {
+	if os.Getenv("WHIP_TEST_REAL_CODEX") != "1" {
+		t.Skip("set WHIP_TEST_REAL_CODEX=1 to parse the real ~/.codex/config.toml")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("no home dir")
@@ -28,7 +32,7 @@ func TestRealCodexConfigSmoke(t *testing.T) {
 			t.Errorf("tool approval table leaked as server %q", name)
 		}
 	}
-	if _, ok := cfgs["incident_io"]; ok {
-		t.Logf("incident_io: url=%q headers=%v note=%q", cfgs["incident_io"].URL, cfgs["incident_io"].Headers, cfgs["incident_io"].Note)
+	if c, ok := cfgs["incident_io"]; ok {
+		t.Logf("incident_io: url=%q headers=%d note=%q", c.URL, len(c.Headers), c.Note)
 	}
 }

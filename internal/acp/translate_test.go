@@ -13,7 +13,7 @@ import (
 func TestToolKindMap(t *testing.T) {
 	want := map[string]acp.ToolKind{
 		"read": acp.ToolKindRead, "write": acp.ToolKindEdit, "edit": acp.ToolKindEdit,
-		"bash": acp.ToolKindExecute, "task": acp.ToolKindThink,
+		"bash":         acp.ToolKindExecute,
 		"browser_exec": acp.ToolKindOther, "mcp__docs__greet": acp.ToolKindOther,
 	}
 	for name, k := range want {
@@ -47,7 +47,6 @@ func TestToolTitle(t *testing.T) {
 		{"edit", `{"path":"/a/b.go","old_string":"x","new_string":"y"}`, "Edit /a/b.go"},
 		{"bash", `{"command":"go test ./..."}`, "$ go test ./..."},
 		{"bash", `{bad json`, "Run command"},
-		{"task", `{"description":"research ACP"}`, "Subagent: research ACP"},
 		{"mcp__x__y", `{}`, "mcp__x__y"},
 	}
 	for _, c := range cases {

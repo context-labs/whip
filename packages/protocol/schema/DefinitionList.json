@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "built_in": {
+            "type": "boolean"
+          },
+          "registered_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "built_in",
+          "registered_by",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/DefinitionList",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DefinitionList",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

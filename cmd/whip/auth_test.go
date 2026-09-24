@@ -4,37 +4,51 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/creack/pty"
 )
 
-// fakeOpenRouter serves GET /models: 200 with a two-model list for the good
-// key, 401 for anything else — mirroring OpenRouter's auth behavior.
+// fakeOpenRouter mirrors the authenticated /key and public /models endpoints.
 func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
-			http.NotFound(w, r)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/key" {
+			if r.Header.Get("Authorization") != "Bearer "+goodKey {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"message":"invalid key"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"label":"redacted"}}`))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+goodKey {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"message":"invalid key"}}`))
+		if r.URL.Path != "/models" {
+			http.NotFound(w, r)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
 				{
 					"id": "openai/gpt-5", "context_length": 400000, "input_modalities": []string{"text", "image"},
+					"output_modalities": []string{"text"}, "supported_parameters": []string{"tools", "tool_choice"},
 					"pricing": map[string]string{"prompt": "0.00000125", "completion": "0.00001"},
 				},
-				{"id": "anthropic/claude-sonnet-4.5", "context_length": 1000000, "input_modalities": []string{"text"}},
+				{
+					"id": "anthropic/claude-sonnet-4.5", "context_length": 1000000, "input_modalities": []string{"text"},
+					"output_modalities": []string{"text"}, "supported_parameters": []string{"tools", "tool_choice"},
+				},
 			},
 		})
 	}))
+	redirectAuthRequests(t, server.URL, "openrouter.ai", "/api/v1")
+	useTestDaemon(t)
+	return server
 }
 
 func TestAuthOpenRouterGoodKey(t *testing.T) {
@@ -42,7 +56,7 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err != nil {
+	if err := authOpenRouter("sk-or-good", false); err != nil {
 		t.Fatalf("auth failed: %v", err)
 	}
 
@@ -66,15 +80,14 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 	if got := cat.ContextLength("openai/gpt-5"); got != 400000 {
 		t.Errorf("context length not carried into catalog: %d", got)
 	}
-	if in, _, _, ok := cat.Pricing("openai/gpt-5"); !ok || in == 0 {
-		t.Errorf("pricing not carried into catalog: %v %v", in, ok)
+	if pricing := cat.ModelPricing("openai/gpt-5"); pricing.Prompt != "0.00000125" || pricing.Completion != "0.00001" {
+		t.Errorf("pricing not carried into catalog: %+v", pricing)
 	}
 	if vis, found := cat.SupportsVision("openai/gpt-5"); !found || !vis {
 		t.Errorf("vision modality not carried into catalog: %v %v", vis, found)
 	}
 
-	// The prefetched catalog makes catalog-only models resolvable with no
-	// config entry — the "access all openrouter models easily" promise.
+	// Compatible catalog-only models resolve without a manual config entry.
 	_, m, _, err := cfg.Resolve("anthropic/claude-sonnet-4.5", "")
 	if err != nil {
 		t.Fatalf("catalog model should resolve: %v", err)
@@ -89,7 +102,7 @@ func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
-	err := authOpenRouter(srv.URL, "sk-or-bad", false)
+	err := authOpenRouter("sk-or-bad", false)
 	if err == nil {
 		t.Fatal("expected rejection for a bad key")
 	}
@@ -106,6 +119,35 @@ func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
 	}
 }
 
+func TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv(config.OpenRouterEnvVar, "")
+	keyPath := filepath.Join(t.TempDir(), "openrouter.key")
+	if err := os.WriteFile(keyPath, []byte("sk-or-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+		cfg.ProviderKeySources.KeyFiles = map[string]string{config.OpenRouterEnvVar: keyPath}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := fakeOpenRouter(t, "sk-or-file")
+	defer server.Close()
+	if err := authOpenRouterCLI([]string{"--env"}); err != nil {
+		t.Fatalf("named file setup failed: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := cfg.Providers["openrouter"]
+	if provider.APIKey != "" || provider.APIKeyEnv != config.OpenRouterEnvVar {
+		t.Fatal("CLI copied a file credential instead of retaining its named reference")
+	}
+}
+
 func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-new")
@@ -117,7 +159,7 @@ func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := authOpenRouter(srv.URL, "sk-or-new", false); err != nil {
+	if err := authOpenRouter("sk-or-new", false); err != nil {
 		t.Fatalf("re-auth failed: %v", err)
 	}
 	cfg, _ = config.Load()
@@ -148,45 +190,36 @@ func TestAuthCLIDispatch(t *testing.T) {
 	}
 }
 
-// Without a terminal (tests, pipes) offerShellExport prints the manual
-// export line and never touches the rc file — appending needs a confirmed
-// [y/N], which needs a TTY.
-func TestOfferShellExportNonTTY(t *testing.T) {
+func TestTerminalKeyPrompt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	for _, shell := range []string{"/bin/zsh", "/bin/fish"} { // known rc target and none
-		t.Setenv("SHELL", shell)
-		out := captureStdout(t, func() { offerShellExport("sk-or-test") })
-		if !strings.Contains(out, "export "+config.OpenRouterEnvVar+"=sk-or-test") {
-			t.Errorf("SHELL=%s: manual export line missing:\n%s", shell, out)
-		}
-	}
-	if _, err := os.Stat(home + "/.zshrc"); !os.IsNotExist(err) {
-		t.Error("non-tty run must not create or modify the rc file")
-	}
-}
-
-func TestShellRC(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	type tc struct{ shell, want string }
-	for _, c := range []tc{
-		{"/bin/zsh", home + "/.zshrc"},
-		{"/usr/bin/bash", home + "/.bashrc"},
-		{"/bin/fish", ""}, // unsupported shell: no rc target
-		{"", ""},
-	} {
-		t.Setenv("SHELL", c.shell)
-		if got := shellRC(); got != c.want {
-			t.Errorf("SHELL=%q: got %q, want %q", c.shell, got, c.want)
-		}
-	}
-
-	// no home directory: nothing to append to, whatever the shell is
-	t.Setenv("HOME", "")
 	t.Setenv("SHELL", "/bin/zsh")
-	if got := shellRC(); got != "" {
-		t.Errorf("without a home directory shellRC should be empty, got %q", got)
+	peer, terminal, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdin := os.Stdin
+	os.Stdin = terminal
+	savedStdin, err := syscall.Dup(syscall.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Dup2(int(terminal.Fd()), syscall.Stdin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Dup2(savedStdin, syscall.Stdin)
+		_ = syscall.Close(savedStdin)
+		os.Stdin = oldStdin
+		_ = terminal.Close()
+		_ = peer.Close()
+	})
+	if _, err := peer.WriteString("  sk-or-terminal  \n"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := promptKey("key: ")
+	if err != nil || key != "sk-or-terminal" {
+		t.Fatalf("terminal key=%q err=%v", key, err)
 	}
 }
 
@@ -235,7 +268,7 @@ func TestAuthOpenRouterUnreadableConfig(t *testing.T) {
 	defer srv.Close()
 	unusableHome(t)
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err == nil {
+	if err := authOpenRouter("sk-or-good", false); err == nil {
 		t.Error("an unusable config dir should surface as an error")
 	}
 }
@@ -251,49 +284,38 @@ func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
 	}
 	freezeHome(t, home)
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err == nil {
+	if err := authOpenRouter("sk-or-good", false); err == nil {
 		t.Error("an unwritable config dir should surface as an error")
 	}
 }
 
-func TestAuthCLIHelp(t *testing.T) {
-	for _, arg := range []string{"-h", "--help", "help"} {
-		if err := authCLI([]string{arg}); err != nil {
-			t.Errorf("whip auth %s: %v", arg, err)
-		}
-	}
-	if err := authCLI([]string{"openrouter", "--help"}); err != nil {
-		t.Errorf("whip auth openrouter --help: %v", err)
-	}
+// Redirect only the provider gateway; daemon RPC and provider control-plane
+// requests continue through their real transport paths.
+type authRedirectTransport struct {
+	next         http.RoundTripper
+	endpoint     *url.URL
+	host, prefix string
 }
 
-func TestAuthLogoutRemovesProvider(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	cfg, err := config.Load()
+func (r authRedirectTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Host != r.host {
+		return r.next.RoundTrip(request)
+	}
+	request = request.Clone(request.Context())
+	target := *request.URL
+	target.Scheme, target.Host = r.endpoint.Scheme, r.endpoint.Host
+	target.Path = strings.TrimPrefix(target.Path, r.prefix)
+	request.URL = &target
+	return r.next.RoundTrip(request)
+}
+
+func redirectAuthRequests(t *testing.T, endpoint, host, prefix string) {
+	t.Helper()
+	parsed, err := url.Parse(endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.UpsertOpenRouter("sk-or-test", false)
-	cfg.UpsertCodex()
-	if err := cfg.Save(); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{{"openrouter", "logout"}, {"codex", "logout"}, {"codex", "logout"}} {
-		if err := authCLI(args); err != nil {
-			t.Fatalf("whip auth %v: %v", args, err)
-		}
-	}
-	cfg, err = config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := cfg.Providers["openrouter"]; ok {
-		t.Fatal("openrouter should be removed")
-	}
-	if _, ok := cfg.Providers[config.CodexProviderName]; ok {
-		t.Fatal("codex should be removed")
-	}
-	if _, ok := cfg.Models[config.CodexDefaultModel]; ok {
-		t.Fatal("codex default route should be removed with its provider")
-	}
+	previous := http.DefaultTransport
+	http.DefaultTransport = authRedirectTransport{next: previous, endpoint: parsed, host: host, prefix: prefix}
+	t.Cleanup(func() { http.DefaultTransport = previous })
 }

@@ -1,5 +1,15 @@
 # Handoff: whip context/token cost reduction
 
+> **Status on `whip-rlm` (merge of main, 2026-09):** the real-usage
+> compaction trigger (`lastPrompt`/`notePrompt`, estimate fallback), the
+> token-budgeted compaction tail, `llm.PartTokens` per-part estimates and
+> image normalization at ingest all landed. The doom-loop guard and the
+> per-model sub-usage ledger (`SubUsage`/`usageSink`) were deliberately
+> dropped: children are daemon nodes with their own per-agent budgets, so
+> there is no in-process subagent to guard or to fan usage in from. The rest
+> of this document describes the `perf/context-cost-management` branch as
+> shipped on main.
+
 **Audience:** another AI (or engineer) picking this up cold. Everything you
 need — the evidence, the design, what shipped, what's left, and how to verify.
 

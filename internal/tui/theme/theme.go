@@ -3,33 +3,67 @@ package theme
 import (
 	"image/color"
 
-	"github.com/charmbracelet/lipgloss"
 	shared "github.com/context-labs/whip/internal/theme"
+
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
-// Theme is a semantic palette resolved for terminal rendering.
-type Theme struct {
-	Name                          string
-	Dark                          bool
-	Neutral                       bool
+// Palette is the resolved semantic palette (see PaletteSpec for meanings).
+type Palette struct {
 	Text, Muted, Faint            color.Color
 	Primary, Accent               color.Color
 	Success, Warning, Error, Info color.Color
 	Link, Emphasis                color.Color
 	OnPrimary                     color.Color
 	Border, BorderFocus           color.Color
-	Bg, DiffAdd, DiffDel          color.Color
-	Panel, Element, Hover         color.Color
-
-	Body, MutedText, FaintText                    lipgloss.Style
-	Selected, ErrorText, WarningText, SuccessText lipgloss.Style
-	Spinner                                       lipgloss.Style
-	spec                                          Spec
+	Bg                            color.Color
+	DiffAdd, DiffDel              color.Color // background tints behind diff lines
 }
 
-// Resolve converts a validated spec into terminal colors and local surfaces.
-func Resolve(spec Spec, bg color.Color) *Theme {
+// Surfaces is the raised-layer ladder: terminal background -> Panel (cards,
+// sidebar) -> Element (prompt box, code block) -> Hover (selected row,
+// hovered card). A nil fill means "leave the terminal background alone".
+type Surfaces struct{ Base, Panel, Element, Hover color.Color }
+
+// Spacing is the cell-unit spacing scale. A terminal has no radius; the
+// rounded border is the only one.
+type Spacing struct{ Gutter, PadX, PadY, Gap int }
+
+// Theme is the resolved token set components consume.
+type Theme struct {
+	Name    string
+	Dark    bool
+	Neutral bool // unknown background: ANSI colors only, no fills
+	Profile colorprofile.Profile
+	Palette
+	Surface Surfaces
+	Space   Spacing
+	spec    Spec
+
+	// Typography: attribute conventions, not fonts.
+	Heading, Body, Label, MutedText, FaintText lipgloss.Style
+	Kbd, Code                                  lipgloss.Style
+	Selected                                   lipgloss.Style // OnPrimary on Primary
+	Frame                                      lipgloss.Border
+
+	// Component styles pushed into bubbles on theme swap.
+	Textarea textarea.Styles
+	Spinner  lipgloss.Style
+}
+
+// Resolve builds a Theme from a spec. The theme's own background (Bg) is what
+// View paints under everything, so the surfaces step away from it; bg, the
+// terminal's real background (the OSC 11 reply, nil when unknown), only
+// stands in for a theme without a Bg. Surfaces vanish under 16 colors, where
+// the nearest match for a subtle gray is plain black and borders must carry
+// the layering.
+func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	if err := spec.Validate(); err != nil {
+		// callers validate on load; a spec that still fails here is a built-in
+		// bug, so fall back to the shipped theme of the same darkness
 		if spec.Dark {
 			spec = Dark()
 		} else {
@@ -37,68 +71,90 @@ func Resolve(spec Spec, bg color.Color) *Theme {
 		}
 	}
 	p := spec.Palette
-	base := col(p.Bg)
-	if bg != nil {
-		base = bg
-	}
-	s := shared.Surfaces(spec, base)
 	t := &Theme{
-		Name: spec.Name, Dark: spec.Dark, Neutral: spec.Neutral(), spec: spec,
+		Name: spec.Name, Dark: spec.Dark, Neutral: spec.Neutral(), Profile: profile, spec: spec,
 		Text: col(p.Text), Muted: col(p.Muted), Faint: col(p.Faint),
 		Primary: col(p.Primary), Accent: col(p.Accent),
 		Success: col(p.Success), Warning: col(p.Warning), Error: col(p.Error), Info: col(p.Info),
-		Link: col(p.Link), Emphasis: col(p.Emphasis), OnPrimary: col(p.OnPrimary),
-		Border: col(p.Border), BorderFocus: col(p.BorderFocus), Bg: col(p.Bg),
-		DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
-		Panel: s.Panel, Element: s.Element, Hover: s.Hover,
+		Link: col(p.Link), Emphasis: col(p.Emphasis),
+		OnPrimary: col(p.OnPrimary), Border: col(p.Border), BorderFocus: col(p.BorderFocus),
+		Bg: col(p.Bg), DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
+		Space: Spacing{Gutter: 3, PadX: 2, PadY: 1, Gap: 1}, // Gutter: the "┃  " bar+gutter; PadX: text inset from a fill edge; PadY: rows above/below a panel body; Gap: between panes
 	}
-	t.Body = t.On(t.Text, nil)
-	t.MutedText = t.On(t.Muted, nil)
-	t.FaintText = t.On(t.Faint, nil)
+	base := t.Bg
+	if base == nil {
+		base = bg
+	}
+	t.Surface = surfaces(spec, base, profile)
+
+	body := lipgloss.NewStyle()
+	if t.Text != nil {
+		body = body.Foreground(t.Text)
+	}
+	t.Body = body
+	t.Heading = body.Bold(true)
+	t.Label = lipgloss.NewStyle().Foreground(t.Muted).Bold(true)
+	t.MutedText = lipgloss.NewStyle().Foreground(t.Muted)
+	t.FaintText = lipgloss.NewStyle().Foreground(t.Faint)
+	t.Kbd = t.On(t.Text, t.Surface.Element).Padding(0, 1)
+	t.Code = t.On(t.Success, t.Surface.Element)
 	t.Selected = t.On(t.OnPrimary, t.Primary)
-	t.ErrorText = t.On(t.Error, nil)
-	t.WarningText = t.On(t.Warning, nil)
-	t.SuccessText = t.On(t.Success, nil)
-	t.Spinner = t.On(t.Info, nil)
+	t.Frame = lipgloss.RoundedBorder()
+	t.Spinner = lipgloss.NewStyle().Foreground(t.Info)
+
+	ta := textarea.DefaultStyles(t.Dark)
+	// The real terminal cursor follows the theme (Primary, like the selection
+	// fill; Bubble Tea resets the colour on exit) as a steady block —
+	// Blink:true encodes as DECSCUSR 1, which Bubble Tea treats as the default
+	// and never resets, so the user's own cursor shape would not come back.
+	ta.Cursor = textarea.CursorStyle{Color: t.Primary, Shape: tea.CursorBlock, Blink: false}
+	elem := t.On(nil, t.Surface.Element)
+	for _, st := range []*textarea.StyleState{&ta.Focused, &ta.Blurred} {
+		st.Base = lipgloss.NewStyle()
+		st.Text = elem
+		st.CursorLine = elem
+		st.Placeholder = t.On(t.Muted, t.Surface.Element)
+		st.Prompt = lipgloss.NewStyle().Foreground(t.Info)
+		st.EndOfBuffer = elem
+		st.LineNumber = t.On(t.Muted, t.Surface.Element)
+		st.CursorLineNumber = t.On(t.Muted, t.Surface.Element)
+	}
+	t.Textarea = ta
 	return t
 }
 
+// surfaces derives the fills. Pinned surfaces win; otherwise the real
+// background is stepped (dark: lighter, light: darker, bigger steps on light
+// because a small delta from white is invisible); with no background RGB the
+// built-in constants apply; under 16 colors or the neutral theme, none.
+func surfaces(spec Spec, bg color.Color, profile colorprofile.Profile) Surfaces {
+	if spec.Neutral() || profile < colorprofile.ANSI256 {
+		return Surfaces{}
+	}
+	s := shared.Surfaces(spec, bg)
+	return Surfaces{Base: s.Base, Panel: s.Panel, Element: s.Element, Hover: s.Hover}
+}
+
+// On is the "paint a token on a layer" primitive components use instead of
+// building styles from scratch: fg over bg, either side optional.
 func (t *Theme) On(fg, bg color.Color) lipgloss.Style {
 	s := lipgloss.NewStyle()
 	if fg != nil {
-		s = s.Foreground(t.Terminal(fg))
+		s = s.Foreground(fg)
 	}
 	if bg != nil {
-		s = s.Background(t.Terminal(bg))
+		s = s.Background(bg)
 	}
 	return s
 }
 
-// Terminal preserves ANSI-index colors (notably neutral mode) and emits a hex
-// color for derived surfaces.
-func (t *Theme) Terminal(c color.Color) lipgloss.TerminalColor {
-	if c == nil {
-		return lipgloss.NoColor{}
-	}
-	want := shared.Hex(c)
-	p := t.spec.Palette
-	for _, raw := range []string{
-		p.Text, p.Muted, p.Faint, p.Primary, p.Accent,
-		p.Success, p.Warning, p.Error, p.Info, p.Link, p.Emphasis,
-		p.OnPrimary, p.Border, p.BorderFocus, p.Bg, p.DiffAdd, p.DiffDel,
-	} {
-		if raw != "" && shared.Hex(shared.ParseColor(raw)) == want {
-			return lipgloss.Color(raw)
-		}
-	}
-	return lipgloss.Color(want)
-}
-
+// Spec returns the theme's source, e.g. to list or persist it.
 func (t *Theme) Spec() Spec { return t.spec }
 
+// col parses a spec color: "" is nil (the terminal default).
 func col(s string) color.Color {
 	if s == "" {
 		return nil
 	}
-	return shared.ParseColor(s)
+	return lipgloss.Color(s)
 }

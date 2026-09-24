@@ -1,0 +1,15 @@
+{
+  "name": "@whip/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@whip/app": "0.1.0",
+    "@whip/ui": "0.1.0"
+  }
+}

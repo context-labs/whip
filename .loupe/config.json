@@ -1,8 +1,7 @@
 {
   "harness": "whip",
-  "model": "glm-5.3",
+  "model": "kimi-k3",
   "timezone": "PST",
-  "maxTurns": 5,
   "whip": {
     "provider": {
       "name": "inference-net",
@@ -10,9 +9,8 @@
       "baseUrl": "https://api.inference.net/v1",
       "apiKeyEnv": "INFERENCE_API_KEY"
     },
-    "defaultModel": "glm-5.3",
+    "defaultModel": "kimi-k3",
     "models": [
-      "glm-5.3",
       "kimi-k3",
       "kimi-k3-fast",
       "glm-5.3-flash",
@@ -24,7 +22,7 @@
     {
       "name": "go-review",
       "promptFile": "reviewers/go-review.md",
-      "reasoning": "low",
+      "reasoning": "medium",
       "profile": "chill",
       "exclude": [
         ".agents/skills/**",

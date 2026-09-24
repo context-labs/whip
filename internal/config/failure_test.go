@@ -42,12 +42,6 @@ func blockedPath(t *testing.T, name, how string) {
 func TestNoConfigDirIsNotFatal(t *testing.T) {
 	unusableHome(t)
 
-	if Trusted("/some/dir") {
-		t.Error("Trusted should be false when the config dir is unusable")
-	}
-	if err := Trust("/some/dir"); err == nil {
-		t.Error("Trust should report the unusable config dir")
-	}
 	if n := ProjectGoalMaxRounds("/some/dir"); n != 0 {
 		t.Errorf("ProjectGoalMaxRounds = %d, want 0", n)
 	}
@@ -73,50 +67,6 @@ func TestNoConfigDirIsNotFatal(t *testing.T) {
 	if err := Default().Save(); err == nil {
 		t.Error("Save should report the unusable config dir")
 	}
-}
-
-// TestTrustedRejectsCorruptFile: an unparseable trusted.json means "not
-// trusted" — failing open would grant trust the user never gave.
-func TestTrustedRejectsCorruptFile(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	dir, _ := Dir()
-	if err := os.WriteFile(filepath.Join(dir, "trusted.json"), []byte("{ not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if Trusted("/x") {
-		t.Fatal("a corrupt trusted.json must not grant trust")
-	}
-	// and a fresh grant repairs it
-	if err := Trust("/x"); err != nil {
-		t.Fatal(err)
-	}
-	if !Trusted("/x") {
-		t.Fatal("Trust should overwrite the corrupt file")
-	}
-}
-
-// TestTrustReportsWriteFailures: a trust grant that can't reach disk must
-// return an error — silently dropping it would re-prompt forever (or worse,
-// look granted in-session).
-func TestTrustReportsWriteFailures(t *testing.T) {
-	t.Run("staging write", func(t *testing.T) {
-		t.Setenv("WHIP_HOME", t.TempDir())
-		blockedPath(t, "trusted.json", "tmp")
-		if err := Trust("/x"); err == nil {
-			t.Fatal("Trust should report the failed staging write")
-		}
-	})
-	t.Run("rename", func(t *testing.T) {
-		t.Setenv("WHIP_HOME", t.TempDir())
-		blockedPath(t, "trusted.json", "target")
-		if err := Trust("/x"); err == nil {
-			t.Fatal("Trust should report the failed rename")
-		}
-		dir, _ := Dir()
-		if _, err := os.Stat(filepath.Join(dir, "trusted.json.tmp")); !os.IsNotExist(err) {
-			t.Fatal("a failed rename must clean up its staging file")
-		}
-	})
 }
 
 // TestProjectsReportWriteFailures is the same contract for projects.json.

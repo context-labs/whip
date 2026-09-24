@@ -1,8 +1,11 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -17,14 +20,12 @@ func TestLoadSaveDefaults(t *testing.T) {
 	if cfg.DefaultModel != "kimi-k3-fast" || cfg.Providers["inference-net"].BaseURL != "https://api.inference.net/v1" {
 		t.Fatalf("defaults: %+v", cfg)
 	}
-	// New installs boot in opencode render mode. An explicit "" (classic look)
-	// set by setUIMode persists and is honored on reload — only a missing file
-	// seeds "opencode".
-	if cfg.UIMode != "opencode" {
-		t.Fatalf("first-run UIMode = %q, want %q", cfg.UIMode, "opencode")
+	if cfg.MCPImport == nil || cfg.MCPImport.Claude == nil || cfg.MCPImport.Codex == nil ||
+		cfg.MCPImport.Claude.Enabled == nil || *cfg.MCPImport.Claude.Enabled ||
+		cfg.MCPImport.Codex.Enabled == nil || *cfg.MCPImport.Codex.Enabled {
+		t.Fatal("fresh installs must leave external MCP imports opt-in")
 	}
 	cfg.DefaultModel = "glm-5.2-fast"
-	cfg.Experimental = []string{"workflows", "future-thing"}
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -32,25 +33,57 @@ func TestLoadSaveDefaults(t *testing.T) {
 	if err != nil || cfg2.DefaultModel != "glm-5.2-fast" {
 		t.Fatalf("reload: %+v %v", cfg2, err)
 	}
-	if len(cfg2.Experimental) != 2 || cfg2.Experimental[0] != "workflows" {
-		t.Fatalf("experimental round-trip: %+v", cfg2.Experimental)
-	}
-	if cfg2.UIMode != "opencode" {
-		t.Fatalf("reload UIMode = %q, want %q", cfg2.UIMode, "opencode")
-	}
+}
 
-	// A user who toggled to the classic look persists "" and keeps it on reload
-	// (the opencode default must only apply on first run, not override a choice).
-	cfg2.UIMode = ""
-	if err := cfg2.Save(); err != nil {
+func TestRLMRuntimeLimits(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".whip"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cfg3, err := Load()
+	data := `{"defaultModel":"m","rlm":{"steps":99,"maxWorkers":2,"defaultEngine":"quickjs","maxConcurrentHostCalls":1},"providers":{"p":{"baseUrl":"https://example.test","api":"openai-completions"}},"models":{"m":{"providers":["p"]}}}`
+	if err := os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg3.UIMode != "" {
-		t.Fatalf("opt-out UIMode = %q, want empty (classic)", cfg3.UIMode)
+	if cfg.RLM.Steps != 99 || cfg.RLM.MaxWorkers != 2 || cfg.RLM.Engine() != "quickjs" || cfg.RLM.MaxConcurrentHostCalls != 1 {
+		t.Fatalf("RLM config = %+v", cfg.RLM)
+	}
+}
+
+func TestLegacyRuntimeKeysDisappearOnSave(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	path := filepath.Join(home, "config.json")
+	data := `{
+  "defaultModel": "m",
+  "taskModel": "legacy-task-model",
+  "taskProvider": "legacy-task-provider",
+  "worktreeSubagents": true,
+  "providers": {"p": {"baseUrl": "https://example.test", "api": "openai-completions"}},
+  "models": {"m": {"providers": ["p"]}}
+}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"taskModel", "taskProvider", "worktreeSubagents", "legacy-task-model", "legacy-task-provider"} {
+		if strings.Contains(string(saved), removed) {
+			t.Errorf("legacy runtime config %q survived save: %s", removed, saved)
+		}
 	}
 }
 
@@ -393,37 +426,6 @@ func TestLogEventNeverFails(t *testing.T) {
 	LogEvent("config.load", "should not panic or error")
 }
 
-// The first-run signal the wizard triggers on: no config file AND no
-// setup-done marker. A subcommand's Load on a fresh install creates the
-// config but never the marker — so the wizard still offers on the first
-// interactive launch.
-func TestSetupDoneMarker(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	if SetupDone() {
-		t.Fatal("a fresh WHIP_HOME should report setup-not-done")
-	}
-	if _, err := Load(); err != nil { // what a subcommand does
-		t.Fatal(err)
-	}
-	if !Exists() {
-		t.Fatal("Load should have written the config")
-	}
-	if SetupDone() {
-		t.Fatal("a subcommand's Load must not mark setup done — the wizard would never run")
-	}
-	MarkSetupDone()
-	if !SetupDone() {
-		t.Fatal("the marker should report done")
-	}
-	// And the wizard completing is what writes it: prove the file shape.
-	dir, _ := Dir()
-	if _, err := os.Stat(filepath.Join(dir, "setup.done")); err != nil {
-		t.Fatalf("setup.done should exist: %v", err)
-	}
-}
-
-// ContextWindow prefers the new `context` field but falls back to the legacy
-// `maxTokens` for configs written before the rename.
 func TestContextWindowBackCompat(t *testing.T) {
 	if got := (Model{Context: 200000}).ContextWindow(); got != 200000 {
 		t.Fatalf("context field: %d", got)
@@ -507,5 +509,88 @@ func TestSnapshotIsolatesMaps(t *testing.T) {
 	}
 	if len(snap.Providers) != len(Default().Providers) || len(snap.Models) != len(Default().Models) {
 		t.Fatal("snapshot should carry the original entries")
+	}
+}
+
+func TestSourcesOnlyRecoveryPreservesProviderOptOuts(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		supplied bool
+		disabled []string
+		want     []string
+	}{
+		{name: "omitted preserves backup", want: []string{"openrouter"}},
+		{name: "explicit empty clears backup", supplied: true, disabled: []string{}, want: []string{}},
+		{name: "explicit replacement wins", supplied: true, disabled: []string{"cerebras"}, want: []string{"cerebras"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateProviderEnvironment(t)
+			t.Setenv("OPENROUTER_API_KEY", "fixture-router")
+			cfg := Default()
+			cfg.DisabledProviders = []string{"openrouter"}
+			if err := cfg.Save(); err != nil {
+				t.Fatal(err)
+			}
+			filename, err := path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			backup, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filename+".bak", backup, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			keyfile := writeProviderFixture(t, t.TempDir(), "cerebras.key", "fixture-cerebras")
+			sourceOnly := map[string]any{"providerKeySources": ProviderKeySources{KeyFiles: map[string]string{"CEREBRAS_API_KEY": keyfile}}}
+			if test.supplied {
+				sourceOnly["disabledProviders"] = test.disabled
+			}
+			data, err := json.Marshal(sourceOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filename, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			restored, _, err := PersistDiscoveredProviders(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(restored.DisabledProviders, test.want) {
+				t.Fatalf("recovery opt-outs = %v; want %v", restored.DisabledProviders, test.want)
+			}
+			if restored.ProviderKeySources.KeyFiles["CEREBRAS_API_KEY"] != keyfile {
+				t.Fatal("recovery lost key sources")
+			}
+			_, routerAdded := restored.Providers["openrouter"]
+			if routerAdded == slices.Contains(test.want, "openrouter") {
+				t.Fatal("discovery ignored recovered provider opt-out")
+			}
+		})
+	}
+}
+
+func TestRLMRejectsUnknownEngineAndConcurrency(t *testing.T) {
+	for _, value := range []RLMConfig{{DefaultEngine: "node"}, {MaxConcurrentHostCalls: -1}, {MaxConcurrentHostCalls: 17}} {
+		if err := value.Validate(); err == nil {
+			t.Fatalf("accepted %+v", value)
+		}
+	}
+	if (RLMConfig{}).Engine() != "starlark" {
+		t.Fatal("default engine changed")
+	}
+}
+
+func TestEngineOnlyConfigurationPreservesPreference(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"rlm":{"defaultEngine":"quickjs","maxConcurrentHostCalls":1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil || cfg.RLM.Engine() != "quickjs" || cfg.RLM.MaxConcurrentHostCalls != 1 {
+		t.Fatalf("config=%+v %v", cfg, err)
 	}
 }

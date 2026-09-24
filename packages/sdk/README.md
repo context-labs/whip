@@ -1,0 +1,774 @@
+# WHIP TypeScript SDK
+
+For product frontend work, read the canonical
+[frontend architecture and design guide](../../docs/frontend.md), including how
+the app combines SDK views with TanStack Query and local state. This README owns
+the SDK's public usage contract.
+
+Private, ESM client package for Node 24, browsers, React Native and future Electron clients.
+The SDK attaches to an existing WHIP v6 daemon: directly over a local Unix
+socket, or through its separate web gateway for HTTP/WebSocket endpoints.
+Execution, credentials, SQLite, model context, permissions and schedules remain
+on the execution host. Ordinary daemon startup opens no TCP listener.
+Protocol 6 adds immutable session execution-engine identity and result format 2. Update
+the daemon and clients together; older majors fail during initialization.
+
+## Install and check in this repository
+
+```sh
+npm ci
+npm run build
+npm run check
+npm run acceptance
+npm run test:package
+```
+
+`@whip/protocol` contains generated Go-derived wire types and standalone
+validators. `@whip/sdk` is browser-safe; `/node` adds Unix sockets, `/state` adds
+optional synchronized views, and `/react` adds optional React subscriptions.
+Core and state do not import React or Node built-ins. React consumers supply
+React 19. Both packages remain private; package-archive installation is tested.
+
+## Attach and submit
+
+```ts
+import { createWhipClient } from '@whip/sdk';
+
+const client = createWhipClient({
+  endpoint: 'http://127.0.0.1:8080', // accepts a WS URL or gateway HTTP base URL
+  clientId: 'my-application',       // persist this namespace to recover commands
+  clientKind: 'automation',        // default; interactive apps explicitly use human
+});
+try {
+  await client.connect();
+  const creation = client.sessions.create({ cwd: '/path/on/execution/host', execution_engine: 'starlark' });
+  const created = await creation.result();
+  if (created.status !== 'succeeded' || !created.result) throw new Error(created.failure?.message);
+  const session = client.session(created.result.root_id);
+  const command = session.submit({ text: 'Explain the current changes.' });
+  console.log(command.record); // durable command identity; never the prompt body
+  await command.accepted();
+  const outcome = await command.result();
+  console.log(outcome.status, outcome.result, outcome.failure, outcome.content);
+} finally {
+  client.close(); // detaches; accepted execution survives
+}
+```
+
+Node scripts can attach directly without starting any gateway:
+
+```ts
+import { createWhipClient, unixSocket } from '@whip/sdk/node';
+const client = createWhipClient({ endpoint: unixSocket('/path/to/daemon.sock'), clientId: 'my-script' });
+```
+
+Run the included script with either transport. The HTTP example assumes a
+gateway already running at that origin, such as
+`WHIP_LISTEN=127.0.0.1:8080 whip web --no-open` against a compatible daemon:
+
+```sh
+node examples/client/node.mjs /path/to/daemon.sock /host/project 'Review the changes'
+node examples/client/node.mjs http://127.0.0.1:8080 /host/project 'Review the changes'
+```
+
+## Experimental native Browser provider
+
+A trusted desktop host can advertise `browserProvider: true` when constructing
+its `WhipClient`. Advertising support is not authority. A v2 offer with
+`availability: true`, `offered_tabs: []` and `offered_preview_hosts: []` registers
+an inert create destination for an exact open conversation/host/window/pane via
+`client.browser.select(offer, bridge, options)`. It neither selects a controller
+nor grants page/network authority. The daemon promotes an unambiguous candidate
+only after the existing create permission policy admits the operation.
+Human-page offers still require explicit user selection and exact resources.
+The offer uses generated `BrowserProviderBindParams`; both ends negotiate
+`desktop-browser-v2` for availability/discovery, while explicit v1 offers remain
+supported without discovery. `BrowserProviderBridge` is structural;
+the SDK never imports Electron or app UI code.
+
+```ts
+// Run in response to the user's explicit selection, not on connect/focus.
+const selection = await client.browser.select(offer, nativeBridge, {
+  connectionId: selectedSSHProfileId, // omit for non-SSH providers
+  projectId: selectedProjectKey,     // inert identity, not a path grant
+  onError: showProviderUnavailable,
+});
+// User release removes this exact provider epoch; human tabs stay open.
+await selection.release();
+```
+
+The optional native `inventory(request)` adapter services bounded `browser.inventory`
+notifications only after native acknowledgement and only for the current provider.
+It returns current metadata for the exact requested tab generations via
+`browser.inventory.result`; it never dispatches a control command or enables a
+preview route. A late metadata response to a cancelled request is not replayed
+and cannot invalidate an independent control association. The daemon authorizes
+`browser.list_tabs()` and attaches only the calling agent's handles to results.
+No discovery inventory is injected into model prompts.
+
+The SDK bounds broker binding and native acknowledgement by one selection
+deadline (`timeoutMs`, default 30 seconds). Abort, disconnect or revocation rejects
+a pending selection; a late acknowledgement releases only its old epoch. It
+waits for acknowledgement before dispatching commands or observations, matches
+root/provider/command/attachment identity, and drops duplicate commands and stale
+results, forwards cancellation and ordered observations, and uploads screenshot
+bytes through the same connection's root/agent-scoped chunk RPCs—even for
+WebSocket providers. HTTP upload would lose exact-holder provenance. Commands are
+never replayed after an uncertain native delivery. Native admission events remain
+app-owned; the SDK forwards provider observations only. The observation queue is
+bounded to 64 events and 2 MiB, with ten-second RPC acknowledgements. Overflow or
+a sequence/authority error visibly releases the provider rather than silently
+dropping live observations. Only a structured `browser_event_stale` broker error
+retires that exact attachment's queue without disturbing unrelated attachments.
+
+`selection.active` is an observation, not a durable grant. Exact-epoch revocation
+calls `onError` and releases native authority. Observe the client's connection
+state as well: transport loss releases all its native selections, and reconnect
+never rebinds them. Public `release()` also sends exact-holder
+`browser.provider.unbind`; it cannot unbind a replacement epoch. Selection is
+in-memory only and should be disposed with its app owner. Generated protocol
+methods remain available through `client.call`, but arbitrary page control must
+never be exposed on the human-tab API or to a website guest.
+
+## Three operation lifetimes
+
+`client.call(method, params)` exposes every generated RPC. Runtime conveniences
+use `client.query`, `client.submit`, and `client.invoke` with generated operation
+name/parameter/result maps. `session.query`, `session.command`, and
+`session.invoke` bind the root ID without a mutable current-session pointer.
+
+Queries return `{result?, content?, root_id?}`. Commands return handles;
+ephemeral operations are sent once and are never journaled/replayed by the SDK.
+Wrong execution classifications fail at compile time and runtime. Parameters
+use generated snake_case data; SDK options use camelCase. Int64 counters remain
+decimal strings; compare with `BigInt`, not `Number`.
+
+`result()` resolves the daemon's typed terminal envelope. Failed, cancelled and
+interrupted execution are outcomes, not transport errors. Local/protocol errors
+reject with a structured `WhipError.kind`; server errors use `RpcError` and keep
+the numeric code. A command finishing does not mean all descendants, mailboxes
+or schedules have finished. There is no implied whole-tree completion promise.
+
+```ts
+await command.result({ signal }); // abort stops only this local wait
+await command.cancel().result();  // explicit command-targeted root cancellation
+session.agents.cancelTurn(agentId, turnId); // explicit child turn target
+```
+
+`cancel()` waits for the original command's acceptance before sending its target.
+Only root submit/steer handles support command-targeted cancellation. Other
+operations must use their existing explicit turn/control operations.
+
+Upload an image or bounded text excerpt explicitly before submitting it:
+
+```ts
+const uploaded = await client.upload(bytes, { rootId, mediaType: 'text/plain' });
+const input = { text: 'Use this context.', attachments: [uploaded.asAttachment('text', 'notes.txt')] };
+await client.session(rootId).submit(input).accepted();
+// A child-only upload uses { rootId, agentId: childId, mediaType: 'text/plain' }.
+// Submit its attachment with session.agents.submit(childId, input, 'queued').
+```
+
+`asAttachment` never reads the content or embeds it in the request. The host
+checks grants, size, digest, and model image support on the execution path.
+An input supports 16 attachments totaling 20 MiB; text excerpts are at most
+256 KiB each. Text excerpts do not expand `@file` or `$skill` references. An
+interrupted upload never attaches itself to future work. Inspecting an existing
+content reference is separate from explicitly submitting it as model input.
+
+## Refresh MCP configuration in an existing session
+
+```ts
+if (client.supports('runtime', 'mcp.refresh')) {
+  const outcome = await client.session(rootId).mcp.refresh().result();
+  console.log(outcome.result);
+}
+```
+
+This root-bound durable command rereads host MCP configuration and adds newly
+eligible servers without replacing existing connections or session-disabled
+entries. It does not save configuration. New servers may still be connecting;
+use `session.query('mcp.status', {})` for their current status. Changed existing
+configurations require a runtime reload. Gate this action on the advertised
+operation rather than daemon build strings; older daemons can still persist
+imports for future sessions.
+
+## Reconnect and recovery
+
+Observe `client.getSnapshot()` with `client.subscribe(listener)`. Initialization
+reports host capabilities, limits, persistent runtime ID and generation. Build
+equality is irrelevant. New work is rejected while disconnected; the application
+keeps drafts. Queries fail on disconnect; callers decide whether to query again.
+Accepted work remains daemon-owned.
+
+Hosts predating MCP import and logo lookup can omit the associated configuration
+fields. The SDK supplies `mcp_import_offered: true` and `brand_icons: false` only
+when the host does not advertise those operations, preventing unsupported import
+offers or external lookups. Present values and all other response fields still
+undergo normal validation.
+
+Lost acknowledgements produce `DeliveryUncertainError`, never a guessed failure.
+`command.result()` reconciles by status after reconnect. If status definitively
+reports `command_not_found`, call `command.retry()` explicitly to resend the
+same original bytes and identity. A failed status lookup is not proof of absence.
+Definitive conflicts cannot be erased by retrying a changed request.
+
+Supply `recoveryStorage: {list, put, delete}` to preserve versioned identity-only
+records across application restarts. `put` is awaited before transmission;
+failure prevents sending. Applications own storage, retention and forgetting.
+`client.recoveryRecords()`, `client.recover(record)` and `client.forget(record)`
+operate on those records. A recovered accepted command needs no original body.
+Retrying a missing command after reload requires
+`client.recover(record, originalPayload).retry()`; the application is responsible
+for supplying the original request. No prompt body, token, key, MCP secret or
+terminal input is persisted by this interface.
+
+A new generation with the same runtime ID recovers normally. A different runtime
+ID stops recovery and requires an explicit new client. Do not move a recovery
+record between client namespaces or execution hosts.
+
+## Native suspension and platform primitives
+
+`client.pause()` reversibly parks local observation: it closes the current socket,
+clears heartbeat/reconnect/command timers, and publishes `state: 'paused'`.
+It never cancels admitted daemon work. `await client.resume({ signal })` reconnects
+and preserves the client namespace and runtime continuity check. An already
+aborted resume leaves the client paused; aborting an ongoing resume stops only
+that caller's wait. New commands are rejected while paused. `close()` remains
+terminal; create another client after closing. Browser/Node callers that never
+pause retain their previous behavior.
+
+Native apps can supply `randomUUID: () => string` and
+`sha256: (bytes) => Promise<Uint8Array<ArrayBuffer>>` in client options. The digest
+must contain exactly 32 bytes. These instance-scoped adapters cover command,
+permission, subscription and upload identities/content integrity; the SDK does
+not import Expo or install global polyfills. The native shell supplies compatible
+WebSocket, streaming fetch, encoders and abort primitives.
+
+Initialize those globals before creating a client. Cancellation requires
+`AbortSignal.any`, `AbortSignal.timeout`, `signal.throwIfAborted()` and a controller
+that publishes `signal.reason` **before** abort listeners run. React Native 0.86's
+base controller lacks reason support; Expo 57 adds composition/timeout but does
+not complete that contract. The [mobile compatibility entry point](../../apps/mobile/src/runtime/polyfills.ts)
+adds the missing reason/checkpoint behavior without replacing supported methods.
+Expo 57's default fetch supplies streaming bodies; opting into
+`EXPO_PUBLIC_USE_RN_FETCH` requires another compatible implementation for content
+transfer. Scoped reads and uploads require `Response.body.getReader()` and do not
+fall back to downloading an unbounded `arrayBuffer()`.
+
+The built-in transport passes a string URL to native WebSocket constructors.
+React Native 0.86 does not report `bufferedAmount`, so the adapter uses zero when
+that property is absent; browser queue measurements are retained. Frame-size and
+in-flight-request limits still apply, but the native socket's queued bytes cannot
+be capped from that missing measurement. A timeout/abort releases a local waiter,
+not necessarily queued native bytes. Applications needing strict outbound queue
+accounting must supply a transport with a reliable `bufferedAmount`.
+
+Permission decisions are one-shot RPCs with a distinct status namespace:
+
+```ts
+const id = client.createId();
+// Application persists this ID and request association before the RPC.
+await client.permissions.decide({ command_id: id, root_id: rootId, permission_id: requestId, allow: true });
+const outcome = await client.permissions.status(id, { signal });
+```
+
+`PermissionDecisionStatus` validates command identity, the `permission.decide`
+operation, lifecycle and typed success/failure result. A missing status remains
+`command_not_found`; unavailable or malformed status is not absence. The helper
+never resends a decision. Applications own durable decision metadata and should
+refresh authoritative pending requests after deciding.
+
+## Optional synchronized state and React
+
+```ts
+import { createSessionView, createSessionListView } from '@whip/sdk/state';
+import { useSessionView } from '@whip/sdk/react';
+
+const view = createSessionView(client.session(rootId));
+await view.start();
+// Any number of React components can call useSessionView(view).
+// Other frameworks use view.subscribe and view.getSnapshot directly.
+await view.openAgent(childId);
+await view.loadOlder(childId);
+await view.loadCollection('agents');
+await view.dispose();
+```
+
+The application owns start/dispose and shares a view between components.
+Hooks only subscribe; they never start another cache or connection. Create
+resources inside an owning effect or outside React rendering, and dispose that
+owner's resources on cleanup. Reusing a disposed resource is an error.
+
+Views combine consistent snapshots, ordered subscriptions, history revisions
+and paginated collections. Stale state remains visible during recovery. Root and
+child presentation remains separate from committed transcript entries. Inspecting
+a child never adds its transcript to another agent's model context.
+
+When a retained view reconnects during the same active turn and history revision,
+it tries one `events.replay` page of at most 1,000 events. A complete, contiguous,
+untruncated replay through the snapshot cursor preserves already observed text
+and applies missed deltas and discards without duplication. An unchanged cursor
+needs no replay. Expired, incomplete, failed or larger ranges fall back to the
+bounded snapshot; this cannot restore an evicted prefix or a cold view's missing
+active output. Completed output continues to recover through durable history.
+
+`snapshot.root.upcoming_schedules` is the optional host-owned projection of
+unclaimed wake occurrences, ordered by `next_fire` then schedule `id`. Render it
+only while `snapshot.status === 'live'`; absence means unsupported, not an empty
+queue. When provided, `upcoming_schedule_count` reports the host's exact pending
+total even when `omitted.upcoming_schedules` marks partial row coverage. Without
+that count, never infer an exact total from retained rows. A row's
+`prompt_truncated` marks a preview; the existing schedules inspector/collection
+reads remain the path to full prompt evidence.
+
+`schedule.fired` removes the matching ID **and** occurrence slot immediately,
+using the host's canonical UTC timestamp (including nanoseconds), without
+waiting for admitted work to run, and the existing coalesced snapshot
+refresh obtains the next recurring slot. Between fire and refresh, coverage is
+marked partial and the count becomes unknown: the event cannot establish whether
+a recurring or omitted occurrence has another pending slot. Backward snapshot
+cursors are rejected on reconnect as well as continuous refresh; historical
+schedule collection pages do not populate this projection. No polling or extra
+subscription is needed.
+
+`snapshot.history[agentId].gaps` describes missing raw records between retained
+sections as inclusive `fromSeq`/`toSeq` ranges with `pending`, `loading`, `paused`
+or `error` status. Offloaded message bodies are present records, not gaps.
+`throughSeq` is the known end; `nextSeq`/`hasMore` still describe older paging.
+The view repairs pending gaps after resuming its stream, sharing reads per agent
+and limiting an automatic pass to four 128-record / 256-KiB pages. Failed or
+paused gaps remain explicit until requested or reconnected; render their controls
+without treating them as a disconnected session.
+
+Use `await view.loadHistoryGap(agentId, gap.toSeq)` to retry/continue one page.
+The upper bound stays stable as the beginning fills. Explicit reads retain the
+requested page within the existing 512-record / 8-MiB bounds. If navigation evicts
+newer history, `history.latestMissing` is true: call `await view.loadLatest(agentId)`
+before jumping to the newest content. Keep gap state scoped to agent and revision;
+never concatenate response prose or activity groups across an unresolved gap.
+All history recovery uses the existing root subscription and `history.page`, with no
+implicit body reads or child transcript subscriptions.
+
+Pass the displayed revision to `session.history.clear(revision)` just as with
+rewind, so another client's destructive edit causes a conflict instead of an
+unconditional clear. Transcript message `content` is a string or a content-part
+array; text attachments and images use the latter. Large message bodies remain
+explicit scoped references under the normal page and view byte limits.
+
+Presentation rows append text, reasoning and terminal deltas. Tool-call arguments
+and tool output are cumulative values, so updates replace the matching row by
+call ID, including interleaved calls. Snapshots use the same grouping as live
+events. A row keeps its first sequence as a stable rendering key; use the root
+cursor or raw subscription cursor for stream progress.
+
+The default view retains at most 8 MiB of serialized payload and 512 messages per
+opened agent; JavaScript heap overhead is additional. Large/missing output is
+explicitly marked. Call `closeAgent` when no longer inspecting a child. The
+catalog view polls revisions only while observed and never opens all roots.
+There are at most 16 active root subscriptions per connection.
+
+`executionRows(view.getSnapshot(), agentId)` from `@whip/sdk/state` projects
+read-only Starlark or JavaScript cells and restart markers for one agent. It merges loaded
+history with `snapshot.executions`, which the existing session subscription
+maintains. Calls retain stable keys across commit; cumulative arguments/output
+replace earlier values; repeated host calls keep separate event identities.
+`ExecutionCell` exposes code, output, result/error, status, executionEngine,
+language, hasValue, optional Starlark steps or QuickJS quickjsJobs, scoped body
+references and optional client-observed times. Recorded outcomes without enough
+evidence are marked unknown, and historical durations are not invented.
+Legacy Starlark result bodies remain readable. Format 2 uses `has_value`, so
+an explicit JavaScript `null` remains distinct from no result, and completion
+does not depend on Starlark steps. Numeric tags and bounded previews retain their
+exact text. Engine-specific metrics are diagnostics, not comparable work units.
+
+The initialization snapshot advertises `execution_engines` and
+`default_execution_engine`. Session creation accepts `execution_engine` as
+`starlark` or `quickjs`; root metadata is authoritative thereafter and every
+descendant inherits that engine. Persist an explicit selection alongside a
+creation retry journal so changing host defaults cannot change a missing request.
+`configuration.update({revision, default_execution_engine: 'quickjs'})` changes
+future-session defaults only.
+
+Protocol 5.1 hosts emit `stream.cell.host.started` before dispatch and retain
+`stream.cell.host` for completion. `ExecutionHostCall.status` moves from running
+to completed/failed/cancelled; missing terminal evidence becomes unknown or
+interrupted. Each invocation is scoped to the cell, agent and turn. A host failure
+does not imply the cell failed, and a completed host invocation may have returned
+a background-process handle. Snapshot replay restores confirmed active operations;
+an evicted start is never guessed onto a newer cell with the same model call ID.
+Legacy completion-only events remain supported. Older SDK versions keep ordered
+delivery but mark the new event kind as unavailable detail until upgraded.
+
+Agent records also expose optional `last_turn` metadata, refreshed through the
+existing lifecycle/snapshot flow. It records the latest turn's status and error
+even when there are no execution cells. Agent lifecycle remains independent:
+`status: 'idle'` can coexist with `last_turn.status: 'failed'`. A new turn replaces
+the previous outcome. Error previews are capped at 4 KiB; `error_details` is a
+scoped content handle for explicitly reading the full message. Missing summaries
+from compatible older hosts mean unknown, not success. Keep all agent/session
+IDs opaque: new IDs use 20 lowercase base32 characters, while legacy IDs and
+existing links remain valid. Hierarchy comes from `root_id` and `parent_id`.
+
+Queue controls act on an already accepted input; they do not submit a new prompt:
+
+```ts
+if (client.supports('runtime', 'inbox.steer') && client.supports('runtime', 'inbox.remove')) {
+  await session.inbox.steer(agentId, inboxSeq, expectedTurnId).result();
+  // Or remove it while still waiting; this never cancels a running turn.
+  await session.inbox.remove(agentId, inboxSeq).result();
+}
+```
+
+The result distinguishes `steering`, `removed`, `already_started`,
+`already_removed`, and `turn_ended`. Admission alone is not mutation success.
+Steering preserves the original prompt, attachments, command identity and inbox
+sequence; it delivers at the expected turn's next safe boundary. If that turn
+ends first, the entry keeps its ordinary queue position. Direct `session.steer`
+remains supported. Root input commands removed while queued settle as cancelled
+with failure kind `queue_removed`; completed child admission commands stay complete.
+
+`inboxItems(view.getSnapshot(), agentId)` from `@whip/sdk/state` returns scoped
+rows with freshness and additional-page availability. Optional inbox metadata
+includes client origin/correlation, bounded text/attachment preview, pending
+steer target and delivery sequence. Snapshot omissions retain bounded unverified
+evidence; do not enable controls on stale rows or infer removal from absence.
+Use `view.loadCollection('inbox')` and `{ more: true }` for explicit paging.
+All retained evidence shares the existing session byte budget and subscription.
+
+Supplemental execution evidence is capped at 256 entries per root, 128 host calls
+per cell and 1 MiB **inside** the view's payload budget. Truncation is explicit.
+History revisions and root changes invalidate incompatible observations. When
+a child was observed before its history was loaded, ambiguous reused call IDs
+remain separate observed evidence instead of borrowing an older result. Durable
+transcripts recover code/results; host traces and restart details observed before
+the client attached may be unavailable. This API does not add a subscription,
+fetch all history or load every child's transcript. Use `loadOlder(agentId)` and
+scoped content reads explicitly when needed.
+
+`await view.loadTrace()` reads durable span pages for the root, including inactive
+persisted conversations, independently of root snapshot/history refreshes.
+Concurrent callers share the pending read. Each call loads at most eight pages;
+`state.trace.hasMore` indicates explicit continuation. `loading` settles on
+completion, error, page-budget exhaustion or disconnect; retry resumes at the
+last durable page cursor. Call again on reconnect to catch up on missed span
+events. Empty successful reads set `loaded` without fabricating spans for
+conversations that predate tracing. Live span events share the root subscription
+and do not advance the durable page cursor.
+
+For scripts, `await client.events.subscribe(rootId, cursor)` gives a single
+bounded async iterator. Install a view or read a snapshot to obtain a cursor.
+Expired cursors, sequence gaps, and slow consumers fail explicitly; reacquire a
+snapshot or replay instead of continuing an incomplete stream. Unknown future
+event kinds are marked `unknown: true`.
+
+## Model accounting
+
+Protocol v4.1 adds optional `RootSnapshot.accounting` for the entire session tree.
+`SessionView` updates it from scoped, revision-ordered `stream.accounting` events,
+without adding accounting rows to the conversation or execution evidence. Model
+attempt lifecycle events refresh budgets through the existing coalesced snapshot
+path. Reconnect restores the host snapshot; no separate polling is required.
+
+Cost counters are decimal strings in microdollars. `reported_cost_micros` is the
+provider's charge (including zero); `estimated_cost_micros` uses saved catalog
+rates. `unknown_cost_calls` and `estimated_calls` respectively count unknown
+cost and incomplete token usage, and can overlap. `pending_calls` counts active
+requests. Never treat absent accounting as a known zero or add subtree totals
+to their descendants. `session.agents.inspect(id)` returns optional own-agent
+accounting under `result.accounting`, distinguished by `scope: 'agent'`.
+
+## Content and human approvals
+
+```ts
+const reference = await client.upload(bytes, { rootId, mediaType: 'text/plain' });
+const text = await reference.readText({ maxBytes: 1 << 20, signal });
+const stored = client.content(handle, { rootId, agentId });
+const value = await stored.readJSON({ maxBytes: 512 << 10 }); // unknown; validate before use
+```
+
+Content reads verify association, exact size and SHA-256. WebSocket clients use
+HTTP; Unix clients use existing bounded RPC chunks. Uploads grant content to the
+root; the daemon must explicitly grant it to a child. Large command outcomes
+stay content references rather than causing implicit downloads. Upload failure
+never submits a prompt or attaches a partial file. Browser WebCrypto requires
+a secure context such as localhost or HTTPS.
+
+Connected clients can approve or deny requests directly:
+
+```ts
+await client.permissions.decide({ root_id: rootId, permission_id: permissionId, allow: true });
+await client.permissions.setMode(rootId, false).result();
+```
+
+Permission decisions require no signer, enrollment, or authentication. Both human
+and automation client kinds can answer requests. The daemon validates the
+permission's root and enforces tool permissions and delegated authority. Decisions are sent once; after an uncertain acknowledgement, inspect
+pending state before explicitly retrying with the original `command_id`.
+Permission-mode changes use ordinary durable command handles. Provider secrets
+stay outside recovery storage and logging; the SDK does not log payloads.
+
+Provider/configuration helpers (`client.providers`, `client.configuration`) call
+host services. Login status/list allow reconnect; restart interrupts incomplete
+flows. Configuration updates require the last read revision and surface conflicts.
+`providers.list()` reads credential-free connection/source metadata and a
+configuration revision without model discovery. Optional `category`, `family`,
+and `key_url` fields describe known-provider presentation. `key_source: "env_file"`
+or `"key_file"` identifies a named file source; `environment_variable` and
+`credential_path` expose only the reference name and configured path.
+`providers.discover({ model?, provider? })` rereads host sources, persists missing
+provider references without copying keys, and returns the same inventory plus an
+optional `discovery_error`. It preserves explicit/disabled providers and defaults,
+and does not fetch model catalogs. Use it on setup-open or explicit Refresh;
+regular inventory polling stays read-only. Check `client.supports('rpc',
+'provider.discover')` before using it with older hosts. Discovery is ephemeral and
+never enters command recovery. `providers.disconnect({ provider,
+revision })` removes WHIP-owned credentials and disables the route; environment
+or external credentials instead use `configuration.update({ revision,
+disabled_providers })`. These operations preserve model aliases and defaults.
+Catalogs reuse their existing freshness metadata; `providers.catalogs({ refresh:
+true })` requests an explicit upstream refresh. Unavailable provider descriptors
+must be excluded from selectable model routes.
+`providers.get(provider)` reads a redacted editable definition, credential source,
+configured aliases and removal blockers. `providers.create({...})` and
+`providers.update({...})` accept the expected revision, endpoint metadata and an
+explicit credential mode (`api_key`, `environment`, `none`, or edit-only `keep`).
+They can include a `manual_model` and explicit `allow_unverified` intent when
+model discovery is unavailable. `providers.remove({ provider, revision })`
+removes unused custom definitions; built-ins and referenced routes are protected.
+These operations use host configuration files and do not enter session recovery
+storage. After an uncertain save, reread the provider ID and revision; never
+automatically replay a credential request or turn a duplicate create into update.
+`client.providers.validate({ name, base_url, key })` checks a candidate key without
+saving it. `setKey` returns an optional `discovery` result distinguishing loaded
+catalogs from an unverified connection using a bundled or public catalog; normal
+configuration reads omit this transient result. Neither outcome asserts that an
+inference request succeeded. `rotateKey('inference')`
+rotates the execution host's machine key. Both are ephemeral and sent once;
+inspect provider status after an uncertain acknowledgement before retrying.
+`session.terminalInput` is ephemeral and is never automatically retried.
+
+## Author, serve, run
+
+`@whip/sdk/agents` authors the agents a daemon runs. A definition is data: what
+the agent is told, which host modules and capabilities it receives, model and
+compaction defaults, MCP servers, custom tools, hooks, named children, an
+output contract, and surface flags. The daemon validates it, stores it under a
+content revision, and sessions pin that revision. The program below is
+`examples/agents/support-triage.ts`, which has a unit test against the scripted
+daemon and a live acceptance beside it.
+
+```ts
+import { createWhipClient } from '@whip/sdk';
+import { defineAgent, tool } from '@whip/sdk/agents';
+import { z } from 'zod';
+
+const lookupTicket = tool({
+  name: 'lookup_ticket',
+  description: 'Fetch a support ticket by id',
+  input: z.object({ id: z.string() }),                 // any Standard JSON Schema: zod 4.2+, ArkType, Valibot
+  output: z.object({ id: z.string(), title: z.string(), status: z.enum(['open', 'closed']) }),
+  execute: async ({ id }, ctx) => {                     // id: string, inferred; the return must match output
+    ctx.progress(`looking up ${id}`);                   // streamed to the session while it runs
+    return tickets.get(id) ?? fail(`ticket ${id} not found`);
+  },
+  timeoutMs: 30_000,                                    // default 5 minutes, ceiling 15
+});
+
+const support = defineAgent({
+  id: 'support-triage',
+  instructions: { persona: 'You triage support tickets.', rules: 'Look tickets up before describing them.' },
+  modules: ['context', 'files', 'user', 'agents'],
+  capabilities: ['read'],
+  tools: [lookupTicket],
+  output: z.object({ ticket: z.string(), summary: z.string(), escalatedTo: z.string().nullable() }),
+  children: { researcher: { modules: ['context'], tools: ['lookup_ticket'], report: 'message' } },
+  hooks: {
+    beforeTool: async ({ operation, arguments: args }) => {        // every host operation; return nothing to allow
+      if (operation === 'files.read' && String(args.path).endsWith('.env')) return { arguments: { ...args, path: `${args.path}.example` }, reason: 'secrets are redacted' };
+    },
+    beforeSpawn: async ({ spawn, resolved }) => {                  // the request and what it resolved to
+      if (resolved.capabilities?.includes('shell')) return { decision: 'deny', reason: 'children may not hold shell' };
+    },
+    turnStart: { optional: true, handler: async () => ({ context: `On call: ${await roster.current()}` }) },
+  },
+});
+
+const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'support-triage' });
+await client.connect();
+const runtime = await client.agents.serve(support);       // register, bind tools and hooks, serve until close()
+const session = await runtime.sessions.create({ cwd });  // pinned to this revision; refuses any other
+
+const turn = session.run('Triage ticket 42');
+for await (const event of turn) {
+  switch (event.type) {
+    case 'text':       process.stdout.write(event.delta); break;
+    case 'host':       console.log(`\n→ ${event.operation} ${event.status}`); break;
+    case 'hook':       console.log(`\n[hook] ${event.decision} ${event.operation}: ${event.reason}`); break;
+    case 'question':   await event.answer([event.options[0].label]); break;
+    case 'permission': await event.allow(); break;
+  }
+}
+const result = await turn.result();                       // TurnResult<{ ticket, summary, escalatedTo }>
+if (result.status === 'succeeded') console.log(result.output.summary);
+else console.error(result.failure.message);
+runtime.close();
+```
+
+**Tools.** `tool({...})` takes one options object. A Standard JSON Schema
+`input` infers the handler's argument type and derives the wire schema at
+draft 2020-12; raw JSON Schema is accepted and types `unknown`. The daemon
+validates every call against the input schema before the handler runs; the
+library's own validation also runs locally, for refinements JSON Schema cannot
+express and to apply defaults. `output` types the return value at compile time,
+is validated before the result is posted, and travels to the daemon as
+`output_schema`, where the guide shows the model what the tool returns and a
+result from any executor that does not match is rejected. Handlers receive the
+invocation id (reuse it to make side effects idempotent), root, agent, and
+turn ids, the deadline, an `AbortSignal`, and `progress`. Large results reach
+the cell as content handles. The SDK adds no schema dependency; the interfaces
+are mirrored as types.
+
+**Serving.** `client.agents.serve(agent)` registers the definition, binds this
+connection as the executor for its revision, and answers tool invocations and
+hook events until `close()`. It returns an `AgentRuntime`: `runtime.sessions
+.create(params)` and `.open(rootId)` hand out sessions pinned to that revision
+and refuse any other, so a runtime never drives a session whose tools it does
+not serve. A call made while no executor is bound fails after a short wait with
+an error the model reads; the executor re-binds after a reconnect and drains
+`executor.pending`. `client.agents.register/get/list` manage definitions
+without serving.
+
+**Hooks.** `beforeTool` runs before every host operation the agent's cells
+call (`operations: [...]` narrows it), `beforeSpawn` after a spawn request is
+parsed and resolved, `turnStart` at the start of each turn to contribute
+ephemeral context. Every result field is optional; returning nothing allows
+unchanged. A rewrite takes the validated path the original arguments would,
+so it cannot widen. A hook is required by default: unanswered or throwing, it
+denies with an error the model reads; `{ optional: true, handler }` proceeds
+with a notice instead. Hooks only narrow and never bypass the permission mode.
+
+**Turns.** `session.run(input)` submits one turn and returns a `Turn`: an
+async iterable of typed events scoped to that turn (`text`, `reasoning`,
+`cell`, `host`, `progress`, `hook`, `question`, `permission`, `child`,
+`notice`, `usage`, `end`, and `raw` for anything else) plus `result()`,
+`text()`, `cancel()`, and `turnId`. `question` and `permission` events carry
+`answer`/`dismiss` and `allow`/`deny`, which post once. `session.prompts()`
+rebuilds the open prompts from a snapshot for a client that attached
+mid-turn. The subscription starts before the command so nothing is missed; the
+command outcome is authoritative and the stream is best effort: a consumer
+that falls behind fails the iterable, never the result. `includeChildren`
+adds the events of agents spawned during the turn.
+
+**Output contracts.** `defineAgent({ output })` states an object schema the
+final message must match. The guide tells the model; the daemon validates the
+message, returns one mismatch for correction, and fails the turn on a second
+with `output_invalid`. The validated value is `result.output`, typed by the
+schema for sessions created through the runtime.
+
+## Testing
+
+`@whip/sdk/testing` exports `scriptedDaemon()`: the in-memory transport the
+SDK's own tests use, with a reply table (`daemon.reply(method, handler)`),
+`daemon.emit(rootId, kind, payload)` for journal events, `serveSessions()` to
+answer registration, binding, snapshot, subscribe, submit, status, and
+decisions with defaults, and `daemon.turn(rootId, script)` to play a whole
+turn so a consumer of `session.run` is tested without a daemon:
+
+```ts
+import { scriptedDaemon } from '@whip/sdk/testing';
+const daemon = scriptedDaemon().serveSessions();
+const client = createWhipClient({ endpoint: daemon.factory, clientId: 'test' });
+await client.connect();
+void daemon.turn('root', { steps: [{ text: 'Hello' }, { question: { id: 'q', question: 'Ok?', options: [{ label: 'Yes' }] } }], text: 'Hello', output: { ok: true } });
+```
+
+`@whip/sdk/testing/node` exports `liveDaemon()` (also `startFixture`): the
+integration test binary serving a real daemon from an isolated home, behind a
+scripted model, as the SDK acceptance and `examples/agents` use. Node only; it
+builds and spawns Go.
+
+## React example and validation
+
+Host bootstrap reads do not create sessions:
+
+```ts
+const directories = await client.host.directories({ path: '~/projects' });
+const providers = await client.providers.catalogs();
+const themes = await client.host.themes.list();
+const colors = await client.host.themes.resolve('opencode');
+const attention = await client.host.attention();
+```
+
+Directory and attention results have explicit pagination and truncation. Attention
+is a live index: refresh from its first page for newly active roots. Session
+catalog searches use `client.sessions.list({ search })`; group displayed paths
+using `workspace_id` scoped to the host runtime, never the shortened `cwd` label.
+The catalog defaults to active sessions; pass `status: 'archived'` or `'all'`
+for other views. Cursors belong to their search and status. Use
+`client.sessions.get(rootId)` for the full title, working directory, archive flag,
+and decimal history revision without opening a transcript or subscription.
+`session.archive(true)` and `session.archive(false)` are durable commands for
+archive and restore. Archiving changes catalog visibility while open session
+views, execution, history, and pending human requests remain available.
+Custom theme JSON can be validated/resolved with `host.themes.resolveJSON(json)`;
+selected themes remain client preferences.
+
+`session.mailbox.list({ agent_id, status })` and `session.mailbox.read(id, agentId)`
+inspect inter-agent mail without changing delivery state or model context.
+Bodies are bounded text or scoped content references. This is separate from the
+execution command inbox, and message revisions remain decimal strings.
+
+Start a compatible daemon, then keep a gateway running in a separate terminal:
+
+```sh
+whip daemon start
+WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip web --no-open
+```
+
+Use the printed gateway origin. `--no-open` runs in the foreground; it does not
+print and exit. The gateway never starts or restarts the daemon. Alternatively,
+`WHIP_NETWORK=1 WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip daemon start`
+opts a new daemon launch into the same gateway as an owned child; only that ready
+managed endpoint appears in `whip daemon status --json`. `WHIP_LISTEN` alone
+is not an opt-in, and `WHIP_NETWORK=0` does not forbid explicit `whip web`.
+
+The gateway defaults to `127.0.0.1:4444`, falling back to an ephemeral loopback
+port only on address-in-use. Explicit binds never silently move. Its upstream
+socket requires the daemon's acknowledged `network-client-v1` capability; old
+daemons fail closed rather than treating browser connections as local clients.
+Host/Origin checks remain exact, not authentication; remote access requires a
+trusted network or authenticated proxy. The whipcode distribution uses
+`WHIPCODE_*`. See [web setup](../../docs/web-app.md).
+
+Start the example with:
+
+```sh
+npm run build
+npm start -w @whip/client-example
+```
+
+Open http://localhost:3000 and enter the gateway origin. The example supplies
+its own metadata-only localStorage recovery adapter and sessionStorage drafts.
+Pending permissions expose Allow once and Deny whenever the client is connected.
+This remains a minimal example of the SDK primitives.
+
+```sh
+WHIP_SDK_RACE=1 npm run acceptance
+npx playwright install chromium firefox
+npm run test:browser
+npm run test:example
+npm run test:package
+task check
+task acceptance
+```
+
+Tests start isolated fake-provider daemons, never the user's active daemon.
+The browser run loads the actual built SDK under strict CSP and checks React
+StrictMode; on macOS it also opens actual Safari. Set
+`WHIP_SDK_BROWSERS=chromium,firefox` for a Linux CI run. No Safari setting is changed.
+
+The registry tests cover all registered methods using Go-produced fixtures;
+daemon acceptance tests cover execution and recovery behavior over both
+transports. Measurements and completed release checks are recorded in
+[`typescript-client/README.md`](../../.ai-docs/plans/typescript-client/README.md).

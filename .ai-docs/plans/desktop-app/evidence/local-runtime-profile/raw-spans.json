@@ -1,0 +1,2712 @@
+{
+  "recordedAt": "2026-09-08T06:05:50.213Z",
+  "purpose": "Read-only diagnostic of source prepareLocal using unchanged signed packaged helper bytes; excludes GUI and SDK connection",
+  "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "sourceSHA256": "63551885b9887617cf8d84c2c2c46e996fe6c737872605c995ff77c426bed4db",
+  "originalManifest": {
+    "schema": 1,
+    "version": "0.1.0",
+    "architecture": "arm64",
+    "teamId": "JAPWPV5JY2",
+    "rendererDigest": "6a400e7240ceb060b2813bad32ae2d0b80716a7bdf5508a8f38410e93f2f04f2",
+    "source": {
+      "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+      "dirty": true,
+      "lockfile": "1995b3103b7dc1c2a97fdf8ecac55e3235b5ffaaba9da40a29def92c53d6cbbd"
+    },
+    "compatibility": {
+      "protocolMajor": 4,
+      "schemaVersion": 10
+    },
+    "files": {
+      "whip": {
+        "bytes": 40952400,
+        "sha256": "ebbc84368242f59458960196456647ae71d22e078f6ec976b17d589e22159d59"
+      },
+      "whip-computer": {
+        "bytes": 431824,
+        "sha256": "3311e7ed4e608e25a08fad149b44d00cc8ed26fb4c8a2af89ac41fc8c4707794"
+      }
+    }
+  },
+  "diagnosticManifest": {
+    "schema": 1,
+    "version": "0.1.0",
+    "architecture": "arm64",
+    "teamId": "JAPWPV5JY2",
+    "rendererDigest": "6a400e7240ceb060b2813bad32ae2d0b80716a7bdf5508a8f38410e93f2f04f2",
+    "source": {
+      "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+      "dirty": true,
+      "lockfile": "1995b3103b7dc1c2a97fdf8ecac55e3235b5ffaaba9da40a29def92c53d6cbbd"
+    },
+    "compatibility": {
+      "protocolMajor": 4,
+      "schemaVersion": 10,
+      "protocolMinor": 1
+    },
+    "files": {
+      "whip": {
+        "bytes": 40952400,
+        "sha256": "ebbc84368242f59458960196456647ae71d22e078f6ec976b17d589e22159d59"
+      },
+      "whip-computer": {
+        "bytes": 431824,
+        "sha256": "3311e7ed4e608e25a08fad149b44d00cc8ed26fb4c8a2af89ac41fc8c4707794"
+      }
+    }
+  },
+  "manifestSupplement": "protocolMinor=1 from current internal/protocol/types.go; not a packaged-artifact acceptance claim",
+  "startingPATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+  "shell": "/bin/zsh",
+  "rounds": [
+    {
+      "round": 0,
+      "scenario": "first-install",
+      "elapsedMs": 855.4260419999999,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.0654169999999965
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 132.78150000000002
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 285.599458
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.24041700000000787,
+          "durationMs": 24.33016599999999
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 24.6045,
+          "durationMs": 38.31520800000001
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 63.022707999999994,
+          "durationMs": 1.1737090000000023
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 64.20100000000002,
+          "durationMs": 10.782499999999999
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.108333000000016,
+          "durationMs": 74.88387499999999
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 75.11166700000001,
+          "durationMs": 33.029708
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 75.08479200000002,
+          "durationMs": 33.14945799999998
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 108.24724999999998,
+          "durationMs": 24.423625000000015
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 133.126583,
+          "durationMs": 21.792709000000002
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 154.92470799999998,
+          "durationMs": 33.38833400000004
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 188.37891700000003,
+          "durationMs": 0.4246249999999918
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 188.80720800000003,
+          "durationMs": 12.934124999999995
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 133.052375,
+          "durationMs": 68.69508300000001
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/.install-kzv9bZ/whip"
+          },
+          "started": 218.138833,
+          "durationMs": 19.384292000000016
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 237.5305,
+          "durationMs": 33.95437500000003
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/.install-kzv9bZ/whip-computer"
+          },
+          "started": 271.571417,
+          "durationMs": 0.47262499999999363
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 272.04833299999996,
+          "durationMs": 13.028834000000018
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/.install-kzv9bZ"
+          },
+          "started": 218.067083,
+          "durationMs": 67.01525000000004
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0"
+          },
+          "started": 132.88004200000003,
+          "durationMs": 152.71612499999998
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 285.6005,
+          "durationMs": 551.2009580000001
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 836.807625,
+          "durationMs": 18.545624999999973
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.057041999999995596,
+          "durationMs": 855.3665000000001
+        }
+      ],
+      "status": {
+        "pid": 70976,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-ae175e8ef6c53cd5/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 0,
+      "scenario": "warm-attach",
+      "elapsedMs": 107.20325000000003,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.006750000000010914
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.10754100000008293,
+          "durationMs": 21.022500000000036
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 21.13745800000015,
+          "durationMs": 32.71154200000001
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.95108300000015,
+          "durationMs": 0.49683299999992414
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 54.452125000000024,
+          "durationMs": 11.397625000000062
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.008000000000038199,
+          "durationMs": 65.85479099999998
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 65.9090000000001,
+          "durationMs": 23.867291000000023
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 65.88141600000017,
+          "durationMs": 23.994166999999834
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 89.87891600000012,
+          "durationMs": 17.265959000000066
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.005000000000109139,
+          "durationMs": 107.19487499999991
+        }
+      ],
+      "status": {
+        "pid": 70976,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-ae175e8ef6c53cd5/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 0,
+      "scenario": "warm-attach",
+      "elapsedMs": 110.1099999999999,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.006124999999883585
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.09829100000001745,
+          "durationMs": 19.90316699999994
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 20.011040999999977,
+          "durationMs": 33.17616699999985
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.248374999999896,
+          "durationMs": 0.4656250000000455
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 53.716499999999996,
+          "durationMs": 12.519041000000016
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.009165999999822816,
+          "durationMs": 66.24079200000006
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 66.29279099999985,
+          "durationMs": 24.307667000000038
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 66.2623329999999,
+          "durationMs": 24.381792000000132
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 90.64745799999992,
+          "durationMs": 19.3771670000001
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.003958000000011452,
+          "durationMs": 110.10212499999989
+        }
+      ],
+      "status": {
+        "pid": 70976,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-ae175e8ef6c53cd5/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 0,
+      "scenario": "retained-restart",
+      "elapsedMs": 277.304042,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.01129199999991215
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 115.20279199999982
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 188.1267499999999
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.10887499999989814,
+          "durationMs": 18.52150000000006
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 18.634667000000036,
+          "durationMs": 34.31774999999993
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.04337499999997,
+          "durationMs": 1.1910419999999249
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 54.237750000000005,
+          "durationMs": 13.644166999999925
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.013374999999996362,
+          "durationMs": 67.87599999999998
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 67.931959,
+          "durationMs": 29.139207999999826
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 67.90108399999986,
+          "durationMs": 29.210291000000097
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 97.11412499999983,
+          "durationMs": 18.052209000000175
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip"
+          },
+          "started": 115.97054200000002,
+          "durationMs": 23.10062499999981
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 139.07612499999982,
+          "durationMs": 35.009042000000136
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip-computer"
+          },
+          "started": 174.17258399999992,
+          "durationMs": 0.4835000000000491
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 174.65887499999985,
+          "durationMs": 13.440584000000172
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e"
+          },
+          "started": 115.91095899999982,
+          "durationMs": 72.19258300000001
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0"
+          },
+          "started": 115.20445899999982,
+          "durationMs": 72.91495800000007
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 188.12845900000002,
+          "durationMs": 71.75770799999987
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r0/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 259.890584,
+          "durationMs": 17.383749999999964
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.00895900000000438,
+          "durationMs": 277.29166599999985
+        }
+      ],
+      "status": {
+        "pid": 71046,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-ae175e8ef6c53cd5/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 1,
+      "scenario": "first-install",
+      "elapsedMs": 787.8167910000002,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.008915999999999258
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 111.74604099999988
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 258.568708
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.09666599999991377,
+          "durationMs": 19.742292000000134
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 19.84358300000008,
+          "durationMs": 33.82633299999998
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.740166000000045,
+          "durationMs": 0.4424589999998716
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 54.186750000000075,
+          "durationMs": 13.163332999999966
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.013541000000032,
+          "durationMs": 67.34012499999994
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 67.39891599999987,
+          "durationMs": 24.575874999999996
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 67.36599999999999,
+          "durationMs": 24.725832999999966
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 92.09466599999996,
+          "durationMs": 19.578459000000066
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 112.20225000000005,
+          "durationMs": 20.31224999999995
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 132.51754099999994,
+          "durationMs": 32.980625000000146
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 165.56799999999998,
+          "durationMs": 0.4362499999999727
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 166.00679100000002,
+          "durationMs": 13.224917000000005
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 112.11804099999995,
+          "durationMs": 67.11741699999993
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/.install-MyjaOS/whip"
+          },
+          "started": 194.40283299999987,
+          "durationMs": 18.675292000000127
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 213.081958,
+          "durationMs": 32.81291699999997
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/.install-MyjaOS/whip-computer"
+          },
+          "started": 245.95420799999988,
+          "durationMs": 0.3971670000000813
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 246.35295799999994,
+          "durationMs": 11.669417000000067
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/.install-MyjaOS"
+          },
+          "started": 194.350416,
+          "durationMs": 63.675874999999905
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1"
+          },
+          "started": 111.74891600000001,
+          "durationMs": 146.81391699999995
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 258.570291,
+          "durationMs": 510.376667
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 768.9536250000001,
+          "durationMs": 18.798874999999953
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.006916000000046552,
+          "durationMs": 787.806417
+        }
+      ],
+      "status": {
+        "pid": 71103,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-3d437836a3102f01/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 1,
+      "scenario": "warm-attach",
+      "elapsedMs": 108.89295800000036,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.011291000000255735
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.13950000000022555,
+          "durationMs": 20.4809580000001
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 20.624833000000308,
+          "durationMs": 32.69758299999967
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.389250000000175,
+          "durationMs": 0.39058299999987867
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 53.781582999999955,
+          "durationMs": 11.862292000000252
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.013291000000208442,
+          "durationMs": 65.63395899999978
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 65.693041,
+          "durationMs": 25.29125000000022
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 65.65920800000004,
+          "durationMs": 25.44058300000006
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 91.1024580000003,
+          "durationMs": 17.709666999999627
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.006624999999985448,
+          "durationMs": 108.88295800000014
+        }
+      ],
+      "status": {
+        "pid": 71103,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-3d437836a3102f01/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 1,
+      "scenario": "warm-attach",
+      "elapsedMs": 106.76929100000007,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.003916000000117492
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.07962499999985084,
+          "durationMs": 19.11533300000019
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 19.198374999999942,
+          "durationMs": 33.03141600000026
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 52.284000000000106,
+          "durationMs": 0.33237499999995634
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 52.617791000000125,
+          "durationMs": 13.268416999999772
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.005165999999917403,
+          "durationMs": 65.88475000000017
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 65.94041599999991,
+          "durationMs": 22.781124999999975
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 65.90379100000018,
+          "durationMs": 22.862708999999995
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 88.77087500000016,
+          "durationMs": 17.96179099999972
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.003125000000181899,
+          "durationMs": 106.76324999999997
+        }
+      ],
+      "status": {
+        "pid": 71103,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-3d437836a3102f01/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 1,
+      "scenario": "retained-restart",
+      "elapsedMs": 266.5385839999999,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.011375000000043656
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 111.12770899999987
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 176.8327089999998
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.11229199999979755,
+          "durationMs": 19.232167000000118
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 19.349416999999903,
+          "durationMs": 34.134000000000015
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.55629199999976,
+          "durationMs": 0.4256669999999758
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 53.984042000000045,
+          "durationMs": 13.186791999999969
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.014083999999911612,
+          "durationMs": 67.15995799999973
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 67.21895899999981,
+          "durationMs": 26.238916000000245
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 67.186917,
+          "durationMs": 26.385249999999814
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 93.57545899999968,
+          "durationMs": 17.496666000000005
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip"
+          },
+          "started": 111.7819999999997,
+          "durationMs": 19.01050000000032
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 130.79612499999985,
+          "durationMs": 33.30458399999998
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip-computer"
+          },
+          "started": 164.17683399999987,
+          "durationMs": 0.4257079999997586
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 164.6043749999999,
+          "durationMs": 12.187209000000166
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e"
+          },
+          "started": 111.74099999999999,
+          "durationMs": 65.05395899999985
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1"
+          },
+          "started": 111.13074999999981,
+          "durationMs": 65.6958340000001
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 176.83470899999975,
+          "durationMs": 72.57708300000013
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r1/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 249.41699999999992,
+          "durationMs": 17.037958999999773
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.009583999999904336,
+          "durationMs": 266.5252909999999
+        }
+      ],
+      "status": {
+        "pid": 71172,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-3d437836a3102f01/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "first-install",
+      "elapsedMs": 790.29,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.022832999999991443
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 119.10508299999992
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 275.27716599999985
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.1956249999998363,
+          "durationMs": 27.04391600000008
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 27.24395800000002,
+          "durationMs": 33.387416999999914
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 60.70941600000015,
+          "durationMs": 0.391624999999749
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 61.10304099999985,
+          "durationMs": 12.689084000000094
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.02491599999984828,
+          "durationMs": 73.76983400000017
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 73.82958300000018,
+          "durationMs": 26.83087499999965
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 73.80450000000019,
+          "durationMs": 26.977665999999772
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 100.79325000000017,
+          "durationMs": 18.282083000000057
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 119.51245800000015,
+          "durationMs": 23.404583000000002
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 142.92058300000008,
+          "durationMs": 31.92837499999996
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 174.9498749999998,
+          "durationMs": 0.4240410000002157
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 175.3762499999998,
+          "durationMs": 11.73550000000023
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 119.40504099999998,
+          "durationMs": 67.70924999999988
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/.install-f1Plvq/whip"
+          },
+          "started": 202.4284160000002,
+          "durationMs": 20.78183399999989
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 223.21516599999995,
+          "durationMs": 36.92295899999999
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/.install-f1Plvq/whip-computer"
+          },
+          "started": 260.22308299999986,
+          "durationMs": 0.7192079999999805
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 260.94454099999984,
+          "durationMs": 13.831125000000156
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/.install-f1Plvq"
+          },
+          "started": 202.38808299999982,
+          "durationMs": 72.39191700000038
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2"
+          },
+          "started": 119.10899999999992,
+          "durationMs": 156.1638750000002
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 275.2787910000002,
+          "durationMs": 497.566417
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 772.8497499999999,
+          "durationMs": 17.402665999999954
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.02091599999994287,
+          "durationMs": 790.2575420000003
+        }
+      ],
+      "status": {
+        "pid": 71224,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-f732b3a14722c64b/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "warm-attach",
+      "elapsedMs": 129.46033400000033,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.009917000000314147
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.7787920000000668,
+          "durationMs": 28.11120800000026
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 28.894166999999925,
+          "durationMs": 35.422333000000435
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 64.37458400000014,
+          "durationMs": 0.3856660000001284
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 64.76258400000006,
+          "durationMs": 12.83016600000019
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.011625000000094587,
+          "durationMs": 77.58525000000009
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 77.64716700000008,
+          "durationMs": 30.20791700000018
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 77.60908400000017,
+          "durationMs": 30.378374999999778
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 107.98970899999995,
+          "durationMs": 21.440000000000055
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.00837500000034197,
+          "durationMs": 129.4472499999997
+        }
+      ],
+      "status": {
+        "pid": 71224,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-f732b3a14722c64b/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "warm-attach",
+      "elapsedMs": 112.01733299999978,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.007082999999965978
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.12229100000013204,
+          "durationMs": 21.183416999999736
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 21.309416000000056,
+          "durationMs": 36.61512500000026
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 58.014916000000085,
+          "durationMs": 0.6777089999995951
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 58.69470799999999,
+          "durationMs": 12.047708000000057
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.009125000000040018,
+          "durationMs": 70.73645799999986
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 70.78991599999972,
+          "durationMs": 23.908917000000656
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 70.75458299999991,
+          "durationMs": 24.036208000000443
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 94.7925409999998,
+          "durationMs": 17.201458999999886
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.0062499999999090505,
+          "durationMs": 112.00570800000014
+        }
+      ],
+      "status": {
+        "pid": 71224,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-f732b3a14722c64b/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "retained-restart",
+      "elapsedMs": 280.01950000000033,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.009500000000116415
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 112.69437500000004
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 188.94941700000072
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.14233400000011898,
+          "durationMs": 17.38683300000048
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 17.532709000000068,
+          "durationMs": 34.86854100000073
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 52.50600000000031,
+          "durationMs": 0.48149999999986903
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 52.99016699999993,
+          "durationMs": 12.767083000000639
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.011334000000715605,
+          "durationMs": 65.74912499999937
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 65.7948750000005,
+          "durationMs": 27.64820899999995
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 65.76858400000037,
+          "durationMs": 27.69787499999984
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 93.46875,
+          "durationMs": 19.19604200000049
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip"
+          },
+          "started": 113.89283400000022,
+          "durationMs": 28.200291000000107
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 142.10100000000057,
+          "durationMs": 33.5854589999999
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip-computer"
+          },
+          "started": 175.805292,
+          "durationMs": 0.49041699999997945
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 176.29825000000073,
+          "durationMs": 12.625874999999724
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e"
+          },
+          "started": 113.59904200000074,
+          "durationMs": 75.32883299999958
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2"
+          },
+          "started": 112.69958399999996,
+          "durationMs": 76.24229100000048
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 188.9515420000007,
+          "durationMs": 72.31204199999956
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r2/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 261.2673340000001,
+          "durationMs": 18.726000000000568
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.008209000000533706,
+          "durationMs": 280.00545799999963
+        }
+      ],
+      "status": {
+        "pid": 71308,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-f732b3a14722c64b/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 3,
+      "scenario": "first-install",
+      "elapsedMs": 814.7066249999998,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.00895799999943847
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 110.44466699999975
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 280.22412499999973
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.10504200000013952,
+          "durationMs": 19.054457999999613
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 19.16345799999999,
+          "durationMs": 34.286416999999346
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 53.510041999999885,
+          "durationMs": 0.4574579999998605
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 53.96995799999968,
+          "durationMs": 12.737458999999944
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.01116699999965931,
+          "durationMs": 66.69941600000038
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 66.75387499999943,
+          "durationMs": 25.766083000000435
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 66.71929199999977,
+          "durationMs": 25.82849999999962
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 92.54966699999932,
+          "durationMs": 17.869040999999925
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 110.7519169999996,
+          "durationMs": 20.725083000000268
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 131.48324999999932,
+          "durationMs": 32.48283300000003
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 164.04374999999982,
+          "durationMs": 0.49754200000006676
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 164.54533300000003,
+          "durationMs": 14.58429199999955
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 110.69470799999999,
+          "durationMs": 68.44079199999942
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/.install-P435YB/whip"
+          },
+          "started": 195.6979169999995,
+          "durationMs": 34.25079100000039
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 229.95258299999932,
+          "durationMs": 34.77195900000061
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/.install-P435YB/whip-computer"
+          },
+          "started": 264.7868330000001,
+          "durationMs": 0.6459999999997308
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 265.4355829999995,
+          "durationMs": 14.0190419999999
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/.install-P435YB"
+          },
+          "started": 195.5700829999996,
+          "durationMs": 83.88841700000012
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3"
+          },
+          "started": 110.44974999999977,
+          "durationMs": 169.76479199999994
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 280.2260419999993,
+          "durationMs": 516.4432500000003
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 796.680875,
+          "durationMs": 17.97949999999946
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.007582999999613094,
+          "durationMs": 814.6859999999997
+        }
+      ],
+      "status": {
+        "pid": 71477,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-79deca1f3a416759/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 3,
+      "scenario": "warm-attach",
+      "elapsedMs": 116.02454100000068,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.00804100000004837
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.18416600000000471,
+          "durationMs": 18.71070899999995
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 18.8994160000002,
+          "durationMs": 36.516083999999864
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 55.47625000000062,
+          "durationMs": 0.4413749999994252
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 55.92054100000041,
+          "durationMs": 13.869416999999885
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.010041000000455824,
+          "durationMs": 69.78354200000012
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 69.83941600000071,
+          "durationMs": 28.086958999999297
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 69.80625000000055,
+          "durationMs": 28.145958000000064
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 97.95458300000064,
+          "durationMs": 18.04925000000003
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.0066660000002229935,
+          "durationMs": 116.01279200000045
+        }
+      ],
+      "status": {
+        "pid": 71477,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-79deca1f3a416759/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 3,
+      "scenario": "warm-attach",
+      "elapsedMs": 105.27537500000017,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.008166999999957625
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.15429200000016863,
+          "durationMs": 19.51758299999983
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 19.675916999999572,
+          "durationMs": 32.334083000000646
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 52.08308299999953,
+          "durationMs": 0.49175000000013824
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 52.57695799999965,
+          "durationMs": 11.920541999999841
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.009667000000263215,
+          "durationMs": 64.49108299999989
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 64.54129199999988,
+          "durationMs": 22.79191600000013
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 64.50874999999996,
+          "durationMs": 22.847624999999425
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 87.35825000000023,
+          "durationMs": 17.889791999999943
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.006416999999601103,
+          "durationMs": 105.26116600000023
+        }
+      ],
+      "status": {
+        "pid": 71477,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-79deca1f3a416759/daemon.sock",
+        "network": false
+      }
+    },
+    {
+      "round": 3,
+      "scenario": "retained-restart",
+      "elapsedMs": 273.976541,
+      "progress": [
+        {
+          "message": "Looking for the local Whip runtime…",
+          "elapsedMs": 0.014165999999931955
+        },
+        {
+          "message": "Installing the bundled Whip runtime…",
+          "elapsedMs": 121.36999999999989
+        },
+        {
+          "message": "Starting the local Whip runtime…",
+          "elapsedMs": 184.11420799999996
+        }
+      ],
+      "spans": [
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip"
+          },
+          "started": 0.17450000000008004,
+          "durationMs": 25.21612499999992
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 25.39812499999971,
+          "durationMs": 35.09216600000036
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip-computer"
+          },
+          "started": 60.56433299999935,
+          "durationMs": 0.4648329999999987
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 61.03129099999933,
+          "durationMs": 14.485375000000204
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers"
+          },
+          "started": 0.018165999999837368,
+          "durationMs": 75.50229200000012
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/bin/zsh",
+            "args": [
+              "-l",
+              "-c",
+              "printf \"\\0WHIP_PATH=%s\\0\" \"$PATH\""
+            ]
+          },
+          "started": 75.56479099999979,
+          "durationMs": 27.718708999999762
+        },
+        {
+          "name": "runtimeEnvironment",
+          "detail": {},
+          "started": 75.53012499999932,
+          "durationMs": 27.799208000000363
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 103.33166600000004,
+          "durationMs": 18.009916999999405
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip"
+          },
+          "started": 122.02354099999957,
+          "durationMs": 17.709499999999935
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 139.73558299999968,
+          "durationMs": 32.30937499999982
+        },
+        {
+          "name": "fileDigest",
+          "detail": {
+            "filename": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip-computer"
+          },
+          "started": 172.14699999999993,
+          "durationMs": 0.45270799999980227
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/usr/bin/codesign",
+            "args": [
+              "--verify",
+              "--strict",
+              "-R"
+            ]
+          },
+          "started": 172.6022499999999,
+          "durationMs": 11.474790999999641
+        },
+        {
+          "name": "verifyRuntime",
+          "detail": {
+            "directory": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e"
+          },
+          "started": 121.98379099999966,
+          "durationMs": 62.09654200000023
+        },
+        {
+          "name": "installRuntime",
+          "detail": {
+            "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app/Contents/Helpers",
+            "root": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3"
+          },
+          "started": 121.37516599999981,
+          "durationMs": 62.720792000000074
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "start"
+            ]
+          },
+          "started": 184.11512499999935,
+          "durationMs": 71.89870800000062
+        },
+        {
+          "name": "run",
+          "detail": {
+            "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-local-profile-HU7BTU/r3/0.1.0-fd212ff009cc0a7d75e795534098a0567d48d3bcc42e93681273673e49e4a32e/whip",
+            "args": [
+              "daemon",
+              "status",
+              "--json"
+            ]
+          },
+          "started": 256.0169999999998,
+          "durationMs": 17.940582999999606
+        },
+        {
+          "name": "prepareLocal",
+          "detail": {},
+          "started": 0.012541000000055647,
+          "durationMs": 273.96191699999963
+        }
+      ],
+      "status": {
+        "pid": 71548,
+        "state": "running",
+        "socket": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-501-79deca1f3a416759/daemon.sock",
+        "network": false
+      }
+    }
+  ]
+}

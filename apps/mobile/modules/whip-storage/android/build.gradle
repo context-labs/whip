@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.whipstorage'
+version = '0.1.0'
+
+android {
+  namespace 'expo.modules.whipstorage'
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}

@@ -9,7 +9,24 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
+
+func TestDesktopUpdateChecksDoNotReadStateOrFetchBranchReleases(t *testing.T) {
+	previousOwner, previousFetch := buildinfo.UpdateOwner, fetchLatest
+	buildinfo.UpdateOwner = "desktop"
+	fetchLatest = func() (string, error) { t.Fatal("desktop queried standalone releases"); return "", nil }
+	t.Cleanup(func() { buildinfo.UpdateOwner, fetchLatest = previousOwner, previousFetch })
+	home := filepath.Join(t.TempDir(), "absent")
+	t.Setenv("WHIP_HOME", home)
+	if Check("v1.0.0") != "" || Pending("v1.0.0") != "" {
+		t.Fatal("desktop offered a standalone update")
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("desktop update check initialized state: %v", err)
+	}
+}
 
 func fetchOK(tag string) func() (string, error) {
 	return func() (string, error) { return tag, nil }
@@ -17,6 +34,30 @@ func fetchOK(tag string) func() (string, error) {
 
 func fetchErr() func() (string, error) {
 	return func() (string, error) { return "", errors.New("offline") }
+}
+
+func TestStartupCheckPreservesNoticeForDevAndUnavailableHomes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	previous := fetchLatest
+	requests := 0
+	fetchLatest = func() (string, error) { requests++; return "v99.0.0", nil }
+	t.Cleanup(func() { fetchLatest = previous })
+	notice := filepath.Join(home, noticeFile)
+	before := []byte(`{"latest":"v99.0.0","acknowledged":false}`)
+	if err := os.WriteFile(notice, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if result := Check("dev"); result != "" || requests != 0 {
+		t.Fatalf("development build performed an update check: %q, %d", result, requests)
+	}
+	if after, err := os.ReadFile(notice); err != nil || string(after) != string(before) {
+		t.Fatalf("development build changed release notice: %q, %v", after, err)
+	}
+	t.Setenv("WHIP_HOME", filepath.Join(notice, "not-a-directory"))
+	if result := Check("v1.0.0"); result != "" || requests != 0 {
+		t.Fatalf("unavailable state directory blocked startup or queried updates: %q, %d", result, requests)
+	}
 }
 
 // TestCheckNewerRelease: a newer tag is recorded in the notice file and

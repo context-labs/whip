@@ -1,170 +1,241 @@
-# whip roadmap
+# Roadmap
 
-UX niceties worth adopting, learned from [pi](file:///home/abe/code/pi) and
-[opencode](file:///home/abe/code/coding-harnesses/opencode). Check things off as they land.
-Full exploration reports: [learnings/other-harnesses/opencode/](learnings/other-harnesses/opencode/),
-[learnings/other-harnesses/exo.md](learnings/other-harnesses/exo.md) (durable state, self-modification, scheduler/adapters).
+whip is converging on one recursive runtime rather than maintaining separate
+direct-tool and RLM agents.
 
-**Reference docs:** [features.md](features.md) (what's shipped, where it lives,
-its tests) and [concurrency.md](concurrency.md) (the channel patterns behind
-parallel tool calls and background subagents).
+## Implemented in the recursive-runtime overhaul
 
-## Table of contents
+- [x] One model execution path and one model-facing tool: `rlm_exec`.
+- [x] One `AgentSession` type for root, child, and grandchild sessions.
+- [x] Clean runtime-v2 home/database boundary; old session data is untouched.
+- [x] Root IDs are root agent IDs; mode fields and mode configuration removed.
+- [x] Retained multi-turn children with persisted route, effort, cwd,
+  transcript, capabilities, and budgets.
+- [x] Explicit `messages.send/list/read/ack`; no automatic child-answer fan-in.
+- [x] Metadata-only, coalesced mailbox and agent-change notifications.
+- [x] Capability inheritance/narrowing and a default two-edge depth limit.
+- [x] Kernel capacity reservation before durable child admission.
+- [x] MCP list/call operations available through the same Starlark module to
+  roots and children.
+- [x] `/agents` as the single user-facing tree command; old task commands
+  removed from the daemon protocol and current TUI surface.
+- [x] Restart reconstruction for retained recursive agents.
+- [x] Deterministic single-runtime evaluation and parity-focused integration
+  tests.
 
-- [Input & editing](#input--editing)
-- [Transcript & rendering](#transcript--rendering)
-- [Sessions](#sessions)
-- [Agent loop](#agent-loop)
-- [Skills & subagents](#skills--subagents)
-- [Models & providers](#models--providers)
-- [MCP](#mcp)
-- [LSP](#lsp)
-- [Safety & permissions](#safety--permissions)
-- [Theming & config](#theming--config)
-- [CLI surface](#cli-surface)
-- [Autonomy & durability](#autonomy--durability) (exo)
+## Cleanup still worth doing
 
-## Input & editing
+- [ ] Remove the remaining unreachable embedded direct-tool TUI/agent helpers
+  and their historical task persistence tables after downstream integrations
+  no longer compile against them.
+- [ ] Split mixed historical/new swarm storage code into focused `agents`,
+  `messages`, and `budgets` files.
+- [ ] Replace residual terminology in historical test names and comments.
+- [ ] Add an explicit session kind for protocol-only tool hosts so
+  `whip mcp serve` does not identify itself through model/provider sentinel
+  strings.
 
-- [x] Queue messages while busy (enter, codex-style multiple), force-steer queue into the running turn (empty enter, grok-style), auto-send queued as follow-up turns
-- [x] Explicit interruption: double ctrl+c while busy (cf. opencode's triple-escape with 5s reset — `packages/tui/src/routes/session/index.tsx:1388`)
-- [ ] Queue management: edit/remove queued messages before they send (opencode `<leader>q`, `runtime.queue.ts`)
-- [x] Multiline input (grow textarea; opencode binds newline to `shift+enter,ctrl+enter,alt+enter,ctrl+j` because terminals disagree — `keybind.ts:161`)
-- [x] `!` prefix shell escape: output lands in transcript (tool-style block) and in the conversation as a non-authored `$ <cmd>` user message the model sees next turn (opencode `prompt/index.tsx:815`, `:1059`). Shipped as a submit-time prefix, not a mode — remaining delta: mode chrome (border/placeholder swap, cursor-at-0-only trigger, backspace-at-0 exits), and a real tool-role result instead of a user message
-- [x] `@` file mentions, pointer-style: tag any file, any path (relative/absolute/`~`), `@file#10-40` line ranges, tab-completion — a pointer note is appended to the user message, contents never inlined; the model probes with its own tools (Abe's design; alternative documented in [learnings/other-harnesses/opencode/at-mentions.md](learnings/other-harnesses/opencode/at-mentions.md))
-- [ ] `@` mention fuzzy picker + frecency ranking (opencode `prompt/frecency.tsx`, `prompt/autocomplete.tsx`)
-- [ ] External editor for long prompts: `$VISUAL || $EDITOR`, suspend renderer → edit temp .md → resume (opencode `editor.ts:26-53`; pi setting `externalEditor`)
-- [x] Paste handling: collapse big pastes (≥3 lines) into a `[Pasted ~N lines]` placeholder expanded on submit (opencode `prompt/index.tsx:1149`) — opt-in via config `collapsePaste`, OFF by default (a paste you can't see is a paste you can't trust)
-- [x] Persist prompt input history to disk, restore across sessions; up/down only navigate history when cursor is at offset 0 (opencode `prompt/history.tsx`)
+## Effectiveness work
 
-## Transcript & rendering
+- [x] Canonical Frontier evaluation CLI with fixed 8/15/30-task profiles, up to
+  32 resource-admitted trials, versioned reports, paired comparisons and automatic
+  baseline acceptance. [Workflow](../evals/README.md); implemented and tested offline.
+- [ ] Qualify the evaluation host and initialize the first canonical Full baseline
+  using the documented promotion campaign. Live execution deferred by request.
+- [x] Selectable Starlark/QuickJS engines with immutable session selection,
+  shared host authority, settled checkpoints, and language-aware clients.
+  See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints).
+- [x] Complete the matched Kimi K3 runtime benchmark and report all attempts
+  in [the results](../evals/runtime-ab/RESULTS.md), with [reproduction](../evals/runtime-ab/README.md).
+- [ ] Add realistic multi-agent benchmark tasks: repository survey, parallel
+  review, implementation plus verification, and adversarial message volume.
+- [ ] Measure useful work per root token, child utilization, time-to-first
+  evidence, redundant reads, and coordination overhead.
+- [ ] Tune prompts for when to use `models.batch` versus retained agents.
+- [ ] Add child scheduling/fairness policy when the kernel pool is saturated.
+- [ ] Surface concise child/mailbox state in the TUI without exposing message
+  bodies automatically.
+- [ ] Evaluate optional child summaries as an explicit message helper, while
+  keeping transport and context admission separate.
 
-- [x] Markdown rendering for assistant messages (glamour, hardcoded dark style — no OSC background query; finalized segments + resumed transcripts render rich, in-flight streaming stays plain text; right-padding stripped, body aligned under the "● " marker)
-- [x] Diff view for `edit` tool results (pi edit tool returns `details: {diff, patch, firstChangedLine}` — `packages/agent/src/harness/tools/edit.ts`; opencode picks split vs unified by terminal width >120) — claude-style: line-numbered diffs from the tools (`edit` and overwriting `write`), rendered with red/green bands under a "⎿ Added N lines, removed M lines" summary; diffs re-render on resume
-- [x] Tool rows: icon + present-participle verb while running ("Reading file…"), collapse on completion to a claude-style `● Verb(subject)` header that keeps the path/command visible, result under a `⎿` marker, red on failure (opencode `routes/session/index.tsx:1836`; claude-code header/summary shape)
-- [x] Render tool calls as they stream, before execution starts (pi: `message_update` spawns `ToolExecutionComponent` keyed by tool-call id)
-- [x] Spinner with elapsed time + token count (% of context window) in status line (opencode `routes/session/footer.tsx`) — cost part done (status line shows session spend when the provider advertises pricing)
-- [ ] Toast-style transient notifications for command success/failure (opencode `ui/toast.tsx` — 102 lines)
-- [ ] Desktop notification/sound when a turn finishes and the terminal is blurred (opencode `attention.ts` — "when: blurred" is the detail that makes it not-annoying)
+## Safety and operations
 
-## Sessions
+- [x] Publish isolated `whipcode` branch builds with their own installer and update channel.
 
-- [x] SQLite session store with `--resume` / `/resume` picker
-- [x] Startup resume flags: `-c`/`--continue` (most-recent session in the current dir), `-r`/`--resume <id>` (shorthand, resume by id/prefix) and bare `--resume`/`-r` opens the `/resume` picker at startup (claude-code/pi `--resume` = picker; pi `-r` help = "browse and select session"), `--browse` is an explicit alias for the bare form — a pre-scan (`normalizeBareResume`) rewrites trailing bare `-r`/`--resume` to `--browse` before `flag.Parse` since stdlib `flag` has no optional values
-- [x] Session titles: auto-generate a short title from the first exchange
-- [x] `/rename` a session (opencode: ctrl+r prompt dialog) — `/rename [title]`, bare opens an inline prompt prefilled with the current title, draft preserved
-- [x] `/fork` a session (pi: tree-structured JSONL entries with `parentId` — `docs/session-format.md`; opencode forks from any message via a per-message action menu) — `/fork [name]` copies the conversation to a new session with an auto-suggested `(fork #N)` name; `f` in the rewind picker forks from any message
-- [x] Timeline: jump-to-message picker that live-scrolls the transcript as you browse (opencode `dialog-timeline.tsx`) — the rewind picker (idle esc esc) does this and rewinds/forwards too
-- [x] Undo last message (conversation half): rewind restores the prompt text into the input for editing (opencode `routes/session/index.tsx:615`); file-change revert (opencode `revert.ts` git snapshots) is NOT done — conversation-only by design
-- [x] Compaction: summarize old turns when context fills (pi settings: `compaction: {reserveTokens, keepRecentTokens}`; opencode `/compact`) — `/compact` manually; auto-compacts proactively at a configurable % of the provider-advertised context_length (GET /models, cached in ~/.whip/models.json; default 50%, `compactPct`, slidable ←/→ in the ctrl+p palette) plus retries once when the provider errors with context_length_exceeded; `/compact <model> [provider]` picks the summarizer (default `deepseek-v4-flash-0731`, else the current model when the default isn't configured); kept tail never orphans a tool_call from its result
-- [x] Token/cost tracking per session (pi models.json carries `cost: {input, output, cacheRead, cacheWrite}`) — session usage totals in the status line; cost computed from provider-advertised `pricing` in GET /models (cached in ~/.whip/models.json), cached input billed at the cache-read rate; hidden when the provider doesn't advertise prices
-- [x] Export transcript to markdown (opencode `/export`, `ui/dialog-export-options.tsx`) — `/export [path]` writes the transcript to a markdown file (default `./whip-transcript-<session>.md`) and confirms with the absolute path; the include-options dialog is deliberately skipped for v1 (ponytail)
+- [ ] Harden kernel containment beyond process/resource limits where supported
+  by the host OS.
+- [ ] Add operator diagnostics for leaked processes, stuck permission requests,
+  budget pressure, and repeated worker crashes.
+- [ ] Expand Linux/macOS race and restart coverage for recursive trees and MCP
+  reconnection.
+- [x] Repair the MCP contracts and make the MCP surfaces honest: one selection
+  step for the definition's server list, additive untrusted attach, a separate
+  project import source, import as the trust path, origin-bound credentials,
+  complete paged discovery, chained reconnects, visible source errors, and
+  structured/binary results kept. See the
+  [MCP contracts plan](../.ai-docs/plans/mcp-contracts/PLAN.md).
+- [x] MCP progressive discovery for the model: `mcp.search` across servers,
+  `mcp.describe` for one schema, windowed schema-free `list_tools`, all over
+  the daemon's cached catalogs
+  ([MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
+- [x] Session-scoped additive MCP refresh and root-agent reconnect helpers,
+  with automatic current-session refresh after Settings import and a manual
+  Integrations refresh control
+  ([Live MCP refresh plan](../.ai-docs/plans/mcp-live-refresh/README.md)).
+- [ ] MCP tool browser in the web and TUI over the same daemon search.
 
-## Agent loop
+The original runtime plan and implementation learnings live in
+[`docs/plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md`](plans/2026-08-29-1740-feat-rlm-swarm-runtime-plan.md).
+The consolidation plan for completing the single recursive architecture lives
+in
+[`docs/plans/2026-09-02-1200-refactor-single-recursive-agent-runtime-plan.md`](plans/2026-09-02-1200-refactor-single-recursive-agent-runtime-plan.md).
 
-- [x] `/goal <text>` (codex-style): keep driving turns until the model verifies and explicitly declares `GOAL_MET` — continuing is the default, so it can't terminate early like claude's; `/goal resume` re-engages (also after `/resume` of a session — goals persist), `/goal clear` drops, 20-round cap pauses with a resume hint
+## WHIP client foundation
 
-- [x] Parallel tool-call execution with per-path file mutation lock (pi: `withFileMutationQueue`, `executeToolCallsParallel`) — `agent.runTools` fans a tool-call batch out to goroutines; write/edit serialize through a per-canonical-path channel semaphore, bash takes a global lock; results land in call order, OnToolStart/End fire per call
-- [x] Retry with backoff on provider errors (pi settings: `retry: {maxRetries, baseDelayMs}`) — transient failures (429/5xx/transport) retry with exponential backoff (1s→2s→4s… capped 20s, jittered), configurable via `maxRetries` (default 8, 1 disables); streaming retries stop once visible text has been emitted so the transcript never double-prints, and context-limit errors pass straight through to the compaction retry
-- [x] Streamed partial tool output (bash `onUpdate` throttled at 100ms in pi) — `bashrun.Options.OnUpdate` fires accumulated-output snapshots at most every 100ms from the run's own goroutine; the bash tool picks it up via a per-call ctx value (`tools.WithOnUpdate` — parallel calls can't cross wires), `agent.Events.OnToolOutput` carries it with the tool-call id, and the TUI renders the last-3-lines tail under the running tool row until `toolEndMsg` collapses it
-- [x] Spill truncated bash output to a temp file and mention the path (pi bash tool) — when combined output exceeds `maxOutput` and gets tail-truncated, `bashrun.Spill` writes the full bytes to `$TMPDIR/whip-bash-<pid>/*.log` (0600) and the tool result appends `[full output (N bytes): <path>]` so the model can read/grep the rest; spill failure degrades silently, never breaks the result
-- [x] Inject `WHIP_SESSION_ID` / `WHIP_MODEL` env into bash children (pi injects `PI_*`) — already shipped: `bashrun.SetMarkers` stamps `WHIP=1`, `WHIP_SESSION_ID`, `WHIP_MODEL`, `WHIP_PID` on every child env (wired from `tui.go` on session create/resume); checkbox was stale
+- [x] One typed protocol over Unix sockets and WebSockets; v1 removed.
+- [x] Durable acceptance/status, consistent reconnect and bounded transcript views.
+- [x] Generated TypeScript/Ajv contract for thin React and Electron clients.
+- [x] Host-owned providers/configuration and complete existing Go client cutover.
+- [x] Provider logos and connect/manage rows; host environment discovery for
+  Inference.net/OpenRouter, revision-checked disable/disconnect and local desktop
+  shell recovery. See the [provider connections plan](../.ai-docs/plans/provider-connections/README.md).
+- [x] Built-in ChatGPT subscription provider (`openai-codex`): host-owned login,
+  model discovery, Responses streaming and durable continuation; live account,
+  runtime and browser acceptance passed. See the [subscription plan](../.ai-docs/plans/openai-subscriptions/README.md).
+- [x] Provider onboarding across TUI, web and desktop: detected connections,
+  restrained Inference.net preference, explicit saved model/provider pairs,
+  reusable `/connect`, prompt-first welcome with durable first-send recovery,
+  and one-action native backend setup. See the
+  [onboarding implementation and validation](../.ai-docs/plans/provider-onboarding/README.md).
+- [x] Provider connection inside the normal TUI: shared themed dialog, one
+  composer and client, deferred root creation, draft preservation and removal
+  of the standalone onboarding and legacy authentication UI. See
+  [TUI integration](../.ai-docs/plans/provider-onboarding/TUI-INTEGRATION.md).
+- [x] Disposable Docker onboarding workflow: build dirty working files, open a
+  clean TUI and shared web app at localhost:4000, and remove test state on exit.
+  See [the Docker workflow](setup.md#test-fresh-onboarding-in-docker).
+- [x] File-backed custom provider configuration in the TUI: endpoint/key/environment/
+  no-auth forms, discovery and manual models, revision-safe management, explicit
+  session reload, and reusable host/SDK APIs. See
+  [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
+- [x] Compact TUI provider picker, key-only known presets, stable connection marks,
+  separate OpenAI API/subscription routes, and conservative local credential
+  discovery. See [picker implementation](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
+- [x] Models.dev metadata and named local-key discovery: reviewed offline bundle,
+  generated desktop key names, explicit file sources, idempotent provider-reference
+  persistence and removal of the OpenCode credential importer. See
+  [implementation and validation](../.ai-docs/plans/models-dev-discovery/README.md).
+- [x] One-step TUI popular-provider model/effort defaults, quiet picker footers,
+  and Astra API tool support through Responses. See [selectors and validation](../.ai-docs/plans/tui-provider-configuration/AUTO-MODELS.md).
+- [x] Attach-only TypeScript SDK, durable command handles, bounded synchronized
+  views, scoped content, permission helpers and minimal React example.
+- [x] Trusted-client approvals: no enrollment, signer or first-run pairing prompt.
+  Protocol v3 preserves permission decisions, rules and internal agent authority.
+- [x] React web implementation with separate UI/app/web source packages, TanStack
+  application primitives, Base UI controls and extracted StyleX styles.
+- [x] MCP import screen in the web and desktop app: the servers other agents
+  configured on a host (Codex, Claude, OpenCode, project file) offered once on
+  New session and from Settings, ticked servers written as native trusted
+  entries, no probing before import. See the
+  [MCP import onboarding plan](../.ai-docs/plans/mcp-import-onboarding/README.md).
+- [x] Shared web/desktop startup splash with Whip's wordmark, HALO animations,
+  reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
+- [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
+  read-only code, with deterministic generation and component contrast checks.
+- [x] Packaged browser assets in the executable; no production Node server.
+- [ ] Single out-of-process web gateway: socket-only daemon by default, foreground
+  `whip web`, and optional owned child via `WHIP_NETWORK=1`. This supersedes the
+  prior default-on in-daemon listener; exact Host/Origin checks and protocol paths
+  remain unchanged. Migration validation is tracked in the
+  [gateway acceptance plan](../.ai-docs/plans/web-gateway/README.md); see
+  [web access](web-app.md#run-the-packaged-application-locally) for the new contract.
+- [x] Session tabs with window-local restoration, preserved drafts/reading position,
+  bounded background activity, and responsive themed navigation. See the
+  [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).
+- [x] Desktop/web slash skill suggestions in existing and first-message composers:
+  prefix filtering, keyboard insertion of `$name`, and read-only pre-session
+  discovery, including negotiated user-global skills before selecting a project.
+  Implementation/validation in [slash skill suggestions](../.ai-docs/plans/desktop-slash-skills/README.md)
+  and [global discovery](../.ai-docs/plans/global-skill-discovery/README.md).
+- [x] Independent New Chat workspace tabs, durable first-message recovery and
+  in-place session promotion. Implementation and feature acceptance recorded in
+  [New Chat tabs](../.ai-docs/plans/new-chat-tabs/README.md).
+- [x] Desktop Command+T / File > New session reuses New Chat creation, including
+  embedded website focus; no new web shortcut. See the
+  [implementation and checks](../.ai-docs/plans/new-session-shortcut/README.md).
+- [x] Desktop Reopen closed tab shortcut: Shift+Cmd+T uses existing bounded tab
+  history, including from Settings and a hidden window; no web shortcut. See the
+  [implementation and checks](../.ai-docs/plans/reopen-tab-shortcut/README.md).
+- [x] Nested in-window split panes with movable tabs, duplicate chat views, independent
+  reading/agent selection and bounded observation. See the
+  [split-view implementation](../.ai-docs/plans/split-views/README.md).
+- [x] Contoured tabs and a session information bar with host/project, selected
+  agent, current activity and scoped actions; Open REPL creates a fresh tab to
+  the right. See [session chrome](../.ai-docs/plans/zed-session-chrome/README.md).
+- [x] Read-only session REPL notebook with adjacent view opening, independent split
+  views and bounded live/recorded execution evidence. See the
+  [session REPL implementation](../.ai-docs/plans/session-repl-viewer/README.md).
+- [x] Compact chat execution groups, shared current host-operation status,
+  named-agent activity, bounded disclosures and shared reduced-motion controls.
+  See the [chat activity implementation](../.ai-docs/plans/chat-activity/README.md).
+- [x] Restore a compact composer agent dock with active work first, finished turns
+  collapsed, compact inline launch evidence and reusable right-split child chats.
+  See the [implementation and validation plan](../.ai-docs/plans/subagent-composer-dock/README.md).
+- [x] Dedicated full-window Settings with category navigation/search, guarded
+  host-specific forms, exact workspace return and working Appearance controls
+  for density, wrapping, fonts, contrast and motion. See the
+  [implementation and acceptance record](../.ai-docs/plans/settings-redesign/README.md).
+- [ ] Complete the web application's release acceptance: full workflow/recovery
+  matrix, actual mobile devices, VoiceOver/keyboard review and documented
+  performance gates. Implementation does not by itself complete this milestone.
+- [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [ ] Browser Design Mode acceptance: multi-element selection, trusted floating
+  composer and scoped context-to-chat pass automated app/renderer/native checks;
+  manual IME/accessibility and packaged local/SSH checks remain before broad release.
+  See the [plan and validation](../.ai-docs/plans/browser-design-mode/README.md).
+- [ ] Experimental desktop Browser rollout: human workspace tabs, explicit
+  conversation/agent access and saved-SSH previews are implemented. Browser tabs
+  are **enabled by default**; `WHIP_DESKTOP_BROWSER_TABS=0` disables them at launch.
+  Default availability does not complete the remaining release gates. See the
+  [behavior → implementation → tests map](features.md#experimental-desktop-browser-tabs)
+  and [implementation ledger](../.ai-docs/plans/browser-tabs/implementation.md).
+  Completion requires the remaining [Phase 7 gates](../.ai-docs/plans/browser-tabs/README.md):
+  shipping-security packaged local/SSH and overlay/focus acceptance, security and
+  dependency review, supported-macOS/VoiceOver/IME/manual checks, performance and
+  lifecycle budgets, and disabled/old-client/rollback validation. Passing unit or
+  development-native fixtures does not complete this rollout milestone.
+- [ ] Desktop publishing CI: explicit desktop releases, CI signing/notarization,
+  verified downloads and update feeds, clean-machine installation and actual
+  update acceptance. See the
+  [research and phased release plan](../.ai-docs/plans/desktop-release/README.md).
+- [x] Canonical desktop whipcode integration: one selected installed executable,
+  a shared default `~/.whipcode` home, verified installation payload and explicit
+  local connection diagnostics, installation and restart controls. Machine cleanup,
+  signed/notarized installation, desktop/CLI startup, WebSocket recovery and a live
+  provider message passed. See the
+  [canonical installation record](../.ai-docs/plans/canonical-whipcode/README.md).
+- [x] Mobile connection diagnostics: modal-local errors and explicit HTTPS,
+  WebSocket and session API testing, with cancellation and native error details.
+- [x] Mobile UI implementation: native component library, complete generated
+  theme catalog and Appearance settings, independent hosts, combined sessions,
+  guided creation, chat and request/settings surfaces. Android UI exercised
+  against an isolated host; remaining iOS/device acceptance is recorded in the
+  [UI evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md).
+- [ ] Native mobile beta: Expo companion with manual Tailscale HTTPS setup,
+  shared SDK WebSockets, messages, questions, permissions and session creation.
+  Implementation is in `apps/mobile`; completion requires the physical iOS beta
+  and Android acceptance in the [mobile plan](../.ai-docs/plans/mobile-app/IMPLEMENTATION.md).
+- [ ] Mobile follow-ups: authenticated device pairing/QR and push notifications,
+  after the private-host companion is accepted.
+- [x] Conversation row actions: shared rename, same-directory fork, archive/restore, delete, and local/SSH editor opening. See [features](features.md#conversation-row-actions).
+- [x] Terminal tabs: daemon-hosted login shells beside the conversation on every host kind, drawn with ghostty-web. See the [plan](../.ai-docs/plans/terminal-tabs/README.md).
+- [ ] Editing and code review product surfaces (later work).
+- [ ] Hosted execution, connection authentication and relay infrastructure.
 
-## Skills & subagents
+See [protocol-v2.md](protocol-v2.md) and `.ai-docs/plans/protocol-v2/README.md`
+for the approved scope, implementation inventory and validation.
 
-- [x] Skills: scan `.agents/skills/*/SKILL.md` (project), `~/.whip/skills/`, and `~/.agents/skills/` (user), inject name+description into the system prompt as an `<available_skills>` block; the model reads a SKILL.md with its own read tool when relevant (pi's approach — no skill tool needed, `packages/coding-agent/src/core/skills.ts`)
-- [x] Subagents: a `subagent` tool (né `task`) that runs a self-contained prompt in a fresh agent with the same tools (minus `subagent` — no recursion) and returns its final report; several calls in one message run concurrently (foreground fan-out), the report is capped at 50KB before it lands in the parent's context, transcript rows show the task description (batch-numbered `1/N`), and background task ids are description slugs (`survey-context-in-pi-3`, not `sub-1`)
-- [x] `$skill-name` invocation (codex-style) with live completion dropdown; skills re-indexed every turn and every `$` keystroke, so new skills load without restarting the harness
-- [ ] Custom agent definitions (`.agents/*.md` with model/tools/prompt frontmatter; opencode agents config `packages/core/src/config/agent.ts`)
-- [x] Parallel/background subagents (pi streams tool `onUpdate`; opencode `background-job.ts`) — `subagent` with `background:true` runs concurrently and reports back via a steered message; a `taskRegistry` keyed by id holds a `Done` channel whose single close broadcasts completion to every waiter; `/subagents` (alias `/tasks`) lists them, a `⚙ N sub` header badge shows running count and updates live via `OnChange`; tasks persist in the session store and are restored on `--resume` (a stale "running" row comes back as interrupted-error)
-- [x] Subagent model routing (claude's Agent-tool `model` override) — subagents default to the cheap `deepseek-v4-flash-0731` route like compaction (`config.DefaultTaskModel`, catalog suffix scan covers openrouter's vendor-prefixed id); pin with ctrl+p › Subagent model or config `taskModel`/`taskProvider`; the main model picks per call via the `subagent` tool's `model`/`provider` params
-- [x] Subagent worktree isolation — `worktreeSubagents` config default + per-call `worktree` arg on `subagent` run a background subagent in its own git worktree (branched off HEAD, sibling dir `<repo>-wt-<task>`), so parallel editing subagents can't scramble the parent's tree; best-effort (falls back to shared cwd outside a repo), foreground subagents stay in-tree (nothing to isolate from)
-- [x] User-spawned subagents: `/subagent [-m model[@provider]] <prompt>` starts one by hand, mid-turn too — the LLM isn't the only driver
-- [x] Chat with a subagent (claude's "subagents are full sessions" UX) — the task pane has a chat input: enter steers a running subagent (`SteerTask`, same primitive the model gets as `subagent_steer`) and runs follow-up turns on a settled one's retained context (`FollowupTask`, live-only)
-- [ ] `@agent` mentions to target a named subagent (opencode autocomplete)
-
-## Models & providers
-
-- [x] Model → provider routing in config (switch providers without touching models)
-- [x] Codex subscription provider: `whip auth codex` runs Codex's device-code OAuth, writes local state, and immediately fetches the signed-in account's `/codex/models` catalog for `/model`; `/auth codex` does the same in-session. Expiring credentials refresh, and the ChatGPT Codex Responses SSE endpoint maps into the existing tool loop without the unsupported `max_output_tokens` parameter; the account-scoped catalog supplies context, vision, and reasoning capabilities
-- [ ] `anthropic-messages` API style alongside `openai-completions` (pi: `packages/ai/src/api/`)
-- [x] `"$VAR"` / `"!cmd"` resolution for apiKey/header values in config (pi models.json value resolution) — shipped with secrets-by-reference (internal/config/secret.go), resolved at point of use
-- [x] Reasoning effort: `/effort [off|low|medium|high]` (bare opens the selector), tab-completes, clickable `⚡` control in the header top-right; sent as `reasoning_effort`, inherited by subagents, survives model switches
-- [x] Per-model sampling params in config (`samplingParams: {temperature, top_p}`)
-
-## MCP
-
-Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai-docs/plans/mcp-polish/README.md).
-
-- [x] MCP client: stdio + streamable HTTP servers; config merges claude-style `.mcp.json` and codex-style `~/.codex/config.toml [mcp_servers]` under whip's own `"mcp"` block (opencode's status model `mcp/index.ts:83-106`, name sanitization + tool bridging `mcp/catalog.ts:47-90,117-119` — with the sanitize-collision fixed via hashed server keys; claude-code's `mcp__server__tool` naming kept). Lazy-with-kickoff connects (close-to-broadcast `ready` chan), per-server call serialization, 30s startup / 60s call timeouts, errors as tool output, `/mcp` status + reconnect/enable/disable, `whip mcp add|list|remove|serve`
-- [ ] MCP resources/prompts (opencode: synthetic `read_mcp_resource` tools + prompts-as-slash-commands)
-- [ ] MCP OAuth for remote servers (opencode `oauth-provider.ts` — buffer creds in memory, commit on success; ~800 lines, a `needs_auth` status covers most of the value first)
-- [ ] `ToolListChanged` notification → live re-list (opencode `mcp/index.ts:462-471`; needs the standalone SSE stream on remote transports)
-- [x] Fail-fast MCP calls (connecting server can't park a turn) + did-you-mean on unknown mcp__ tools + first-settle transcript note — the "never stuck, always know why" pass
-- [x] Auto-reconnect with backoff on dropped sessions (gen-guard makes it safe; manual `/mcp reconnect` stays as override)
-- [x] MCP server instructions injected into the system prompt (opencode `session/system.ts:119-135`)
-- [x] `whip mcp test <name>` (the doctor: connect + list + timing + stderr tail, non-zero exit on failure — CI-checkable `.mcp.json`)
-- [x] `whip mcp import [--dry-run]` (materialize claude/codex imports into whip's config)
-- [x] MCP import source gating: `"mcpImport"` block (`enabled`/`only`/`exclude` per claude/codex source); blocked imports stay visible in `/mcp` and `whip mcp list` instead of vanishing — stops third-party codex-config entries (e.g. ChatGPT app's `node_repl`) from being picked up wholesale
-- [ ] Overlay config entries (`"overlay": true` patches `enabled` over imports instead of copying definitions)
-
-## LSP
-
-- [x] LSP diagnostics in `write`/`edit` tool output — stdlib-only client (`internal/lsp/`), gopls built-in + user servers via the `"lsp"` config block, capped 1.5s wait, sibling-file errors included (opencode `src/lsp/` diagnostics flow, research in `docs/learnings/other-harnesses/opencode/lsp.md`); plan: [`.ai-docs/plans/lsp-diagnostics/`](../.ai-docs/plans/lsp-diagnostics/README.md) (Linear INF-4989)
-- [ ] `@file.go#N` symbol-range expansion via `documentSymbol` (Linear INF-4991; deferred from the at-mentions port — see `docs/learnings/other-harnesses/opencode/at-mentions.md`)
-- [ ] Read warm-up (forked `touchFile` on read so first-edit diagnostics are instant — opencode `tool/read.ts:119`)
-- [ ] Pull diagnostics (`textDocument/diagnostic`) for servers without push
-- [ ] Navigation tool (definition/references/symbols) if cross-file diagnostics prove insufficient
-
-## Safety & permissions
-
-- [x] Permission prompt: Allow once / Allow always / Reject, where "always" previews the exact rule it installs and "reject" takes a free-text redirect message back to the model (opencode `routes/session/permission.tsx`)
-- [x] Command-prefix arity for useful "allow always" rules: `git checkout branch` → rule for `git checkout`, not the whole string (opencode `permission/arity.ts`)
-- [x] Secrets as references, never values: `"$VAR"`/`"!cmd"` (or `${ENV_VAR}`-style) indirection in config and MCP/tool init, resolved host-side at point of use so raw keys never enter the event log or model context (exo `crates/exoharness/src/secrets.rs` — AES-GCM at rest with keychain/file master key is the full version; the indirection alone is most of the safety)
-
-## Theming & config
-
-- [x] ctrl+p command palette (opencode-style): modal dialog (own filter line, esc pops one level, ↑/↓ wraps), category headers, "Suggested" group pinned when the filter is empty, dimmed keybind/slash hints teach shortcuts, cheap subsequence fuzzy filter; fully interactive — rows show live state badges, ←/→ step reversible settings (effort, thinking, mouse) in place, and enter drills into sub-panels (model browser with live preview-switch, effort levels, compaction model, inline goal editor) that apply real changes without leaving the palette
-- [x] Single keybind+command registry: palette, slash commands, help, and footer hints all derived from one table (opencode `config/keybind.ts` — the highest value-per-line idea in that repo)
-- [ ] One generic fuzzy-select widget reused by every picker: model, session, theme, timeline (opencode `ui/dialog-select.tsx`)
-- [ ] KV table in sessions.db for palette-toggleable UI prefs — no config ceremony per toggle (opencode `context/kv.tsx` pattern)
-- [ ] Theme support: JSON themes with named defs + `{dark, light}` variant pairs; a "system" theme built from the terminal's real palette (opencode `theme/index.ts`)
-- [x] `"mouse": false` config escape hatch so native terminal selection works (opencode `app.tsx:196`) — also a runtime `/mouse` toggle; with capture on, hold shift to select text in the transcript
-
-## CLI surface
-
-- [x] Non-interactive one-shot mode: `whip run "prompt"` — reads piped stdin too, `--format json` emits the raw event stream for scripting (opencode `cli/cmd/run.ts`)
-- [x] Interactive start-with-prompt: `whip up <words...>` joins argv after `up` and submits it as the TUI's first turn (claude's positional-prompt UX) — Init-kickoff msg so the turn starts only once `m.prog` exists. Plan: [`.ai-docs/plans/whip-up/`](../.ai-docs/plans/whip-up/README.md)
-- [x] ACP agent mode: `whip acp` serves the Agent Client Protocol over stdio (v1, via `github.com/coder/acp-go-sdk`) so editors like Zed drive whip as a subprocess agent — initialize/session new+load+list/prompt (busy-error mid-turn)/cancel/set_mode, streaming chunks + tool cards (with diffs) + plan/usage/title updates, permission prompts bridged from `tools.Gate` in `ask` mode, sessions persisted to the same SQLite store the TUI resumes. Plan: [`.ai-docs/plans/acp/`](../.ai-docs/plans/acp/README.md)
-- [x] `whip sessions` list subcommand
-- [x] Env markers in child processes (`WHIP=1`, `WHIP_SESSION_ID`) so scripts can detect they run under the agent (opencode sets `AGENT=1`, `OPENCODE_PID`)
-
-## Autonomy & durability
-
-From [exo](learnings/other-harnesses/exo.md). Triaged against whip's actual code:
-compaction today is destructive (`session.go` `DELETE FROM messages`), resume of a
-crashed turn can orphan a tool_call, and there is no plan-tracking tool at all.
-Ordered by value-per-line for a single-binary TUI — the first four are the ones
-worth doing now.
-
-**Do now:**
-
-- [x] `todowrite` planning tool (the biggest gap): conversation-scoped store, full-list rewrite each call, exactly one item in_progress, injected back each round so the plan survives long tool loops and compactions; caps ~50 items × 300 chars (exo `exo/tools/todo-tools.ts` is ~100 lines; the claude/opencode pattern) — `internal/agent/todo.go`, persisted on the sessions row, restored on resume
-- [x] Synthesize error tool-results for dangling tool calls when materializing a crashed/interrupted turn on resume — correctness fix, not a feature: one interrupted turn can otherwise produce an API-rejected history (exo `flushDanglingToolResults`, `exoharness/typescript/harness/index.ts:786-804`) — `answerDanglingToolCalls` at the `session.Load` boundary, synthetic result appended right after its assistant message
-- [x] Compaction as a recorded event, not `DELETE FROM messages`: store summary + cutoff seq and derive the prompt view; the raw log stays queryable so a bad compaction is inspectable and retryable. The thin end of the event-sourcing wedge without a store rewrite (exo spec.md: "the durable conversation does not have to equal the prompt") — `compactions` table (append-only summary+cutoff), `Load` derives the view, `/compact log` inspects, `/compact retry` undoes the latest and recompacts from the raw log
-- [x] Workspace rewind: git-snapshot the working tree per turn (or on demand) so file changes can be rolled back, and record the rollback in the session — "rewind does not erase history": rolling back the world must not delete the memory of what was tried (exo `rewind_sandbox` appends `SandboxStarted{snapshot_id}`; opencode `revert.ts` is the same idea) — pre-turn snapshot pinned under `refs/whip/snapshots/`, keyed by turn index in a `snapshots` table that `DeleteFrom` trims with the messages; `applyRewind` restores via `checkout <ref> -- .` and notes "⟲ workspace rewound — N file(s) restored"; untracked files never touched
-
-**High value, cheap:**
-
-- [x] `remember`/`forget` memory tools: plain markdown files (`~/.whip/memory.md` installation scope + `~/.whip/sessions/<id>.memory.md` session scope), checkbox bullets the user can edit by hand; `forget` strikes rather than deletes; always-inject with a hard cap (50 × 300 chars — the cap is the retrieval strategy, no embeddings); `/memory` lists both scopes numbered and marks entries done from the TUI (exo `exo/tools/memory-tools.ts`, redesigned to markdown after the opencode finding: opencode has no memory tool, its answer is AGENTS.md — files you own and diff)
-- [x] Stealable `me.md` operating rules for the system prompt: "the tool set changes turn to turn — never assume a tool exists because it did earlier"; "after ~3 failed attempts on the same blocker, escalate plainly instead of looping"; git hygiene ("never `git add .`, review staged diff for secrets, never force-push") (exo `exo/prompts/me.md`) — shipped in `cmd/whip/main.go`'s system prompt, plus a remember/forget pointer
-
-**Later (needs `/goal` usage to justify the always-on turn):**
-
-- [x] Minimal scheduler + generic wakeup channel: `@every 10m` / `@at <rfc3339>` tasks firing machine-authored user-message turns; grid-anchored fires (slow runs don't drift), one-shot completion stays listed as (fired), fires defer while busy without drifting the grid. Cron syntax deliberately cut (two forms cover the use); the record-then-deliver outbox and `reportPrompt` routing remain future work if external channels land (exo `scheduler_runtime.rs`, `conversation_wakeup.rs`) — `internal/schedule` (parser, ~70 lines), `schedules` table in sessions.db, 5s ticker in the TUI, `/schedule @every|@at <prompt> | list | cancel <n>`, ⏰ transcript marker
-
-**Deliberately cut** (exo needs them because it's long-running and edits itself in production; a coding TUI doesn't):
-
-- ~~Full event-sourced store rewrite~~ — too big once compaction-as-event lands; keep custom-kind discipline inside the messages-table world instead
-- ~~`/events` introspection tool~~ — pays off with adapters/restarts whip doesn't have; cost already lives in the status line
-- ~~`rebuild_and_restart_whip` + SELF.md self-map~~ — a harness rebuilt by hand between sessions doesn't need to restart itself mid-conversation
+The accepted web scope, source-package boundaries and phase evidence live in
+[the web application plan](../.ai-docs/plans/web-app/README.md). Repeatable browser
+and package checks are documented in [web-app.md](web-app.md); physical-device and
+assistive-technology checks remain explicit manual gates until recorded.

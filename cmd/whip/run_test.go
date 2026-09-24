@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tui"
 )
 
 // runFixture writes a config pointing the default model at an SSE test
@@ -40,12 +40,15 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
+		"mcpImport": {"claude": {"enabled": false}, "codex": {"enabled": false}},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 }
 
 // runCapture swaps stdout/stdin for the duration of runCLI and returns what
@@ -95,6 +98,30 @@ func TestRunTextOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "hello world") {
 		t.Fatalf("stdout should stream the reply, got %q", out)
+	}
+}
+
+func TestRunReasoningEffortIsSessionScoped(t *testing.T) {
+	var requests []llm.Request
+	runFixture(t, "done", &requests)
+	if _, err := runCapture(t, "", "--effort", "high", "think carefully"); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].ReasoningEffort != "high" {
+		t.Fatalf("reasoning effort did not reach provider: %#v", requests)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultEffort != "" {
+		t.Fatalf("one-off effort changed default: %q", cfg.DefaultEffort)
+	}
+	if _, err := runCapture(t, "", "--effort", "off", "reply directly"); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 || requests[1].ReasoningEffort != "" {
+		t.Fatalf("off leaked as an upstream reasoning effort: %#v", requests)
 	}
 }
 
@@ -217,6 +244,27 @@ func TestRunSystemOverride(t *testing.T) {
 	}
 }
 
+// -cache-key pins prompt_cache_key so runs share a provider prefix cache;
+// without it the daemon keeps keying the cache by session id.
+func TestRunCacheKey(t *testing.T) {
+	var reqs []llm.Request
+	runFixture(t, "ok", &reqs)
+	if _, err := runCapture(t, "", "-cache-key", "repo/reviewer", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reqs[len(reqs)-1].PromptCacheKey; got != "repo/reviewer" {
+		t.Fatalf("-cache-key should reach the provider request, got %q", got)
+	}
+
+	runFixture(t, "ok", &reqs)
+	if _, err := runCapture(t, "", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reqs[len(reqs)-1].PromptCacheKey; got == "" || got == "repo/reviewer" {
+		t.Fatalf("default should key the cache by session id, got %q", got)
+	}
+}
+
 // -max-turns caps the tool loop; on the cap the model makes one final no-tools
 // answer instead of erroring.
 func TestRunMaxTurns(t *testing.T) {
@@ -239,10 +287,12 @@ func TestRunMaxTurns(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-max-turns", "2", "-no-session", "loop forever")
 	if err != nil {
@@ -255,24 +305,49 @@ func TestRunMaxTurns(t *testing.T) {
 
 // -timeout cancels an in-flight run and reports the timeout.
 func TestRunTimeout(t *testing.T) {
+	requested := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(3 * time.Second) // hang past the timeout
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		_, _ = io.Copy(io.Discard, r.Body)
+		requested <- struct{}{}
+		<-r.Context().Done()
+		canceled <- struct{}{}
 	}))
 	defer srv.Close()
+	defer srv.CloseClientConnections()
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
+	// Start the owner before timing a model turn so instrumentation and a cold
+	// build cannot turn this into a test of daemon startup time instead.
+	warm, err := connectDaemon(t.Context(), "automation", "timeout-warmup", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = warm.Close()
 
-	_, err := runCapture(t, "", "-timeout", "200ms", "-no-session", "hi")
+	// Allow a cold per-session worker to start; the provider remains blocked
+	// until cancellation, so this still exercises an in-flight timeout.
+	_, err = runCapture(t, "", "-timeout", "5s", "-no-session", "hi")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("a timed-out run should say so, got %v", err)
+	}
+	select {
+	case <-requested:
+	default:
+		t.Fatal("timeout test never reached the provider")
+	}
+	select {
+	case <-canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed-out run did not cancel its provider request")
 	}
 }
 
@@ -306,33 +381,9 @@ func TestRunQuietJSON(t *testing.T) {
 	}
 }
 
-func TestRunClientForCodex(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	path := filepath.Join(home, ".codex", "auth.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"access","refresh_token":"refresh","account_id":"account"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	client, err := tui.ClientForProvider(config.Provider{
-		BaseURL: config.CodexBaseURL,
-		API:     "openai-codex-responses",
-		Auth:    "codex",
-	}, config.CodexProviderName, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := client.(*llm.Codex); !ok {
-		t.Fatalf("client = %T, want *llm.Codex", client)
-	}
-}
-
 func configDir() (string, error) { return os.Getenv("WHIP_HOME"), nil }
 
-func sessionOpen(dir string) (*session.Store, error) { return session.Open(dir + "/sessions.db") }
+func sessionOpen(dir string) (*session.Store, error) { return session.Open(runtimeDBPath(dir)) }
 
 // Bad flags, an unknown --format, and a missing prompt all fail before any
 // provider is contacted.
@@ -395,8 +446,16 @@ func TestRunUnreadableConfig(t *testing.T) {
 // In --format json the tool calls are events too, and a failed run ends with
 // an error event rather than a done event.
 func TestRunJSONToolEvents(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "target.txt")
-	if err := os.WriteFile(target, []byte("file body"), 0o600); err != nil {
+	targetFile, err := os.CreateTemp(".", "run-tool-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := targetFile.Name()
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if _, err := targetFile.WriteString("file body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := targetFile.Close(); err != nil {
 		t.Fatal(err)
 	}
 	// Answers with a read tool call while tools are offered; once -max-turns
@@ -410,9 +469,9 @@ func TestRunJSONToolEvents(t *testing.T) {
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
 		}
-		args, _ := json.Marshal(map[string]string{"path": target})
+		args, _ := json.Marshal(map[string]string{"code": fmt.Sprintf("files.read(path=%q)", target)})
 		call, _ := json.Marshal(string(args))
-		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"read","arguments":%s}}]}}]}`+"\n\n", call)
+		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"rlm_exec","arguments":%s}}]}}]}`+"\n\n", call)
 		fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -422,12 +481,14 @@ func TestRunJSONToolEvents(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-format", "json", "-max-turns", "2", "-quiet", "-no-session", "read it")
 	if err != nil {
@@ -441,7 +502,7 @@ func TestRunJSONToolEvents(t *testing.T) {
 		}
 		seen[ev["type"]] = ev["name"] + ev["result"] + ev["error"] + ev["text"]
 	}
-	if seen["tool_start"] != "read" {
+	if seen["tool_start"] != "rlm_exec" {
 		t.Errorf("a tool call should emit tool_start for the tool, got %q", seen["tool_start"])
 	}
 	if !strings.Contains(seen["tool_end"], "file body") {
@@ -473,6 +534,7 @@ func TestRunJSONReasoning(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "--format", "json", "go")
 	if err != nil {
@@ -498,4 +560,153 @@ func TestRunJSONReasoning(t *testing.T) {
 	if !sawText {
 		t.Fatalf("want a text event too, got:\n%s", out)
 	}
+}
+
+func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
+	runFixture(t, "done", nil)
+	// This fixture omits usage, so both turns reserve the full prompt estimate.
+	// Keep engine/resume coverage independent of small guide-size changes.
+	_, err := runCapture(t, "", "--rlm-engine", "quickjs", "--permission-mode", "automatic", "--max-tokens", "20000", "select language")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Open(filepath.Join(os.Getenv("WHIP_HOME"), "runtime-v2", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	sessions, err := store.Recent(10)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("sessions=%+v %v", sessions, err)
+	}
+	root := sessions[0]
+	if root.ExecutionEngine != "quickjs" {
+		t.Fatalf("engine=%s", root.ExecutionEngine)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--rlm-engine", "starlark", "conflict"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
+		t.Fatalf("resume conflict=%v", err)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--rlm-engine", "quickjs", "matching assertion"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunAgentSelectionAndResume(t *testing.T) {
+	runFixture(t, "done", nil)
+	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "--max-tokens", "10000", "select agent"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Open(filepath.Join(os.Getenv("WHIP_HOME"), "runtime-v2", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	sessions, err := store.Recent(10)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("sessions=%+v %v", sessions, err)
+	}
+	root := sessions[0]
+	if root.Definition != "junior-developer" {
+		t.Fatalf("definition=%s", root.Definition)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "coding", "conflict"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
+		t.Fatalf("resume conflict=%v", err)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "junior-developer", "matching assertion"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCapture(t, "", "--agent", "architect", "prompt"); err == nil || !strings.Contains(err.Error(), "junior-developer") {
+		t.Fatalf("unknown agent accepted: %v", err)
+	}
+}
+
+func TestRunRejectsInvalidEngineAndLimits(t *testing.T) {
+	for _, args := range [][]string{{"--rlm-engine", "node"}, {"--permission-mode", "yes"}, {"--max-cost", "NaN"}, {"--max-cost", "-1"}, {"--max-tokens", "-1"}} {
+		if _, err := runCapture(t, "", append(args, "prompt")...); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+}
+
+func TestRunRejectsUnrepresentableCostCaps(t *testing.T) {
+	for _, test := range []struct {
+		value, want string
+	}{
+		{"0.0000001", "--max-cost must be at least"},
+		{"0.0000009", "--max-cost must be at least"},
+		{"9223372036854.775808", "--max-cost is too large"},
+		{"1e100", "--max-cost is too large"},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			_, err := runCapture(t, "", "--max-cost", test.value, "prompt")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("cost %s: got %v, want %q", test.value, err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
+	for _, engine := range []string{"starlark", "quickjs"} {
+		for _, mode := range []string{"prompt", "automatic"} {
+			t.Run(engine+"/"+mode, func(t *testing.T) {
+				target := filepath.Join(t.TempDir(), "proof.txt")
+				code := fmt.Sprintf("files.write(path=%q, content=\"written\")", target)
+				if engine == "quickjs" {
+					code = fmt.Sprintf("await files.write({path:%q, content:'written'});", target)
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// The daemon probes provider reachability with HEAD; only model
+					// calls carry a body.
+					if r.Method != http.MethodPost {
+						w.WriteHeader(http.StatusOK)
+						return
+					}
+					var req llm.Request
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Error(err)
+						return
+					}
+					w.Header().Set("Content-Type", "text/event-stream")
+					if lastTranscriptRole(req.Messages) == "tool" || len(req.Tools) == 0 {
+						fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
+						return
+					}
+					args, _ := json.Marshal(map[string]string{"code": code})
+					call, _ := json.Marshal(string(args))
+					fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"write","type":"function","function":{"name":"rlm_exec","arguments":%s}}]},"finish_reason":"tool_calls"}]}`+"\n\n", call)
+				}))
+				defer server.Close()
+				home := t.TempDir()
+				t.Setenv("WHIP_HOME", home)
+				cfg := fmt.Sprintf(`{"defaultModel":"test","mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKey":"k"}},"models":{"test":{"providers":["testprov"],"maxOut":100}}}`, server.URL)
+				if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				useTestDaemon(t)
+				if _, err := runCapture(t, "", "--rlm-engine", engine, "--permission-mode", mode, "--max-turns", "2", "--timeout", "20s", "write proof"); err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(target)
+				if mode == "automatic" && (err != nil || string(data) != "written") {
+					t.Fatalf("automatic headless write=%q err=%v", data, err)
+				}
+				if mode == "prompt" && !os.IsNotExist(err) {
+					t.Fatalf("prompt mode wrote without authorization: %q %v", data, err)
+				}
+			})
+		}
+	}
+}
+
+// lastTranscriptRole is the role of the newest history message. The ephemeral
+// notice rides last, so a fake provider that branches on the latest tool result
+// must look past system messages.
+func lastTranscriptRole(messages []llm.Message) string {
+	for _, message := range slices.Backward(messages) {
+		if message.Role != "system" {
+			return message.Role
+		}
+	}
+	return ""
 }

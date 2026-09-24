@@ -1,0 +1,173 @@
+package ui
+
+import (
+	"image/color"
+	"strings"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/tui/theme"
+)
+
+// ListItem is one selectable row: a left label and, right-aligned, either a
+// hint or a row of colour chips (Swatch wins when set).
+type ListItem struct {
+	Left, Right string
+	Mark        string // optional connection status in the gutter: ✓ or !
+	Swatch      []color.Color
+}
+
+// ListGroup is a run of items under an accent header ("" = no header).
+type ListGroup struct {
+	Title string
+	Items []ListItem
+}
+
+// List is the floating chooser every dialog shares (commands, message
+// actions, models, sessions): a panel of Width cells on the panel surface
+// with a bold title and a right-aligned hint, an optional search row, grouped
+// items with the selection as a full-width primary fill, and a footer of
+// key/description pairs. Window limits the item rows shown, kept around Sel,
+// so the selection can never scroll off a short terminal.
+type List struct {
+	Title, Hint string // header row: Title bold left, Hint muted right (e.g. "esc")
+	Gutter      bool   // reserve two cells for connection marks
+	Search      bool   // show the search row: Query, or the muted placeholder when empty
+	Query       string
+	SearchView  string // optional rendered input, including its caret; replaces Query's plain display
+	Groups      []ListGroup
+	Sel         int      // index over all items in group order
+	Empty       string   // shown instead of items when there are none
+	Footer      []string // key, description pairs: "enter", "select", "type", "to filter"
+	Width       int
+	Window      int // max item rows (0 = all)
+	Height      int // max total rows including chrome and group headers (0 = unlimited); the item window shrinks to fit
+}
+
+// Render returns the rows, each exactly Width cells.
+func (l List) Render(th *theme.Theme) []string {
+	bg := th.Surface.Panel
+	text, muted := th.On(th.Text, bg), th.On(th.Muted, bg)
+	head, accent := text.Bold(true), th.On(th.Accent, bg).Bold(true)
+	blank := PadRow("", l.Width, bg)
+	indent := 2
+	if l.Gutter {
+		indent += 2
+	}
+	// lr assembles left+right onto one padded row: left at col 2, right at the edge
+	lr := func(left, right string) string {
+		gap := max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
+		return PadRow(th.On(nil, bg).Render(strings.Repeat(" ", indent))+left+th.On(nil, bg).Render(strings.Repeat(" ", gap))+right, l.Width, bg)
+	}
+
+	rows := []string{blank, lr(head.Render(l.Title), muted.Render(l.Hint)), blank}
+	if l.Search {
+		if l.SearchView != "" {
+			rows = append(rows, lr(l.SearchView, ""))
+		} else if l.Query == "" {
+			rows = append(rows, lr(muted.Render("Search"), ""))
+		} else {
+			rows = append(rows, lr(text.Render(l.Query), ""))
+		}
+		rows = append(rows, blank)
+	}
+
+	total := 0
+	for _, g := range l.Groups {
+		total += len(g.Items)
+	}
+	prefix := rows // the chrome above the items
+	// body renders the items in a window of win rows around Sel, with the
+	// group headers the window touches.
+	body := func(win int) []string {
+		rows := append([]string(nil), prefix...)
+		lo, hi := 0, total
+		if win > 0 && win < total {
+			lo, hi = ListWindow(total, l.Sel, win)
+		}
+		idx, lastTitle, started := 0, "", false
+		for _, g := range l.Groups {
+			for _, it := range g.Items {
+				i := idx
+				idx++
+				if i < lo || i >= hi {
+					continue
+				}
+				if g.Title != lastTitle || !started {
+					if started {
+						rows = append(rows, blank)
+					}
+					if g.Title != "" {
+						rows = append(rows, lr(accent.Render(g.Title), ""))
+					}
+					lastTitle, started = g.Title, true
+				}
+				left := ansi.Truncate(it.Left, max(l.Width-indent-2, 1), "…")
+				right := ansi.Truncate(it.Right, max(l.Width-indent-2-lipgloss.Width(left)-2, 0), "…")
+				if i == l.Sel {
+					sel := th.Selected
+					prefix := strings.Repeat(" ", indent)
+					if l.Gutter && it.Mark != "" {
+						prefix = "  " + it.Mark + " "
+					}
+					tail := sel.Render(right + "  ")
+					if len(it.Swatch) > 0 {
+						tail = swatches(th, it.Swatch, th.Primary) + sel.Render("  ")
+					}
+					row := sel.Render(prefix+left) + sel.Render(strings.Repeat(" ", max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(tail), 1))) + tail
+					rows = append(rows, PadRow(ansi.Truncate(row, l.Width, ""), l.Width, th.Primary))
+				} else if l.Gutter && it.Mark != "" {
+					ink := th.Success
+					if it.Mark != "✓" {
+						ink = th.Warning
+					}
+					prefix := th.On(nil, bg).Render("  ") + th.On(ink, bg).Render(it.Mark+" ")
+					gap := max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
+					rows = append(rows, PadRow(prefix+text.Render(left+strings.Repeat(" ", gap))+muted.Render(right), l.Width, bg))
+				} else if len(it.Swatch) > 0 {
+					rows = append(rows, lr(text.Render(left), swatches(th, it.Swatch, bg)))
+				} else {
+					rows = append(rows, lr(text.Render(left), muted.Render(right)))
+				}
+			}
+		}
+		if total == 0 && l.Empty != "" {
+			rows = append(rows, lr(muted.Render(l.Empty), ""))
+		}
+		if len(l.Footer) > 0 {
+			rows = append(rows, blank, lr(Hints(th, bg, l.Footer...), ""))
+		}
+		return append(rows, blank)
+	}
+	win := total
+	if l.Window > 0 {
+		win = min(win, l.Window)
+	}
+	rows = body(win)
+	for l.Height > 0 && len(rows) > l.Height && win > 1 { // shrink the window by the overflow until the panel fits
+		win = max(win-(len(rows)-l.Height), 1)
+		rows = body(win)
+	}
+	return rows
+}
+
+// ListWindow returns the [lo,hi) item range showing up to budget rows
+// centered on idx.
+func ListWindow(n, idx, budget int) (int, int) {
+	if budget >= n {
+		return 0, n
+	}
+	lo := max(idx-budget/2, 0)
+	hi := min(lo+budget, n)
+	return max(hi-budget, 0), hi
+}
+
+// swatches renders colour chips side by side on bg.
+func swatches(th *theme.Theme, cs []color.Color, bg color.Color) string {
+	var b strings.Builder
+	for _, c := range cs {
+		b.WriteString(th.On(c, bg).Render("██"))
+	}
+	return b.String()
+}

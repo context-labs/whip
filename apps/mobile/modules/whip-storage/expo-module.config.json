@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["WhipStorageModule"] },
+  "android": { "modules": ["expo.modules.whipstorage.WhipStorageModule"] }
+}

@@ -10,7 +10,7 @@ import (
 func catalogFixture(t *testing.T, prov string, models ...ModelInfoLite) {
 	t.Helper()
 	t.Setenv("WHIP_HOME", t.TempDir())
-	if err := SaveCatalogs(map[string]Catalog{prov: {Models: models}}); err != nil {
+	if err := SaveCatalogs(map[string]Catalog{prov: {BaseURL: "https://" + prov, Models: models}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -56,6 +56,19 @@ func TestResolveCatalogFallbackSingleProvider(t *testing.T) {
 	}
 }
 
+func TestResolveRoutePreservesCatalogProviderIdentity(t *testing.T) {
+	catalogFixture(t, "catalog-owner", ModelInfoLite{ID: "catalog-only"})
+	cfg := cfgWithProviders("default", "catalog-owner")
+	cfg.DefaultProvider = "default"
+	name, provider, _, id, err := cfg.ResolveRoute("catalog-only", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "catalog-owner" || provider.BaseURL != "https://catalog-owner" || id != "catalog-only" {
+		t.Fatalf("resolved identity = %q %q %q", name, provider.BaseURL, id)
+	}
+}
+
 // Vision is populated from the catalog's input_modalities.
 func TestResolveCatalogFallbackVision(t *testing.T) {
 	catalogFixture(t, "inference", ModelInfoLite{
@@ -75,8 +88,8 @@ func TestResolveCatalogFallbackVision(t *testing.T) {
 func TestResolveCatalogFallbackAmbiguous(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	if err := SaveCatalogs(map[string]Catalog{
-		"alpha": {Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 1000}}},
-		"beta":  {Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 2000}}},
+		"alpha": {BaseURL: "https://alpha", Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 1000}}},
+		"beta":  {BaseURL: "https://beta", Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 2000}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -96,27 +109,6 @@ func TestResolveCatalogFallbackAmbiguous(t *testing.T) {
 	}
 	if p.BaseURL != "https://beta" || m.Context != 2000 {
 		t.Fatalf("pinned provider should win with its catalog entry: %+v %+v", p, m)
-	}
-}
-
-func TestResolveCatalogFallbackUsesDefaultProvider(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	if err := SaveCatalogs(map[string]Catalog{
-		"codex":     {Models: []ModelInfoLite{{ID: "gpt-5.6-terra", ContextLength: 1050000}}},
-		"inference": {Models: []ModelInfoLite{{ID: "gpt-5.6-terra", ContextLength: 1000000}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	cfg := cfgWithProviders("codex", "inference")
-	cfg.DefaultModel = "gpt-5.6-terra"
-	cfg.DefaultProvider = "codex"
-
-	p, m, id, err := cfg.Resolve("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.BaseURL != "https://codex" || id != "gpt-5.6-terra" || m.Context != 1050000 {
-		t.Fatalf("default provider should select the Codex catalog route: provider=%+v model=%+v id=%q", p, m, id)
 	}
 }
 
@@ -169,33 +161,12 @@ func TestResolveUnknownModelErrorTyping(t *testing.T) {
 	if unknown.Model != "nope" {
 		t.Errorf("error should carry the missed name, got %q", unknown.Model)
 	}
-	want := `unknown model "nope" (configured: glm-5.2-fast; catalog models are listed by /model)`
+	want := `unknown model "nope" (models: glm-5.2-fast)`
 	if err.Error() != want {
 		t.Errorf("message changed: got %q want %q", err.Error(), want)
 	}
 
 	if _, _, _, err = cfg.Resolve("glm-5.2-fast", "ghost"); errors.As(err, &unknown) {
 		t.Error("unknown provider must not be typed as a refreshable miss")
-	}
-}
-
-// A catalog-only model served by a provider other than DefaultProvider still
-// resolves: the catalog scan runs before the default provider applies.
-func TestResolveCatalogModelIgnoresDefaultProviderPin(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	if err := SaveCatalogs(map[string]Catalog{
-		"other": {Models: []ModelInfoLite{{ID: "only-here", ContextLength: 1000}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	cfg := cfgWithProviders("openrouter", "other")
-	cfg.DefaultProvider = "openrouter"
-	p, _, id, err := cfg.Resolve("only-here", "")
-	if err != nil || id != "only-here" || p.BaseURL != cfg.Providers["other"].BaseURL {
-		t.Fatalf("catalog-only model on a non-default provider should resolve there: %+v %q %v", p, id, err)
-	}
-	// An explicit provider still pins the scan.
-	if _, _, _, err := cfg.Resolve("only-here", "openrouter"); err == nil {
-		t.Fatal("explicit provider that doesn't advertise the model should fail")
 	}
 }

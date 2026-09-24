@@ -172,7 +172,7 @@ in the system prompt — the feature paid for itself on first run.
 | 5 | Server instructions in system prompt | 1 | ✅ shipped |
 | 6 | `mcp import` | 2 | ✅ shipped (with import source gating, see `.ai-docs/plans/mcp-import-toggle/`) |
 | 7 | `mcp test` doctor | 2 | ✅ shipped |
-| 8 | Overlay entries | 2 | planned |
+| 8 | Overlay entries | 2 | closed — `whip mcp import` now writes native, trusted entries; see `../mcp-contracts/PLAN.md` decision 5 |
 | 9 | serve project conventions | 3 | parked |
 | 10 | codex bearer tokens | 3 | parked |
 | 11 | ToolListChanged live re-list | 3 | parked |

@@ -1,0 +1,762 @@
+{
+  "artifact_root": "artifacts/modal-smoke-20260915-otel",
+  "baseline_at_launch": null,
+  "candidates": [
+    {
+      "binary_path": "cache/builds/84803e294f4e9cda8b8dc2f479c057451db190ba5e98897f1a66eea4e029178d/whip-linux-amd64",
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "build": {
+        "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+        "recipe": {
+          "CGO_ENABLED": "0",
+          "GOARCH": "amd64",
+          "GOOS": "linux",
+          "commit": "386e58783aa294aae3553365385908ed61183dc1",
+          "flags": [
+            "-trimpath",
+            "-buildvcs=false",
+            "-ldflags",
+            "-X main.version=386e58783aa294aae3553365385908ed61183dc1"
+          ],
+          "go_version": "go version go1.27.0 linux/amd64",
+          "source_sha256": "e2cb4007b4cccd111165743430aa06d0881de8914cede61ca4137d5b7962fcfb"
+        },
+        "ripgrep_sha256": "f401154e2393f9002ac77e419f9ee5521c18f4f8cd3e32293972f493ba06fce7"
+      },
+      "commit": "386e58783aa294aae3553365385908ed61183dc1",
+      "configuration": {
+        "browser": {
+          "enabled": false
+        },
+        "compactModel": "kimi-k3-fast",
+        "compactProvider": "inference-net",
+        "computer": {
+          "enabled": false
+        },
+        "defaultEffort": "high",
+        "defaultModel": "kimi-k3-fast",
+        "defaultProvider": "inference-net",
+        "mcpImport": {
+          "claude": {
+            "enabled": false
+          },
+          "codex": {
+            "enabled": false
+          }
+        },
+        "models": {
+          "kimi-k3-fast": {
+            "context": 1048576,
+            "maxOut": 262144,
+            "providers": [
+              "inference-net"
+            ],
+            "vision": true
+          }
+        },
+        "providers": {
+          "inference-net": {
+            "api": "openai-completions",
+            "apiKeyEnv": "INFERENCE_API_KEY",
+            "baseUrl": "https://api.inference.net/v1",
+            "name": "Inference.net"
+          }
+        },
+        "rlm": {
+          "defaultEngine": "quickjs"
+        }
+      },
+      "dirty": false,
+      "engine": "quickjs",
+      "id": "candidate",
+      "source_sha256": "e2cb4007b4cccd111165743430aa06d0881de8914cede61ca4137d5b7962fcfb"
+    }
+  ],
+  "capacity": null,
+  "catalog": {
+    "context_length": 1048576,
+    "id": "kimi-k3-fast",
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "max_completion_tokens": 1048576,
+    "pricing": {
+      "completion": "0.000022500000",
+      "input_cache_read": "0.000000450000",
+      "prompt": "0.000004500000"
+    },
+    "reasoning_efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  "comparison": {
+    "controller_source_sha256": "e04f888d08f75ccaa63d8e82be7340929184ee54c33369184961e1b56b9f0918",
+    "environment": {
+      "app": "whip-eval",
+      "automatic_task_retries": 0,
+      "backend": "modal-docker",
+      "environment": "whipcode",
+      "image_policy": "original-pinned-task-images",
+      "jobs": 8,
+      "max_jobs": 90,
+      "promotion_allowed": false,
+      "shapes": {
+        "harbor": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        },
+        "pier": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        }
+      },
+      "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3",
+      "worker_root": "/work/evals"
+    },
+    "measurement_code": {
+      "__init__.py": "01180c8b4c31897bb09717f4af6a89e9e3b733587eae173c023322346d2b947c",
+      "adapter.py": "93fbc7b6415751385a3f44f03d48f721ec11d83c864b2ac9611002bbf47fd1a8",
+      "common.py": "6a6b56bf6f8cf83da77dd3d0043f43df9b5a4eb5aac863c7b287479896cc39d7",
+      "execution.py": "4b3c9fd51f36928d646a084e2a21bd0c50c3312bb7f8c90e2df865b3f3dfe120",
+      "modal_bundle.py": "150654c061f89f9c98a5654527a86a9b978fd35d74c1c1333116e51d19b0adde",
+      "modal_worker.py": "1560f23a57b6a2b4bb8c3bc8e1afc9e39f4f02d62581a5a858bec2b24ef798a1",
+      "observe.py": "e093b99c45abc6ce210de1268c1d1dace95143946aeb93ca9629ab6d40cd54db",
+      "prepare.py": "1a79d551e799095eb9010e6245b2256f88808b4b64eac58c487f5a7772a0084f",
+      "prepare_ripgrep.py": "5bda541978748495cdcee099d88fba834c3c5a0d9a1c5b10472a304a2ac7f8cf",
+      "report.py": "b2093ff2e346daeec32229bacfec6523486cdd38c51221c652399708a223463e",
+      "tasks.py": "b54320c96bba08aaa1cab4f7f5e37578a0df4a8331f60d7ef97c63387e51242a"
+    },
+    "protocol_sha256": "e44c539a6242edfc7abc357ec1a0bcb6d758db1ead02af77d1fe75ce42dc6532",
+    "provider_catalog_sha256": "f6ab80da63de0dba09d265ec6cdeb0fc4c24ab8a7a9ef5d22bfc699ad896f6f7",
+    "requested_jobs": 8,
+    "resource_policy": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf"
+  },
+  "comparison_key": "4d492b4d0aa660eea01c86c8b278e7e90cdaf152d80e66c26327a029e7855d0c",
+  "controller_source_sha256": "e04f888d08f75ccaa63d8e82be7340929184ee54c33369184961e1b56b9f0918",
+  "cost_estimate": {
+    "basis_run_id": null,
+    "cost_usd": null,
+    "is_limit": false,
+    "method": "accepted per-task mean cost, projected to all planned arms/repetitions"
+  },
+  "created_at": "2026-09-15T03:32:55.948028Z",
+  "external_references": {
+    "applied_network_allowlist": null,
+    "attempts_per_task": 1,
+    "benchmark_revision": "e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63",
+    "environment": "Runta",
+    "kind": "published_context_only",
+    "methodology_comparable": false,
+    "model": "Kimi K3",
+    "notes": "Selected published reference points, not a complete leaderboard or a matched Whip comparison. No cost normalization or ranking is inferred.",
+    "profile": "full",
+    "provider": "Fireworks",
+    "schema_version": 1,
+    "scores": [
+      {
+        "harness": "Codex",
+        "published_pass_rate_percent": 66.7,
+        "version": "0.148.0"
+      },
+      {
+        "harness": "Claude Code",
+        "published_pass_rate_percent": 63.3,
+        "version": "2.1.237"
+      },
+      {
+        "harness": "Pi",
+        "published_pass_rate_percent": 60.0,
+        "version": "0.84.2"
+      }
+    ],
+    "source_url": "https://github.com/frontier-harness-eval/eval/blob/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/README.md",
+    "task_count": 30
+  },
+  "host": {
+    "backend": "modal-docker",
+    "qualified": false
+  },
+  "jobs": 8,
+  "label": "",
+  "prepared_tasks": {
+    "datacurve/anko-typed-variable-bindings": "6af0e829153dad2c71a0206842b45d0d76ec1011f037a991e504d42972ae5275",
+    "datacurve/httpx-multipart-response-parsing": "a899b881c0b6ad2644287c212b1f30b2cdf6f141df2b0b5cab056a3225256e01",
+    "terminal-bench/build-cython-ext": "d0cd45c10ff602d9ce44cad038b58042af6c952e5bdf9ffee6006c3b389ae429",
+    "terminal-bench/code-from-image": "f5a3276c1894ee4a99311ec9624841845b07ad9e084c44b2f21a9a1291fa3896",
+    "terminal-bench/db-wal-recovery": "c092fe2539a9180081ed2b697003ac51b4d2f89d235b299fa6c5f39813b29bc6",
+    "terminal-bench/kv-store-grpc": "00571e02d092d265bae75646dc9e3da8d429023c8976acf9f7d8d933619e97b3",
+    "terminal-bench/openssl-selfsigned-cert": "8b3c2227cdd940fd23971ad32da277d4eabf9f1cef4d23cef6583097d27744e3",
+    "terminal-bench/regex-log": "835301a8c522904fb5e71431f3b0bf239abb93cfa1af58715edb44b83fa43371"
+  },
+  "profile": "smoke",
+  "profile_version": 1,
+  "promote": false,
+  "promotion_policy": {
+    "bootstrap_samples": 10000,
+    "max_cost_ratio": 1.1,
+    "max_latency_ratio": 1.1,
+    "min_common_success_tasks": 5,
+    "repetitions": 3,
+    "version": 1
+  },
+  "protocol": {
+    "agent_setup_seconds": 600,
+    "automatic_task_retries": 0,
+    "cleanup_seconds": 240,
+    "commit_instruction": "Commit your final changes in this disposable task repository so the evaluator can collect git diff BASE HEAD.",
+    "effort": "high",
+    "endpoint": "https://api.inference.net/v1",
+    "execution": {
+      "app": "whip-eval",
+      "automatic_task_retries": 0,
+      "backend": "modal-docker",
+      "environment": "whipcode",
+      "image_policy": "original-pinned-task-images",
+      "jobs": 8,
+      "max_jobs": 90,
+      "promotion_allowed": false,
+      "shapes": {
+        "harbor": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        },
+        "pier": {
+          "memory_mb": 24576,
+          "min_free_disk_mb": 100000,
+          "physical_cpus": 6
+        }
+      },
+      "worker_image_id": "im-jUQGZWajkRbfGPY11rNEN3",
+      "worker_root": "/work/evals"
+    },
+    "headroom": {
+      "cpus": 2,
+      "memory_mb": 4096,
+      "storage_mb": 10240
+    },
+    "id": "frontier-v1-local-v1-modal-docker-v1",
+    "limits": {
+      "cost_usd": null,
+      "output_override": null,
+      "rounds": null,
+      "tokens": null
+    },
+    "max_jobs": 90,
+    "methodology": "Frontier native Docker trials on Modal VM; not a local baseline or leaderboard ranking",
+    "methodology_comparable": false,
+    "model": "kimi-k3-fast",
+    "network": {
+      "pier_agent_provider_exception": [
+        "api.inference.net"
+      ],
+      "pier_environment_import_path": "whip_evals.adapter:PierDockerEnvironment",
+      "pier_proxy_nofile": {
+        "hard": 65536,
+        "soft": 65536
+      },
+      "task_policy": "resolved native task declarations and pinned runner defaults"
+    },
+    "observer_grace_seconds": 45,
+    "platform": "linux/amd64",
+    "promotion": {
+      "bootstrap_samples": 10000,
+      "max_cost_ratio": 1.1,
+      "max_latency_ratio": 1.1,
+      "min_common_success_tasks": 5,
+      "repetitions": 3,
+      "version": 1
+    },
+    "provider": "inference-net",
+    "runner_guard_seconds": 60,
+    "runner_versions": {
+      "datacurve-pier": "0.3.1",
+      "harbor": "0.22.0"
+    },
+    "sampling": {
+      "temperature": null,
+      "top_p": null
+    },
+    "schema_version": 1,
+    "track": "frontier-v1-local-v1/kimi-k3-fast-inference-high-modal-docker-v1"
+  },
+  "repetitions": 1,
+  "resolved_tasks": {
+    "datacurve/anko-typed-variable-bindings": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:4fb704fd8dff600f6d028c20ae4aca5e1261968bb615bb41c01a111dd371255b",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 3f269a72ff69398b1250c584171f32d12c0d8085 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "datacurve/httpx-multipart-response-parsing": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": "no-network",
+        "timeout_sec": 5400.0,
+        "user": null
+      },
+      "environment": {
+        "allow_internet": false,
+        "allowed_hosts": null,
+        "build_timeout_sec": 1800.0,
+        "cpus": 2,
+        "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:47d0af14d988caa7d22b14312be2c3ee4e9ac799a5679bd83d19f298d346749d",
+        "env": {},
+        "gpu_types": null,
+        "gpus": 0,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 8192,
+        "network_mode": "no-network",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 20480,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [
+          {
+            "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary b5addb64f0161ff6bfe94c124ef76f6a1fba5254 HEAD > /logs/artifacts/model.patch",
+            "service": "main",
+            "timeout_sec": 300.0,
+            "user": null
+          }
+        ],
+        "env": {},
+        "environment": {
+          "allow_internet": false,
+          "allowed_hosts": null,
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": null,
+          "env": {},
+          "gpu_types": null,
+          "gpus": 0,
+          "healthcheck": null,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "network_mode": "no-network",
+          "os": "linux",
+          "skills_dir": null,
+          "storage_mb": 20480,
+          "workdir": null
+        },
+        "environment_mode": "separate",
+        "network_mode": "no-network",
+        "timeout_sec": 1800.0,
+        "user": null
+      }
+    },
+    "terminal-bench/build-cython-ext": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/build-cython-ext@sha256:3612a38fadb89a96f74a1a951fb0b0af734198fd160571eeaba6401593234594",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/code-from-image": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/code-from-image@sha256:2be9cdb746ed18c1b2b1404032efae0b2235a1b8fc479ef17730c95409d89f76",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      }
+    },
+    "terminal-bench/db-wal-recovery": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/db-wal-recovery@sha256:0e33ea5ec823975d1bd6c3778395c9f94251dd88f571146057bff6adb7e4594e",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/kv-store-grpc": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/kv-store-grpc@sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/openssl-selfsigned-cert": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/openssl-selfsigned-cert@sha256:4c948a4e630af2435ae0a19108fc0814a946ac2fa29a512469e0fc77b38c8c12",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    },
+    "terminal-bench/regex-log": {
+      "agent": {
+        "allowed_hosts": null,
+        "network_mode": null,
+        "timeout_sec": 1200.0,
+        "user": null
+      },
+      "environment": {
+        "allowed_hosts": null,
+        "build_timeout_sec": 600.0,
+        "cpus": 1,
+        "docker_image": "alexgshaw/regex-log@sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9",
+        "env": {},
+        "gpu_types": null,
+        "gpus": null,
+        "healthcheck": null,
+        "mcp_servers": [],
+        "memory_mb": 2048,
+        "network_mode": "public",
+        "os": "linux",
+        "skills_dir": null,
+        "storage_mb": 10240,
+        "tpu": null,
+        "workdir": null
+      },
+      "verifier": {
+        "allowed_hosts": null,
+        "collect": [],
+        "env": {},
+        "environment": null,
+        "environment_mode": null,
+        "network_mode": null,
+        "timeout_sec": 900.0,
+        "user": null
+      }
+    }
+  },
+  "run_id": "modal-smoke-20260915-otel",
+  "schedule": [
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0001",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/code-from-image"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0002",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/build-cython-ext"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0003",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/httpx-multipart-response-parsing"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0004",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/openssl-selfsigned-cert"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0005",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/db-wal-recovery"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0006",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/regex-log"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0007",
+      "repetition": 1,
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "runner": "pier",
+      "task_id": "datacurve/anko-typed-variable-bindings"
+    },
+    {
+      "binary_sha256": "4a84f7b087c3dcc1cb5eb1280ad3d918c2950e2f2d4829c09b4effb19eb23fa9",
+      "candidate_id": "candidate",
+      "engine": "quickjs",
+      "id": "t0008",
+      "repetition": 1,
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "runner": "harbor",
+      "task_id": "terminal-bench/kv-store-grpc"
+    }
+  ],
+  "schema_version": 1,
+  "seed": 20260910,
+  "task_ids": [
+    "terminal-bench/regex-log",
+    "terminal-bench/openssl-selfsigned-cert",
+    "terminal-bench/build-cython-ext",
+    "terminal-bench/code-from-image",
+    "terminal-bench/kv-store-grpc",
+    "terminal-bench/db-wal-recovery",
+    "datacurve/anko-typed-variable-bindings",
+    "datacurve/httpx-multipart-response-parsing"
+  ],
+  "task_lock_sha256": "f938584dcf0b477025493ff9ab2c385d715416313ee775e43d904bed46b213bf",
+  "track": "frontier-v1-local-v1/kimi-k3-fast-inference-high-modal-docker-v1",
+  "uv_lock_sha256": "22e9de6676e3923fa6a0ab7cfa1f7b1595e1b4b41d21265bd8d6de026d49f97d"
+}

@@ -22,7 +22,7 @@ var effortCands = []cand{
 // model: the provider-advertised levels if known (each prefixed by off), else
 // the defaults.
 func (m *model) effortsFor() []string {
-	return effortsIn(m.catalogs, m.provName, m.agent.Model)
+	return effortsIn(m.catalogs, m.provName, m.displayModelID())
 }
 
 // effortsIn returns the effort cycle for a model id on a provider, using the
@@ -46,6 +46,9 @@ func effortsIn(catalogs map[string]config.Catalog, provName, modelID string) []s
 // as-is, even if the model later turns out not to support it (updateCatalogs
 // resets the live session).
 func DefaultEffortFor(catalogs map[string]config.Catalog, provName, modelID, pinned string) string {
+	if pinned == "off" {
+		return ""
+	}
 	if pinned != "" {
 		return pinned
 	}
@@ -114,11 +117,7 @@ func effortCandsFor(levels []string) []cand {
 // fetch completes).
 func (m *model) updateCatalogs(cats map[string]config.Catalog) {
 	m.catalogs = cats
-	if n := m.contextLimitFor(m.provName, m.agent.Model); n > 0 && n != m.agent.ContextLimit {
-		m.agent.ContextLimit = n // a provider-advertised limit overrides the configured fallback
-	}
-	if !slices.Contains(m.effortsFor(), m.agent.Effort) {
-		m.resetEffort("")
-		m.append(dimStyle.Render("⚡ effort reset to off: not supported by " + m.agent.Model))
+	if limit := m.contextLimitFor(m.provName, m.displayModelID()); limit > 0 {
+		m.clientView.contextLimit = limit
 	}
 }

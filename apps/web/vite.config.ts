@@ -1,0 +1,60 @@
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import stylex from '@stylexjs/unplugin';
+import { tanstackRouter } from '@tanstack/router-plugin/vite';
+import { daemonProxy } from './dev-proxy';
+
+export default defineConfig({
+  plugins: [
+    {
+      name: 'whip-renderer-boundary',
+      generateBundle() {
+        for (const id of this.getModuleIds()) {
+          const name = id.replaceAll('\\', '/');
+          // ghostty-web ships an inert Vite shim (an empty object) for its Node/Bun WASM
+          // loaders; the browser path falls through to fetch. Nothing else may carry the marker.
+          if (/ghostty-web\/dist\/__vite-browser-external-[^/]+\.js$/.test(name)) continue;
+          if (name.startsWith('node:') || name.includes('__vite-browser-external') ||
+              /(?:^|\/)electron(?:\/|$)/.test(name) || /packages\/sdk\/(?:src|dist)\/node\.[cm]?[jt]s$/.test(name))
+            this.error(`Native module entered the shared renderer: ${id}`);
+        }
+      },
+    },
+    tanstackRouter({ target: 'react', routesDirectory: '../../packages/app/src/routes', generatedRouteTree: '../../packages/app/src/routeTree.gen.ts', autoCodeSplitting: true }),
+    {
+      name: 'whip-stylex-dev-constants',
+      apply: 'serve',
+      enforce: 'pre',
+      configureServer(server) {
+        const tokens = `/@fs/${fileURLToPath(new URL('../../packages/ui/src/tokens.stylex.ts', import.meta.url))}`;
+        server.middlewares.use((request, _response, next) => {
+          if (!request.url?.startsWith('/virtual:stylex.css')) return next();
+          // StyleX collects partial module graphs during startup. Resolve defineConsts
+          // before Lightning CSS sees unresolved var(...) media-query selectors.
+          void server.transformRequest(tokens).then(() => next(), next);
+        });
+      },
+    },
+    stylex.vite({
+      useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false,
+      unstable_moduleResolution: { type: 'commonJS', rootDir: fileURLToPath(new URL('../../', import.meta.url)) },
+    }),
+    react(),
+  ],
+  // StyleX source packages skip prebundling; their CommonJS store shims must not.
+  optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector', 'beautiful-mermaid'] },
+  server: {
+    strictPort: true,
+    proxy: { '/api/': daemonProxy() },
+  },
+  build: {
+    target: 'es2022', sourcemap: false, assetsInlineLimit: 0,
+    rolldownOptions: {
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        design: fileURLToPath(new URL('./design.html', import.meta.url)),
+      },
+    },
+  },
+});

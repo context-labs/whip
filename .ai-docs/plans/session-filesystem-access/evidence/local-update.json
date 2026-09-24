@@ -1,0 +1,39 @@
+{
+  "buildId": "local-20260909224404584-7058e007f",
+  "app": "/Applications/Whip.app",
+  "executable": "/usr/local/bin/whipcode",
+  "backup": "/Applications/.whip-local-update-1Maob7",
+  "status": {
+    "state": "running",
+    "network_endpoint": "http://127.0.0.1:8080",
+    "pid": 51102,
+    "generation": 16,
+    "daemon_build": "local-20260909224404584-7058e007f",
+    "client_build": "local-20260909224404584-7058e007f",
+    "build_match": true,
+    "started_at": "2026-09-09T22:46:41.958013Z",
+    "uptime_seconds": 42,
+    "socket": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.sock",
+    "database": "/Users/samheutmaker/.whipcode/runtime-v2/sessions.db",
+    "log": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.log"
+  },
+  "recordedAt": "2026-09-09T22:47:24.547974+00:00",
+  "runtimeInfo": {
+    "distribution": "whipcode",
+    "buildId": "local-20260909224404584-7058e007f",
+    "updateOwner": "desktop",
+    "protocolMajor": 5,
+    "protocolMinor": 1,
+    "schemaVersion": 14
+  },
+  "databaseSchema": {
+    "version": 14,
+    "identity": "whip-recursive-runtime-v14"
+  },
+  "backendSHA256": "03ef339d78d1785e6ce02af79aed8575a80f6fa7ebe5051f2d8b99b42b74e9e6",
+  "packagedBackendMatchesInstalled": true,
+  "strictAppleTeamSignatureVerified": "JAPWPV5JY2",
+  "desktopProcessObserved": true,
+  "rendererDigest": "c7f3c6d5d680f56ca9a85e0a9e6f4ba573aef142e4014329cd486e2d5fd8d955",
+  "packageRuntimeDigest": "03ef339d78d1785e6ce02af79aed8575a80f6fa7ebe5051f2d8b99b42b74e9e6"
+}

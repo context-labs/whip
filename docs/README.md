@@ -1,9 +1,21 @@
 # whip manual
 
+Start with [installation and local development](setup.md) for Desktop, WhipCode,
+and the older `whip` distribution. [Benchmark notes](benchmarks.md) explain the
+README comparison and its limits.
+
 Everything that used to crowd the top-level README: full setup, config
 reference, MCP, browser/computer-use, and the map of how whip works.
 
-Start with [architecture.md](architecture.md) for the moving parts.
+Start with [architecture.md](architecture.md) for the moving parts and
+[rlm-runtime.md](rlm-runtime.md) for the recursive runtime, limits, recovery,
+and troubleshooting.
+
+For frontend work, start with [frontend.md](frontend.md): the canonical coding-agent
+guide to design philosophy, packages, components, data fetching, state ownership,
+and validation. [web-app.md](web-app.md) covers running the application.
+[desktop.md](desktop.md) covers the macOS host, shared renderer, retained daemon,
+signing and release setup, with the current acceptance limits.
 
 ## Install
 
@@ -49,17 +61,21 @@ task run                 # run locally from source
 task run -- -m glm-5.2-fast          # pass flags after --
 whip                    # installed binary, default model
 whip -m kimi-k3-fast -p inference   # pick model AND provider
+whip run -cache-key repo/reviewer "prompt"   # headless; stable prompt cache across runs
 ```
 
-`task --list` shows the rest (build, test, fmt, vet, tidy).
+`task --list` shows the rest (build, test, acceptance, fmt, vet, tidy).
 
-In-session: `/model <name> [provider]`, `/tasks` (background subagents), `/clear`, `/help`, `/quit`. ctrl+c once interrupts; ctrl+c twice quits (and kills any agent-spawned child processes).
-
-The `task` tool runs tool calls in **parallel** (per-path file-mutation locks keep edits to the same file serial) and supports `background: true` to launch a subagent that works concurrently and reports back when done.
+In-session: `/model <name> [provider]`, `/agents`, `/clear`, `/help`, and
+`/quit`. ctrl+c once interrupts; twice quits. The model creates retained
+children with `agents.spawn` inside `rlm_exec`.
 
 See [features.md](features.md) for the full feature map and [concurrency.md](concurrency.md) for the channel design.
 
 ## Config — `~/.whip/config.json`
+
+RLM worker limits are configurable under the `rlm` block; there is no runtime
+mode switch. See [rlm-runtime.md](rlm-runtime.md#limits).
 
 Models are routed to providers: a model lists the providers that serve it, and
 you can switch providers without touching the model. Written with defaults for
@@ -103,14 +119,38 @@ in `~/.inf/config.json` by the `inf` CLI.
 
 ## MCP
 
-whip connects to MCP servers and their tools appear in the agent as
-`mcp__<server>__<tool>`. Three config styles all work — whip reads your
-existing setup:
+whip connects to MCP servers and exposes them through `mcp.search`,
+`mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, and `mcp.call` inside
+Starlark. Five sources feed one merged
+set; on a name conflict the earlier source in this list wins:
 
-- **claude-style**: a `.mcp.json` in the project root (`{"mcpServers": {...}}`)
-- **codex-style**: `[mcp_servers.*]` tables in `~/.codex/config.toml`
-- **whip-native**: an `"mcp"` block in `~/.whip/config.json` (wins on
-  name conflicts):
+- **whip-native**: an `"mcp"` block in `~/.whip/config.json`. The only
+  trusted source: its servers skip per-call consent.
+- **project**: a `.mcp.json` in the session's working directory
+  (`{"mcpServers": {...}}`). Repository-authored, so it is **off until you
+  enable it** with `"mcpImport": {"project": {"enabled": true}}` or
+  `/mcp import project on`. Enabling a source runs its servers' programs at
+  session start; tool consent is not a process sandbox.
+- **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
+- **claude**: `mcpServers` in `~/.claude.json` (on by default).
+- **opencode**: the `mcp` block in `~/.config/opencode/{config,opencode}.json[c]`
+  (on by default; `local` entries become stdio, `remote` become HTTP,
+  `{env:NAME}` placeholders become `${NAME}` references, `{file:…}` stays as
+  written, and an entry with `oauth` imports disabled with a "needs a
+  sign-in" note because whip has no browser sign-in for MCP servers).
+
+Each import source takes `enabled`, `only` and `exclude`. Servers a source
+gate filters out stay visible in `/mcp` as `blocked`. `whip mcp import`
+copies imported servers into the native block, where they become trusted. The
+web and desktop app offer the same import as a screen: once per host on New
+session when other agents have servers configured there, and any time from
+Settings › Agents & execution › MCP servers. Tick what you want and
+Import writes it into the native block; Skip sets `mcpImport.offered` so the
+offer does not come back on its own. Each row shows the vendor's logo: the app
+bundles marks for the common MCP vendors, and the daemon looks the rest up on
+DuckDuckGo by the server's domain, once, caching under `~/.whip/icons`. Set
+`"brandIcons": false` (or turn off "Server logos" in that Settings group) to
+keep every lookup on the host; unresolved rows show a monogram.
 
 ```json
 {
@@ -129,16 +169,22 @@ Servers connect in the background at startup and lazily on first use — a
 slow or broken server never blocks the loop (calls fail fast with an
 actionable message, and dropped sessions auto-reconnect with backoff).
 `/mcp` shows live status; `/mcp <name> reconnect|enable|disable` manages
-servers without restarting. Server instructions teach the model how to use
+servers for the current session without restarting (host configuration is
+unchanged; `/mcp import <source> on|off` is the host-level switch). Server instructions teach the model how to use
 each server's tools automatically. CLI: `whip mcp list|add|remove|import`
-(`import [--dry-run]` copies imported servers into whip's own config), and
+(`import [--dry-run]` copies imported servers into whip's own config, where
+they become trusted like hand-written entries), and
 `whip mcp test <name>` to doctor one server (status, timing, tool names,
 stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
-other harnesses. Codex configs with `http_headers` and
-`bearer_token_env_var` import correctly (the env var resolves to an
-`Authorization` header at load), and codex's `[mcp_servers.X.tools.*]`
-per-tool approval tables are skipped — they're codex's config, not servers.
+other harnesses through a daemon-owned root; the stdio adapter never opens
+SQLite or invokes tool handlers directly. The bridge cannot obtain new
+consent: saved rules still apply, but an outer client's approval of a call is
+not forwarded as whip consent. Codex configs with `http_headers` and
+`bearer_token_env_var` import correctly (the env var becomes an
+`Authorization: Bearer $VAR` header reference, resolved in the daemon's
+environment at connect), and codex's `[mcp_servers.X.tools.*]` per-tool
+approval tables are skipped — they're codex's config, not servers.
 
 `whip skills list` shows loaded skills and where they come from;
 `whip skills import [--dry-run]` copies skills from other harnesses'
@@ -194,14 +240,17 @@ Per source: `enabled` kills the whole source, `only` is a name allowlist,
 How it works, from the top down:
 
 - [architecture.md](architecture.md) — the moving parts and how a
-  keystroke becomes a tool call: TUI, agent loop, LLM client, tools, MCP,
-  storage. Start here.
+  command moves through clients, the daemon, policy, workers, and storage.
+  Start here.
+- [rlm-runtime.md](rlm-runtime.md) — recursive sessions, Starlark modules,
+  limits, permissions, reconnect/recovery behavior, release verification,
+  and troubleshooting.
 - [agent-loop.md](agent-loop.md) — `Agent.Turn` in detail: the
   stream-tools-repeat cycle, parallel tool execution, compaction, steering.
-- [concurrency.md](concurrency.md) — the two channel patterns
-  behind parallel tool calls (per-path locks) and background subagents.
-- [tools.md](tools.md) — the tool set the model gets: bash, file
-  tools, subagents, browser, computer-use, and how schemas are defined.
+- [concurrency.md](concurrency.md) — root actors, stable commands, replay,
+  fan-out, mutation ordering, child broadcasts, and process lifetime.
+- [tools.md](tools.md) — the model-facing tool, host modules, and shared
+  dispatcher-owned execution rules.
 - [models-providers.md](models-providers.md) — provider routing,
   live model discovery, token/cost bookkeeping.
 - [browser-computer-use.md](browser-computer-use.md) — driving your

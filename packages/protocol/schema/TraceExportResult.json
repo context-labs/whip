@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "object",
+      "properties": {
+        "reference_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_id",
+        "digest",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "spans": {
+      "type": "integer"
+    },
+    "traces": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/TraceExportResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TraceExportResult",
+  "required": [
+    "content",
+    "spans",
+    "traces"
+  ],
+  "additionalProperties": false
+}

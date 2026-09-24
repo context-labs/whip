@@ -10,8 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // mcpCLI implements `whip mcp <list|add|remove|serve|test|import>`.
@@ -28,14 +33,14 @@ import (
 // source file); remove on an imported name explains that.
 func mcpCLI(args []string, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip mcp <list|add|remove|import|serve|test>")
+		return errors.New(buildinfo.Text("usage: whip mcp <list|add|remove|import|serve|test>"))
 	}
 	if args[0] == "serve" {
-		return mcp.Serve(context.Background(), version)
+		return mcpServe(version)
 	}
 	if args[0] == "test" {
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp test <name>")
+			return errors.New(buildinfo.Text("usage: whip mcp test <name>"))
 		}
 		return mcpTestCLI(args[1])
 	}
@@ -83,7 +88,7 @@ func mcpCLI(args []string, version string) error {
 
 	case "add":
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>")
+			return errors.New(buildinfo.Text("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>"))
 		}
 		name := args[1]
 		entry := config.MCPServer{}
@@ -94,7 +99,7 @@ func mcpCLI(args []string, version string) error {
 		case len(rest) >= 2 && rest[0] == "--":
 			entry.Command = rest[1:]
 		default:
-			return errors.New("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>")
+			return errors.New(buildinfo.Text("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>"))
 		}
 		sc := mcp.FromConfigMap(map[string]config.MCPServer{name: entry})[name]
 		if msg := sc.Valid(); msg != "" {
@@ -107,12 +112,12 @@ func mcpCLI(args []string, version string) error {
 		if err := cfg.Save(); err != nil {
 			return err
 		}
-		fmt.Printf("added mcp server %q — starts on next whip launch\n", name)
+		fmt.Printf(buildinfo.Text("added mcp server %q — starts on next whip launch\n"), name)
 		return nil
 
 	case "remove":
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp remove <name>")
+			return errors.New(buildinfo.Text("usage: whip mcp remove <name>"))
 		}
 		name := args[1]
 		if _, ok := cfg.MCPServers[name]; !ok {
@@ -123,7 +128,7 @@ func mcpCLI(args []string, version string) error {
 				return fmt.Errorf("%q comes from .mcp.json or ~/.codex/config.toml — edit that file to remove it", name)
 			}
 			if _, blocked := disc.Blocked[name]; blocked {
-				return fmt.Errorf("%q is blocked by the mcpImport config — edit ~/.whip/config.json", name)
+				return fmt.Errorf(buildinfo.Text("%q is blocked by the mcpImport config — edit ~/.whip/config.json"), name)
 			}
 			return fmt.Errorf("no mcp server named %q", name)
 		}
@@ -135,6 +140,79 @@ func mcpCLI(args []string, version string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown mcp subcommand %q (list|add|remove|import|serve|test)", args[0])
+}
+
+func mcpServe(version string) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	clientID := daemonClientID("mcp")
+	client, err := daemon.NewRootClient(daemon.RootClientOptions{
+		ClientID:  clientID,
+		Create:    &daemon.CreateSession{Kind: session.SessionKindToolHost, CWD: wd},
+		Connector: daemonConnector("automation", clientID),
+	})
+	if err != nil {
+		return err
+	}
+	client.Start()
+	defer func() { _ = client.Close() }()
+	if err := client.WaitLive(ctx); err != nil {
+		return err
+	}
+	configure, err := client.NewAction("tool.configure", map[string]bool{"deny_permissions": true})
+	if err != nil {
+		return err
+	}
+	if result, err := client.Command(ctx, configure); err != nil {
+		return err
+	} else if result.Status != "succeeded" {
+		return errors.New(result.Error)
+	}
+	provider := daemonMCPTools{client: client}
+	serveErr := mcp.Serve(ctx, version, provider)
+	rootID := client.RootID()
+	closeErr := client.Close()
+	deleteErr := deleteDaemonSession(clientID, rootID)
+	return errors.Join(serveErr, closeErr, deleteErr)
+}
+
+type daemonMCPTools struct{ client *daemon.RootClient }
+
+func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
+	action, err := p.client.NewAction("tool.schema", struct{}{})
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.client.Command(ctx, action)
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != "succeeded" {
+		return nil, errors.New(result.Error)
+	}
+	var definitions []llm.Tool
+	if err := json.Unmarshal([]byte(result.Output), &definitions); err != nil {
+		return nil, fmt.Errorf("decode daemon tool schemas: %w", err)
+	}
+	return definitions, nil
+}
+
+func (p daemonMCPTools) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+	action, err := p.client.NewAction("tool.call", map[string]any{"tool": name, "arguments": arguments})
+	if err != nil {
+		return "", err
+	}
+	result, err := p.client.Command(ctx, action)
+	if err != nil {
+		return "", err
+	}
+	if result.Status != "succeeded" {
+		return "", errors.New(result.Error)
+	}
+	return result.Output, nil
 }
 
 // mcpTestCLI is the doctor: connect to one configured server, report status,
@@ -150,9 +228,9 @@ func mcpTestCLI(name string) error {
 	sc, ok := disc.Merged[name]
 	if !ok {
 		if _, blocked := disc.Blocked[name]; blocked {
-			return fmt.Errorf("server %q is blocked by the mcpImport config — edit ~/.whip/config.json", name)
+			return fmt.Errorf(buildinfo.Text("server %q is blocked by the mcpImport config — edit ~/.whip/config.json"), name)
 		}
-		return fmt.Errorf("no mcp server named %q (try: whip mcp list)", name)
+		return fmt.Errorf(buildinfo.Text("no mcp server named %q (try: whip mcp list)"), name)
 	}
 	fmt.Printf("testing mcp server %q (%s)…\n", name, mcpTarget(sc))
 	res := mcp.Probe(context.Background(), name, sc)
@@ -164,7 +242,7 @@ func mcpTestCLI(name string) error {
 		}
 		return nil
 	case mcp.StatusDisabled:
-		fmt.Println("○ disabled — enable it in ~/.whip/config.json")
+		fmt.Println(buildinfo.Text("○ disabled — enable it in ~/.whip/config.json"))
 		return fmt.Errorf("server %q is disabled", name)
 	default:
 		fmt.Printf("✗ failed after %s: %s\n", res.Elapsed.Round(time.Millisecond), res.Err)
@@ -185,18 +263,26 @@ func mcpTarget(c mcp.ServerConfig) string {
 	return strings.Join(c.Command, " ")
 }
 
-// mcpImportCLI materializes imported (claude/codex) servers into whip's own
-// config — mcp-polish item 6. Imported means: admitted by the mcpImport
-// policy and not already in whip's config (idempotent; existing whip
-// entries are never touched). --dry-run prints the JSONC fragment instead of
-// writing.
+// mcpImportCLI materializes imported (claude/codex/project/opencode) servers
+// into whip's own config — mcp-polish item 6. Imported means: importable as
+// discovered (not turned off in its source, not one whip cannot run), admitted
+// by the mcpImport policy, and not already in whip's config (idempotent;
+// existing whip entries are never touched). --dry-run prints the JSONC
+// fragment instead of writing. The web import screen shares mcp.Candidates
+// and mcp.Apply with this command.
+//
+// Materialized entries are written without import provenance and are
+// therefore trusted like hand-written ones: the native config file is the
+// trust root, and running this command after the dry-run preview is the
+// deliberate act that puts a definition there. This is the one path from
+// "imported, prompts on every call" to "native, no per-call consent".
 func mcpImportCLI(args []string) error {
 	dryRun := false
 	for _, a := range args {
 		if a == "--dry-run" {
 			dryRun = true
 		} else {
-			return errors.New("usage: whip mcp import [--dry-run]")
+			return errors.New(buildinfo.Text("usage: whip mcp import [--dry-run]"))
 		}
 	}
 	cfg, err := config.Load()
@@ -204,17 +290,20 @@ func mcpImportCLI(args []string) error {
 		return err
 	}
 	wd, _ := os.Getwd()
-	disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-	add := map[string]config.MCPServer{}
-	for name, sc := range disc.Merged {
-		if _, owned := cfg.MCPServers[name]; owned {
-			continue // already whip's own — importing is a no-op
+	policy := mcp.ImportPolicyFrom(cfg.MCPImport)
+	cands, errs := mcp.Candidates(wd, mcp.FromConfigMap(cfg.MCPServers), policy)
+	for src, e := range errs {
+		fmt.Fprintf(os.Stderr, "mcp: %s: %s (its servers were not imported)\n", src, e)
+	}
+	var names []string // already sorted: Candidates returns them by name
+	for _, c := range cands {
+		if c.State == mcp.CandidateImportable && !c.Gated {
+			names = append(names, c.Name)
 		}
-		add[name] = config.MCPServer{
-			Command: sc.Command, Env: sc.Env, Cwd: sc.Cwd,
-			URL: sc.URL, Headers: sc.Headers, Enabled: sc.Enabled,
-			Note: sc.Note, StartupTimeout: sc.StartupTimeout, ToolTimeout: sc.ToolTimeout,
-		}
+	}
+	add, _, err := mcp.Apply(cfg, cands, names)
+	if err != nil {
+		return err
 	}
 	if len(add) == 0 {
 		fmt.Println("nothing to import — all servers are already in whip's config (or blocked by mcpImport)")
@@ -225,21 +314,14 @@ func mcpImportCLI(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n", len(add), body)
+		fmt.Println(buildinfo.Text("once imported these become native: trusted like hand-written entries, no per-call consent"))
+		fmt.Printf(buildinfo.Text("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n"), len(add), body)
 		return nil
-	}
-	if cfg.MCPServers == nil {
-		cfg.MCPServers = map[string]config.MCPServer{}
-	}
-	names := make([]string, 0, len(add))
-	for name, entry := range add {
-		cfg.MCPServers[name] = entry
-		names = append(names, name)
 	}
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	sort.Strings(names)
-	fmt.Printf("imported %d mcp server(s) into ~/.whip/config.json: %s\n", len(names), strings.Join(names, ", "))
+	fmt.Printf(buildinfo.Text("imported %d mcp server(s) into ~/.whip/config.json: %s\n"), len(names), strings.Join(names, ", "))
+	fmt.Println(buildinfo.Text("they are now native: trusted like hand-written entries, no per-call consent"))
 	return nil
 }

@@ -2,8 +2,6 @@ package tui
 
 import (
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // A wheel-up MouseMsg routed through Update must scroll the transcript viewport
@@ -21,25 +19,25 @@ func TestWheelScrollsTranscript(t *testing.T) {
 	if !m.vp.AtBottom() {
 		t.Fatal("setup: should start at bottom")
 	}
-	start := m.vp.YOffset
+	start := m.vp.YOffset()
 
-	up := tea.MouseMsg(tea.MouseEvent{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp, X: 40, Y: 10})
+	up := wheelMsg(40, 10, true)
 	um, _ := m.Update(up)
 	m = um.(*model)
-	if m.vp.YOffset >= start {
-		t.Fatalf("wheel-up must scroll up: YOffset %d -> %d", start, m.vp.YOffset)
+	if m.vp.YOffset() >= start {
+		t.Fatalf("wheel-up must scroll up: YOffset %d -> %d", start, m.vp.YOffset())
 	}
 	if m.follow {
 		t.Fatal("scrolling up off the bottom must drop follow mode")
 	}
 
-	down := tea.MouseMsg(tea.MouseEvent{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown, X: 40, Y: 10})
+	down := wheelMsg(40, 10, false)
 	for range 20 {
 		um, _ := m.Update(down)
 		m = um.(*model)
 	}
 	if !m.vp.AtBottom() {
-		t.Fatalf("wheel-down must scroll back to bottom, YOffset=%d", m.vp.YOffset)
+		t.Fatalf("wheel-down must scroll back to bottom, YOffset=%d", m.vp.YOffset())
 	}
 	if !m.follow {
 		t.Fatal("returning to the bottom must re-engage follow mode")

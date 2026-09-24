@@ -1,0 +1,581 @@
+{
+  "before": {
+    "19200": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "19201": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "19203": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "83974": {
+      "parent": 1,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    "86534": {
+      "parent": 67401,
+      "executable": "(git)"
+    },
+    "61193": {
+      "parent": 59869,
+      "executable": "/tmp/whipcode-multihost-local-desktop-origin"
+    },
+    "61194": {
+      "parent": 59869,
+      "executable": "/tmp/whipcode-multihost-local-desktop-origin"
+    },
+    "19209": {
+      "parent": 19203,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "93966": {
+      "parent": 93896,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+    },
+    "93967": {
+      "parent": 93896,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+    },
+    "1807": {
+      "parent": 1755,
+      "executable": "node"
+    },
+    "85775": {
+      "parent": 85666,
+      "executable": "node"
+    },
+    "61203": {
+      "parent": 59869,
+      "executable": "/tmp/whipcode-multihost-local-desktop-origin"
+    },
+    "46612": {
+      "parent": 97086,
+      "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip"
+    },
+    "93971": {
+      "parent": 93896,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+    },
+    "46615": {
+      "parent": 97086,
+      "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip"
+    },
+    "46616": {
+      "parent": 97086,
+      "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip"
+    },
+    "82717": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.whip-web-v4/bin/whip"
+    },
+    "91422": {
+      "parent": 64203,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/128.0.6568.0/Helpers/Chromium Helper.app/Contents/MacOS/Chromium Helper"
+    },
+    "96544": {
+      "parent": 96493,
+      "executable": "chrome-devtools-mcp"
+    },
+    "85795": {
+      "parent": 85673,
+      "executable": "node"
+    },
+    "1828": {
+      "parent": 1757,
+      "executable": "chrome-devtools-mcp"
+    },
+    "85807": {
+      "parent": 85754,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "96564": {
+      "parent": 96487,
+      "executable": "node"
+    },
+    "1848": {
+      "parent": 1756,
+      "executable": "node"
+    },
+    "9785": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "9786": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "85305": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "9788": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "85306": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "97086": {
+      "parent": 1,
+      "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip"
+    },
+    "9790": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "9791": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "9792": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "9793": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "85307": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "85308": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "85309": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "85310": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "85311": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "85312": {
+      "parent": 85311,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "67401": {
+      "parent": 1,
+      "executable": "/usr/local/bin/whip"
+    },
+    "9797": {
+      "parent": 9793,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "96584": {
+      "parent": 96486,
+      "executable": "node"
+    },
+    "64326": {
+      "parent": 64203,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/128.0.6568.0/Helpers/Chromium Helper (GPU).app/Contents/MacOS/Chromium Helper (GPU)"
+    },
+    "64332": {
+      "parent": 64203,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/128.0.6568.0/Helpers/Chromium Helper.app/Contents/MacOS/Chromium Helper"
+    },
+    "64334": {
+      "parent": 64203,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/128.0.6568.0/Helpers/Chromium Helper.app/Contents/MacOS/Chromium Helper"
+    },
+    "95313": {
+      "parent": 1,
+      "executable": "npm run dev --force"
+    },
+    "1874": {
+      "parent": 1759,
+      "executable": "node"
+    },
+    "67411": {
+      "parent": 67401,
+      "executable": "/usr/local/bin/whip"
+    },
+    "64339": {
+      "parent": 64203,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/128.0.6568.0/Helpers/Chromium Helper (Renderer).app/Contents/MacOS/Chromium Helper (Renderer)"
+    },
+    "61270": {
+      "parent": 59869,
+      "executable": "/tmp/whipcode-multihost-local-desktop-origin"
+    },
+    "67415": {
+      "parent": 67401,
+      "executable": "/usr/local/bin/whip"
+    },
+    "1882": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "1883": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "1884": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "19291": {
+      "parent": 19199,
+      "executable": "chrome-devtools-mcp"
+    },
+    "1886": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "1887": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "1888": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "1889": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "96604": {
+      "parent": 96491,
+      "executable": "node"
+    },
+    "85754": {
+      "parent": 85672,
+      "executable": "chrome-devtools-mcp"
+    },
+    "19301": {
+      "parent": 19195,
+      "executable": "node"
+    },
+    "1894": {
+      "parent": 1758,
+      "executable": "node"
+    },
+    "89963": {
+      "parent": 83974,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    "89964": {
+      "parent": 83974,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    "9836": {
+      "parent": 9786,
+      "executable": "node"
+    },
+    "1904": {
+      "parent": 1828,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "85361": {
+      "parent": 85305,
+      "executable": "node"
+    },
+    "96625": {
+      "parent": 96489,
+      "executable": "node"
+    },
+    "2935": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.whip-web-v4/bin/whip"
+    },
+    "96632": {
+      "parent": 96544,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "19322": {
+      "parent": 19201,
+      "executable": "node"
+    },
+    "9856": {
+      "parent": 9788,
+      "executable": "node"
+    },
+    "1925": {
+      "parent": 1889,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "95367": {
+      "parent": 95313,
+      "executable": "node"
+    },
+    "12681": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.whip-web-v4/bin/whip"
+    },
+    "19261": {
+      "parent": 19200,
+      "executable": "node"
+    },
+    "19342": {
+      "parent": 19196,
+      "executable": "node"
+    },
+    "85393": {
+      "parent": 85310,
+      "executable": "node"
+    },
+    "9876": {
+      "parent": 9792,
+      "executable": "node"
+    },
+    "85401": {
+      "parent": 85309,
+      "executable": "node"
+    },
+    "1949": {
+      "parent": 1888,
+      "executable": "chrome-devtools-mcp"
+    },
+    "24478": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.whip-web-v4/bin/whip"
+    },
+    "19357": {
+      "parent": 19291,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "85665": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "85666": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "85668": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "85669": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "85670": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "85672": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "85673": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "9897": {
+      "parent": 9791,
+      "executable": "chrome-devtools-mcp"
+    },
+    "85678": {
+      "parent": 85670,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "85422": {
+      "parent": 85308,
+      "executable": "chrome-devtools-mcp"
+    },
+    "1972": {
+      "parent": 1882,
+      "executable": "node"
+    },
+    "9922": {
+      "parent": 9790,
+      "executable": "node"
+    },
+    "90051": {
+      "parent": 83974,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    "85442": {
+      "parent": 85306,
+      "executable": "node"
+    },
+    "1989": {
+      "parent": 1883,
+      "executable": "node"
+    },
+    "64199": {
+      "parent": 85232,
+      "executable": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/leakless-arm64-adb80298fa6a3af7ced8b1c9b5f18007/leakless"
+    },
+    "93896": {
+      "parent": 1,
+      "executable": "/Applications/Whip.app/Contents/MacOS/Whip"
+    },
+    "64203": {
+      "parent": 64199,
+      "executable": "/Users/samheutmaker/.cache/rod/browser/chromium-1321438/Chromium.app/Contents/MacOS/Chromium"
+    },
+    "9931": {
+      "parent": 9897,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "85451": {
+      "parent": 85422,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "85712": {
+      "parent": 85665,
+      "executable": "node"
+    },
+    "2009": {
+      "parent": 1884,
+      "executable": "node"
+    },
+    "1754": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "1755": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "96220": {
+      "parent": 7714,
+      "executable": "whipcode"
+    },
+    "59869": {
+      "parent": 1,
+      "executable": "/tmp/whipcode-multihost-local-desktop-origin"
+    },
+    "1756": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "1757": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "1758": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "1759": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "1760": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "85732": {
+      "parent": 85669,
+      "executable": "node"
+    },
+    "92902": {
+      "parent": 83974,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    "96486": {
+      "parent": 85232,
+      "executable": "npm exec firecrawl-mcp"
+    },
+    "96487": {
+      "parent": 85232,
+      "executable": "npm exec mcp-server-gsc"
+    },
+    "96488": {
+      "parent": 85232,
+      "executable": "/Users/samheutmaker/.local/bin/uv"
+    },
+    "96489": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "96491": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "46316": {
+      "parent": 97086,
+      "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip"
+    },
+    "96492": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "96493": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    },
+    "1774": {
+      "parent": 1760,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "85232": {
+      "parent": 1,
+      "executable": "/Users/samheutmaker/.whip-web-v4/bin/whip"
+    },
+    "2030": {
+      "parent": 1886,
+      "executable": "node"
+    },
+    "96497": {
+      "parent": 96488,
+      "executable": "/Users/samheutmaker/.cache/uv/archive-v0/B3ded-pQokIK_QXrcqThM/bin/python"
+    },
+    "2035": {
+      "parent": 1949,
+      "executable": "/Users/samheutmaker/.nvm/versions/node/v24.14.1/bin/node"
+    },
+    "19194": {
+      "parent": 85232,
+      "executable": "node"
+    },
+    "19195": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --config /Users/samheutmaker/.config/opencode/playwright/automation.json"
+    },
+    "19196": {
+      "parent": 85232,
+      "executable": "npm exec @playwright/mcp@latest --browser chrome --extension --config /Users/samheutmaker/.config/opencode/playwright/live.json"
+    },
+    "19199": {
+      "parent": 85232,
+      "executable": "npm exec chrome-devtools-mcp@latest"
+    }
+  },
+  "stops": [
+    {
+      "home": "/tmp/whipcode-multihost-local-home",
+      "oldPid": 59869,
+      "state": "stopped",
+      "forced": false
+    },
+    {
+      "home": "/Users/samheutmaker/.whip",
+      "oldPid": 67401,
+      "state": "stopped",
+      "forced": false
+    },
+    {
+      "home": "/Users/samheutmaker/.whipcode",
+      "oldPid": 83974,
+      "state": "stopped",
+      "forced": false
+    },
+    {
+      "home": "/Users/samheutmaker/.whip-web-v4",
+      "oldPid": 85232,
+      "state": "stopped",
+      "forced": true
+    },
+    {
+      "home": "/Users/samheutmaker/.whip-v2-test.0k8SYz",
+      "oldPid": 97086,
+      "state": "stopped",
+      "forced": true
+    }
+  ],
+  "allOwnedExited": true
+}

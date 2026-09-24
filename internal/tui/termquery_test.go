@@ -60,6 +60,7 @@ func TestFallbackScheme(t *testing.T) {
 // frozen-whip bug). Runtime detection reuses the startup query's answer, or
 // COLORFGBG, or the neutral theme.
 func TestRuntimeDetectionNeverQueriesTTY(t *testing.T) {
+	t.Cleanup(func() { SetLightTheme(false) })
 	t.Setenv("WHIP_THEME", "")
 	t.Setenv("COLORFGBG", "")
 	t.Setenv("TMUX", "1") // any env: the gate must hold everywhere

@@ -10,19 +10,17 @@ import (
 
 func TestToolHeaderRowSubjects(t *testing.T) {
 	cases := []struct{ name, args, want string }{
-		{"edit", `{"path":"internal/tui/tui.go"}`, "Update(internal/tui/tui.go)"},
-		{"write", `{"path":"a.go","content":"x"}`, "Write(a.go)"},
-		{"read", `{"path":"a.go"}`, "Read(a.go)"},
-		{"bash", `{"command":"git  status"}`, "Bash(git status)"},
-		{"subagent", `{"description":"probe the repo","prompt":"p"}`, "Subagent(probe the repo)"},
-		{"subagent_steer", `{"id":"sub-3","message":"m"}`, "Steer(sub-3)"},
+		{"edit", `{"path":"internal/tui/tui.go"}`, "← Update internal/tui/tui.go"},
+		{"write", `{"path":"a.go","content":"x"}`, "← Write a.go"},
+		{"read", `{"path":"a.go"}`, "← Read a.go"},
+		{"bash", `{"command":"git  status"}`, "$ Bash git status"},
 	}
 	for _, c := range cases {
-		if got := ansi.Strip(toolHeaderRow(c.name, c.args, false)); got != "● "+c.want {
-			t.Errorf("%s: got %q, want %q", c.name, got, "● "+c.want)
+		if got := ansi.Strip(toolHeaderRow(c.name, c.args, false)); got != "   "+c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, "   "+c.want)
 		}
 	}
-	if got := ansi.Strip(toolHeaderRow("bash", `{"command":"false"}`, true)); got != "● Bash(false)" {
+	if got := ansi.Strip(toolHeaderRow("bash", `{"command":"false"}`, true)); got != "   $ Bash false" {
 		t.Errorf("failed header: %q", got)
 	}
 }
@@ -55,7 +53,7 @@ func TestEditResultRendersDiff(t *testing.T) {
 	})
 
 	run := m.blocks[len(m.blocks)-2]
-	if got := ansi.Strip(run.render(m.width)); got != "● Update(a.go)" {
+	if got := ansi.Strip(run.render(m.width)); got != "   ← Update a.go" {
 		t.Fatalf("run row: %q", got)
 	}
 	res := ansi.Strip(m.blocks[len(m.blocks)-1].render(m.width))
@@ -99,7 +97,7 @@ func TestSeedTranscriptShowsDiffs(t *testing.T) {
 	for i := range m.blocks {
 		joined.WriteString(ansi.Strip(m.blocks[i].render(m.width)) + "\n")
 	}
-	for _, want := range []string{"● Update(a.go)", "Added 1 line, removed 1 line", "4 + y"} {
+	for _, want := range []string{"← Update a.go", "Added 1 line, removed 1 line", "4 + y"} {
 		if !strings.Contains(joined.String(), want) {
 			t.Fatalf("resumed transcript missing %q:\n%s", want, joined.String())
 		}

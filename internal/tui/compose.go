@@ -1,0 +1,468 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/tui/theme"
+	"github.com/context-labs/whip/internal/tui/ui"
+)
+
+// The frame is composed by drawing regions into one cell buffer at explicit
+// rectangles and handing the buffer's rendering to Bubble Tea. Regions still
+// render themselves as strings (they migrate to native draws one at a time);
+// only WHERE their output lands changed, which is what deleted every
+// string-splicing overlay helper.
+
+// The frame: one row of margin above the columns (opendocker's), and a footer
+// band of framePad rows above the key hints, which sit on the last row.
+const (
+	framePad   = 1
+	footerRows = framePad + 1
+)
+
+// frameRects are the screen rectangles of the frame's regions. Empty
+// rectangles mean the region is absent this frame. layout() computes them
+// after every Update (they are the one source of truth for drawing AND hit
+// testing), so the mouse math never inverts string layout again.
+type frameRects struct {
+	area, main       uv.Rectangle
+	left             uv.Rectangle    // the left column of panels (empty when hidden)
+	panels           [3]uv.Rectangle // each panel inside the left column (Agents, Context, LSP)
+	gap              uv.Rectangle    // the chat's scrollbar column, right of main
+	side             uv.Rectangle    // the REPL panel (empty when hidden)
+	details          uv.Rectangle    // open agent's details banner above the transcript
+	transcript       uv.Rectangle    // the viewport
+	input, inputText uv.Rectangle    // the prompt box, and the textarea rows inside it
+	footer           uv.Rectangle    // the full-width key-hint bar on the last row
+	pill             uv.Rectangle    // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
+}
+
+// measure is every main-column region except the transcript, in viewBody's
+// row order. layout() gives the transcript what these leave over, and
+// layoutFrame stacks the rectangles from the same numbers, so the budget and
+// the geometry cannot drift apart.
+type measure struct {
+	details  int   // agent details banner rows (0 = none); followed by a blank row
+	optional []int // each present transient region: a blank row, then its rows
+	rewind   int   // rewind picker rows (0 = none); followed by a blank row
+	input    int   // prompt rows: the box (textarea + 4) or the bare name-prompt row; 0 while a command owns the terminal
+	inputTxt int   // textarea rows inside the prompt
+	hints    int   // quit / esc hint rows
+	dock     int   // agents dock rows (narrow terminals)
+}
+
+func (m *model) measure() measure {
+	var mm measure
+	if details := m.agentDetails(); details != "" {
+		mm.details = lipgloss.Height(details)
+	}
+	for _, opt := range []struct {
+		on   bool
+		rows func() int
+	}{
+		{m.curThink != "", func() int { return lipgloss.Height(m.thinkView()) }},
+		{m.busy && !m.thinkStart.IsZero(), func() int { return 1 }},
+		{m.current != "", func() int { return lipgloss.Height(m.currentView()) }},
+		{m.iactive != nil, func() int { return lipgloss.Height(m.interactiveView()) }},
+		{m.permDialog != nil, func() int { return lipgloss.Height(m.permView()) }},
+		{len(m.plan) > 0, func() int { return lipgloss.Height(m.planView()) }},
+	} {
+		if opt.on {
+			mm.optional = append(mm.optional, opt.rows())
+		}
+	}
+	if m.rew != nil {
+		mm.rewind = lipgloss.Height(m.rewindView())
+	}
+	if m.iactive == nil {
+		mm.inputTxt = m.input.Height()
+		mm.input = mm.inputTxt + 4 // padding row, textarea, padding row, meta row, tail
+		if m.namePrompt != nil {
+			mm.input = mm.inputTxt // a bare "label ▏value" row, no box chrome
+		}
+	}
+	if m.quit1 {
+		mm.hints++
+	}
+	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
+		mm.hints++
+	}
+	if dock := m.agentsDock(); dock != "" {
+		mm.dock = lipgloss.Height(dock)
+	}
+	return mm
+}
+
+// fixed is the number of rows everything but the transcript needs.
+func (mm measure) fixed() int {
+	n := 0
+	if mm.details > 0 {
+		n += mm.details + 1
+	}
+	for _, rows := range mm.optional {
+		n += 1 + rows
+	}
+	n++ // the blank row above the rewind picker / the input (viewBody writes it exactly once)
+	if mm.rewind > 0 {
+		n += mm.rewind + 1
+	}
+	return n + mm.input + mm.hints + mm.dock + framePad + footerRows // + the top margin and the footer band
+}
+
+// layoutFrame lays out a w×h frame: the left column (when visible), the main
+// column at m.width with its regions stacked in viewBody's order around the
+// transcript (whose height the viewport already holds), its scrollbar column
+// and (when visible) the REPL panel. Everything starts under the top margin
+// and the columns stop above the footer band.
+func (m *model) layoutFrame(w, h int) frameRects {
+	r := frameRects{area: rect(0, 0, w, h), main: rect(m.mainX(), framePad, m.width, h-framePad)}
+	cols := max(h-framePad-footerRows, 0)
+	if m.leftVisible() {
+		r.left = rect(1, framePad, leftWidth, cols)
+		py := framePad
+		for pane, ph := range paneHeights(cols, m.openPane()) {
+			if ph == 0 {
+				continue
+			}
+			r.panels[pane] = rect(1, py, leftWidth, ph)
+			py += ph + 1 // the gap row
+		}
+	}
+	r.gap = rect(r.main.Max.X, framePad, 1, cols)
+	if m.replVisible() {
+		pw := m.panelWidth()
+		r.side = rect(w-1-pw, framePad, pw, cols) // behind a one-cell pad at the edge
+	}
+	mm := m.measure()
+	x, y := r.main.Min.X, r.main.Min.Y
+	if mm.details > 0 {
+		r.details = rect(x, y, m.width, mm.details)
+		y += mm.details + 1
+	}
+	r.transcript = rect(x, y, m.width, m.vp.Height())
+	if below := m.rowsBelow(); below > 0 {
+		pw := lipgloss.Width(pillLabel(below)) + 2
+		r.pill = rect(r.transcript.Max.X-pw, r.transcript.Max.Y-1, pw, 1)
+	}
+	y += m.vp.Height()
+	for _, rows := range mm.optional {
+		y += 1 + rows
+	}
+	y++
+	if mm.rewind > 0 {
+		y += mm.rewind + 1
+	}
+	if mm.input > 0 {
+		r.input = rect(x, y, m.width, mm.input)
+		if m.namePrompt != nil {
+			tx := x + lipgloss.Width(m.namePrompt.label) + 1
+			r.inputText = rect(tx, y, x+m.width-tx, mm.inputTxt)
+		} else {
+			r.inputText = rect(x+3, y+1, m.width-3, mm.inputTxt) // "┃  " gutter
+		}
+		y += mm.input
+	}
+	y += mm.hints + mm.dock
+	fy := y + framePad // the hints row: a pad row under the prompt; on a sized terminal it is the last row
+	if h > 0 {
+		fy = h - 1
+	}
+	r.footer = rect(0, fy, w, 1)
+	return r
+}
+
+// frameSize is the terminal size, or the body's own size before the first
+// WindowSizeMsg (headless tests).
+func (m *model) frameSize() (int, int) {
+	w := m.termWidth
+	if w <= 0 {
+		w = m.mainX() + m.width
+	}
+	return w, m.height
+}
+
+// frameNow lays out the current state at the current size. It is cheap (a
+// few height measurements) and pure, so hit testing always agrees with what
+// View draws, even when state moved without an Update in between.
+func (m *model) frameNow() frameRects {
+	w, h := m.frameSize()
+	return m.layoutFrame(w, h)
+}
+
+// region names what is under a screen point.
+type region uint8
+
+const (
+	regNone       region = iota
+	regInput             // the textarea rows inside the prompt box
+	regPill              // the "↓ N more lines" chip
+	regTranscript        // the viewport
+	regLeft              // the left column of panels
+	regSide              // the REPL panel
+)
+
+// hit maps an absolute screen point to the topmost region under it and the
+// point's coordinates local to that region's rectangle.
+func (m *model) hit(x, y int) (reg region, lx, ly int) {
+	r := m.frameNow()
+	// the margin left of the chat belongs to the transcript: a drag that starts
+	// at the screen edge (or in the gap after the left column) selects from
+	// column 0 (lx clamps negative to 0). The columns are checked first, so
+	// the margin never folds over them.
+	margin := r.transcript
+	margin.Min.X = 0
+	if !r.left.Empty() {
+		margin.Min.X = r.main.Min.X - 1
+	}
+	for _, c := range []struct {
+		reg region
+		rc  uv.Rectangle
+	}{{regInput, r.inputText}, {regPill, r.pill}, {regLeft, r.left}, {regSide, r.side}, {regTranscript, margin}} {
+		if inRect(c.rc, x, y) {
+			return c.reg, x - r.transcript.Min.X*boolToInt(c.reg == regTranscript) - c.rc.Min.X*boolToInt(c.reg != regTranscript), y - c.rc.Min.Y
+		}
+	}
+	return regNone, 0, 0
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func inRect(rc uv.Rectangle, x, y int) bool {
+	return x >= rc.Min.X && x < rc.Max.X && y >= rc.Min.Y && y < rc.Max.Y
+}
+
+// rect is uv.Rect with non-negative dimensions (uv does not normalize, and a
+// degenerate terminal size can make the main column narrower than zero).
+func rect(x, y, w, h int) uv.Rectangle { return uv.Rect(x, y, max(w, 0), max(h, 0)) }
+
+// screen returns the frame buffer, reallocated only when the size changes
+// (a cell is 112 bytes; a 140×40 frame is ~600 KB, too much to allocate per
+// frame) and cleared otherwise.
+func (m *model) screen(w, h int) *uv.ScreenBuffer {
+	if m.scr == nil || m.scr.Width() != w || m.scr.Height() != h {
+		scr := uv.NewScreenBuffer(w, h)
+		scr.Method = ansi.GraphemeWidth // every whip measurement is grapheme-based (lipgloss.Width)
+		m.scr = &scr
+		return m.scr
+	}
+	m.scr.Clear()
+	return m.scr
+}
+
+// View draws the frame.
+func (m *model) View() tea.View {
+	m.syncInputPlaceholder()
+	body := m.viewBody()
+	w, h := m.termWidth, m.height
+	if w <= 0 { // no size yet (tests): the frame is exactly the body
+		w = m.mainX() + max(m.width, lipgloss.Width(body))
+	}
+	if h <= 0 {
+		h = framePad + lipgloss.Height(body) + footerRows
+	}
+	r := m.layoutFrame(w, h)
+	scr := m.screen(w, h)
+	// Draw order matters: a StyledString clears its rectangle before painting,
+	// so later layers must be the ones on top.
+	uv.NewStyledString(body).Draw(scr, r.main)
+	m.paintSelection(scr, r)
+	m.drawScrollbar(scr, r)
+	if !r.pill.Empty() {
+		drawRows(scr, []string{ui.Kbd(currentTheme(), pillLabel(m.rowsBelow()))}, r.pill.Min.X, r.pill.Min.Y)
+	}
+	if !r.left.Empty() {
+		uv.NewStyledString(m.sidebarView(r.left.Dy())).Draw(scr, r.left)
+	}
+	if !r.side.Empty() {
+		uv.NewStyledString(m.replPanelView(r.side.Dy())).Draw(scr, r.side)
+		m.replScrollbar(scr, r.side)
+	}
+	drawRows(scr, []string{m.footerView(w)}, 0, r.footer.Min.Y) // the key-hint bar spans every column
+	if ds := m.dialogs(); len(ds) > 0 {                         // floating dialogs over the dimmed session, bottom→top
+		dimArea(scr, r.area)
+		for _, d := range ds {
+			rows := d.rows(m)
+			if len(rows) == 0 {
+				continue
+			}
+			dw := lipgloss.Width(rows[0])
+			// centred on the chat (the columns stay readable); the top never moves as the list filters
+			drawRows(scr, rows, max(min(r.main.Min.X+(r.main.Dx()-dw)/2, w-dw), 0), m.dialogTop())
+		}
+	} else if m.menu != nil { // the completion popup floats above the input; the frame beneath never reflows
+		menu := strings.Split(m.menuView(), "\n")
+		drawRows(scr, menu, r.main.Min.X, r.input.Min.Y-len(menu)) // rows above the frame clip
+	}
+	if m.toast != "" {
+		toast := m.toastRows()
+		drawRows(scr, toast, max(r.main.Max.X-lipgloss.Width(toast[0]), 0), 2) // the chat's top-right corner, over everything
+	}
+	th := currentTheme()
+	paintBase(scr, th)
+	m.recordInputRows()
+
+	view := tea.NewView(scr.Render())
+	view.Cursor = m.cursor(r)
+	view.BackgroundColor, view.ForegroundColor = th.Bg, th.Text // the terminal follows the theme too (restored on exit)
+	view.AltScreen = true
+	if m.mouseOn {
+		// Button-motion (?1002) reports drags without the hover flood of
+		// all-motion. tmux forwards drags to whip only under all-motion
+		// (mouse_any_flag), so it keeps ?1003 there.
+		view.MouseMode = tea.MouseModeCellMotion
+		if inTmuxEnv() {
+			view.MouseMode = tea.MouseModeAllMotion
+		}
+	}
+	return view
+}
+
+// drawRows paints pre-rendered rows at (x, y); rows outside the screen clip.
+func drawRows(scr uv.Screen, rows []string, x, y int) {
+	bounds := scr.Bounds()
+	for i, row := range rows {
+		area := rect(x, y+i, lipgloss.Width(row), 1).Intersect(bounds)
+		if area.Empty() {
+			continue
+		}
+		uv.NewStyledString(row).Draw(scr, area)
+	}
+}
+
+// dimArea renders the backdrop faint so a dialog reads as the foreground.
+func dimArea(scr uv.Screen, area uv.Rectangle) {
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := scr.CellAt(x, y)
+			if c == nil || c.Width == 0 {
+				continue
+			}
+			n := *c
+			n.Style.Attrs |= uv.AttrFaint
+			scr.SetCell(x, y, &n)
+		}
+	}
+}
+
+// cursor places the terminal cursor on the textarea's caret, or hides it
+// while something else owns the keyboard (a dialog, the rewind picker, the
+// permission prompt, an interactive command, a masked secret prompt).
+func (m *model) cursor(r frameRects) *tea.Cursor {
+	if m.iactive != nil || m.dialogOpen() || r.inputText.Empty() {
+		return nil
+	}
+	c := m.input.Cursor() // relative to the textarea's own view; whip's textarea is frameless with no prompt
+	if c == nil {
+		return nil
+	}
+	c.X += r.inputText.Min.X
+	c.Y += r.inputText.Min.Y
+	if !inRect(r.inputText, c.X, c.Y) {
+		return nil
+	}
+	return c
+}
+
+// paintSelection marks the dragged range in reverse video at the cell level,
+// after the body is drawn: the selection lives in content coordinates (rows
+// of the transcript or of the input text) and maps onto the screen through
+// the region rectangles, clipped to them.
+func (m *model) paintSelection(scr uv.Screen, r frameRects) {
+	if m.sel == nil {
+		return
+	}
+	lo, hi := selOrder(*m.sel)
+	for row := lo.row; row <= hi.row; row++ {
+		var line string
+		var region uv.Rectangle
+		var y int
+		if lo.input {
+			if row >= len(m.inputLines) {
+				break
+			}
+			line, region, y = m.inputLines[row], r.inputText, r.inputText.Min.Y+row
+		} else {
+			line, region, y = m.contentLine(row), r.transcript, r.transcript.Min.Y+row+m.contentPad()-m.vp.YOffset()
+		}
+		start, end := selCols(lo, hi, row, ansi.StringWidth(line))
+		if start >= end {
+			continue
+		}
+		reverseCells(scr, rect(region.Min.X+start, y, end-start, 1).Intersect(region))
+	}
+}
+
+// reverseCells sets reverse video on every cell of area.
+func reverseCells(scr uv.Screen, area uv.Rectangle) {
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := scr.CellAt(x, y)
+			if c == nil {
+				continue
+			}
+			n := *c
+			if n.Width == 0 {
+				n = uv.Cell{Content: " ", Width: 1}
+			}
+			n.Style.Attrs |= uv.AttrReverse
+			scr.SetCell(x, y, &n)
+		}
+	}
+}
+
+// rowsBelow is how many transcript rows sit under the window (0 when the
+// newest rows are in view).
+func (m *model) rowsBelow() int {
+	if len(m.blocks) == 0 {
+		return 0
+	}
+	return max(m.vp.TotalLineCount()-(m.vp.YOffset()+m.vp.Height()), 0)
+}
+
+func pillLabel(below int) string { return fmt.Sprintf("↓ %d more lines", below) }
+
+// drawScrollbar marks the transcript's scroll position in the column right of
+// the main text (the gap before the sidebar, or the right margin) with the
+// shared thick bar. Nothing is drawn when the transcript fits.
+func (m *model) drawScrollbar(scr uv.Screen, r frameRects) {
+	if r.gap.Empty() {
+		return
+	}
+	ui.Scrollbar(scr, currentTheme(), r.gap.Min.X, r.transcript.Min.Y, r.transcript.Dy(), m.vp.TotalLineCount(), m.vp.YOffset(), false)
+}
+
+// paintBase gives every cell nothing else painted the theme's background and
+// text colour, so the whole view is the theme's — not the terminal's — and a
+// light theme reads on a dark terminal. A theme without a background (the
+// neutral theme on an unknown terminal) leaves the terminal's own.
+func paintBase(scr uv.Screen, th *theme.Theme) {
+	if th.Bg == nil && th.Text == nil {
+		return
+	}
+	area := scr.Bounds()
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := scr.CellAt(x, y)         // a pointer into the buffer: paint in place (SetCell copies a cell per call)
+			if c == nil || c.Width == 0 { // Clear() leaves EmptyCell spaces; width 0 is a wide glyph's continuation
+				continue
+			}
+			if c.Style.Bg == nil {
+				c.Style.Bg = th.Bg
+			}
+			if c.Style.Fg == nil {
+				c.Style.Fg = th.Text
+			}
+		}
+	}
+}

@@ -8,16 +8,16 @@ import (
 )
 
 // On a light terminal the markdown body must render in the light style's
-// dark color (234), not the dark style's 252 (near-invisible on white).
+// dark text color (#1a1a1a), not the dark style's #eeeeee (near-invisible on white).
 func TestLightThemeRendersDarkText(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
 	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
-		t.Errorf("light theme should render the light palette text, got %q", out)
+		t.Errorf("light theme should render body in the light text color, got %q", out)
 	}
-	if strings.Contains(out, "\x1b[38;5;252m") {
-		t.Errorf("light theme must not use dark-style color 252: %q", out)
+	if strings.Contains(out, "\x1b[38;2;238;238;238m") {
+		t.Errorf("light theme must not use the dark text color: %q", out)
 	}
 	// width behavior unchanged
 	for l := range strings.SplitSeq(out, "\n") {
@@ -96,6 +96,7 @@ func TestParseOSCBg(t *testing.T) {
 // render in the neutral default style — NOT a forced dark/light guess — so
 // body text carries no hardcoded color (stays at the terminal default).
 func TestUnknownThemeIsNeutral(t *testing.T) {
+	setSchemeOverride("") // detection mode: no pinned theme from an earlier test
 	SetUnknownTheme()
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
@@ -120,7 +121,7 @@ func TestUnknownThemeStillRendersMarkdown(t *testing.T) {
 	if strings.Contains(ansi.Strip(out), "**") {
 		t.Errorf("neutral style left literal ** markers (ASCII style?): %q", out)
 	}
-	if !strings.Contains(out, ";1m") {
+	if !strings.Contains(out, "1mbold") { // bold, possibly combined with a palette color (\x1b[33;1m)
 		t.Errorf("neutral style should render bold: %q", out)
 	}
 	if !strings.Contains(out, "─") {
@@ -155,6 +156,6 @@ func TestThemeSwitchAfterUnknown(t *testing.T) {
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
 	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
-		t.Errorf("switching unknown→light should re-render in the light palette: %q", out)
+		t.Errorf("switching unknown→light should re-render in the light text color: %q", out)
 	}
 }

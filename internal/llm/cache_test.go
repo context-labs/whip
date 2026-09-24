@@ -40,7 +40,7 @@ func TestPromptCacheKeyStampedFromClient(t *testing.T) {
 	}
 }
 
-// An explicit Request.PromptCacheKey overrides the client's (a subagent
+// An explicit Request.PromptCacheKey overrides the client's (a descendant
 // scopes its own key over the parent's).
 func TestPromptCacheKeyRequestOverridesClient(t *testing.T) {
 	var body []byte

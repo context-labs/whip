@@ -3,16 +3,15 @@ package tui
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/protocol"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 )
-
-// dimNew marks catalog-advertised routes that have no config entry yet.
-const dimNew = "  (new)"
 
 // modelItem is one selectable model@provider route.
 type modelItem struct {
@@ -122,22 +121,6 @@ func (p *modelPicker) applyQuery() {
 	})
 }
 
-// applyModelList filters a plain list of model names (palette compact/subagent
-// panels, whose rows are names, not routes). The "(new)" catalog marker and
-// the leading "default (…)" row are stripped for scoring so the query matches
-// the real name.
-func (f *modelFilter) applyModelList(list []string) {
-	q := strings.ToLower(strings.TrimSpace(f.query))
-	f.apply(len(list), func(i int) int {
-		name := strings.TrimSuffix(list[i], dimNew)
-		if inner, ok := strings.CutPrefix(name, "default ("); ok {
-			name = strings.TrimSuffix(inner, ")")
-		}
-		name, provider := splitRouteKey(name)
-		return bestTier(name, provider, q)
-	})
-}
-
 // bestTier is the best (lowest non-negative) match tier of the model and
 // provider names against query q; -1 if neither matches.
 func bestTier(model, provider, q string) int {
@@ -155,12 +138,12 @@ func bestTier(model, provider, q string) int {
 // resolveModelFuzzy fuzzy-matches name against the known model routes (config +
 // catalog). Exact names pass through untouched. A single best-tier hit wins;
 // several equally-good distinct models report false with the candidates named.
-func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string) {
+func resolveModelFuzzy(cfg *config.Config, name string, catalogs map[string]config.Catalog) (string, bool, []string) {
 	if _, ok := cfg.Models[name]; ok {
 		return name, true, nil
 	}
 	for p := range cfg.Providers {
-		if cat, ok := config.LoadCatalogs()[p]; ok && cat.Find(name) != nil {
+		if cat, ok := catalogs[p]; ok && cat.Find(name) != nil {
 			return name, true, nil // exact catalog id
 		}
 	}
@@ -170,7 +153,7 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 		tier  int
 	}
 	var hits []hit
-	for _, it := range buildModelItems(cfg) {
+	for _, it := range buildModelItems(cfg, catalogs) {
 		if tier := bestTier(it.model, it.provider, q); tier >= 0 {
 			hits = append(hits, hit{it.model, tier})
 		}
@@ -194,27 +177,15 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 	return models[0], true, nil
 }
 
-// routeKey is a palette list row for one model@provider route ("(new)" marks
-// catalog routes); splitRouteKey inverts it.
-func routeKey(it modelItem) string {
-	k := it.model + "@" + it.provider
-	if it.fromCatalog {
-		k += dimNew
-	}
-	return k
-}
-
-func splitRouteKey(row string) (model, provider string) {
-	model, provider, _ = strings.Cut(strings.TrimSuffix(row, dimNew), "@")
-	return model, provider
-}
-
 // buildModelItems flattens the config into selectable routes, models sorted
 // alphabetically, providers in each model's declared order. Models advertised
 // by a provider's cached /models catalog but absent from cfg.Models follow in
 // a dim "(new)" section — selecting one resolves through the catalog fallback
 // and persists to config only via switchModel.
-func buildModelItems(cfg *config.Config) []modelItem {
+func buildModelItems(cfg *config.Config, catalogs map[string]config.Catalog) []modelItem {
+	if cfg == nil {
+		return nil
+	}
 	names := make([]string, 0, len(cfg.Models))
 	for name := range cfg.Models {
 		names = append(names, name)
@@ -223,32 +194,57 @@ func buildModelItems(cfg *config.Config) []modelItem {
 	var items []modelItem
 	for _, name := range names {
 		for _, p := range cfg.Models[name].Providers {
-			url := ""
 			if prov, ok := cfg.Providers[p]; ok {
-				url = prov.BaseURL
+				items = append(items, modelItem{model: name, provider: p, url: prov.BaseURL})
 			}
-			items = append(items, modelItem{model: name, provider: p, url: endpointLabel(url)})
 		}
 	}
-	return appendCatalogRoutes(items, cfg, config.LoadCatalogs())
+	return appendCatalogRoutes(items, cfg, catalogs)
 }
 
-// endpointLabel is the picker's display form of a provider base URL. The
-// Codex subscription talks to chatgpt.com/backend-api (that is how ChatGPT
-// accounts reach Codex, not api.openai.com), which reads as odd next to API
-// hosts — name what it is instead.
-func endpointLabel(baseURL string) string {
-	if strings.TrimRight(baseURL, "/") == config.CodexBaseURL {
-		return "ChatGPT Codex subscription"
+// resolveModelCommandArgs turns the convenient `/model <name>` form into an
+// explicit model/provider route before it crosses the daemon boundary. That
+// keeps session.model deterministic when the current provider does not serve
+// the requested model and reports ambiguous catalog routes to the user.
+func (m *model) resolveModelCommandArgs(args string) (string, error) {
+	fields := strings.Fields(args)
+	if len(fields) != 1 || m.cfg == nil {
+		return args, nil
 	}
-	return baseURL
+	name, ok, ambiguous := resolveModelFuzzy(m.cfg, fields[0], m.catalogs)
+	if !ok {
+		if len(ambiguous) > 0 {
+			return "", fmt.Errorf("model %q is ambiguous: %s", fields[0], strings.Join(ambiguous, ", "))
+		}
+		return "", fmt.Errorf("unknown model %q", fields[0])
+	}
+	var routes []modelItem
+	for _, item := range buildModelItems(m.cfg, m.catalogs) {
+		if item.model == name {
+			routes = append(routes, item)
+		}
+	}
+	if len(routes) == 0 {
+		return "", fmt.Errorf("model %q has no configured provider", name)
+	}
+	for _, route := range routes {
+		if route.provider == m.provName {
+			return name + " " + route.provider, nil
+		}
+	}
+	if len(routes) > 1 {
+		providers := make([]string, 0, len(routes))
+		for _, route := range routes {
+			providers = append(providers, route.provider)
+		}
+		return "", fmt.Errorf("model %q is available from multiple providers (%s); specify one", name, strings.Join(providers, ", "))
+	}
+	return name + " " + routes[0].provider, nil
 }
 
 // appendCatalogRoutes adds one route per catalog-advertised model that has no
-// cfg.Models entry, grouped by provider then sorted by model name — so a small
-// catalog (a Codex subscription's 8 models) isn't scattered through a large
-// one (OpenRouter's ~400). Configured models win: a catalog id already in
-// cfg.Models adds nothing.
+// cfg.Models entry, sorted by model name. Configured models win: a catalog id
+// already in cfg.Models adds nothing.
 func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]config.Catalog) []modelItem {
 	provs := make([]string, 0, len(cfg.Providers))
 	for name := range cfg.Providers {
@@ -265,14 +261,14 @@ func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]
 			if _, configured := cfg.Models[mi.ID]; configured {
 				continue
 			}
-			extra = append(extra, modelItem{model: mi.ID, provider: p, url: endpointLabel(cat.BaseURL), fromCatalog: true})
+			extra = append(extra, modelItem{model: mi.ID, provider: p, url: cat.BaseURL, fromCatalog: true})
 		}
 	}
 	sort.Slice(extra, func(a, b int) bool {
-		if extra[a].provider != extra[b].provider {
-			return extra[a].provider < extra[b].provider
+		if extra[a].model != extra[b].model {
+			return extra[a].model < extra[b].model
 		}
-		return extra[a].model < extra[b].model
+		return extra[a].provider < extra[b].provider
 	})
 	return append(items, extra...)
 }
@@ -291,12 +287,12 @@ func staleCatalogs(cfg *config.Config, cats map[string]config.Catalog) []string 
 }
 
 func (m *model) openModelPicker(sessionOnly bool) {
-	items := buildModelItems(m.cfg)
+	items := buildModelItems(m.cfg, m.catalogs)
 	if len(items) == 0 {
-		m.append(errStyle.Render("no models configured in ~/.whip/config.json"))
+		m.append(errStyle.Render(buildinfo.Text("no models configured in ~/.whip/config.json")))
 		return
 	}
-	mp := &modelPicker{items: items, staleHints: staleCatalogs(m.cfg, config.LoadCatalogs()), sessionOnly: sessionOnly}
+	mp := &modelPicker{items: items, staleHints: staleCatalogs(m.cfg, m.catalogs), sessionOnly: sessionOnly}
 	for i, it := range items { // start on the active route
 		if it.model == m.modelName && it.provider == m.provName {
 			mp.idx = i
@@ -306,96 +302,41 @@ func (m *model) openModelPicker(sessionOnly bool) {
 	m.mpicker = mp
 }
 
-func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) modelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := m.mpicker
-	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	switch msg.String() {
+	case "esc", "ctrl+c":
 		m.mpicker = nil
-	case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
+	case "up", "ctrl+p", "shift+tab":
 		if p.idx > 0 {
 			p.idx--
 		}
-	case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
+	case "down", "ctrl+n", "tab":
 		if p.idx < len(p.view())-1 {
 			p.idx++
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		if p.filter.backspace() {
 			p.applyQuery()
 			p.idx = 0
 		}
-	case tea.KeyEnter:
+	case "enter":
 		v := p.view()
 		if len(v) == 0 {
 			return m, nil
 		}
 		it := v[p.idx]
-		sessionOnly := p.sessionOnly
 		m.mpicker = nil
-		m.switchModel(it.model, it.provider, !sessionOnly)
-	case tea.KeyRunes, tea.KeySpace:
-		p.filter.typeRunes(msg.Runes)
+		return m.submitClientAction("session.model", protocol.ModelParams{Model: it.model, Provider: it.provider, PersistDefault: !p.sessionOnly}, "")
+	default:
+		if msg.Text == "" {
+			return m, nil
+		}
+		p.filter.typeRunes([]rune(msg.Text))
 		p.applyQuery()
 		if p.idx >= len(p.view()) {
 			p.idx = max(len(p.view())-1, 0)
 		}
 	}
 	return m, nil
-}
-
-func (m *model) modelPickerView() string {
-	p := m.mpicker
-	view := p.view()
-	var rows []string
-	rows = append(rows, "  "+botStyle.Render("/")+p.filter.query+dimStyle.Render("▏"))
-	lastModel := ""
-	selRow := 0 // actual row of the selection (headings shift it past idx+1)
-	for i, it := range view {
-		heading := " " + it.model
-		if it.fromCatalog {
-			heading = dimStyle.Render(heading + dimNew)
-		}
-		if it.model != lastModel {
-			rows = append(rows, heading)
-			lastModel = it.model
-		}
-		cur := ""
-		if it.model == m.modelName && it.provider == m.provName {
-			cur = dimStyle.Render("  (current)")
-		}
-		line := fmt.Sprintf("%-12s  ", it.provider) + dimStyle.Render(it.url)
-		if it.fromCatalog {
-			line = dimStyle.Render(line)
-		}
-		if i == p.idx {
-			selRow = len(rows)
-			rows = append(rows, botStyle.Render("   → "+line)+cur)
-		} else {
-			rows = append(rows, "     "+line+cur)
-		}
-	}
-	if len(view) == 0 {
-		rows = append(rows, dimStyle.Render("  no models match "+strconv.Quote(p.filter.query)))
-	}
-	rows = append(rows, dimStyle.Render(fmt.Sprintf("  (%d/%d) type to filter · ↑/↓ select · enter switch · esc cancel", p.idx+1, len(view))))
-	if len(p.staleHints) > 0 {
-		rows = append(rows, dimStyle.Render("  catalog stale for "+strings.Join(p.staleHints, ", ")+" — /model refresh to pull newly announced models"))
-	}
-	avail := m.height - 1
-	if avail < 1 { // terminal size unknown: no padding or windowing
-		return strings.Join(rows, "\n")
-	}
-	for len(rows) < avail {
-		rows = append(rows, "")
-	}
-	if len(rows) > avail { // keep the query line, the selection, and the footer visible
-		footer := 1
-		if len(p.staleHints) > 0 {
-			footer = 2
-		}
-		body := rows[1 : len(rows)-footer]
-		lo, hi := ocWindow(len(body), selRow-1, max(avail-1-footer, 1))
-		rows = append(append([]string{rows[0]}, body[lo:hi]...), rows[len(rows)-footer:]...)
-	}
-	return strings.Join(rows, "\n")
 }

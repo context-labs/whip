@@ -1,0 +1,22 @@
+{
+  "recordedAt": "2026-09-09T06:11:09.060950+00:00",
+  "repositoryGate": {
+    "command": "task check",
+    "exitCode": 0,
+    "appTests": 361,
+    "log": "/tmp/whip-chat-task-check.log"
+  },
+  "goRace": {
+    "command": "go test -race ./internal/rlm ./internal/daemon -run 'TestHostInvocations|TestKernelStreamsOutput|TestCellHostCalls' -count=1",
+    "exitCode": 0
+  },
+  "mobileTypecheck": {
+    "command": "npm run check:mobile",
+    "exitCode": 0
+  },
+  "manualCoverage": {
+    "voiceOver": "not performed",
+    "safari": "not performed"
+  },
+  "installedAppModifiedByThisTask": false
+}

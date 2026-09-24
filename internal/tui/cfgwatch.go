@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -37,8 +37,13 @@ func (m *model) cfgSync() (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m, m.watchConfig()
 	}
-	fi, err := os.Stat(filepath.Join(dir, "config.json"))
-	if err != nil || !fi.ModTime().After(m.cfgMod) {
+	var modified time.Time
+	for _, name := range []string{"config.json", config.ClientPreferencesFile} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.ModTime().After(modified) {
+			modified = info.ModTime()
+		}
+	}
+	if !modified.After(m.cfgMod) {
 		return m, m.watchConfig()
 	}
 	cfg, err := config.Load()
@@ -46,7 +51,7 @@ func (m *model) cfgSync() (tea.Model, tea.Cmd) {
 		return m, m.watchConfig() // a half-written file is retried next tick
 	}
 	return m, tea.Sequence(
-		func() tea.Msg { return cfgSyncMsg{mod: fi.ModTime(), theme: cfg.Theme} },
+		func() tea.Msg { return cfgSyncMsg{mod: modified, theme: cfg.Theme} },
 		m.watchConfig(),
 	)
 }
@@ -60,13 +65,8 @@ func (m *model) applyCfgSync(msg cfgSyncMsg) {
 		return
 	}
 	if msg.theme != m.cfg.Theme {
-		name := msg.theme
-		if name != "" && !knownThemeName(name) {
-			name = ""
-			m.append(errStyle.Render("ignored unknown configured theme: " + msg.theme))
-		}
-		m.cfg.Theme = name
-		m.themeHow = m.applyTheme(name) // keep /report's detection source current
-		m.refreshVP()                   // repaint under the new scheme without a terminal resize
+		m.cfg.Theme = msg.theme
+		m.themeHow = m.applyTheme(msg.theme) // keep /report's detection source current
+		m.refreshVP()                        // repaint under the new scheme without a terminal resize
 	}
 }

@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "cols": {
+      "type": "integer"
+    },
+    "rows": {
+      "type": "integer"
+    },
+    "exited": {
+      "type": "boolean"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "signal": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/TerminalAttachResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TerminalAttachResult",
+  "required": [
+    "cursor",
+    "cwd",
+    "cols",
+    "rows",
+    "exited"
+  ],
+  "additionalProperties": false
+}

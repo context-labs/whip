@@ -1,0 +1,483 @@
+task: [check] unformatted=$(gofmt -s -l .)
+if [ -n "$unformatted" ]; then
+  echo "needs gofmt -s:"; echo "$unformatted"; exit 1
+fi
+
+task: [check] go vet ./...
+task: [check] go run ./cmd/whipvet ./...
+task: [check] go test ./...
+ok  	github.com/context-labs/whip/cmd/themegen	(cached)
+ok  	github.com/context-labs/whip/cmd/whip	26.762s
+ok  	github.com/context-labs/whip/cmd/whip-contract	2.167s
+?   	github.com/context-labs/whip/cmd/whipvet	[no test files]
+ok  	github.com/context-labs/whip/evals/rlm	(cached)
+ok  	github.com/context-labs/whip/internal/acp	2.352s
+ok  	github.com/context-labs/whip/internal/agent	1.579s
+ok  	github.com/context-labs/whip/internal/analysis/uilock	4.115s
+ok  	github.com/context-labs/whip/internal/browser	49.716s
+ok  	github.com/context-labs/whip/internal/browser/extrelay	(cached)
+ok  	github.com/context-labs/whip/internal/buildinfo	(cached)
+ok  	github.com/context-labs/whip/internal/capability	5.690s
+ok  	github.com/context-labs/whip/internal/computer	11.576s
+ok  	github.com/context-labs/whip/internal/config	5.153s
+ok  	github.com/context-labs/whip/internal/content	(cached)
+ok  	github.com/context-labs/whip/internal/daemon	28.410s
+ok  	github.com/context-labs/whip/internal/inferencenet	(cached)
+ok  	github.com/context-labs/whip/internal/llm	(cached)
+ok  	github.com/context-labs/whip/internal/lsp	12.193s
+ok  	github.com/context-labs/whip/internal/mcp	25.145s
+ok  	github.com/context-labs/whip/internal/memory	(cached)
+ok  	github.com/context-labs/whip/internal/protocol	3.090s
+ok  	github.com/context-labs/whip/internal/rlm	(cached)
+ok  	github.com/context-labs/whip/internal/schedule	(cached)
+ok  	github.com/context-labs/whip/internal/session	13.462s
+ok  	github.com/context-labs/whip/internal/skills	(cached)
+ok  	github.com/context-labs/whip/internal/theme	(cached)
+ok  	github.com/context-labs/whip/internal/tools	9.156s
+ok  	github.com/context-labs/whip/internal/tools/bashrun	8.872s
+ok  	github.com/context-labs/whip/internal/tui	6.520s
+ok  	github.com/context-labs/whip/internal/tui/theme	(cached)
+ok  	github.com/context-labs/whip/internal/tui/ui	(cached)
+ok  	github.com/context-labs/whip/internal/update	4.924s
+ok  	github.com/context-labs/whip/internal/webassets	4.144s
+task: [contract] npm run check -w @whip/protocol
+
+> @whip/protocol@3.0.0 check
+> tsc --noEmit && node --disallow-code-generation-from-strings --test scripts/interop.test.mjs && npm run check:drift
+
+✔ bounded navigation summaries validate without coercing counters or requiring a known root (1.360833ms)
+✔ Go-produced fixtures validate without numeric coercion (17.473709ms)
+✔ TypeScript requests reject undeclared fields and malformed input (0.253834ms)
+✔ registered operations and events all reference generated contracts (0.456917ms)
+✔ responses accept additive fields without weakening known fields or changing input (0.785ms)
+✔ decimal string counters preserve signed int64 boundaries in both modes (0.164084ms)
+✔ generated operation lookups and Go fixtures cover every registry entry (1.044917ms)
+✔ permission decisions are typed requests without signing credentials (0.076ms)
+✔ collection variants preserve typed properties and exactly one item (0.17375ms)
+✔ model budgets preserve explicit unlimited and exact uncertainty (0.09125ms)
+✔ protocol 4.0 usage remains valid without the additive reported field (4.661291ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 95.856625
+
+> @whip/protocol@3.0.0 check:drift
+> go run ../../cmd/whip-contract -out schema -check && node scripts/generate.mjs --check
+
+task: [sdk] npm run check -w @whip/sdk
+
+> @whip/sdk@0.1.0 check
+> npm run build && npm test
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @whip/sdk@0.1.0 test
+> tsc -p tsconfig.test.json && node --test build/test/*.test.js
+
+✔ an already-aborted connect does not create a transport (1.192708ms)
+✔ a remembered runtime identity is checked before any connected state or host query (1.521042ms)
+✔ already-aborted recovered waits and retries do not query or submit work (3.01975ms)
+✔ Unix outgoing bounds include the newline framing byte (0.821792ms)
+✔ initialization cannot resurrect a connection lost after its response (0.394083ms)
+✔ explicit close wins over an already resolved initialization response (12.302583ms)
+✔ aborting a query removes its waiter and a late response cannot resolve another request (0.563208ms)
+✔ close rejects every pending request and applies in-flight bounds before sending (0.326334ms)
+✔ malformed known responses fail the connection instead of reaching callers (0.325083ms)
+✔ command status rejects foreign recovery namespaces and pre-aborted lookups before sending (0.276291ms)
+✔ subscription routes early events, drops duplicates, and exposes sequence gaps (2.13725ms)
+✔ slow subscriptions fail explicitly and release their connection slot (1.85725ms)
+✔ aborting subscription admission cleans up after the late acknowledgement (1.620334ms)
+✔ command requests are frozen before application recovery storage resolves (2.3145ms)
+✔ cancel admission cannot overtake the original command during asynchronous storage (4.43475ms)
+✔ retry cannot erase an authoritative changed-payload conflict (2.309708ms)
+✔ generic status errors never authorize resubmission (0.588708ms)
+✔ unknown event names cannot resolve inherited schema properties (0.884042ms)
+✔ pause closes transport and parks waits until explicit resume without resending work (17.060916ms)
+✔ pause during initialization cannot revive the old transport and close remains terminal (3.073708ms)
+✔ native crypto providers are scoped to a client and reject malformed SHA-256 output (0.517709ms)
+✔ closing after a running status reply cannot strand a command result waiter (0.367958ms)
+✔ an already-aborted resume leaves observation paused (0.345916ms)
+✔ aborting resume while initialization unwinds stops only the local waiter (0.37925ms)
+✔ a paused command result reconciles its status after resume without resubmission (2.144667ms)
+✔ pausing from a connection subscriber cannot leave a heartbeat scheduled (21.82225ms)
+✔ Unix content is lazy, scoped, chunked, and checked against the full digest (9.150083ms)
+✔ content byte bounds reject before I/O, including decimal sizes beyond Number precision (0.788375ms)
+✔ content integrity rejects changed handles, corrupted bytes, and oversized chunks (2.312042ms)
+✔ child grant denial is surfaced without retrying the reference as a root read (1.380125ms)
+✔ even empty Unix content must pass the root/agent/reference grant check (0.760208ms)
+✔ Unix upload snapshots input, verifies result, and preserves explicit recipient scope (2.790292ms)
+✔ interrupted upload does not finish or automatically restart on reconnection (1.992125ms)
+✔ HTTP content preserves scoped URLs and detects interrupted or excessive bodies (15.25ms)
+✔ HTTP upload verifies SHA header and returned handle, with bounded response bodies (2.181208ms)
+✔ closing the client aborts HTTP transfers without sending an execution cancellation (0.466916ms)
+✔ partial arguments decode escaped prefixes, top-level keys and bounded Starlark (8.897458ms)
+✔ arguments and print output are cumulative, agents are separate and host events retain occurrence identity (1.018333ms)
+✔ recorded executions pair repeated IDs by occurrence, decode results honestly and retain scoped references (0.675291ms)
+✔ a live cell retains its key and host evidence when recorded, with repeated IDs in later turns (0.336041ms)
+✔ same tool-call ID can occur twice within one turn, including a malformed completion (0.099917ms)
+✔ snapshot replay is BigInt-safe and does not duplicate calls, hosts or client timings (0.220917ms)
+✔ unfinished cells settle truthfully on turn.succeeded (0.079125ms)
+✔ unfinished cells settle truthfully on turn.failed (0.049208ms)
+✔ unfinished cells settle truthfully on turn.cancelled (0.219666ms)
+✔ unfinished cells settle truthfully on turn.interrupted (0.146542ms)
+✔ disconnect ends indefinite running indicators; history revision and root identity discard incompatible evidence (0.107416ms)
+✔ restart events survive turns and byte/count bounds include hosts, identifiers and oversized active output (2110.31725ms)
+✔ a newly opened child joins the newest recorded occurrence, not an older reused ID (0.366959ms)
+✔ completed result output is authoritative and unsafe step counters are not rounded for display (0.120042ms)
+✔ embedded restart identity survives commit and scoped body refs remain immutable (0.207ms)
+✔ result-only history joins the same observed cell when backward paging supplies its call (0.133958ms)
+✔ initial child history cannot borrow observed traces from a completed identical call (0.22875ms)
+✔ current observed child work stays below history when its first page arrives (0.132875ms)
+✔ initial loading history is not a known occurrence boundary (0.113917ms)
+✔ initial error history is not a known occurrence boundary (0.067584ms)
+✔ an observed child restart stays after old history and does not steal an identical embedded restart (0.310166ms)
+✔ an ambiguous first-read observation cannot attach to a later reuse of its call ID (0.133ms)
+✔ known history boundaries associate repeated IDs in order across multiple committed occurrences (0.082958ms)
+✔ bounded first history cannot prove that an absent closed observed occurrence is uncommitted (0.096708ms)
+✔ failed structured results preserve output, scratch notices and restore counts through live and recorded replay (0.498791ms)
+✔ bounded return-value previews remain previews instead of falsely showing null (0.089083ms)
+✔ protocol 4.0 session usage does not disconnect the current client (9.027542ms)
+▶ every generated operation dispatches through the SDK with its execution classification
+  ✔ rpc command.status (0.447584ms)
+  ✔ rpc command.submit (0.576834ms)
+  ✔ rpc config.get (0.552792ms)
+  ✔ rpc config.update (0.224792ms)
+  ✔ rpc content.read (0.501833ms)
+  ✔ rpc daemon.ping (0.202625ms)
+  ✔ rpc daemon.restart (0.154958ms)
+  ✔ rpc daemon.stop (0.094083ms)
+  ✔ rpc events.replay (0.340958ms)
+  ✔ rpc events.subscribe (0.195792ms)
+  ✔ rpc events.unsubscribe (0.103625ms)
+  ✔ rpc history.page (1.072583ms)
+  ✔ rpc host.attention (1.528875ms)
+  ✔ rpc host.directories.list (0.267583ms)
+  ✔ rpc host.directory.pick (0.121125ms)
+  ✔ rpc host.themes.list (0.252917ms)
+  ✔ rpc host.themes.resolve (0.876958ms)
+  ✔ rpc initialize (0.216583ms)
+  ✔ rpc mailbox.list (0.720291ms)
+  ✔ rpc mailbox.read (0.429541ms)
+  ✔ rpc operation.invoke (0.23875ms)
+  ✔ rpc permission.decide (0.165167ms)
+  ✔ rpc provider.key.rotate (0.1965ms)
+  ✔ rpc provider.key.set (3.348875ms)
+  ✔ rpc provider.login.begin (0.435791ms)
+  ✔ rpc provider.login.cancel (0.099625ms)
+  ✔ rpc provider.login.list (0.350125ms)
+  ✔ rpc provider.login.project.create (0.092166ms)
+  ✔ rpc provider.login.project.select (0.080208ms)
+  ✔ rpc provider.login.status (0.050833ms)
+  ✔ rpc provider.login.team.select (0.075834ms)
+  ✔ rpc provider.logout (0.044875ms)
+  ✔ rpc provider.status (0.037667ms)
+  ✔ rpc provider.validate (0.284292ms)
+  ✔ rpc query (0.102208ms)
+  ✔ rpc root.collection (5.592583ms)
+  ✔ rpc root.snapshot (0.185542ms)
+  ✔ rpc sessions.list (0.548209ms)
+  ✔ rpc sessions.revision (0.134583ms)
+  ✔ rpc sessions.summaries (1.053666ms)
+  ✔ rpc upload.begin (0.295542ms)
+  ✔ rpc upload.chunk (0.122125ms)
+  ✔ rpc upload.finish (0.183875ms)
+  ✔ rpc workspace.complete (0.256125ms)
+  ✔ runtime agent.control (0.351541ms)
+  ✔ runtime agent.delete (0.081667ms)
+  ✔ runtime agent.submit (0.427ms)
+  ✔ runtime agent.transcript (2.058209ms)
+  ✔ runtime agent.turn.cancel (0.142875ms)
+  ✔ runtime agents.list (0.313042ms)
+  ✔ runtime browser.set_driver (0.146292ms)
+  ✔ runtime browser.status (0.052917ms)
+  ✔ runtime budget.cap (0.307875ms)
+  ✔ runtime cancel (0.086792ms)
+  ✔ runtime capability.revoke (0.375417ms)
+  ✔ runtime compaction.configure (0.147208ms)
+  ✔ runtime computer.allow (0.266875ms)
+  ✔ runtime computer.deny (0.071291ms)
+  ✔ runtime computer.status (0.053417ms)
+  ✔ runtime context.audit (0.173916ms)
+  ✔ runtime daemon.checkpoint (0.205ms)
+  ✔ runtime goal.from-context (0.830791ms)
+  ✔ runtime goal.run (0.076916ms)
+  ✔ runtime goal.set (0.048916ms)
+  ✔ runtime history.clear (0.088625ms)
+  ✔ runtime history.compact (0.264541ms)
+  ✔ runtime history.compact.log (0.14075ms)
+  ✔ runtime history.compact.retry (0.0985ms)
+  ✔ runtime history.rewind (0.150209ms)
+  ✔ runtime history.user.list (0.0775ms)
+  ✔ runtime lsp.status (0.118375ms)
+  ✔ runtime mcp.attach (0.196875ms)
+  ✔ runtime mcp.disable (0.065ms)
+  ✔ runtime mcp.enable (0.0475ms)
+  ✔ runtime mcp.import.configure (0.147708ms)
+  ✔ runtime mcp.import.status (0.036667ms)
+  ✔ runtime mcp.reconnect (0.037417ms)
+  ✔ runtime mcp.status (0.129292ms)
+  ✔ runtime permission.forget (0.04ms)
+  ✔ runtime permission.mode (0.067583ms)
+  ✔ runtime permission.rules (0.218333ms)
+  ✔ runtime provider.catalogs (0.612958ms)
+  ✔ runtime question.answer (0.149292ms)
+  ✔ runtime run.configure (0.108709ms)
+  ✔ runtime schedule.create (0.144125ms)
+  ✔ runtime schedule.delete (0.0715ms)
+  ✔ runtime schedule.list (0.153375ms)
+  ✔ runtime session.autotitle (0.044084ms)
+  ✔ runtime session.create (0.233375ms)
+  ✔ runtime session.delete (0.071959ms)
+  ✔ runtime session.effort (0.121834ms)
+  ✔ runtime session.effort.get (0.040792ms)
+  ✔ runtime session.fork (0.09525ms)
+  ✔ runtime session.list (0.354ms)
+  ✔ runtime session.model (0.122041ms)
+  ✔ runtime session.model.get (0.043084ms)
+  ✔ runtime session.open (0.041625ms)
+  ✔ runtime session.preview (0.105875ms)
+  ✔ runtime session.reload (0.056958ms)
+  ✔ runtime session.rename (0.120875ms)
+  ✔ runtime shell.run (0.089416ms)
+  ✔ runtime steer (0.05925ms)
+  ✔ runtime submit (0.060125ms)
+  ✔ runtime terminal.input (0.044958ms)
+  ✔ runtime tool.call (0.102917ms)
+  ✔ runtime tool.configure (0.071ms)
+  ✔ runtime tool.schema (0.149583ms)
+  ✔ runtime workspace.inspect (0.52325ms)
+  ✔ runtime workspace.set (0.083459ms)
+✔ every generated operation dispatches through the SDK with its execution classification (39.356667ms)
+✔ human clients submit unsigned decisions with stable command identities (3.343ms)
+✔ automation clients submit unsigned decisions with stable command identities (0.519666ms)
+✔ permission modes use ordinary durable commands and recovery metadata (1.272292ms)
+✔ lost decision acknowledgement is not replayed after reconnect (12.121625ms)
+▶ permission decision status reads pending and terminal outcomes without sending a decision
+  ✔ queued (0.498834ms)
+  ✔ running (0.261291ms)
+  ✔ waiting (0.256084ms)
+  ✔ succeeded (0.256917ms)
+  ✔ failed (0.262334ms)
+  ✔ cancelled (0.227708ms)
+  ✔ interrupted (0.198125ms)
+✔ permission decision status reads pending and terminal outcomes without sending a decision (2.298333ms)
+▶ permission decision status validates identity, namespace and outcome shape
+  ✔ wrong ID (0.449125ms)
+  ✔ wrong operation (0.308ms)
+  ✔ unknown status (0.188125ms)
+  ✔ untranslated stored ticket (0.207791ms)
+  ✔ missing successful result (0.168417ms)
+  ✔ failed without failure (0.161125ms)
+  ✔ pending with terminal result (0.155708ms)
+  ✔ successful with failure (0.181667ms)
+  ✔ unexpected content (0.176875ms)
+✔ permission decision status validates identity, namespace and outcome shape (3.282834ms)
+✔ missing and unavailable permission statuses remain distinct and never authorize an automatic retry (1.596584ms)
+✔ a locally rejected approval does not reset unrelated in-flight queries (0.423916ms)
+✔ provider secrets, configuration updates, and terminal input never enter recovery storage (2.640291ms)
+✔ provider login reconnect reads existing flow state instead of beginning another login (0.59725ms)
+✔ unix session summaries are bounded typed queries without view or journal ownership (2.843792ms)
+✔ websocket session summaries are bounded typed queries without view or journal ownership (1.144625ms)
+✔ summary errors, local aborts and disconnection never fabricate missing sessions or replay queries (1.241125ms)
+✔ an older host without session summaries remains connectable and refuses the unavailable operation locally (0.947209ms)
+✔ snapshot plus pre-ack events preserves cursor precision and immutable snapshots (10.438291ms)
+✔ permission mode updates survive snapshot refreshes without changing session metadata (11.369666ms)
+✔ root: streaming rows append deltas, replace cumulative values and survive snapshot recovery (19.147042ms)
+✔ child: streaming rows append deltas, replace cumulative values and survive snapshot recovery (21.143958ms)
+✔ root: lifecycle refresh preserves observed rows and merges only newer raw snapshot events (110.57675ms)
+✔ root: partial refresh separates stream.text across missing snapshot and live deltas (6.232459ms)
+✔ root: partial refresh separates stream.reasoning across missing snapshot and live deltas (5.779875ms)
+✔ root: partial refresh separates stream.terminal.output across missing snapshot and live deltas (6.572083ms)
+✔ child: lifecycle refresh preserves observed rows and merges only newer raw snapshot events (109.247666ms)
+✔ child: partial refresh separates stream.text across missing snapshot and live deltas (6.358625ms)
+✔ child: partial refresh separates stream.reasoning across missing snapshot and live deltas (5.393958ms)
+✔ child: partial refresh separates stream.terminal.output across missing snapshot and live deltas (6.255667ms)
+✔ snapshot replacement is scoped correctly when root ended (0.363833ms)
+✔ snapshot replacement is scoped correctly when child ended (0.123625ms)
+✔ snapshot replacement is scoped correctly when turn changed (0.108ms)
+✔ snapshot replacement is scoped correctly when revision changed (0.091542ms)
+✔ gap replaces presentation even when the active turn is unchanged (5.587584ms)
+✔ subscription failure replaces presentation even when the active turn is unchanged (6.208291ms)
+✔ reconnect replaces presentation even when the active turn is unchanged (5.068625ms)
+✔ connection replaced replaces presentation even when the active turn is unchanged (6.627ms)
+✔ retaining observed presentation during refresh still enforces the view byte budget (0.445667ms)
+✔ duplicates are ignored, gaps stop the stream, and replaced subscriptions cannot change a new view (15.209167ms)
+✔ reconnect retains stale data and refuses to attach the view to a different runtime (12.140209ms)
+✔ history pages cannot mix pre-rewind and post-rewind revisions (6.061166ms)
+✔ a rejected history request cannot resurrect a closed child view (6.130375ms)
+✔ backward pagination retains requested pages and revision-bound cursors (0.384583ms)
+✔ root history exhaustion survives refresh until its boundary is evicted or revised (0.629708ms)
+✔ child history exhaustion survives refresh until its boundary is evicted or revised (0.449042ms)
+✔ a terminal empty page exhausts a retained boundary and concurrent readers share a page (0.183ms)
+✔ empty root history and omitted bodies do not imply older messages (0.158875ms)
+✔ large live output is bounded and explicitly unavailable (5.219667ms)
+✔ a burst processes every fragment while publishing one immutable view update (16.852584ms)
+✔ throttled notification timers cannot leave growing event state unbounded (4.691416ms)
+✔ cache pressure evicts child history before the current root history (0.399542ms)
+✔ questions resolve across clients and unknown event payloads stay explicit (10.832417ms)
+✔ catalog polling is observed, revision-based, and never opens roots (79.082542ms)
+✔ an observed catalog stops its timer while paused and resumes polling on reconnect (49.28225ms)
+✔ REPL evidence shares the root subscription and survives commit and reconnect (12.058291ms)
+✔ REPL unclosed cells stop spinning after disconnect, disposal clears evidence and runtime replacement cannot leak it (5.720625ms)
+✔ REPL supplements count against the SessionView byte limit even while publication timers are throttled (6.199417ms)
+✔ accounting replaces tree summaries exactly while stale, duplicate and differently scoped events only advance the cursor (169.229833ms)
+✔ accounting gap and reconnect recovery use authoritative optional snapshots and exclude summaries from presentation (18.013958ms)
+✔ model attempt lifecycle events use the existing coalesced snapshot refresh for budgets (101.796834ms)
+✔ WebSocket construction supports native implementations requiring a string URL (15.346083ms)
+✔ React Native error followed by close preserves the native failure during opening (0.73125ms)
+✔ React Native error followed by close reports one bounded, sanitized native failure after opening (0.384375ms)
+✔ an error without a close rejects opening on the next microtask (0.163542ms)
+✔ normal remote close retains its code and reason and closes observation once (0.186834ms)
+✔ local close wins over a queued error fallback without a later callback (0.185625ms)
+✔ abort during opening wins over a queued error fallback and releases native handlers (0.186ms)
+✔ abort after opening reports its original reason once despite a queued error fallback (0.350292ms)
+ℹ tests 254
+ℹ suites 0
+ℹ pass 254
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2183.441625
+task: [sdk] npm run build -w @whip/client-example
+
+> build
+> tsc --noEmit && node serve.mjs --build
+
+task: [web] go run ./cmd/themegen -check
+task: [web] npm run check:web
+
+> check:web
+> tsc -p packages/app/tsconfig.json --noEmit && npm run build:web
+
+
+> build:web
+> npm run build -w @whip/sdk && npm run build -w @whip/web && node scripts/renderer-artifact.mjs
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @whip/web@0.1.0 build
+> vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 2743 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                         0.62 kB │ gzip:   0.33 kB
+dist/assets/jetbrains-mono-cyrillic-ext-wght-normal-EocZY2iu.woff2      2.02 kB
+dist/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2        7.50 kB
+dist/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2             9.00 kB
+dist/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2                10.25 kB
+dist/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2                 11.23 kB
+dist/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2         12.10 kB
+dist/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2        15.19 kB
+dist/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2                  18.74 kB
+dist/assets/inter-greek-wght-normal-CkhJZR-_.woff2                     18.99 kB
+dist/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2              25.96 kB
+dist/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2            40.40 kB
+dist/assets/inter-latin-wght-normal-Dx4kXJAl.woff2                     48.25 kB
+dist/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2                 85.06 kB
+dist/assets/index-BdvxMa7c.css                                         83.96 kB │ gzip:  19.19 kB
+dist/assets/h._runtimeId.s._rootId-Bjnof3IQ.js                          0.21 kB │ gzip:   0.17 kB
+dist/assets/h._runtimeId.s._rootId-B3n6E9Qf.js                          0.27 kB │ gzip:   0.21 kB
+dist/assets/rolldown-runtime-hePW80VL.js                                0.71 kB │ gzip:   0.42 kB
+dist/assets/routes-DixQELEB.js                                          7.44 kB │ gzip:   3.10 kB
+dist/assets/code-highlight-COcMIFpe.js                                 48.04 kB │ gzip:  18.10 kB
+dist/assets/settings-B_WK6XaK.js                                       77.13 kB │ gzip:  19.70 kB
+dist/assets/src-DS01xMsN.js                                           442.23 kB │ gzip: 120.67 kB
+dist/assets/index-DJBR8ZOT.js                                       2,785.06 kB │ gzip: 389.69 kB
+
+✓ built in 1.24s
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+Renderer artifact 99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16: 23 files
+task: [web] npm run test:web
+
+> test:web
+> vitest run --config apps/web/vitest.config.ts
+
+
+ RUN  v5.0.0 /Users/samheutmaker/Desktop/context-labs/src/rlm/whip
+
+
+ Test Files  34 passed (34)
+      Tests  299 passed (299)
+   Start at  12:12:00
+   Duration  5.95s (environment 34%, transform 32%, import 17%, tests 12%, setup 5%)
+
+Environment  jsdom was created 34 times · 25.92s total, 34% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+task: [web] npm run check -w @whip/ui
+
+> @whip/ui@0.1.0 check
+> tsc --noEmit
+
+task: [web] npm run test -w @whip/ui
+
+> @whip/ui@0.1.0 test
+> node --test tests/*.test.ts
+
+✔ each supported language preserves exact text through AST tokenization (15.256583ms)
+✔ unknown and absent languages remain inert plain text (0.535959ms)
+✔ large bodies are bounded in bytes without splitting Unicode characters (0.183792ms)
+✔ token budgets fall back explicitly and do not expand into unbounded DOM (12.026708ms)
+✔ Chroma overrides retain full token styling when mapping Prism tokens (0.13425ms)
+✔ every shipped theme remains exact and derives readable control/code foregrounds (45.926917ms)
+✔ custom Chroma colors retain their selected background and complete attributes (1.201ms)
+✔ resolved color validation rejects raw CSS, malformed token attributes and oversized data (0.446417ms)
+✔ validated custom data cannot be mutated by a retained caller reference (0.089375ms)
+✔ Claude Code preserves Paper surfaces through browser adaptation (0.320958ms)
+✔ optional browser surfaces are validated and incompatible navigation stays readable (0.778292ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 131.195084
+task: [web] node --test scripts/pack-web.test.mjs
+✔ packages the real build tree and removes stale generated assets (43.15275ms)
+✔ rejects missing app entry before replacing the previous bundle (33.552834ms)
+✔ rejects symlinks outside the generated bundle (33.815917ms)
+▶ rejects changed, missing and extra renderer files before touching the previous bundle
+  ✔ changed (35.652333ms)
+  ✔ missing (32.938083ms)
+  ✔ extra (34.125708ms)
+✔ rejects changed, missing and extra renderer files before touching the previous bundle (103.1555ms)
+▶ rejects a missing entry point and release artifacts with hidden files, maps or oversized files
+  ✔ entry (33.521292ms)
+  ✔ hidden (50.565833ms)
+  ✔ map (33.58325ms)
+  ✔ large (33.961834ms)
+✔ rejects a missing entry point and release artifacts with hidden files, maps or oversized files (152.092833ms)
+✔ rejects symlinked source directories and target directories without writing through them (62.95625ms)
+✔ does not let an ignored source placeholder symlink escape artifact verification (33.065125ms)
+✔ never follows an existing target placeholder symlink while refreshing a bundle (39.123416ms)
+✔ rejects manifest tampering and a self-consistent manifest with a different server CSP (59.841833ms)
+✔ validates manifest paths and bounds independently of its self-consistent digest (14.324417ms)
+✔ verifies the copied artifact byte-for-byte and detects subsequent target tampering (35.462625ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 650.159

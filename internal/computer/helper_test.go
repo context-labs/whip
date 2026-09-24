@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // fakeHelper runs the Go fake helper as the subprocess by pointing the
@@ -133,6 +135,31 @@ func TestTokenEnforced(t *testing.T) {
 	var out map[string]any
 	if err := h.Call(context.Background(), "anything", nil, &out); err != nil {
 		t.Fatalf("token-bearing call must pass: %v", err)
+	}
+}
+
+func TestManagedHelperUsesScopedEnvironment(t *testing.T) {
+	legacy := fakeHelper(t, `handle = func(req map[string]any) (any, *rpcErr) {
+		return map[string]any{"secret": os.Getenv("PROVIDER_API_KEY"), "marker": os.Getenv("WHIP_SESSION_ID")}, nil
+	}`)
+	legacy.kill()
+	t.Setenv("PROVIDER_API_KEY", "daemon-secret")
+	processes := capability.NewProcessManager()
+	h, err := NewManagedHelper(processes, "root", t.TempDir(), map[string]string{"WHIP_SESSION_ID": "session-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	defer processes.Close()
+	var got struct {
+		Secret string `json:"secret"`
+		Marker string `json:"marker"`
+	}
+	if err := h.Call(context.Background(), "environment", nil, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Secret != "" || got.Marker != "session-one" {
+		t.Fatalf("helper environment = %+v", got)
 	}
 }
 

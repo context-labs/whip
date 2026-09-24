@@ -1,0 +1,100 @@
+[
+  {
+    "path": "/Users/samheutmaker/.whip",
+    "inode": 216720860,
+    "device": 16777232,
+    "entries": 1164,
+    "allocatedBytes": 1486368768
+  },
+  {
+    "path": "/Users/samheutmaker/.whipcode",
+    "inode": 234392605,
+    "device": 16777232,
+    "entries": 61,
+    "allocatedBytes": 4182016
+  },
+  {
+    "path": "/Users/samheutmaker/.whip-web-v4",
+    "inode": 232028531,
+    "device": 16777232,
+    "entries": 1973,
+    "allocatedBytes": 339374080
+  },
+  {
+    "path": "/Users/samheutmaker/.whip-v2-test.0k8SYz",
+    "inode": 230069793,
+    "device": 16777232,
+    "entries": 37,
+    "allocatedBytes": 50585600
+  },
+  {
+    "path": "/private/tmp/whipcode-multihost-local-home",
+    "inode": 235365183,
+    "device": 16777232,
+    "entries": 39,
+    "allocatedBytes": 3874816
+  },
+  {
+    "path": "/private/tmp/whipcode-multihost-local-desktop-origin",
+    "inode": 236746919,
+    "device": 16777232,
+    "entries": 1,
+    "allocatedBytes": 54779904
+  },
+  {
+    "path": "/usr/local/bin/whip",
+    "inode": 228234315,
+    "device": 16777232,
+    "entries": 1,
+    "allocatedBytes": 48152576
+  },
+  {
+    "path": "/usr/local/bin/whipcode",
+    "inode": 234392503,
+    "device": 16777232,
+    "entries": 1,
+    "allocatedBytes": 41140224
+  },
+  {
+    "path": "/Users/samheutmaker/Library/Application Support/Whip",
+    "inode": 236732839,
+    "device": 16777232,
+    "entries": 82,
+    "allocatedBytes": 43409408
+  },
+  {
+    "path": "/Users/samheutmaker/Library/Caches/whip-research",
+    "inode": 226898866,
+    "device": 16777232,
+    "entries": 4,
+    "allocatedBytes": 73388032
+  },
+  {
+    "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip",
+    "inode": 232956848,
+    "device": 16777232,
+    "entries": 1,
+    "allocatedBytes": 54628352
+  },
+  {
+    "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whipcode-publishing/whipcode",
+    "inode": 233623888,
+    "device": 16777232,
+    "entries": 1,
+    "allocatedBytes": 55091200
+  },
+  {
+    "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-mobile-integration/apps/desktop/.stage",
+    "inode": 237711291,
+    "device": 16777232,
+    "entries": 41,
+    "allocatedBytes": 65548288
+  },
+  {
+    "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-mobile-integration/apps/desktop/out",
+    "inode": 237718212,
+    "device": 16777232,
+    "entries": 608,
+    "allocatedBytes": 386723840
+  }
+]

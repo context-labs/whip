@@ -1,0 +1,197 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+)
+
+func TestFullScreenLayoutFitsTerminal(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := fullModel()
+	m.cfg = &config.Config{}
+	m.termWidth = 200
+	m.applyOpencodeStyles()
+	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whip anything") || !m.leftVisible() {
+		t.Fatalf("input/sidebar prompt=%q placeholder=%q left=%t", m.input.Prompt, m.input.Placeholder, m.leftVisible())
+	}
+	m.layout()
+	if got := lipgloss.Height(viewStr(m)); got != m.height {
+		t.Fatalf("view renders %d rows on a %d-row terminal", got, m.height)
+	}
+}
+
+func TestOpencodeLeaderChordsUseDaemonCommands(t *testing.T) {
+	m, _ := liveQueueModel(t)
+	m.busy = false
+	m.termWidth, m.width = 200, 150
+	m.cfg = &config.Config{}
+	m.now = time.Now
+
+	for key, operation := range map[string]string{
+		"l": "session.list",
+		"n": "history.clear",
+		"c": "history.compact",
+	} {
+		_, command, handled := m.ocLeaderChord(key)
+		if !handled || command == nil {
+			t.Fatalf("leader %q was not handled", key)
+		}
+		message := command().(clientCommandMsg)
+		if message.action.Operation != operation {
+			t.Fatalf("leader %q operation=%q, want %q", key, message.action.Operation, operation)
+		}
+	}
+	if _, _, handled := m.ocLeaderChord("unknown"); handled {
+		t.Fatal("unknown leader chord was consumed")
+	}
+	if _, _, handled := m.ocLeaderChord("b"); !handled || !m.sidebarHide {
+		t.Fatal("sidebar leader chord did not toggle the local preference")
+	}
+}
+
+func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
+	m := &model{cfg: &config.Config{MCPServers: map[string]config.MCPServer{"local": {}}}, input: newInput(), width: 80, height: 80, termWidth: 80} // tall: the list windows around the selection on short terminals
+	m.openThinPalette()
+	out := strings.Join(m.ocDialogRows(), "\n")
+	for _, want := range []string{"Commands", "Authentication", "Session", "MCPs", "Browser", "Theme"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("opencode command dialog missing %q:\n%s", want, out)
+		}
+	}
+	for _, removed := range []string{"Subagent", "Tasks"} {
+		if strings.Contains(out, removed) {
+			t.Fatalf("opencode command dialog restored Classic surface %q", removed)
+		}
+	}
+	// Server rows come from the daemon's inventory, not local config: the
+	// config's "local" is stale here and must not appear; the daemon's rows do.
+	m.mcpInventory = []daemon.MCPStatusResult{{Name: "docs", Status: "ready", Tools: 3}, {Name: "ghost", Status: "blocked", Note: "blocked by mcpImport config (project)"}}
+	m.openThinMCPPalette()
+	out = strings.Join(m.ocDialogRows(), "\n")
+	for _, want := range []string{"MCP import status", "Enable Codex imports", "Enable project .mcp.json imports", "Reconnect docs", "Disable docs for this session", "Why is ghost blocked"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("MCP subpanel is missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Reconnect local") || strings.Contains(out, "Reconnect ghost") {
+		t.Fatalf("MCP subpanel offered a control the daemon cannot honor:\n%s", out)
+	}
+}
+
+func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
+	if home := opencodeHome(80, 20); !strings.Contains(home, "█") || lipgloss.Height(home) != 20 {
+		t.Fatalf("opencode home dimensions/content are invalid: height=%d", lipgloss.Height(home))
+	}
+	// The whipcode wordmark: every row is the full 37-cell glyph width, and
+	// the art spells whip|code (the h bowl and c rounds flank the split).
+	for i, row := range ocLogo {
+		if w := ansi.StringWidth(row); w != 37 {
+			t.Fatalf("logo row %d is %d cells wide, want 37: %q", i, w, row)
+		}
+	}
+	if !strings.Contains(ocLogo[1], "█▀▀█ █ █▀▀█") || !strings.Contains(ocLogo[3], "▀▄▄▄ ▀▄▄▀ ▀▄▄█ ▀▄▄▄") {
+		t.Fatalf("wordmark lost its whip|code shape: %q", ocLogo)
+	}
+	// The logo follows the active theme: under the light scheme it renders in
+	// the light text color (#1a1a1a), not the dark scheme's #eeeeee. Bold is
+	// merged into the same SGR, so match the color params, not a prefix.
+	SetLightTheme(true)
+	defer SetLightTheme(false)
+	if logo := opencodeLogo(); !strings.Contains(logo, "38;2;26;26;26m") || strings.Contains(logo, "38;2;238;238;238m") {
+		t.Fatalf("logo did not follow the light theme's text color: %q", logo)
+	}
+	m := &model{
+		input: newInput(), termWidth: sidebarMinWidth, sessTitle: "Recursive session",
+		clientView: clientPresentation{contextLimit: 1000},
+	}
+	if prompt := m.opencodePrompt("type here", 40); !strings.Contains(prompt, "┃") || strings.Contains(prompt, "▀") || lipgloss.Height(prompt) != 5 {
+		t.Fatalf("opencode prompt chrome=%q", prompt)
+	}
+	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "[1] Agents") || !strings.Contains(sidebar, "[2] Context") || !strings.Contains(sidebar, "[3] LSP") {
+		t.Fatalf("left column=%q", sidebar)
+	}
+	if card := opencodeUserCard("hello", 40); !strings.Contains(card, "┃") || !strings.Contains(card, "hello") {
+		t.Fatalf("opencode user card=%q", card)
+	}
+
+	// The real leader-key path should arm, dispatch, and clear the chord.
+	m.cfg = &config.Config{}
+	m.clientState = ClientDisconnected
+	m.now = time.Now
+	next, _ := m.thinKey(ctrlKey('x'))
+	m = next.(*model)
+	if m.leaderAt.IsZero() {
+		t.Fatal("ctrl+x did not arm the OpenCode leader")
+	}
+	next, _ = m.thinKey(keyRunes("b"))
+	m = next.(*model)
+	if !m.leaderAt.IsZero() || !m.sidebarHide {
+		t.Fatal("OpenCode leader did not dispatch and clear")
+	}
+}
+
+func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(20, 12))
+	m.layout()
+	m.openThinPalette()
+	rows := m.ocDialogRows()
+	if out := strings.Join(rows, "\n"); !strings.Contains(out, "Commands") {
+		t.Fatalf("narrow command dialog lost its heading:\n%s", out)
+	}
+	for index, row := range rows {
+		if width := lipgloss.Width(row); width > 64 {
+			t.Fatalf("dialog row %d widened unexpectedly to %d cells", index, width)
+		}
+	}
+	overlay := ansi.Strip(viewStr(m))
+	if !strings.Contains(overlay, "Commands") || len(strings.Split(overlay, "\n")) != 12 {
+		t.Fatalf("overlay changed frame shape:\n%s", overlay)
+	}
+}
+
+func TestOpencodeMessageActionsAndToolPresentation(t *testing.T) {
+	m := &model{input: newInput(), width: 80, height: 20}
+	m.vp.SetWidth(80)
+	m.vp.SetHeight(10)
+	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
+	m.refreshVP()
+	clicked := 0
+	m.clickAt(5, blockRowY(m, m.blocks[clicked].y0))
+	if m.msgActions == nil || m.msgActions.block != clicked {
+		t.Fatalf("message click did not open actions: %+v", m.msgActions)
+	}
+	if rows := strings.Join(m.ocMsgActionRows(), "\n"); !strings.Contains(rows, "Revert") || !strings.Contains(rows, "Copy") || !strings.Contains(rows, "Fork") {
+		t.Fatalf("message actions are incomplete:\n%s", rows)
+	}
+	if row := ocToolRow("read", `{"path":"main.go"}`, false); !strings.Contains(row, "Read") || !strings.Contains(row, "main.go") {
+		t.Fatalf("tool row=%q", row)
+	}
+	if result := ocToolResult([]string{"one", "two", "three"}, false, false, 80); !strings.Contains(result, "3 lines") {
+		t.Fatalf("collapsed tool result=%q", result)
+	}
+}
+
+func TestOpencodeResizeAndSidebarThresholds(t *testing.T) {
+	m := &model{cfg: &config.Config{}, input: newInput()}
+	m.applyOpencodeStyles()
+	next, _ := m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 24})
+	m = next.(*model)
+	if m.leftVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin-1 {
+		t.Fatalf("narrow resize left=%t width=%d", m.leftVisible(), m.width)
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth, Height: 24})
+	m = next.(*model)
+	want := sidebarMinWidth - (1 + leftWidth + 1) - 1
+	if !m.leftVisible() || m.width != want || lipgloss.Height(viewStr(m)) != 24 {
+		t.Fatalf("wide resize left=%t width=%d want=%d height=%d", m.leftVisible(), m.width, want, lipgloss.Height(viewStr(m)))
+	}
+}

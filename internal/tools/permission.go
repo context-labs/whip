@@ -2,12 +2,15 @@
 // The TUI installs Gate; a gated call blocks until the user answers Allow
 // once / Allow always / Reject. "Always" records a rule at command-prefix
 // arity (so "git checkout main" allows future "git checkout …", not the whole
-// string). No gate (tests, headless) means allow — the gate is a UX layer,
-// not a sandbox.
+// string). MCP consent also binds the exact server and tool definition.
 package tools
 
 import (
-	"strings"
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // GateDecision is the user's answer to a permission prompt.
@@ -21,69 +24,77 @@ const (
 
 // GateRequest describes one gated tool call for the prompt.
 type GateRequest struct {
-	Tool    string // bash | write | edit
-	Command string // the bash command or the file path
+	Tool    string // bash | write | edit | mcp.call
+	Command string // command, file path, or MCP identity and arguments
 	Rule    string // the rule "always" would install (arity-collapsed)
 }
 
-// Gate is the installed permission hook. It returns the decision and, on
-// reject, a free-text redirect that goes back to the model. Nil = allow.
-var Gate func(GateRequest) (GateDecision, string)
+// Gate is a session-scoped permission hook. MCP additionally requires explicit
+// consent, native trust, a saved rule, or automatic permission mode.
+type Gate func(context.Context, GateRequest) (GateDecision, string)
 
-// arity maps a command prefix to how many tokens define "the command" —
-// longest prefix wins, flags never count. Compact version of opencode's
-// generated table (permission/arity.ts); the common cases carry the value.
-var arity = map[string]int{
-	// one-token commands: the binary alone is the rule
-	"ls": 1, "cat": 1, "pwd": 1, "grep": 1, "find": 1, "echo": 1,
-	"rm": 1, "mv": 1, "cp": 1, "mkdir": 1, "touch": 1, "which": 1,
-	// two-token: binary + subcommand
-	"git": 2, "npm": 2, "pnpm": 2, "yarn": 2, "go": 2, "cargo": 2,
-	"docker": 2, "kubectl": 2, "brew": 2, "apt": 2, "pip": 2,
-	// three-token where the shorter prefix under-specifies
-	"npm run": 3, "pnpm run": 3, "go tool": 3, "docker compose": 3, "git submodule": 3,
+// A resolution is claimed once and retained until its dispatcher invocation ends.
+// Retaining consumed decisions closes the gap before the durable ledger commits.
+type permissionResolution struct {
+	waiter   chan capability.Decision
+	decision capability.Decision
+	resolved bool
+	revision uint64
 }
 
-// CommandRule collapses a shell command to its arity rule: the prefix "always"
-// should install. Only the first command of a pipeline/chain is considered —
-// "git checkout main && rm -rf /" is not a "git checkout" rule.
-func CommandRule(command string) string {
-	cmd := strings.TrimSpace(command)
-	// stop at the first shell operator: the rule covers one command, not a chain
-	for i, r := range cmd {
-		if r == '&' || r == '|' || r == ';' || r == '>' || r == '<' {
-			cmd = strings.TrimSpace(cmd[:i])
-			break
-		}
-	}
-	tokens := strings.Fields(cmd)
-	for i := 0; i < len(tokens); i++ {
-		if strings.Contains(tokens[i], "=") && !strings.HasPrefix(tokens[i], "-") && i == 0 {
-			// leading VAR=value assignments aren't part of the command
-			tokens = tokens[1:]
-			i = -1
-		}
-	}
-	if len(tokens) == 0 {
-		return ""
-	}
-	// longest matching prefix wins
-	for n := len(tokens); n > 0; n-- {
-		prefix := strings.Join(tokens[:n], " ")
-		if a, ok := arity[prefix]; ok {
-			return strings.Join(tokens[:min(a, len(tokens))], " ")
-		}
-	}
-	return tokens[0] // unknown command: the binary is the rule
+type (
+	permissionInvocationKey struct{}
+	permissionInvocation    struct{ id string }
+)
+
+type (
+	servicesKey   struct{}
+	localHumanKey struct{}
+)
+
+// WithServices exposes the calling agent's services to custom tools.
+func WithServices(ctx context.Context, services *Services) context.Context {
+	return context.WithValue(ctx, servicesKey{}, services)
 }
 
-// checkGate runs the installed gate for a tool call; "" means proceed, a
-// non-empty string is the rejection fed back to the model.
-func checkGate(tool, command string) string {
-	if Gate == nil {
+// WithLocalHuman marks an operation already initiated directly by the user.
+func WithLocalHuman(ctx context.Context) context.Context {
+	return context.WithValue(ctx, localHumanKey{}, true)
+}
+
+func servicesFromContext(ctx context.Context) *Services {
+	services, _ := ctx.Value(servicesKey{}).(*Services)
+	return services
+}
+
+// CheckGate follows the calling agent's permission policy. Custom tools use
+// this when they need the same consent behavior as built-ins.
+func CheckGate(ctx context.Context, tool, command string) string {
+	services := servicesFromContext(ctx)
+	if services == nil {
 		return ""
 	}
-	decision, redirect := Gate(GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
+	return services.CheckGate(ctx, tool, command)
+}
+
+// CommandRule collapses a shell command to its arity rule; the table lives
+// with the durable rule store in capability.
+func CommandRule(command string) string { return capability.CommandRule(command) }
+
+// CheckGate runs the installed gate; "" means proceed.
+func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
+	s.mu.RLock()
+	gate, headless := s.gate, s.headlessPermissions
+	s.mu.RUnlock()
+	if headless {
+		return "Permission denied: headless execution cannot request consent"
+	}
+	if gate == nil {
+		// Direct embedded callers historically run under the local user's
+		// authority. Production daemon services select external prompts.
+		return ""
+	}
+	decision, redirect := gate(ctx, GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
 	if decision == GateReject {
 		if redirect == "" {
 			redirect = "the user rejected this action"
@@ -91,4 +102,104 @@ func checkGate(tool, command string) string {
 		return "Permission denied: " + redirect
 	}
 	return ""
+}
+
+// Decide adapts the session gate to durable dispatcher permission decisions.
+func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPrompt) (capability.Decision, error) {
+	if invocation, _ := ctx.Value(permissionInvocationKey{}).(*permissionInvocation); invocation != nil {
+		invocation.id = prompt.ID
+	}
+	if prompt.Operation == "mcp.call" {
+		return s.decideMCP(ctx, prompt)
+	}
+	if isDesktopBrowserOperation(prompt.Operation) {
+		return s.decideDesktopBrowser(ctx, prompt)
+	}
+	s.mu.RLock()
+	headless, external := s.headlessPermissions, s.externalPermissions
+	s.mu.RUnlock()
+	if headless {
+		return capability.Decision{PrincipalID: "headless", Reason: "headless execution cannot request consent"}, nil
+	}
+	if local, _ := ctx.Value(localHumanKey{}).(bool); local {
+		return capability.Decision{Allow: true, PrincipalID: "local-human"}, nil
+	}
+	var args struct {
+		Command string `json:"command"`
+		Path    string `json:"path"`
+	}
+	if external {
+		return s.waitPermission(ctx, prompt.ID)
+	}
+	if err := json.Unmarshal(prompt.Arguments, &args); err != nil {
+		return capability.Decision{}, err
+	}
+	command := args.Path
+	if prompt.Operation == "bash" || prompt.Operation == "workspace_process" || prompt.Operation == "shell_start" {
+		command = args.Command
+	} else if prompt.CanonicalPath != "" {
+		command = prompt.CanonicalPath
+	}
+	if command == "" {
+		return capability.Decision{}, errors.New("permission request target is empty")
+	}
+	s.mu.RLock()
+	gate := s.gate
+	s.mu.RUnlock()
+	if gate == nil {
+		// See CheckGate: nil is the direct-embedding policy, not the daemon
+		// default.
+		return capability.Decision{Allow: true, PrincipalID: "local-client"}, nil
+	}
+	decision, reason := gate(ctx, GateRequest{Tool: prompt.Operation, Command: command, Rule: CommandRule(command)})
+	return capability.Decision{Allow: decision != GateReject, PrincipalID: "local-human", Reason: reason}, nil
+}
+
+func (s *Services) waitPermission(ctx context.Context, permissionID string) (capability.Decision, error) {
+	s.mu.Lock()
+	consent, _ := ctx.Value(mcpConsentKey{}).(*mcpConsent)
+	staleMCP := consent != nil && consent.revision != s.permissionRevision
+	if !s.externalPermissions || s.headlessPermissions || staleMCP {
+		s.mu.Unlock()
+		return capability.Decision{}, capability.ErrStaleAdmission
+	}
+	if resolution := s.permissions[permissionID]; resolution != nil && resolution.resolved {
+		if resolution.revision != s.permissionRevision {
+			s.mu.Unlock()
+			return capability.Decision{}, capability.ErrStaleAdmission
+		}
+		decision := resolution.decision
+		s.mu.Unlock()
+		return decision, nil
+	}
+	waiter := make(chan capability.Decision, 1)
+	resolution := &permissionResolution{waiter: waiter, revision: s.permissionRevision}
+	s.permissions[permissionID] = resolution
+	s.mu.Unlock()
+	select {
+	case decision := <-waiter:
+		return decision, nil
+	case <-ctx.Done():
+		s.mu.Lock()
+		if s.permissions[permissionID] == resolution && !resolution.resolved {
+			delete(s.permissions, permissionID)
+		}
+		s.mu.Unlock()
+		return capability.Decision{}, ctx.Err()
+	}
+}
+
+// Policy changes settle unresolved prompts and invalidate early decisions. Claims
+// remain until invocation cleanup, so a policy change cannot admit a second answer.
+func (s *Services) invalidatePermissionPolicyLocked() {
+	s.permissionRevision++
+	for _, resolution := range s.permissions {
+		if !resolution.resolved {
+			resolution.decision = capability.Decision{PrincipalID: "permission-policy", Reason: "permission policy changed"}
+			resolution.resolved = true
+			if resolution.waiter != nil {
+				resolution.waiter <- resolution.decision
+			}
+		}
+	}
 }

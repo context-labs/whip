@@ -1,0 +1,679 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"image/color"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/context-labs/whip/internal/tui/theme"
+	"github.com/context-labs/whip/internal/tui/ui"
+
+	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/session"
+)
+
+// The REPL panel is a mode of the opencode right sidebar (ctrl+x r or /repl)
+// that shows the visible agent's execution cells as they happen, notebook
+// style: the code as the model writes it (stream.tool.call snapshots), live
+// print output (stream.tool.output), each host call as it starts and its
+// outcome (stream.cell.host.started, stream.cell.host), the result, and
+// worker restarts. Cells for every agent are kept so the panel follows the
+// agent tree, and a strip lists other running agents.
+
+const replOutputTail = 6 // output lines shown per cell
+
+type replHost struct {
+	id, name, summary, duration, err string // id is the daemon's invocation ID, unique per agent
+	status                           string // running, completed, failed, cancelled, or unknown
+}
+
+type replCell struct {
+	id      string
+	n       int
+	code    string
+	started time.Time
+	ended   time.Time
+	output  string
+	hosts   []replHost
+	value   string
+	errText string
+	steps   uint64
+	jobs    *uint64
+	engine  string
+	// restart is a marker row ("restarted · restored 9") instead of a cell.
+	restart           string
+	finished          bool // stream.tool.completed seen (replayed cells have no ended time)
+	resultUnavailable bool
+}
+
+type replAgent struct {
+	cells  []replCell
+	count  int
+	seq    int64     // newest event seq folded in; snapshots replay older ones, which are skipped
+	tool   string    // the tool the agent is running now ("" between tools); rlm_exec shows as a cell instead
+	toolAt time.Time // when that tool started (zero on replay)
+}
+
+// panelWidth is the REPL panel's width: half of what lies right of the left
+// column (or of the whole terminal when the column is hidden).
+func (m *model) panelWidth() int { return (m.termWidth - m.mainX()) / 2 }
+
+func (m *model) replAgentFor(agentID string) *replAgent {
+	if m.repl == nil {
+		m.repl = map[string]*replAgent{}
+	}
+	value := m.repl[agentID]
+	if value == nil {
+		value = &replAgent{}
+		m.repl[agentID] = value
+	}
+	return value
+}
+
+func (m *model) replNow() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
+// replApplySeq folds an event with a known sequence number, skipping ones
+// already seen: live events and later snapshot replays carry the same seq.
+func (m *model) replApplySeq(agentID, kind string, event daemon.StreamEvent, seq int64) {
+	if seq > 0 {
+		agent := m.replAgentFor(agentID)
+		if seq <= agent.seq {
+			return
+		}
+		agent.seq = seq
+	}
+	m.replApply(agentID, kind, event)
+}
+
+// replApply folds one presentation event into an agent's cell history.
+func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
+	if event.ID == "" {
+		return
+	}
+	agent := m.replAgentFor(agentID)
+	// Newest first: providers reuse tool-call IDs across turns.
+	find := func() *replCell {
+		for index := len(agent.cells) - 1; index >= 0; index-- {
+			if agent.cells[index].id == event.ID && agent.cells[index].restart == "" {
+				return &agent.cells[index]
+			}
+		}
+		return nil
+	}
+	add := func() *replCell {
+		agent.cells = append(agent.cells, replCell{id: event.ID, engine: m.clientView.executionEngine})
+		return &agent.cells[len(agent.cells)-1]
+	}
+	ensure := func() *replCell {
+		if cell := find(); cell != nil {
+			return cell
+		}
+		return add()
+	}
+	// A call or start after the cell finished is a reused ID: a new cell.
+	open := func() *replCell {
+		if cell := find(); cell != nil && !cell.finished {
+			return cell
+		}
+		return add()
+	}
+	switch kind {
+	case "stream.tool.call":
+		if event.Name != "rlm_exec" {
+			return
+		}
+		open().code = codeFromPartialArgs(event.Args)
+	case "stream.tool.started":
+		if event.Name != "rlm_exec" {
+			agent.tool, agent.toolAt = event.Name, m.replNow() // activity for the agent rows
+			return
+		}
+		agent.tool = ""
+		cell := open()
+		if code := codeFromPartialArgs(event.Args); code != "" {
+			cell.code = code
+		}
+		if cell.n == 0 {
+			agent.count++
+			cell.n = agent.count
+		}
+		if !m.replReplaying {
+			cell.started = m.replNow()
+		}
+	case "stream.tool.output":
+		if cell := find(); cell != nil {
+			cell.output = event.Text
+		}
+	case "stream.cell.host.started":
+		cell := find()
+		if cell == nil || cell.hostIndex(event.InvocationID) >= 0 {
+			return // unknown cell, or a duplicate/late start
+		}
+		cell.hosts = append(cell.hosts, replHost{id: event.InvocationID, name: event.Name, summary: event.Args, status: "running"})
+	case "stream.cell.host":
+		cell := find()
+		if cell == nil {
+			return
+		}
+		status := event.HostStatus
+		if status == "" { // daemons before host_status: only the error tells
+			status = "completed"
+			if event.Result != "" {
+				status = "failed"
+			}
+		}
+		host := replHost{id: event.InvocationID, name: event.Name, summary: event.Args, duration: event.Text, err: event.Result, status: status}
+		index := cell.hostIndex(event.InvocationID)
+		if index < 0 {
+			cell.hosts = append(cell.hosts, host) // completion-only history
+			return
+		}
+		if host.summary == "" {
+			host.summary = cell.hosts[index].summary // truncated completions drop their args
+		}
+		cell.hosts[index] = host
+	case "stream.tool.completed":
+		agent.tool = ""
+		if event.Name != "rlm_exec" {
+			return
+		}
+		cell := ensure()
+		cell.finished = true
+		for index := range cell.hosts {
+			if cell.hosts[index].status == "running" {
+				cell.hosts[index].status = "unknown" // hosts finish before their cell; the daemon lost this one
+			}
+		}
+		if cell.n == 0 {
+			agent.count++
+			cell.n = agent.count
+		}
+		if !m.replReplaying {
+			cell.ended = m.replNow()
+		}
+		cell.decodeResult(event.Result)
+	}
+}
+
+// hostIndex finds the newest host row with this invocation ID; completion-only
+// history has no ID and never matches.
+func (cell *replCell) hostIndex(id string) int {
+	if id == "" {
+		return -1
+	}
+	for index, v := range slices.Backward(cell.hosts) {
+		if v.id == id {
+			return index
+		}
+	}
+	return -1
+}
+
+// replRestart inserts a worker-restart marker into an agent's history.
+func (m *model) replRestart(agentID string, restored, notRestored int) {
+	agent := m.replAgentFor(agentID)
+	marker := fmt.Sprintf("restarted · restored %d", restored)
+	if notRestored > 0 {
+		marker += fmt.Sprintf(" · %d skipped", notRestored)
+	}
+	agent.cells = append(agent.cells, replCell{restart: marker})
+}
+
+// replRebuild folds the stored presentation events (a fresh snapshot, a newly
+// opened child) into the REPL history. The history is never rebuilt from
+// scratch: snapshots only keep the current turn's events and drop idle
+// children entirely, so cells seen earlier in this TUI session would vanish.
+// Events already folded in are skipped by seq; stored events carry no clock,
+// so cells first seen here have no times. The scroll position is left alone.
+func (m *model) replRebuild() {
+	m.replReplaying = true
+	defer func() { m.replReplaying = false }()
+	root := m.rootAgentID()
+	replay := func(agentID string, events []session.SnapshotEvent) {
+		for _, event := range events {
+			if !strings.HasPrefix(event.Kind, "stream.") {
+				continue
+			}
+			var payload daemon.StreamEvent
+			if json.Unmarshal(event.Payload, &payload) != nil {
+				continue
+			}
+			m.replApplySeq(agentID, event.Kind, payload, event.Seq)
+		}
+	}
+	if root != "" {
+		replay(root, m.clientView.presentation)
+	}
+	for agentID, events := range m.clientView.agentPresentations {
+		replay(agentID, events)
+	}
+}
+
+// codeFromPartialArgs extracts the "code" string from rlm_exec arguments that
+// may still be streaming: a complete JSON object decodes directly; a
+// truncated one yields the decoded prefix of the code so the panel can show
+// the cell as the model writes it.
+func codeFromPartialArgs(args string) string {
+	var complete struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal([]byte(args), &complete) == nil {
+		return complete.Code
+	}
+	_, after, ok := strings.Cut(args, `"code"`)
+	if !ok {
+		return ""
+	}
+	rest := after
+	quote := strings.IndexByte(rest, '"')
+	if quote < 0 {
+		return ""
+	}
+	rest = rest[quote+1:]
+	var b strings.Builder
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		switch c {
+		case '"':
+			return b.String()
+		case '\\':
+			if i+1 >= len(rest) {
+				return b.String()
+			}
+			i++
+			switch rest[i] {
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+				b.WriteByte('\r')
+			case 'u':
+				if i+4 >= len(rest) {
+					return b.String()
+				}
+				var r rune
+				if _, err := fmt.Sscanf(rest[i+1:i+5], "%04x", &r); err != nil {
+					return b.String()
+				}
+				b.WriteRune(r)
+				i += 4
+			default:
+				b.WriteByte(rest[i])
+			}
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// replFlat keeps free text on one row: tabs become spaces (lipgloss would
+// expand them after truncation), carriage returns vanish, newlines fold.
+func replFlat(s string) string {
+	return strings.NewReplacer("\t", "    ", "\r", "", "\n", " ⏎ ").Replace(s)
+}
+
+// shortDur formats a duration the way opencode does: "173ms" under a second,
+// "1.2s" from there.
+func shortDur(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// replStyles are the panel's palette on one background: the REPL column
+// itself sits on the native background like the chat, and each cell is a
+// card on the panel shade (the same shade as the chat's turn blocks).
+type replStyles struct {
+	bg                                    color.Color
+	head, dim, text, warn, fail, accent   lipgloss.Style
+	keyword, str, num, comment, mod, call lipgloss.Style
+	gutterRun, gutterDone, gutterFail     lipgloss.Style
+}
+
+func newReplStyles(bg color.Color) replStyles {
+	th := currentTheme()
+	syn := th.Syntax()
+	on := func(fg color.Color) lipgloss.Style { return th.On(fg, bg) }
+	return replStyles{
+		bg:         bg,
+		head:       on(th.Text).Bold(true),
+		dim:        on(th.Muted),
+		text:       on(th.Text),
+		warn:       on(th.Warning),
+		fail:       on(th.Error),
+		accent:     on(th.Info),
+		keyword:    on(syn.Keyword),
+		str:        on(syn.String),
+		num:        on(syn.Number),
+		comment:    on(syn.Comment).Italic(true),
+		mod:        on(syn.Type),
+		call:       on(syn.Func).Bold(true),
+		gutterRun:  on(th.Info),
+		gutterDone: on(th.Muted),
+		gutterFail: on(th.Error),
+	}
+}
+
+// replPanelView renders the REPL panel at the sidebar's height: a header with
+// the agent and its context stats, a strip of other running agents, then the
+// visible agent's cells with the newest kept in view.
+func (m *model) replPanelView(height int) string {
+	th := currentTheme()
+	card := newReplStyles(th.Surface.Panel)
+	visible := m.visibleAgentID()
+	name := "root"
+	if value, ok := m.runtimeAgent(visible); ok && value.Name != "" {
+		name = value.Name
+	}
+	p := ui.Panel{Title: "REPL · " + name, Width: m.panelWidth(), Height: height}
+	inner := p.Inner(th)
+
+	var body []string
+	cells := 0
+	if history := m.repl[visible]; history != nil {
+		for _, cell := range history.cells {
+			if cell.restart != "" {
+				body = append(body, "", card.warn.Render(ansi.Truncate(cell.restart, inner, "…")))
+				continue
+			}
+			cells++
+			body = append(body, m.replCellRows(cell, card, inner)...)
+		}
+	}
+	if cells == 0 {
+		body = append(body, card.dim.Render("Cells appear as the agent runs"))
+	}
+	p.Count = fmt.Sprintf("%d cells", cells)
+	if cells == 1 {
+		p.Count = "1 cell"
+	}
+
+	if m.replViewAgent != visible {
+		m.replViewAgent, m.replScroll, m.replBodyLen = visible, 0, 0
+	}
+	if m.replScroll > 0 && len(body) > m.replBodyLen {
+		m.replScroll += len(body) - m.replBodyLen // new rows arrive below; what is read stays put
+	}
+	m.replBodyLen = len(body)
+
+	if height > 0 {
+		// The newest cell stays in view unless the wheel scrolled the panel
+		// up; then a pill on the last body row says how far from the bottom it is.
+		budget := max(height-replPanelChrome(th), 1)
+		m.replScroll = min(m.replScroll, max(len(body)-budget, 0))
+		if m.replScroll > 0 {
+			budget = max(budget-1, 1)
+		}
+		end := len(body) - m.replScroll
+		body = body[max(end-budget, 0):end]
+		if m.replScroll > 0 {
+			pill := ui.Kbd(th, pillLabel(m.replScroll))
+			body = append(body, th.On(nil, th.Surface.Panel).Render(strings.Repeat(" ", max(inner-lipgloss.Width(pill), 0)))+pill)
+		}
+	}
+	return p.Render(th, strings.Join(body, "\n"))
+}
+
+// replPanelChrome is the panel's rows around the body: padding, the title row
+// and the blank under it.
+func replPanelChrome(th *theme.Theme) int { return 2*th.Space.PadY + 2 }
+
+// replScrollbar marks the REPL body's scroll position on the panel's last
+// column; nothing shows when the cells fit.
+func (m *model) replScrollbar(scr uv.Screen, side uv.Rectangle) {
+	th := currentTheme()
+	top := side.Min.Y + th.Space.PadY + 2
+	h := side.Dy() - replPanelChrome(th)
+	ui.Scrollbar(scr, th, side.Max.X-1, top, h, m.replBodyLen, max(m.replBodyLen-m.replScroll-h, 0), false)
+}
+
+// replCellRows renders one cell notebook-style: a blank separator, then a
+// header row, code, host calls, output, result, and error rows behind a
+// colored gutter, each padded to inner so the cell reads as one card.
+func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
+	cut := func(s string, w int) string { return ansi.Truncate(s, max(w, 1), "…") }
+	gutter := st.gutterDone
+	switch {
+	case cell.errText != "":
+		gutter = st.gutterFail
+	case cell.resultUnavailable:
+		gutter = st.warn
+	case cell.ended.IsZero():
+		gutter = st.gutterRun
+	}
+	bar := gutter.Render("▍ ")
+	content := inner - 2
+	row := func(styled string) string { return bar + styled }
+
+	header := "In [·]"
+	if cell.n > 0 {
+		header = fmt.Sprintf("In [%d]", cell.n)
+	}
+	switch {
+	case !cell.ended.IsZero() && !cell.started.IsZero():
+		header += "  " + shortDur(cell.ended.Sub(cell.started))
+	case !cell.started.IsZero():
+		header += "  " + shortDur(m.replNow().Sub(cell.started)) + " …"
+	}
+	if cell.resultUnavailable && cell.errText == "" {
+		header += " · outcome unavailable"
+	}
+	if cell.steps > 0 {
+		header += fmt.Sprintf(" · %d steps", cell.steps)
+	}
+	if cell.jobs != nil {
+		header += fmt.Sprintf(" · %d jobs", *cell.jobs)
+	}
+	if cell.engine == "quickjs" {
+		header += " · JavaScript"
+	}
+	rows := []string{"", row(st.head.Render(cut(header, content)))}
+
+	var hl starlarkHighlighter
+	source := cell.code
+	if cell.engine == "quickjs" {
+		source = ui.CodeBlock{Source: source, Lang: "javascript"}.Highlight(currentTheme())
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(source, "\n"), "\n") {
+		line = strings.NewReplacer("\t", "    ", "\r", "").Replace(line)
+		for index, segment := range strings.Split(ansi.Hardwrap(line, max(content-2, 1), true), "\n") {
+			styled := hl.line(segment, st)
+			if cell.engine == "quickjs" {
+				styled = segment
+			}
+			if index > 0 {
+				styled = st.dim.Render("↪ ") + styled
+			}
+			rows = append(rows, row(cut(styled, content)))
+		}
+	}
+	for _, host := range cell.hosts {
+		line := "→ " + host.name
+		if host.summary != "" {
+			line += "(" + replFlat(host.summary) + ")"
+		}
+		style, status := st.dim, ""
+		switch host.status {
+		case "running":
+			style, status = st.accent, " …"
+		case "failed":
+			style, status = st.fail, " ✗ failed"
+			if host.err != "" {
+				status = " ✗ " + replFlat(host.err)
+			}
+		case "cancelled":
+			style, status = st.warn, " cancelled"
+		case "unknown":
+			status = " unknown"
+		default:
+			if host.duration != "" {
+				status = " " + host.duration
+			}
+		}
+		// Clip the summary first so the status survives narrow panels; the
+		// name keeps at least a third of the row against a long error.
+		line = cut(line, max(content-ansi.StringWidth(status), content/3))
+		rows = append(rows, row(style.Render(cut(line+status, content))))
+	}
+	if out := strings.TrimRight(cell.output, "\n"); out != "" {
+		lines := strings.Split(out, "\n")
+		if len(lines) > replOutputTail {
+			hidden := len(lines) - replOutputTail
+			if cell.ended.IsZero() {
+				lines = append([]string{fmt.Sprintf("… %d earlier lines", hidden)}, lines[len(lines)-replOutputTail:]...)
+			} else {
+				lines = append(lines[:replOutputTail], fmt.Sprintf("+%d lines", hidden))
+			}
+		}
+		for _, line := range lines {
+			rows = append(rows, row(st.text.Render(cut(replFlat(line), content))))
+		}
+	}
+	if cell.value != "" {
+		rows = append(rows, row(st.accent.Render("⇒ ")+st.text.Render(cut(replFlat(cell.value), content-2))))
+	}
+	if cell.errText != "" {
+		rows = append(rows, row(st.fail.Render(cut("✗ "+replFlat(cell.errText), content))))
+	}
+	for index := 1; index < len(rows); index++ { // rows[0] is the separator
+		rows[index] = ui.PadRow(rows[index], inner, st.bg)
+	}
+	return rows
+}
+
+// starlarkHighlighter colors one line at a time, carrying an open
+// triple-quoted string across lines.
+type starlarkHighlighter struct {
+	openQuote string // "" or the triple-quote delimiter currently open
+}
+
+var starlarkKeywords = map[string]bool{
+	"and": true, "break": true, "continue": true, "def": true, "elif": true, "else": true, "for": true,
+	"if": true, "in": true, "lambda": true, "load": true, "not": true, "or": true, "pass": true,
+	"return": true, "while": true, "True": true, "False": true, "None": true,
+}
+
+func (h *starlarkHighlighter) line(text string, st replStyles) string {
+	var b strings.Builder
+	runes := []rune(text)
+	i := 0
+	flush := func(style lipgloss.Style, from, to int) {
+		if to > from {
+			b.WriteString(style.Render(string(runes[from:to])))
+		}
+	}
+	for i < len(runes) {
+		if h.openQuote != "" {
+			end := strings.Index(string(runes[i:]), h.openQuote)
+			if end < 0 {
+				flush(st.str, i, len(runes))
+				return b.String()
+			}
+			stop := i + len([]rune(string(runes[i:])[:end])) + 3
+			flush(st.str, i, stop)
+			h.openQuote = ""
+			i = stop
+			continue
+		}
+		c := runes[i]
+		switch {
+		case c == '#':
+			flush(st.comment, i, len(runes))
+			return b.String()
+		case c == '"' || c == '\'':
+			if i+2 < len(runes) && runes[i+1] == c && runes[i+2] == c {
+				h.openQuote = string([]rune{c, c, c})
+				flush(st.str, i, i+3)
+				i += 3
+				continue
+			}
+			start := i
+			i++
+			for i < len(runes) && runes[i] != c {
+				if runes[i] == '\\' {
+					i++
+				}
+				i++
+			}
+			i = min(i+1, len(runes))
+			flush(st.str, start, i)
+		case unicode.IsDigit(c):
+			start := i
+			for i < len(runes) && (unicode.IsDigit(runes[i]) || runes[i] == '.' || runes[i] == '_' || runes[i] == 'x') {
+				i++
+			}
+			flush(st.num, start, i)
+		case unicode.IsLetter(c) || c == '_':
+			start := i
+			for i < len(runes) && (unicode.IsLetter(runes[i]) || unicode.IsDigit(runes[i]) || runes[i] == '_') {
+				i++
+			}
+			word := string(runes[start:i])
+			switch {
+			case starlarkKeywords[word]:
+				flush(st.keyword, start, i)
+			case i < len(runes) && runes[i] == '.':
+				flush(st.mod, start, i)
+			case i < len(runes) && runes[i] == '(':
+				flush(st.call, start, i)
+			default:
+				flush(st.text, start, i)
+			}
+		default:
+			start := i
+			for i < len(runes) && !unicode.IsLetter(runes[i]) && !unicode.IsDigit(runes[i]) && runes[i] != '_' && runes[i] != '"' && runes[i] != '\'' && runes[i] != '#' {
+				i++
+			}
+			flush(st.text, start, i)
+		}
+	}
+	return b.String()
+}
+
+// agentActivity is what an agent is doing right now, for the row's right
+// slot: the running REPL cell with its elapsed time, else the running tool.
+func (m *model) agentActivity(agentID string) string {
+	history := m.repl[agentID]
+	if history == nil {
+		return ""
+	}
+	for _, cell := range slices.Backward(history.cells) {
+
+		if cell.restart != "" || cell.finished || !cell.ended.IsZero() {
+			continue
+		}
+		cellNo := "·"
+		if cell.n > 0 {
+			cellNo = strconv.Itoa(cell.n)
+		}
+		line := "In[" + cellNo + "] " + firstLine(cell.code)
+		if !cell.started.IsZero() {
+			line += "  " + shortDur(m.replNow().Sub(cell.started))
+		}
+		return strings.TrimSpace(line)
+	}
+	if history.tool != "" {
+		if history.toolAt.IsZero() {
+			return history.tool
+		}
+		return history.tool + " " + shortDur(m.replNow().Sub(history.toolAt))
+	}
+	return ""
+}

@@ -106,7 +106,7 @@ func TestCompleteLoginAndMachineKey(t *testing.T) {
 	if gotCode != "ABCD-1234" {
 		t.Errorf("user code not surfaced: %q", gotCode)
 	}
-	if auth.SessionToken != "sess-tok" || auth.UserEmail != "abe@x.dev" || auth.TeamID != "user-1" {
+	if auth.SessionToken != "sess-tok" || auth.UserEmail != "abe@x.dev" || auth.TeamID != "user-1" || auth.TeamName != "personal" {
 		t.Errorf("unexpected session: %+v", auth)
 	}
 	if auth.ProjectID != "proj-1" || auth.ProjectName != "Primary" {
@@ -153,7 +153,7 @@ func TestAuthStoreRoundTrip(t *testing.T) {
 	if a, _ := LoadAuth(); a != (Auth{}) {
 		t.Errorf("missing file should yield zero Auth, got %+v", a)
 	}
-	want := Auth{SessionToken: "tok", UserEmail: "abe@x.dev", TeamID: "t1", ProjectID: "p1", MachineKey: "mk"}
+	want := Auth{SessionToken: "tok", UserEmail: "abe@x.dev", TeamID: "t1", TeamName: "Personal", ProjectID: "p1", MachineKey: "mk"}
 	if err := SaveAuth(want); err != nil {
 		t.Fatalf("SaveAuth: %v", err)
 	}
@@ -190,48 +190,5 @@ func TestValidateKey(t *testing.T) {
 	}
 	if err := ValidateKey(context.Background(), "bad"); err == nil {
 		t.Error("bad key accepted")
-	}
-}
-
-func TestRotateAndArchiveMachineKey(t *testing.T) {
-	var archived []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer session-token" || r.Header.Get("X-Inference-Team-Id") != "team-1" {
-			http.Error(w, "missing authentication", http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/rest/api-keys/key-old":
-			if r.URL.Query().Get("teamId") != "team-1" {
-				http.Error(w, "missing team query", http.StatusBadRequest)
-				return
-			}
-			archived = append(archived, "key-old")
-			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/rest/api-keys":
-			_, _ = w.Write([]byte(`{"id":"key-new","key":"replacement"}`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/rest/api-keys/key-new":
-			archived = append(archived, "key-new")
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-	useStub(t, srv)
-
-	auth := Auth{SessionToken: "session-token", TeamID: "team-1", ProjectID: "project-1", MachineKeyID: "key-old", MachineKey: "old"}
-	key, err := auth.Rotate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if key != "replacement" || auth.MachineKeyID != "key-new" || auth.MachineKey != "replacement" {
-		t.Fatalf("rotated auth = %+v", auth)
-	}
-	if err := auth.ArchiveMachineKey(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(archived, ",") != "key-old,key-new" {
-		t.Fatalf("archived keys = %v", archived)
 	}
 }

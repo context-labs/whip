@@ -1,24 +1,11 @@
 package acp
 
-// permission.go adapts whip's tools.Gate consent seam to ACP's
-// session/request_permission: in "ask" mode a gated tool call blocks on the
-// client's answer, exactly like the TUI's consent prompt.
-//
-// tools.Gate is package-global, so installs serialize bridge-wide
-// (b.gateMu): a second session's ask-mode turn waits rather than interleave
-// prompts the user can't attribute to the right session. "Allow always"
-// rules are remembered per session (s.allowed, keyed by the arity-collapsed
-// rule) — the TUI persists these to disk; ACP sessions keep them in memory
-// only, which matches the editor's per-session permission model.
-
 import (
 	"context"
-	"fmt"
-	"sync"
+	"encoding/json"
+	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-
-	"github.com/context-labs/whip/internal/tools"
 )
 
 const (
@@ -27,93 +14,89 @@ const (
 	optReject      = "reject"
 )
 
-// gateMu serializes tools.Gate installation across sessions (see above).
-var gateMu sync.Mutex
-
-// installPermissionGate points tools.Gate at the client for this session's
-// turn and returns the restore func. Blocking on gateMu here means a
-// concurrent ask-mode turn in another session holds the gate until its turn
-// ends — ask-mode turns are inherently user-paced, so this is the honest
-// serialization point.
-func (b *Bridge) installPermissionGate(s *acpSession, turnCtx context.Context) (restore func()) {
-	gateMu.Lock()
-	prev := tools.Gate
-	tools.Gate = func(req tools.GateRequest) (tools.GateDecision, string) {
-		return b.requestPermission(turnCtx, s, req)
-	}
-	return func() {
-		tools.Gate = prev
-		gateMu.Unlock()
-	}
+type pendingPermission struct {
+	PermissionID  string `json:"permission_id"`
+	OperationID   string `json:"operation_id"`
+	Operation     string `json:"operation"`
+	CanonicalPath string `json:"canonical_path"`
+	Command       string `json:"command"`
+	Rule          string `json:"rule"`
 }
 
-// requestPermission round-trips one GateRequest through the client. The ctx
-// is the turn's, so session/cancel unblocks a pending prompt (the client
-// answers "cancelled" per spec; a dead client fails closed via ctx).
-// A cancelled or errored prompt is a reject — fail-closed.
-func (b *Bridge) requestPermission(ctx context.Context, s *acpSession, req tools.GateRequest) (tools.GateDecision, string) {
+func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
+	var pending pendingPermission
+	if json.Unmarshal(payload, &pending) != nil || pending.PermissionID == "" {
+		return
+	}
+	s.mu.Lock()
+	mode := s.mode
+	s.mu.Unlock()
+	if mode != ModeAsk {
+		return
+	}
 	if b.conn == nil {
-		return tools.GateAllowOnce, ""
+		b.decidePermission(s, pending, false, "permission client is unavailable", "")
+		return
 	}
-
-	// "Always allow" rules cover repeat calls without re-prompting.
-	rule := req.Rule
-	if req.Tool != "bash" {
-		rule = req.Command // path rules are exact (matches the TUI)
-	}
-	key := req.Tool + ":" + rule
-	s.turnMu.Lock()
-	covered := s.allowed[key]
-	s.turnMu.Unlock()
-	if covered {
-		return tools.GateAllowOnce, ""
-	}
-
-	name := req.Tool
-	if req.Command != "" {
-		name = fmt.Sprintf("%s %q", req.Tool, req.Command)
+	name := pending.Operation
+	if pending.Command != "" {
+		name += " " + pending.Command
 	}
 	options := []acp.PermissionOption{
 		{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
 		{OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
 	}
-	if req.Rule != "" {
+	if pending.Rule != "" {
+		label := "Always allow " + pending.Operation + " " + pending.Rule + " in this tree"
+		if pending.Operation == "mcp.call" {
+			label = "Always allow this MCP tool and server definition in this tree"
+		}
 		options = append(options, acp.PermissionOption{
-			OptionId: optAllowAlways,
-			Name:     fmt.Sprintf("Always allow %q", req.Rule),
-			Kind:     acp.PermissionOptionKindAllowAlways,
+			OptionId: optAllowAlways, Name: label, Kind: acp.PermissionOptionKindAllowAlways,
 		})
 	}
-
-	resp, err := b.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
+	toolCall := acp.ToolCallUpdate{
+		ToolCallId: acp.ToolCallId("perm-" + pending.PermissionID),
+		Title:      new(name), Kind: new(toolKind(pending.Operation)),
+	}
+	if pending.Operation == "mcp.call" {
+		title, _, _ := strings.Cut(name, "\n")
+		toolCall.Title = &title
+		toolCall.Content = []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(pending.Command))}
+	}
+	response, err := b.conn.RequestPermission(s.lifecycle, acp.RequestPermissionRequest{
 		SessionId: s.id,
-		ToolCall: acp.ToolCallUpdate{
-			ToolCallId: acp.ToolCallId("perm-" + req.Tool),
-			Title:      new(name),
-			Kind:       new(toolKind(req.Tool)),
-		},
-		Options: options,
+		ToolCall:  toolCall,
+		Options:   options,
 	})
+	if err != nil || response.Outcome.Selected == nil {
+		reason := "the user cancelled the permission prompt"
+		if err != nil && s.lifecycle.Err() == nil {
+			reason = "permission request failed: " + err.Error()
+		}
+		b.decidePermission(s, pending, false, reason, "")
+		return
+	}
+	switch string(response.Outcome.Selected.OptionId) {
+	case optAllowOnce:
+		b.decidePermission(s, pending, true, "approved by ACP client", "")
+	case optAllowAlways:
+		if pending.Rule == "" {
+			b.decidePermission(s, pending, false, "allow-always requires a rule", "")
+			return
+		}
+		b.decidePermission(s, pending, true, "approved by ACP client for this tree", "tree")
+	default:
+		b.decidePermission(s, pending, false, "the user rejected this action", "")
+	}
+}
+
+func (b *Bridge) decidePermission(s *acpSession, pending pendingPermission, allow bool, reason, remember string) {
+	ctx, cancel := context.WithCancel(s.lifecycle)
+	defer cancel()
+	action, err := s.root.NewAction("permission.decide", struct{}{})
 	if err != nil {
-		if ctx.Err() != nil {
-			return tools.GateReject, "the user cancelled the permission prompt"
-		}
-		return tools.GateReject, "permission request failed: " + err.Error()
+		return
 	}
-	switch {
-	case resp.Outcome.Selected != nil:
-		switch string(resp.Outcome.Selected.OptionId) {
-		case optAllowOnce:
-			return tools.GateAllowOnce, ""
-		case optAllowAlways:
-			s.turnMu.Lock()
-			s.allowed[key] = true
-			s.turnMu.Unlock()
-			return tools.GateAllowAlways, ""
-		default:
-			return tools.GateReject, "the user rejected this action"
-		}
-	default: // cancelled
-		return tools.GateReject, "the user cancelled the permission prompt"
-	}
+	_, _ = s.root.DecidePermission(ctx, action, pending.PermissionID, allow, reason, remember)
 }

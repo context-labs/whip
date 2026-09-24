@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "published_context_only",
+  "methodology_comparable": false,
+  "source_url": "https://github.com/frontier-harness-eval/eval/blob/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/README.md",
+  "benchmark_revision": "e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63",
+  "profile": "full",
+  "task_count": 30,
+  "attempts_per_task": 1,
+  "model": "Kimi K3",
+  "provider": "Fireworks",
+  "environment": "Runta",
+  "applied_network_allowlist": null,
+  "notes": "Selected published reference points, not a complete leaderboard or a matched Whip comparison. No cost normalization or ranking is inferred.",
+  "scores": [
+    {"harness": "Codex", "version": "0.148.0", "published_pass_rate_percent": 66.7},
+    {"harness": "Claude Code", "version": "2.1.237", "published_pass_rate_percent": 63.3},
+    {"harness": "Pi", "version": "0.84.2", "published_pass_rate_percent": 60.0}
+  ]
+}

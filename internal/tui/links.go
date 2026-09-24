@@ -1,13 +1,12 @@
 package tui
 
 import (
-	"fmt"
-	"image/color"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -20,7 +19,7 @@ import (
 //     atoms become one OSC 8 hyperlink to the href and the href atoms vanish
 //     (no doubled "label url", at any width). Bare autolinks become clickable
 //     in place.
-//  2. linkifyRenderedFilePaths wraps bare path/to/file[:N] tokens in file://
+//  2. linkifyRenderedFilePathsWith wraps bare path/to/file[:N] tokens in file://
 //     hyperlinks, gated on the file existing on disk.
 //
 // linkifyFilePaths applies the same file-ref linkification to raw user text
@@ -49,6 +48,16 @@ var fileRefRE = regexp.MustCompile(
 // handled after rendering instead. Extensionless and bare single-letter-ext
 // matches are ignored — prose, not file refs.
 func linkifyFilePaths(s string, exists func(string) bool) string {
+	return linkifyFilePathsWith(s, exists, absFileURI)
+}
+
+func linkifyFilePathsAt(s, root string) string {
+	return linkifyFilePathsWith(s, func(path string) bool { return realFileExistsAt(root, path) }, func(path, line string) string {
+		return absFileURIAt(root, path, line)
+	})
+}
+
+func linkifyFilePathsWith(s string, exists func(string) bool, uri func(string, string) string) string {
 	return replaceMatches(s, fileRefRE, func(m string, before byte) string {
 		// Skip markdown link internals, URL tails, code spans, quotes. A
 		// parenthesized path in prose — "(see tui.go)" — is not linkified:
@@ -62,7 +71,7 @@ func linkifyFilePaths(s string, exists func(string) bool) string {
 		if !isFileRef(path) || !exists(path) {
 			return m
 		}
-		return hyperlink(absFileURI(path, line), m)
+		return hyperlink(uri(path, line), m)
 	})
 }
 
@@ -116,12 +125,19 @@ func replaceMatches(s string, re *regexp.Regexp, fn func(m string, before byte) 
 // realFileExists stats path relative to the process working directory (whip
 // runs at the project root) and reports whether it is a regular file.
 func realFileExists(path string) bool {
+	return realFileExistsAt("", path)
+}
+
+func realFileExistsAt(root, path string) bool {
 	if !filepath.IsAbs(path) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return false
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return false
+			}
 		}
-		path = filepath.Join(wd, path)
+		path = filepath.Join(root, path)
 	}
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
@@ -150,12 +166,19 @@ func isDigits(s string) bool {
 // URI path: handlers that understand it jump to the line, the rest still
 // open the file or its directory. Returns "" only when the CWD is unknown.
 func absFileURI(path, line string) string {
+	return absFileURIAt("", path, line)
+}
+
+func absFileURIAt(root, path, line string) string {
 	if !filepath.IsAbs(path) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return ""
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return ""
+			}
 		}
-		path = filepath.Join(wd, path)
+		path = filepath.Join(root, path)
 	}
 	if line != "" {
 		path += ":" + line
@@ -180,12 +203,73 @@ func absFileURI(path, line string) string {
 // place. Width-independent: the merge is structural, not adjacency-at-one-
 // width.
 const (
+	// glamour's stock dark/light link colors, kept as fallback candidates so
+	// hand-built strings and the neutral style keep working
 	linkTextSGRDark  = "\x1b[38;5;35;1m"
 	linkTextSGRLight = "\x1b[38;5;29;1m"
 	linkSGRDark      = "\x1b[38;5;30;4m"
 	linkSGRLight     = "\x1b[38;5;36;4m"
 	sgrReset         = "\x1b[0m"
 )
+
+// linkSGR caches the SGR prefixes the CURRENT markdown style emits for link
+// labels (LinkText) and hrefs (Link). The opencode palette uses truecolor,
+// so the stock constants above never matched it and links stayed inert;
+// rendering a one-link probe through the live renderer learns the real
+// prefixes for whatever style is active. invalidateMDRenderer resets it.
+var linkSGR struct {
+	mu          sync.Mutex
+	valid       bool
+	label, href string
+}
+
+func resetLinkSGRs() {
+	linkSGR.mu.Lock()
+	linkSGR.valid = false
+	linkSGR.mu.Unlock()
+}
+
+// linkSGRs returns the label and href SGR prefixes for the active style
+// ("" when the probe could not determine one).
+func linkSGRs() (label, href string) {
+	linkSGR.mu.Lock()
+	defer linkSGR.mu.Unlock()
+	if linkSGR.valid {
+		return linkSGR.label, linkSGR.href
+	}
+	if r := mdRenderer(120); r != nil {
+		if out, err := r.Render("[LinkLabelProbe](http://probe.invalid/p)"); err == nil {
+			out = stripOSC8(bareSGR.Replace(out)) // the same normalization renderMarkdownAt applies
+			label = sgrBefore(out, "LinkLabelProbe")
+			href = sgrBefore(out, "http://probe.invalid/p")
+		}
+	}
+	linkSGR.valid, linkSGR.label, linkSGR.href = true, label, href
+	return label, href
+}
+
+// osc8RE matches one OSC 8 hyperlink open or close sequence (BEL or ST
+// terminated). BEL is the literal protocol byte 0x07, not an alphabetic class.
+var osc8RE = regexp.MustCompile(`\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)`)
+
+// stripOSC8 removes glamour v2's own hyperlinks from rendered markdown. whip
+// re-links on its own terms below: the label becomes the only clickable text,
+// hrefs stop printing, and file destinations become absolute file:// URIs
+// only when the file exists.
+func stripOSC8(s string) string { return osc8RE.ReplaceAllString(s, "") }
+
+// sgrBefore returns the SGR sequence immediately preceding text in s.
+func sgrBefore(s, text string) string {
+	i := strings.Index(s, text)
+	if i < 0 {
+		return ""
+	}
+	j := strings.LastIndex(s[:i], "\x1b[")
+	if j < 0 || !strings.HasSuffix(s[j:i], "m") || strings.ContainsAny(s[j+2:i-1], "\x1b") {
+		return ""
+	}
+	return s[j:i]
+}
 
 // linkAtom is one parsed glamour word atom: its SGR span, visible text, and
 // byte range in the source. text ends at an embedded newline (word wrap).
@@ -304,6 +388,11 @@ func gapOK(gap string) bool {
 // place. Hrefs that don't map to a clickable target (anchors, missing files)
 // keep glamour's plain output.
 func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
+	return hyperlinkGlamourLinksWith(s, exists, absFileURI)
+}
+
+func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(string, string) string) string {
+	s = stripOSC8(bareSGR.Replace(s)) // accept raw glamour v2 output as well as renderMarkdownAt's
 	atoms := parseLinkAtoms(s)
 	if len(atoms) == 0 {
 		return s
@@ -326,8 +415,8 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 			sb.WriteString(h.text)
 		}
 		hrefText := sb.String()
-		uri := targetURI(hrefText, exists)
-		if uri == "" {
+		target := targetURIWith(hrefText, exists, uri)
+		if target == "" {
 			continue // leave glamour's output untouched
 		}
 		if !g.hasLabel {
@@ -336,7 +425,7 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 			// click target is the whole URL, not a fragment.
 			var out strings.Builder
 			for _, h := range g.hrefs {
-				out.WriteString(hyperlink(uri, h.sgr+h.text+sgrReset))
+				out.WriteString(hyperlink(target, h.sgr+h.text+sgrReset))
 			}
 			repls = append(repls, repl{g.start, g.end, out.String()})
 			continue
@@ -346,7 +435,7 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 		for _, l := range g.labels {
 			label.WriteString(l.sgr + l.text + sgrReset)
 		}
-		repls = append(repls, repl{g.start, g.end, hyperlink(uri, label.String())})
+		repls = append(repls, repl{g.start, g.end, hyperlink(target, label.String())})
 	}
 
 	// Splice replacements back, copying untouched regions verbatim.
@@ -365,31 +454,26 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 // linkAtomAt reports whether s starts with a link SGR span, returning the
 // span and 't' (LinkText/label) or 'h' (Link/href).
 func linkAtomAt(s string) (string, byte) {
-	th := currentTheme()
+	label, href := linkSGRs()
 	for _, cand := range []struct {
 		sgr  string
 		kind byte
 	}{
-		{themeLinkSGR(th.Link, 1), 't'},
-		{themeLinkSGR(th.Primary, 4), 'h'},
+		{label, 't'},
+		{href, 'h'},
 		{linkTextSGRDark, 't'},
 		{linkTextSGRLight, 't'},
 		{linkSGRDark, 'h'},
 		{linkSGRLight, 'h'},
 	} {
-		if cand.sgr != "" && strings.HasPrefix(s, cand.sgr) {
+		if cand.sgr == "" {
+			continue
+		}
+		if strings.HasPrefix(s, cand.sgr) {
 			return cand.sgr, cand.kind
 		}
 	}
 	return "", 0
-}
-
-func themeLinkSGR(c color.Color, attribute int) string {
-	if c == nil {
-		return ""
-	}
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("\x1b[38;2;%d;%d;%d;%dm", r>>8, g>>8, b>>8, attribute)
 }
 
 // scanAtom returns the end offset (exclusive) and visible text of the atom
@@ -413,13 +497,7 @@ func scanAtom(s string, start int, sgr string) (end int, text string) {
 	return body + rs + len(sgrReset), rest[:rs]
 }
 
-// linkifyRenderedFilePaths is linkifyFilePaths for glamour's output: the
-// renderer splits text into word atoms separated by SGR sequences, so the
-// pre-render injection would wrap mid-sequence. Runs on the rendered string
-// where every file ref appears contiguous inside one word atom. The same
-// preceding-byte skips apply (ESC from styling, hrefs already handled by
-// hyperlinkGlamourLinks).
-func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
+func linkifyRenderedFilePathsWith(s string, exists func(string) bool, uri func(string, string) string) string {
 	return replaceMatches(s, fileRefRE, func(m string, before byte) string {
 		if before == 0x1b || strings.ContainsRune("([]/:;\"`m", rune(before)) {
 			// ESC or 'm': inside an SGR/OSC 8 sequence (an atom's text starts
@@ -431,7 +509,7 @@ func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
 		if !exists(path) {
 			return m
 		}
-		return hyperlink(absFileURI(path, line), m)
+		return hyperlink(uri(path, line), m)
 	})
 }
 
@@ -439,6 +517,10 @@ func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
 // through; existing local files become file://; anything else (anchors,
 // missing files) returns "" so the caller keeps the unlinked rendering.
 func targetURI(dest string, exists func(string) bool) string {
+	return targetURIWith(dest, exists, absFileURI)
+}
+
+func targetURIWith(dest string, exists func(string) bool, uri func(string, string) string) string {
 	low := strings.ToLower(dest)
 	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") ||
 		strings.HasPrefix(low, "mailto:") || strings.HasPrefix(low, "file://") {
@@ -458,7 +540,7 @@ func targetURI(dest string, exists func(string) bool) string {
 	}
 	for _, c := range candidates {
 		if exists(c) {
-			return absFileURI(c, line)
+			return uri(c, line)
 		}
 	}
 	return ""

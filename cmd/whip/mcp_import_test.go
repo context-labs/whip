@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,20 +52,33 @@ func chdir(t *testing.T, dir string) {
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+	// A pipe fills before fn returns if the command prints more than its buffer.
+	outFile, err := os.CreateTemp(t.TempDir(), "stdout")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer outFile.Close()
 	origOut := os.Stdout
-	os.Stdout = w
+	os.Stdout = outFile
 	defer func() { os.Stdout = origOut }()
 	fn()
-	w.Close()
-	out, err := io.ReadAll(r)
+	out, err := os.ReadFile(outFile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+func TestCaptureStdoutLargeOutput(t *testing.T) {
+	want := strings.Repeat("x", 1<<20)
+	got := captureStdout(t, func() {
+		if _, err := os.Stdout.WriteString(want); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != want {
+		t.Fatalf("captured %d bytes, want %d", len(got), len(want))
+	}
 }
 
 func TestMCPImportDryRunWritesNothing(t *testing.T) {
@@ -119,6 +131,14 @@ func TestMCPImportAppliesAndIsIdempotent(t *testing.T) {
 	}
 	if _, ok := reloaded.MCPServers["node_repl"]; ok {
 		t.Error("blocked servers are never imported")
+	}
+	// Materialized entries are native: no import provenance, so the daemon
+	// trusts them like hand-written ones. Import is the trust path.
+	if entry := reloaded.MCPServers["paper"]; entry.Origin != "" || entry.Source != "" {
+		t.Errorf("imported entry kept import provenance: %+v", entry)
+	}
+	if !mcp.FromConfigMap(reloaded.MCPServers)["paper"].Trusted {
+		t.Error("an imported entry must be trusted once it lives in whip's own config")
 	}
 	// Second run: nothing left to import, config unchanged.
 	var runErr error

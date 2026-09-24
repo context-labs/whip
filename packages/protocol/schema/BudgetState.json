@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string"
+    },
+    "limit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "used": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "reserved": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "remaining": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "uncertain": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "incomplete": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/BudgetState",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BudgetState",
+  "required": [
+    "kind",
+    "limit",
+    "used",
+    "reserved",
+    "remaining",
+    "uncertain",
+    "incomplete"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,306 @@
+{
+  "date": "2026-09-07",
+  "platform": "macOS 26.3.1 arm64, Node 24.14.1",
+  "tabs": {
+    "chromium": {
+      "browser": "153.0.8010.12",
+      "checks": [
+        "deep-link precedence, four metadata tabs without hydration, independent drafts",
+        "close/reopen and reload preserve draft; navigation sends no durable commands",
+        "independent browser-window layouts",
+        "in-flight attachment survives tab switch and close/reopen without crossing recipients",
+        "background permission and competing-client resolution converge without selecting the root",
+        "switching during a live turn retains grouped text/tool streams without duplicates",
+        "32 tabs retain <=4 root subscriptions and one shared background poll",
+        "summary polling stops when document visibility reports hidden",
+        "same-runtime daemon crash/restart retains all tabs and unsent draft",
+        "a 33rd deep link does not hydrate until a tab is explicitly closed",
+        "deleted root remains explicitly unavailable and its error does not leak to another tab",
+        "whole-app retained heap, metadata bytes and subscriptions measured at 1/8/32 tabs",
+        "mobile session picker, search, selection and no horizontal document overflow"
+      ],
+      "retainedState": [
+        {
+          "openTabs": 1,
+          "usedHeapBytesAfterGC": 11757116,
+          "activeSubscriptions": 1,
+          "metadataBytes": 244,
+          "mountedConversations": 0
+        },
+        {
+          "openTabs": 8,
+          "usedHeapBytesAfterGC": 13743692,
+          "activeSubscriptions": 4,
+          "metadataBytes": 814,
+          "mountedConversations": 0
+        },
+        {
+          "openTabs": 32,
+          "usedHeapBytesAfterGC": 20209156,
+          "activeSubscriptions": 4,
+          "metadataBytes": 2614,
+          "mountedConversations": 0
+        }
+      ],
+      "switchInteractionMs": {
+        "count": 16,
+        "median": 66.6906670000003,
+        "p95": 66.80233299999963
+      },
+      "coldSwitchInteractionMs": {
+        "count": 8,
+        "median": 81.99974999999995,
+        "p95": 84.09462500000063
+      },
+      "measurement": "Playwright click-to-ready-plus-rAF wall time (includes automation overhead; not physical paint)",
+      "maximumSubscriptions": 4,
+      "steadySummaryPollsIn6100ms": 3
+    },
+    "firefox": {
+      "browser": "155.0",
+      "checks": [
+        "deep-link precedence, four metadata tabs without hydration, independent drafts",
+        "close/reopen and reload preserve draft; navigation sends no durable commands",
+        "independent browser-window layouts",
+        "in-flight attachment survives tab switch and close/reopen without crossing recipients",
+        "background permission and competing-client resolution converge without selecting the root",
+        "switching during a live turn retains grouped text/tool streams without duplicates",
+        "32 tabs retain <=4 root subscriptions and one shared background poll",
+        "summary polling stops when document visibility reports hidden",
+        "same-runtime daemon crash/restart retains all tabs and unsent draft",
+        "a 33rd deep link does not hydrate until a tab is explicitly closed",
+        "deleted root remains explicitly unavailable and its error does not leak to another tab",
+        "mobile session picker, search, selection and no horizontal document overflow"
+      ],
+      "retainedState": [],
+      "switchInteractionMs": {
+        "count": 16,
+        "median": 99.65570800000205,
+        "p95": 116.79941600000166
+      },
+      "coldSwitchInteractionMs": {
+        "count": 8,
+        "median": 134.966207999998,
+        "p95": 143.37479099999837
+      },
+      "measurement": "Playwright click-to-ready-plus-rAF wall time (includes automation overhead; not physical paint)",
+      "maximumSubscriptions": 4,
+      "steadySummaryPollsIn6100ms": 3
+    }
+  },
+  "loadedHistory": {
+    "browser": "153.0.8010.12",
+    "platform": "darwin",
+    "fixture": {
+      "rootMessages": 10000,
+      "retainedChildren": 100,
+      "messagesPerChild": 100,
+      "largeToolBodyBytes": 1400000
+    },
+    "checks": [
+      "10,000 stored root messages page into at most 512 retained messages; 100 child transcripts inspected and released",
+      "Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll",
+      "20 cached child-to-root switches restore independent reading anchors and never mix transcript content",
+      "40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error",
+      "32 near-limit drafts remain editable with 16 concurrent fake root agents and visible stream updates"
+    ],
+    "sdk": {
+      "childOpenMilliseconds": {
+        "count": 100,
+        "median": 6.498207999999977,
+        "p95": 7.099083000000064,
+        "max": 8.635041999999885
+      },
+      "maximumRetainedPayloadBytes": 346436,
+      "maximumRetainedMessages": 612,
+      "finalRetainedMessages": 512
+    },
+    "initialRenderedRows": 9,
+    "anchorOffsets": [
+      {
+        "before": 56,
+        "after": 56
+      },
+      {
+        "before": 56,
+        "after": 56
+      },
+      {
+        "before": 56,
+        "after": 56
+      },
+      {
+        "before": 56,
+        "after": 56
+      }
+    ],
+    "prependMilliseconds": {
+      "count": 4,
+      "median": 83.49870800000008,
+      "p95": 150.53979200000003,
+      "max": 150.53979200000003
+    },
+    "maximumVisibleRowsAfterPaging": 19,
+    "cachedRootSwitchMilliseconds": {
+      "count": 20,
+      "median": 72.41295900000023,
+      "p95": 73.24862500000017,
+      "max": 73.45658399999957
+    },
+    "drafts": {
+      "count": 32,
+      "bytes": 1046528,
+      "activeBytes": 257085,
+      "concurrentAgents": 16,
+      "inputToAnimationFrameMilliseconds": {
+        "count": 40,
+        "median": 22.199999928474426,
+        "p95": 25.399999976158142,
+        "max": 26.100000023841858,
+        "boundary": "Input handler to next requestAnimationFrame callback; responsiveness proxy, excludes rendering and paint."
+      },
+      "streamingMutations": 49,
+      "keyboardToNextPaintMilliseconds": {
+        "count": 40,
+        "trustedKeydowns": 40,
+        "browserEventCount": 40,
+        "reportedCount": 40,
+        "censoredCount": 0,
+        "p95Rounded": 32,
+        "medianBounds": {
+          "lower": 28,
+          "upper": 36
+        },
+        "p95Bounds": {
+          "lower": 28,
+          "upper": 36
+        },
+        "maxBounds": {
+          "lower": 28,
+          "upper": 36
+        },
+        "observed": {
+          "count": 40,
+          "median": 32,
+          "p95": 32,
+          "max": 32
+        },
+        "reportingThresholdMilliseconds": 16,
+        "durationQuantizationMilliseconds": 8,
+        "censoredUpperBoundMilliseconds": 20,
+        "droppedEntries": 0,
+        "boundary": "Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.",
+        "censoring": "All 40 keydowns are retained. Entries below the 16ms reporting threshold are absent; each absent value is conservatively bounded to 0\u201320ms including the 4ms rounding allowance. Percentile bounds include both reported and censored events. A rounded p95 is supplied only when its rank is represented by reported entries.",
+        "deliveryCheck": "Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silently losing slow entries.",
+        "reference": "https://www.w3.org/TR/event-timing/"
+      }
+    },
+    "eventReceivedToDOMMilliseconds": {
+      "count": 82,
+      "median": 20.199999928474426,
+      "p95": 34.5,
+      "max": 37.299999952316284
+    },
+    "commitReturnToDOMMilliseconds": {
+      "count": 40,
+      "median": 51.50027054768452,
+      "p95": 82.19214552384256,
+      "max": 85.6956034761588,
+      "clockErrorBoundMilliseconds": 0.36068750000004,
+      "boundary": "Timestamp immediately after successful Store.AppendRootEvent COMMIT return to MutationObserver observation of its marker in a mounted live transcript row; excludes physical paint."
+    },
+    "commitClockCalibration": {
+      "method": "Go time.Since and browser performance.now; intersect 20 request-response brackets before and 20 after the loaded interval, without assuming symmetric latency.",
+      "sampleCount": 40,
+      "measuredIntervalMilliseconds": 2322.399999976158,
+      "roundTripMilliseconds": {
+        "count": 40,
+        "median": 0.6999999284744263,
+        "p95": 1.399999976158142,
+        "max": 7
+      },
+      "browserMinusDaemonOffsetMilliseconds": {
+        "lower": -4152.279666071526,
+        "upper": -4151.558291071526
+      },
+      "timerQuantizationAllowanceMilliseconds": 0.2,
+      "assumption": "Both monotonic clocks have negligible relative drift during this short same-machine run; disjoint before/after bounds fail the measurement."
+    },
+    "browserRetained": {
+      "usedSize": 13247128,
+      "totalSize": 14516224,
+      "embedderHeapUsedSize": 5215208,
+      "backingStorageSize": 3362429,
+      "documents": 1,
+      "nodes": 567,
+      "jsEventListeners": 596,
+      "currentTranscriptRows": 9
+    },
+    "requestCounts": {
+      "initialize": 2,
+      "sessions.list": 3,
+      "host.attention": 2,
+      "sessions.summaries": 5,
+      "root.snapshot": 3,
+      "events.subscribe": 3,
+      "history.page": 24,
+      "sessions.revision": 2,
+      "events.unsubscribe": 1
+    }
+  },
+  "safari": {
+    "passed": true,
+    "browser": "safari",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15",
+    "production_bundle": true,
+    "real_daemon": true,
+    "checks": [
+      "attached root route",
+      "independent tab drafts, close/reopen, and metadata restoration",
+      "native form submission and authoritative response",
+      "theme selection while draft retained",
+      "full-page reload restores draft and theme",
+      "strict CSP without inline execution"
+    ]
+  },
+  "componentBrowsers": [
+    {
+      "name": "chromium",
+      "passed": true,
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "manualActivation": true,
+      "siblingControls": true,
+      "focusAfterClose": true,
+      "nativeModifiedLinks": true,
+      "pointerReorder": true,
+      "noTouchDrag": true,
+      "overflow": true,
+      "rtl": true
+    },
+    {
+      "name": "firefox",
+      "passed": true,
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "manualActivation": true,
+      "siblingControls": true,
+      "focusAfterClose": true,
+      "nativeModifiedLinks": true,
+      "pointerReorder": true,
+      "noTouchDrag": true,
+      "overflow": true,
+      "rtl": true
+    }
+  ],
+  "themeFixturesPassed": 65,
+  "checks": {
+    "task check": "passed; 105 web tests, 161 SDK tests, Go/vet/whipvet, generation and theme drift",
+    "task acceptance": "passed",
+    "focused Go summary race suites": "passed",
+    "UI packed consumer and Storybook build": "passed"
+  },
+  "limitations": [
+    "Physical mobile-device testing and VoiceOver manual interaction were not performed.",
+    "Tab switching is measured by Playwright click-to-ready plus requestAnimationFrame wall time, including automation overhead; this is not physical paint timing. Firefox warm p95 exceeds 100ms on that proxy, so the sub-100ms physical-paint target is not certified.",
+    "One full Firefox run missed a synthetic phone Stop click without sending a cancellation RPC; the complete Firefox rerun passed. No cancellation retry was added to the app."
+  ]
+}

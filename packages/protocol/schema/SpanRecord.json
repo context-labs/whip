@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "parent_id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "start_ns": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "end_ns": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "attrs": true,
+    "links": true,
+    "updated_seq": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/SpanRecord",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SpanRecord",
+  "required": [
+    "id",
+    "trace_id",
+    "root_id",
+    "agent_id",
+    "kind",
+    "name",
+    "status",
+    "start_ns",
+    "end_ns",
+    "updated_seq"
+  ],
+  "additionalProperties": false
+}

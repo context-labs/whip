@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "operation_id": {
+      "type": "string"
+    },
+    "lease_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/PermissionDecisionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionDecisionResult",
+  "required": [
+    "operation_id",
+    "lease_id"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,218 @@
+{
+  "type": "object",
+  "properties": {
+    "execution_engines": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "bridge_sha256": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "abi": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "fidelity": {
+            "type": "string"
+          },
+          "guide_sha256": {
+            "type": "string"
+          },
+          "features": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "default_limits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "language",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "default_execution_engine": {
+      "type": "string"
+    },
+    "operations": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "execution": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "sensitive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "surface",
+          "execution",
+          "permission"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "frame_bytes": {
+          "type": "integer"
+        },
+        "connections": {
+          "type": "integer"
+        },
+        "in_flight_requests": {
+          "type": "integer"
+        },
+        "outbound_messages": {
+          "type": "integer"
+        },
+        "outbound_bytes": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "root_subscriptions": {
+          "type": "integer"
+        },
+        "content_chunk_bytes": {
+          "type": "integer"
+        },
+        "upload_bytes": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "frame_bytes",
+        "connections",
+        "in_flight_requests",
+        "outbound_messages",
+        "outbound_bytes",
+        "root_subscriptions",
+        "content_chunk_bytes",
+        "upload_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "negotiated_capabilities": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "protocol_minor": {
+      "type": "integer"
+    },
+    "runtime_id": {
+      "type": "string"
+    },
+    "connection_id": {
+      "type": "string"
+    },
+    "host_platform": {
+      "type": "string"
+    },
+    "host_architecture": {
+      "type": "string"
+    },
+    "network_endpoint": {
+      "type": "string"
+    },
+    "protocol_major": {
+      "type": "integer"
+    },
+    "build_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "pid": {
+      "type": "integer"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/InitializeResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InitializeResult",
+  "required": [
+    "execution_engines",
+    "default_execution_engine",
+    "operations",
+    "limits",
+    "negotiated_capabilities",
+    "protocol_minor",
+    "runtime_id",
+    "connection_id",
+    "host_platform",
+    "host_architecture",
+    "protocol_major",
+    "build_id",
+    "generation",
+    "capabilities"
+  ],
+  "additionalProperties": false
+}

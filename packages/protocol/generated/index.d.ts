@@ -1,0 +1,4521 @@
+// Generated from Go wire types. Run npm run generate.
+export interface Accepted {
+  accepted: boolean;
+}
+
+export interface AgentCancelParams {
+  id: string;
+  turn_id: string;
+}
+
+export interface AgentInputParams {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
+  id: string;
+  text: string;
+  delivery?: string;
+  parts?:
+    | null
+    | {
+        type: string;
+        text?: string;
+        image_url?: null | {
+          url: string;
+        };
+        w?: number;
+        h?: number;
+      }[];
+  attachments?:
+    | null
+    | {
+        kind: "image" | "text";
+        content: {
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type?: string;
+          source?: string;
+        };
+        name?: string;
+      }[];
+}
+
+export type AgentListResult =
+  | null
+  | {
+      execution_engine: string;
+      last_turn?: null | {
+        turn_id?: string;
+        status: string;
+        started_at?: string;
+        finished_at?: string;
+        event_seq: string;
+        error?: string;
+        error_truncated?: boolean;
+        error_details?: null | {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+        model_calls?: number;
+        compactions?: number;
+        last_activity_at?: string;
+      };
+      id: string;
+      root_id: string;
+      parent_id: string;
+      name: string;
+      model: string;
+      provider: string;
+      effort: string;
+      cwd: string;
+      report: string;
+      status: string;
+      pending_mail: number;
+      lifecycle_phase: string;
+      blocking_reason: string;
+      terminal_cause: string;
+      allowed_controls: null | string[];
+    }[];
+
+export interface AgentSubmitResult {
+  agent_id: string;
+  inbox_seq: string;
+  kind?: string;
+  status: string;
+}
+
+export interface AgentTranscriptResult {
+  accounting?: {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
+  cursor: string;
+  agent: {
+    execution_engine: string;
+    last_turn?: null | {
+      turn_id?: string;
+      status: string;
+      started_at?: string;
+      finished_at?: string;
+      event_seq: string;
+      error?: string;
+      error_truncated?: boolean;
+      error_details?: null | {
+        inline?: unknown;
+        text?: null | string;
+        binary?: string | null;
+        reference_id: string;
+        digest: string;
+        size: string;
+        media_type: string;
+        source: string;
+      };
+      model_calls?: number;
+      compactions?: number;
+      last_activity_at?: string;
+    };
+    id: string;
+    root_id: string;
+    parent_id: string;
+    name: string;
+    model: string;
+    provider: string;
+    effort: string;
+    cwd: string;
+    report: string;
+    status: string;
+    pending_mail: number;
+    lifecycle_phase: string;
+    blocking_reason: string;
+    terminal_cause: string;
+    allowed_controls: null | string[];
+  };
+  page: {
+    history_revision: string;
+    through_seq: number;
+    next_seq: number;
+    has_more: boolean;
+    messages:
+      | null
+      | {
+          presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
+          role?: string;
+          authored?: boolean;
+          sent_at?: null | string;
+          seq: number;
+          message?: null | {
+            presentation?: null | {
+              design_context?: null | {
+                context_attachment_id: string;
+                screenshot_attachment_id?: string;
+                elements:
+                  | null
+                  | {
+                      label: string;
+                      selector?: string;
+                    }[];
+                element_count: number;
+                page_url?: string;
+                page_title?: string;
+                context_part_index: number;
+                screenshot_part_index?: null | number;
+              };
+              version: number;
+              turn_id?: string;
+              parts?:
+                | null
+                | {
+                    id: string;
+                    kind: string;
+                    start?: number;
+                    end?: number;
+                    text?: string;
+                    tool_name?: string;
+                    status?: string;
+                    call_id?: string;
+                    hosts?:
+                      | null
+                      | {
+                          invocation_id: string;
+                          name: string;
+                          summary?: string;
+                          status: string;
+                          duration?: string;
+                          error?: string;
+                          display?: null | {
+                            target?: string;
+                            command?: string;
+                            query?: string;
+                            child_id?: string;
+                            label?: string;
+                          };
+                        }[];
+                    omitted?: number;
+                  }[];
+              omitted?: number;
+            };
+            role: string;
+            content:
+              | string
+              | {
+                  type: string;
+                  text?: string;
+                  image_url?: null | {
+                    url: string;
+                  };
+                  w?: number;
+                  h?: number;
+                }[];
+            tool_calls?:
+              | null
+              | {
+                  id: string;
+                  type: string;
+                  function: {
+                    name: string;
+                    arguments: string;
+                  };
+                  duration_ms?: number;
+                  exit_code?: number;
+                }[];
+            tool_call_id?: string;
+            name?: string;
+            authored?: boolean;
+            sent_at?: null | string;
+            usage?: null | {
+              reported?: boolean;
+              cost?: null | number;
+              prompt_tokens: number;
+              completion_tokens: number;
+              prompt_tokens_details?: null | {
+                cached_tokens: number;
+              };
+              completion_tokens_details?: null | {
+                reasoning_tokens: number;
+              };
+            };
+            model?: string;
+            rewound_from?: string;
+            call_id?: string;
+          };
+          body?: null | {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        }[];
+  };
+  presentation?:
+    | null
+    | {
+        seq: string;
+        kind: string;
+        payload: unknown;
+      }[];
+  inbox?:
+    | null
+    | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
+        root_id: string;
+        agent_id: string;
+        seq: string;
+        kind: string;
+        status: string;
+        payload: {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      }[];
+}
+
+export interface ArchiveParams {
+  archived: boolean;
+}
+
+export interface ArchiveResult {
+  archived: boolean;
+}
+
+export interface BoundedTranscriptPage {
+  history_revision: string;
+  through_seq: number;
+  next_seq: number;
+  has_more: boolean;
+  messages:
+    | null
+    | {
+        presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
+        role?: string;
+        authored?: boolean;
+        sent_at?: null | string;
+        seq: number;
+        message?: null | {
+          presentation?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
+            version: number;
+            turn_id?: string;
+            parts?:
+              | null
+              | {
+                  id: string;
+                  kind: string;
+                  start?: number;
+                  end?: number;
+                  text?: string;
+                  tool_name?: string;
+                  status?: string;
+                  call_id?: string;
+                  hosts?:
+                    | null
+                    | {
+                        invocation_id: string;
+                        name: string;
+                        summary?: string;
+                        status: string;
+                        duration?: string;
+                        error?: string;
+                        display?: null | {
+                          target?: string;
+                          command?: string;
+                          query?: string;
+                          child_id?: string;
+                          label?: string;
+                        };
+                      }[];
+                  omitted?: number;
+                }[];
+            omitted?: number;
+          };
+          role: string;
+          content:
+            | string
+            | {
+                type: string;
+                text?: string;
+                image_url?: null | {
+                  url: string;
+                };
+                w?: number;
+                h?: number;
+              }[];
+          tool_calls?:
+            | null
+            | {
+                id: string;
+                type: string;
+                function: {
+                  name: string;
+                  arguments: string;
+                };
+                duration_ms?: number;
+                exit_code?: number;
+              }[];
+          tool_call_id?: string;
+          name?: string;
+          authored?: boolean;
+          sent_at?: null | string;
+          usage?: null | {
+            reported?: boolean;
+            cost?: null | number;
+            prompt_tokens: number;
+            completion_tokens: number;
+            prompt_tokens_details?: null | {
+              cached_tokens: number;
+            };
+            completion_tokens_details?: null | {
+              reasoning_tokens: number;
+            };
+          };
+          model?: string;
+          rewound_from?: string;
+          call_id?: string;
+        };
+        body?: null | {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      }[];
+}
+
+export interface BrowserCommand {
+  command_id: string;
+  operation_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_epoch: string;
+  scope: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  expected_document?: string;
+  deadline_millis: string;
+  kind: string;
+  arguments: unknown;
+}
+
+export interface BrowserCommandCancel {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  reason: string;
+}
+
+export interface BrowserCommandResultParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  document_revision: string;
+  result?: unknown;
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+  screenshot?: null | {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+}
+
+export interface BrowserDriverParams {
+  driver: string;
+}
+
+export interface BrowserInventoryRequest {
+  request_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+      }[];
+}
+
+export interface BrowserInventoryResultParams {
+  request_id: string;
+  root_id: string;
+  provider_epoch: string;
+  tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        document_revision: string;
+        url: string;
+        title: string;
+        state: string;
+        requestable: boolean;
+        attachment_id?: string;
+      }[];
+  error?: null | {
+    kind: string;
+    message: string;
+  };
+}
+
+export interface BrowserProviderBindParams {
+  availability?: boolean;
+  root_id: string;
+  version: number;
+  desktop_id: string;
+  window_id: string;
+  offer_revision: string;
+  create_profile_id: string;
+  expected_provider_epoch?: string;
+  offered_tabs:
+    | null
+    | {
+        tab_id: string;
+        tab_generation: string;
+        profile_id: string;
+        document_revision?: string;
+        url?: string;
+        title?: string;
+        preview?: null | {
+          host_id: string;
+          host_identity: string;
+          connection_generation: string;
+          environment_id: string;
+          loopback: string;
+          ports: null | number[];
+        };
+      }[];
+  offered_preview_hosts:
+    | null
+    | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: string;
+        ports: null | number[];
+      }[];
+}
+
+export interface BrowserProviderBindResult {
+  version: number;
+  provider_id: string;
+  provider_epoch: string;
+}
+
+export interface BrowserProviderEventParams {
+  root_id: string;
+  provider_epoch: string;
+  tab_id: string;
+  tab_generation: string;
+  attachment_id: string;
+  attachment_generation: string;
+  sequence: string;
+  operation_id?: string;
+  document_revision: string;
+  kind: string;
+  method?: string;
+  params?: unknown;
+  url?: string;
+  title?: string;
+}
+
+export interface BrowserProviderRevoked {
+  root_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  reason: string;
+}
+
+export interface BrowserProviderUnbindParams {
+  root_id: string;
+  provider_epoch: string;
+}
+
+export interface BrowserStatusResult {
+  enabled: boolean;
+  driver?: string;
+}
+
+export interface BudgetCapParams {
+  id: string;
+  kind: string;
+  limit: string;
+}
+
+export interface BudgetState {
+  kind: string;
+  limit: string | null;
+  used: string;
+  reserved: string;
+  remaining: string | null;
+  uncertain: string;
+  incomplete: boolean;
+}
+
+export interface CancelParams {
+  turn_id?: string;
+  target_command_id?: string;
+}
+
+export interface CapabilityRecord {
+  id: string;
+  root_id: string;
+  agent_id: string;
+  issuer_agent_id: string;
+  operations: null | string[];
+  scopes: null | string[];
+  file_scope?: string;
+  file_issuer_id?: string;
+  file_issuer_generation?: string;
+  mcp:
+    | null
+    | {
+        server: string;
+        tool: string;
+        definition: string;
+      }[];
+  mcp_all: boolean;
+  browser?: null | {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    attachment_id?: string;
+    attachment_generation?: string;
+    rights: null | string[];
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: string;
+      ports: null | number[];
+    };
+  };
+  browser_issuer_id?: string;
+  browser_issuer_generation?: number;
+  browser_delegation_only?: boolean;
+  generation: string;
+  status: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CatalogResult {
+  themes:
+    | null
+    | {
+        id: string;
+        name: string;
+        dark: boolean;
+        source: string;
+      }[];
+  errors:
+    | null
+    | {
+        file: string;
+        message: string;
+      }[];
+  truncated: boolean;
+}
+
+export interface CatalogRevision {
+  revision: string;
+}
+
+export interface CheckpointParams {
+  reason?: string;
+}
+
+export interface ClearHistoryParams {
+  expected_revision?: string | null;
+}
+
+export interface CommandParams {
+  command_id: string;
+  scope: string;
+  root_id?: string;
+  operation: string;
+  payload?: unknown;
+}
+
+export interface CommandResult {
+  content?: null | {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  operation: string;
+  result?: unknown;
+  failure?: null | {
+    data?: null | {
+      kind: string;
+    };
+    code: number;
+    message: string;
+  };
+  command_id: string;
+  ingress_seq: string;
+  status: string;
+}
+
+export interface CommandStatusParams {
+  command_id: string;
+}
+
+export type CompactionListResult =
+  | null
+  | {
+      seq: number;
+      cutoff: number;
+      summary: string;
+    }[];
+
+export interface CompactionParams {
+  model?: string;
+  provider?: string;
+}
+
+export interface CompactionResult {
+  cutoff: number;
+  model?: string;
+  usage: {
+    reported?: boolean;
+    cost?: null | number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    prompt_tokens_details?: null | {
+      cached_tokens: number;
+    };
+    completion_tokens_details?: null | {
+      reasoning_tokens: number;
+    };
+  };
+}
+
+export interface CompactionRetryResult {
+  undone: boolean;
+  sequence?: number;
+}
+
+export interface CompactionSettingsResult {
+  model?: string;
+  provider?: string;
+  builtin_default: boolean;
+}
+
+export interface CompletionParams {
+  root_id: string;
+  agent_id?: string;
+  kind: string;
+  prefix: string;
+  limit: number;
+}
+
+export interface CompletionResult {
+  warnings?: null | string[];
+  candidates:
+    | null
+    | {
+        text: string;
+        description: string;
+      }[];
+  truncated: boolean;
+}
+
+export interface ComputerAppParams {
+  app: string;
+}
+
+export interface ComputerStatusResult {
+  enabled: boolean;
+  default_deny: boolean;
+  allowed: null | string[];
+  denied: null | string[];
+  session_allowed: null | string[];
+  session_denied: null | string[];
+}
+
+export interface ConfigurationUpdate {
+  default_execution_engine?: null | string;
+  disabled_providers?: null | string[];
+  remote_hosts?:
+    | null
+    | {
+        id: string;
+        name: string;
+        url: string;
+        runtime_id: string;
+        connect_on_launch: boolean;
+      }[];
+  import_claude?: null | boolean;
+  import_codex?: null | boolean;
+  brand_icons?: null | boolean;
+  revision: string;
+  default_model?: null | string;
+  default_provider?: null | string;
+  default_effort?: null | string;
+  default_permission_mode?: null | string;
+  compact_model?: null | string;
+  compact_provider?: null | string;
+  compact_percent?: null | number;
+  goal_max_rounds?: null | number;
+  max_retries?: null | number;
+}
+
+export interface ContentEventPayload {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
+  accounting?: null | {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
+  usage?: null | {
+    used: number;
+    size: number;
+    usage: {
+      reported?: boolean;
+      cost?: null | number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      prompt_tokens_details?: null | {
+        cached_tokens: number;
+      };
+      completion_tokens_details?: null | {
+        reasoning_tokens: number;
+      };
+    };
+  };
+  agent_id?: string;
+  turn_id?: string;
+  invocation_id?: string;
+  operation_id?: string;
+  host_status?: string;
+  id?: string;
+  name?: string;
+  text?: string;
+  args?: string;
+  result?: string;
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  truncated: true;
+}
+
+export interface ContentHandle {
+  reference_id: string;
+  digest: string;
+  size: string;
+  media_type?: string;
+  source?: string;
+}
+
+export interface ContentReadParams {
+  root_id: string;
+  agent_id?: string;
+  reference_id: string;
+  offset: string;
+  limit: number;
+}
+
+export interface ContentReadResult {
+  data: string | null;
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+}
+
+export interface ContextAuditResult {
+  working_directory: string;
+  rows:
+    | null
+    | {
+        label: string;
+        bytes?: number;
+        note?: string;
+      }[];
+}
+
+export interface CreateSessionParams {
+  execution_engine?: string;
+  definition?: string;
+  kind: string;
+  cwd: string;
+  model: string;
+  provider: string;
+  permission_mode?: string;
+}
+
+export interface DefinitionList {
+  items:
+    | null
+    | {
+        id: string;
+        revision: string;
+        built_in: boolean;
+        registered_by: string;
+        created_at: string;
+      }[];
+}
+
+export interface DefinitionParams {
+  id: string;
+  revision?: string;
+}
+
+export interface DefinitionRecord {
+  definition: {
+    id: string;
+    instructions: {
+      persona: string;
+      rules: string;
+      project_files: null | string[];
+      skill_discovery: boolean;
+      standing_instructions: boolean;
+    };
+    modules: null | string[];
+    capabilities: null | string[];
+    model: {
+      model: string;
+      provider: string;
+      effort: string;
+    };
+    compaction: {
+      model: string;
+      provider: string;
+      threshold: number;
+    };
+    mcp: {
+      servers: null | string[];
+    };
+    tools:
+      | null
+      | {
+          name: string;
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+          timeout_millis: number;
+        }[];
+    output: unknown;
+    children: {
+      [k: string]: {
+        instructions: null | {
+          persona: string;
+          rules: string;
+          project_files: null | string[];
+          skill_discovery: boolean;
+          standing_instructions: boolean;
+        };
+        modules: null | string[];
+        capabilities: null | string[];
+        tools: null | string[];
+        model: {
+          model: string;
+          provider: string;
+          effort: string;
+        };
+        budgets: {
+          [k: string]: number;
+        };
+        report: string;
+        output: unknown;
+      };
+    };
+    surface: {
+      auto_title: boolean;
+      goal_loop: boolean;
+    };
+    hooks: null | {
+      before_tool: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      before_spawn: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      turn_start: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    };
+  };
+  revision: string;
+  built_in: boolean;
+  registered_by: string;
+  created_at: string;
+}
+
+export interface DefinitionRegisterParams {
+  definition: {
+    id: string;
+    instructions: {
+      persona: string;
+      rules: string;
+      project_files: null | string[];
+      skill_discovery: boolean;
+      standing_instructions: boolean;
+    };
+    modules: null | string[];
+    capabilities: null | string[];
+    model: {
+      model: string;
+      provider: string;
+      effort: string;
+    };
+    compaction: {
+      model: string;
+      provider: string;
+      threshold: number;
+    };
+    mcp: {
+      servers: null | string[];
+    };
+    tools:
+      | null
+      | {
+          name: string;
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+          timeout_millis: number;
+        }[];
+    output: unknown;
+    children: {
+      [k: string]: {
+        instructions: null | {
+          persona: string;
+          rules: string;
+          project_files: null | string[];
+          skill_discovery: boolean;
+          standing_instructions: boolean;
+        };
+        modules: null | string[];
+        capabilities: null | string[];
+        tools: null | string[];
+        model: {
+          model: string;
+          provider: string;
+          effort: string;
+        };
+        budgets: {
+          [k: string]: number;
+        };
+        report: string;
+        output: unknown;
+      };
+    };
+    surface: {
+      auto_title: boolean;
+      goal_loop: boolean;
+    };
+    hooks: null | {
+      before_tool: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      before_spawn: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+      turn_start: null | {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    };
+  };
+}
+
+export interface DefinitionRegisterResult {
+  id: string;
+  revision: string;
+  created: boolean;
+}
+
+export interface EffortParams {
+  effort: string;
+  persist_default: boolean;
+}
+
+export interface EffortResult {
+  effort: string;
+}
+
+export interface Empty {}
+
+export interface EmptyParams {}
+
+export interface EventNotification {
+  event: {
+    subscription_id?: string;
+    root_id: string;
+    seq: string;
+    kind: string;
+    payload?: unknown;
+  };
+}
+
+export interface ExecutorBindParams {
+  definition: string;
+  revision: string;
+  tools: null | string[];
+  hooks?: null | string[];
+}
+
+export interface ExecutorBindResult {
+  generation: string;
+  tools: null | string[];
+  hooks?: null | string[];
+}
+
+export interface ExecutorPendingParams {
+  definition: string;
+  revision: string;
+  generation: string;
+}
+
+export interface ExecutorPendingResult {
+  invocations:
+    | null
+    | {
+        invocation_id: string;
+        definition: string;
+        revision: string;
+        generation: string;
+        root_id: string;
+        agent_id: string;
+        turn_id: string;
+        tool: string;
+        input: unknown;
+        deadline_millis: string;
+      }[];
+  hooks?:
+    | null
+    | {
+        invocation_id: string;
+        definition: string;
+        revision: string;
+        generation: string;
+        root_id: string;
+        agent_id: string;
+        turn_id: string;
+        hook: string;
+        operation?: string;
+        arguments?: unknown;
+        spawn?: null | {
+          request: {
+            prompt: string;
+            name: string;
+            definition: string;
+            capabilities: null | string[];
+            tools: null | string[];
+            budgets: {
+              [k: string]: number;
+            };
+            report: string;
+            model: string;
+            provider: string;
+            effort: string;
+            mcp_tools?: unknown;
+            browser_attachments?: null | string[];
+          };
+          resolved: {
+            browser_attachments?: null | string[];
+            definition: string;
+            modules: null | string[];
+            capabilities: null | string[];
+            tools: null | string[];
+            budgets: {
+              [k: string]: number;
+            };
+            report: string;
+          };
+        };
+        input?: string;
+        permission_mode: string;
+        deadline_millis: string;
+      }[];
+}
+
+export interface ForkParams {
+  expected_revision: string | null;
+  title?: string;
+  cut?: number;
+}
+
+export interface GatewayStatus {
+  state: string;
+  endpoint?: string;
+  error?: string;
+}
+
+export interface GoalContextParams {
+  window?: number;
+}
+
+export interface GoalResult {
+  goal: string;
+}
+
+export interface HistoryPageParams {
+  root_id: string;
+  agent_id: string;
+  after_seq?: number;
+  before_seq?: number;
+  through_seq: number;
+  revision?: string | null;
+  limit: number;
+  max_bytes: number;
+  recent?: boolean;
+}
+
+export interface HookInvokeParams {
+  invocation_id: string;
+  definition: string;
+  revision: string;
+  generation: string;
+  root_id: string;
+  agent_id: string;
+  turn_id: string;
+  hook: string;
+  operation?: string;
+  arguments?: unknown;
+  spawn?: null | {
+    request: {
+      prompt: string;
+      name: string;
+      definition: string;
+      capabilities: null | string[];
+      tools: null | string[];
+      budgets: {
+        [k: string]: number;
+      };
+      report: string;
+      model: string;
+      provider: string;
+      effort: string;
+      mcp_tools?: unknown;
+      browser_attachments?: null | string[];
+    };
+    resolved: {
+      browser_attachments?: null | string[];
+      definition: string;
+      modules: null | string[];
+      capabilities: null | string[];
+      tools: null | string[];
+      budgets: {
+        [k: string]: number;
+      };
+      report: string;
+    };
+  };
+  input?: string;
+  permission_mode: string;
+  deadline_millis: string;
+}
+
+export interface HookResultParams {
+  invocation_id: string;
+  generation: string;
+  decision?: string;
+  reason?: string;
+  arguments?: unknown;
+  spawn?: null | {
+    prompt: string;
+    name: string;
+    definition: string;
+    capabilities: null | string[];
+    tools: null | string[];
+    budgets: {
+      [k: string]: number;
+    };
+    report: string;
+    model: string;
+    provider: string;
+    effort: string;
+    mcp_tools?: unknown;
+    browser_attachments?: null | string[];
+  };
+  context?: string;
+  error?: string;
+}
+
+export interface HostAttentionParams {
+  after_id?: string;
+  limit: number;
+  max_bytes: number;
+}
+
+export interface HostAttentionResult {
+  items:
+    | null
+    | {
+        root_id: string;
+        title: string;
+        active_agents: string;
+        pending_permissions: string;
+        questions:
+          | null
+          | {
+              turn_id?: string;
+              root_id?: string;
+              agent_id?: string;
+              sender_agent_id?: string;
+              inbox_seq?: string;
+              inbox_kind?: string;
+              delivery?: string;
+              message_id?: string;
+              phase?: string;
+              status?: string;
+              terminal_cause?: string;
+              command_client_id?: string;
+              command_id?: string;
+              operation_id?: string;
+              trace_id?: string;
+              schedule_id?: number;
+              slot?: string;
+              error?: string;
+              model_call?: null | {
+                id: string;
+                logical_id: string;
+                number: number;
+                purpose: string;
+                usage_source: string;
+                cost_source: string;
+                tokens: string;
+                cost_micros: string;
+                elapsed_millis: string;
+                exhausted: boolean;
+              };
+              acknowledged_inbox?: string[];
+              subscription_id?: string;
+              key?: string;
+              version?: string;
+              expected_version?: string;
+              restored?: null | string[];
+              not_restored?:
+                | null
+                | {
+                    name: string;
+                    reason: string;
+                  }[];
+              attempt?: string;
+              budget_kind?: string;
+              amount?: string;
+              limit?: string;
+              used?: string;
+              reserved?: string;
+              capability_id?: string;
+              generation?: string;
+              permission_id?: string;
+              operation?: string;
+              canonical_path?: string;
+              request_digest?: string;
+              command?: string;
+              rule?: string;
+              rule_source?: string;
+              question_id?: string;
+              question?: string;
+              options?:
+                | null
+                | {
+                    label: string;
+                    description?: string;
+                    recommended?: boolean;
+                  }[];
+              multiple?: boolean;
+              questions?:
+                | null
+                | {
+                    question: string;
+                    options?:
+                      | null
+                      | {
+                          label: string;
+                          description?: string;
+                          recommended?: boolean;
+                        }[];
+                    multiple?: boolean;
+                  }[];
+              answer?: null | string[];
+              dismissed?: boolean;
+              answers?:
+                | null
+                | {
+                    answer?: null | string[];
+                    dismissed?: boolean;
+                  }[];
+            }[];
+        truncated: boolean;
+      }[];
+  next_after_id?: string;
+  has_more: boolean;
+  truncated: boolean;
+}
+
+export interface HostDirectoryParams {
+  path?: string;
+  after?: string;
+  prefix?: string;
+  show_hidden?: boolean;
+  limit: number;
+}
+
+export interface HostDirectoryPickParams {
+  start?: string;
+}
+
+export interface HostDirectoryPickResult {
+  path?: string;
+  cancelled: boolean;
+}
+
+export interface HostDirectoryResult {
+  path: string;
+  parent: string;
+  entries:
+    | null
+    | {
+        name: string;
+        path: string;
+      }[];
+  next_after?: string;
+  has_more: boolean;
+  truncated: boolean;
+}
+
+export type HostSkillCompletionParams = {
+  scope?: string;
+  cwd?: string;
+  definition?: string;
+  permission_mode?: string;
+  prefix: string;
+  limit: number;
+} & (
+  | {
+      cwd: string;
+      scope?: "";
+      [k: string]: unknown;
+    }
+  | {
+      cwd?: "";
+      scope: "global";
+      [k: string]: unknown;
+    }
+);
+
+export interface HostThemeResolveParams {
+  name?: string;
+  json?: string;
+}
+
+export interface IDParams {
+  id: string;
+}
+
+export interface InboxControlResult {
+  agent_id: string;
+  inbox_seq: string;
+  status: string;
+}
+
+export interface InboxRemoveParams {
+  id: string;
+  inbox_seq: string;
+}
+
+export interface InboxSteerParams {
+  id: string;
+  inbox_seq: string;
+  turn_id: string;
+}
+
+export interface InitializeParams {
+  protocol_major: number;
+  build_id: string;
+  client_kind: string;
+  client_id: string;
+  capabilities?: null | string[];
+}
+
+export interface InitializeResult {
+  execution_engines:
+    | null
+    | {
+        bridge_sha256?: string;
+        build?: string;
+        abi?: string;
+        profile?: string;
+        fidelity?: string;
+        guide_sha256?: string;
+        features?: null | string[];
+        default_limits?: {
+          [k: string]: number;
+        };
+        id: string;
+        language: string;
+        label: string;
+      }[];
+  default_execution_engine: string;
+  operations:
+    | null
+    | {
+        name: string;
+        surface: string;
+        execution: string;
+        permission: string;
+        sensitive?: boolean;
+      }[];
+  limits: {
+    frame_bytes: number;
+    connections: number;
+    in_flight_requests: number;
+    outbound_messages: number;
+    outbound_bytes: string;
+    root_subscriptions: number;
+    content_chunk_bytes: number;
+    upload_bytes: string;
+  };
+  negotiated_capabilities: null | string[];
+  protocol_minor: number;
+  runtime_id: string;
+  connection_id: string;
+  host_platform: string;
+  host_architecture: string;
+  network_endpoint?: string;
+  protocol_major: number;
+  build_id: string;
+  generation: string;
+  pid?: number;
+  started_at?: string;
+  capabilities: null | string[];
+}
+
+export type LSPListResult =
+  | null
+  | {
+      name: string;
+      root?: string;
+      state: string;
+      error?: string;
+    }[];
+
+export interface LifecycleEvent {
+  turn_id?: string;
+  root_id?: string;
+  agent_id?: string;
+  sender_agent_id?: string;
+  inbox_seq?: string;
+  inbox_kind?: string;
+  delivery?: string;
+  message_id?: string;
+  phase?: string;
+  status?: string;
+  terminal_cause?: string;
+  command_client_id?: string;
+  command_id?: string;
+  operation_id?: string;
+  trace_id?: string;
+  schedule_id?: number;
+  slot?: string;
+  error?: string;
+  model_call?: null | {
+    id: string;
+    logical_id: string;
+    number: number;
+    purpose: string;
+    usage_source: string;
+    cost_source: string;
+    tokens: string;
+    cost_micros: string;
+    elapsed_millis: string;
+    exhausted: boolean;
+  };
+  acknowledged_inbox?: string[];
+  subscription_id?: string;
+  key?: string;
+  version?: string;
+  expected_version?: string;
+  restored?: null | string[];
+  not_restored?:
+    | null
+    | {
+        name: string;
+        reason: string;
+      }[];
+  attempt?: string;
+  budget_kind?: string;
+  amount?: string;
+  limit?: string;
+  used?: string;
+  reserved?: string;
+  capability_id?: string;
+  generation?: string;
+  permission_id?: string;
+  operation?: string;
+  canonical_path?: string;
+  request_digest?: string;
+  command?: string;
+  rule?: string;
+  rule_source?: string;
+  question_id?: string;
+  question?: string;
+  options?:
+    | null
+    | {
+        label: string;
+        description?: string;
+        recommended?: boolean;
+      }[];
+  multiple?: boolean;
+  questions?:
+    | null
+    | {
+        question: string;
+        options?:
+          | null
+          | {
+              label: string;
+              description?: string;
+              recommended?: boolean;
+            }[];
+        multiple?: boolean;
+      }[];
+  answer?: null | string[];
+  dismissed?: boolean;
+  answers?:
+    | null
+    | {
+        answer?: null | string[];
+        dismissed?: boolean;
+      }[];
+}
+
+export interface ListParams {
+  limit?: number;
+}
+
+export interface MCPAttachParams {
+  servers: {
+    [k: string]: {
+      command?: null | string[];
+      env?: {
+        [k: string]: string;
+      };
+      cwd?: string;
+      url?: string;
+      headers?: {
+        [k: string]: string;
+      };
+      enabled?: null | boolean;
+      note?: string;
+      startup_timeout?: number;
+      tool_timeout?: number;
+      source?: string;
+      origin?: string;
+    };
+  };
+}
+
+export interface MCPBrandIconsParams {
+  keys: null | string[];
+}
+
+export interface MCPBrandIconsResult {
+  icons: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportApplyParams {
+  cwd?: string;
+  names: null | string[];
+}
+
+export interface MCPImportApplyResult {
+  imported: null | string[];
+  skipped?: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportCandidatesParams {
+  cwd?: string;
+}
+
+export interface MCPImportCandidatesResult {
+  candidates:
+    | null
+    | {
+        name: string;
+        source: string;
+        state: string;
+        note?: string;
+        brand_hint?: string;
+        brand_key?: string;
+      }[];
+  offered: boolean;
+  config_path: string;
+  errors?: {
+    [k: string]: string;
+  };
+}
+
+export interface MCPImportParams {
+  source: string;
+  enabled: boolean;
+}
+
+export interface MCPImportStatusResult {
+  claude: boolean;
+  codex: boolean;
+  project: boolean;
+  opencode: boolean;
+}
+
+export type MCPListResult =
+  | null
+  | {
+      name: string;
+      status: string;
+      note?: string;
+      error?: string;
+      tools?: number;
+      source?: string;
+    }[];
+
+export interface MCPRefreshResult {
+  added: null | string[];
+  existing: null | string[];
+  changed: null | string[];
+  servers:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+  blocked:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+  source_errors:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+}
+
+export interface MCPServerParams {
+  name: string;
+}
+
+export interface MailboxInspection {
+  id: string;
+  revision: string;
+  sender: string;
+  recipient: string;
+  kind: string;
+  delivery: string;
+  subject: string;
+  excerpt: string;
+  body: {
+    inline?: unknown;
+    text?: null | string;
+    binary?: string | null;
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type: string;
+    source: string;
+  };
+  evidence_handle?: string;
+  status: string;
+  available_at: string;
+  created_at: string;
+  delivered_at: string;
+  delivered_turn_id?: string;
+  done_at: string;
+}
+
+export interface MailboxPage {
+  revision: string;
+  items:
+    | null
+    | {
+        id: string;
+        revision: string;
+        sender: string;
+        recipient: string;
+        kind: string;
+        delivery: string;
+        subject: string;
+        excerpt: string;
+        body: {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+        evidence_handle?: string;
+        status: string;
+        available_at: string;
+        created_at: string;
+        delivered_at: string;
+        delivered_turn_id?: string;
+        done_at: string;
+      }[];
+  next_cursor?: null | {
+    root_id: string;
+    agent_id: string;
+    status: string;
+    revision: string;
+    offset: string;
+  };
+  has_more: boolean;
+}
+
+export interface MailboxPageParams {
+  root_id: string;
+  agent_id: string;
+  status?: string;
+  cursor?: null | {
+    root_id: string;
+    agent_id: string;
+    status: string;
+    revision: string;
+    offset: string;
+  };
+  limit: number;
+  max_bytes: number;
+}
+
+export interface MailboxReadParams {
+  root_id: string;
+  agent_id: string;
+  id: string;
+}
+
+export interface ModelParams {
+  effort?: string;
+  model: string;
+  provider?: string;
+  persist_default: boolean;
+}
+
+export interface ModelResult {
+  reload_pending?: boolean;
+  model: string;
+  provider: string;
+}
+
+export interface PathParams {
+  path: string;
+}
+
+export interface PathResult {
+  path: string;
+}
+
+export interface PermissionConfigureParams {
+  external_permissions: boolean;
+}
+
+export interface PermissionDecision {
+  command_id: string;
+  root_id: string;
+  permission_id: string;
+  allow: boolean;
+  reason?: string;
+  remember?: string;
+}
+
+export interface PermissionDecisionParams {
+  decision: {
+    command_id: string;
+    root_id: string;
+    permission_id: string;
+    allow: boolean;
+    reason?: string;
+    remember?: string;
+  };
+}
+
+export interface PermissionDecisionResult {
+  operation_id: string;
+  lease_id: string;
+}
+
+export interface PermissionRulesResult {
+  rules:
+    | null
+    | {
+        id: string;
+        root_id: string;
+        operation: string;
+        rule: string;
+        principal_id: string;
+        created_at: string;
+      }[];
+  global: null | string[];
+}
+
+export interface PingResult {
+  generation: string;
+  build_id: string;
+}
+
+export interface ProviderCatalogParams {
+  refresh?: boolean;
+  provider?: string;
+}
+
+export interface ProviderCatalogsResult {
+  models: {
+    [k: string]: {
+      name?: string;
+      id?: string;
+      providers: null | string[];
+      context?: number;
+      vision?: boolean;
+    };
+  };
+  providers: {
+    [k: string]: {
+      base_url: string;
+      available?: null | boolean;
+    };
+  };
+  catalogs: {
+    [k: string]: {
+      fetched_at: string;
+      base_url: string;
+      models:
+        | null
+        | {
+            pricing?: null | {
+              prompt: string;
+              completion: string;
+              input_cache_read?: string;
+            };
+            pricing_known?: boolean;
+            cache_read_price_known?: boolean;
+            id: string;
+            context_length?: number;
+            max_completion_tokens?: number;
+            reasoning_efforts?: null | string[];
+            in_price?: number;
+            out_price?: number;
+            cache_read_price?: number;
+            input_modalities?: null | string[];
+          }[];
+    };
+  };
+  errors?: {
+    [k: string]: string;
+  };
+}
+
+export interface ProviderConfiguration {
+  revision: string;
+  provider: string;
+  definition: {
+    name: string;
+    base_url: string;
+    api: string;
+  };
+  custom: boolean;
+  credential: {
+    mode: string;
+    configured: boolean;
+    environment_variable?: string;
+    credential_path?: string;
+    available?: null | boolean;
+  };
+  models:
+    | null
+    | {
+        alias: string;
+        id: string;
+        context?: number;
+        max_output?: number;
+      }[];
+  removal_blockers: null | string[];
+  discovery?: null | {
+    status: string;
+    message?: string;
+    model_count?: number;
+  };
+}
+
+export interface ProviderCreateParams {
+  revision: string;
+  provider: string;
+  definition: {
+    name: string;
+    base_url: string;
+    api: string;
+  };
+  credential: {
+    mode: string;
+    key?: string;
+    environment_variable?: string;
+  };
+  manual_model?: null | {
+    alias: string;
+    id: string;
+    context?: number;
+    max_output?: number;
+  };
+  allow_unverified?: boolean;
+}
+
+export interface ProviderDisconnectParams {
+  provider: string;
+  revision: string;
+}
+
+export interface ProviderKeySetup {
+  revision: string;
+  provider: string;
+  key?: string;
+  environment: boolean;
+}
+
+export interface ProviderList {
+  revision: string;
+  discovery_error?: string;
+  default_provider?: string;
+  providers:
+    | null
+    | {
+        id: string;
+        name: string;
+        custom: boolean;
+        methods: null | string[];
+        status: {
+          provider: string;
+          configured: boolean;
+          key_source: string;
+          available?: null | boolean;
+          disabled?: boolean;
+          environment_variable?: string;
+          credential_path?: string;
+          auth_method?: string;
+          auth_state?: string;
+          account_id?: string;
+          plan?: string;
+          email?: string;
+          team_name?: string;
+          project_id?: string;
+          project_name?: string;
+          machine_key_name?: string;
+          warnings: null | string[];
+        };
+        recommended?: boolean;
+        suggested_model?: string;
+        category?: string;
+        family?: string;
+        key_url?: string;
+      }[];
+  selection?: null | {
+    ready: boolean;
+    model: string;
+    provider: string;
+    reason: string;
+  };
+}
+
+export interface ProviderListParams {
+  model?: string;
+  provider?: string;
+}
+
+export interface ProviderLoginBeginParams {
+  provider?: string;
+}
+
+export interface ProviderLoginCreateParams {
+  flow_id: string;
+  name: string;
+}
+
+export interface ProviderLoginList {
+  flows:
+    | null
+    | {
+        flow_id: string;
+        provider?: string;
+        state: string;
+        verification_url?: string;
+        user_code?: string;
+        email?: string;
+        teams:
+          | null
+          | {
+              id: string;
+              name: string;
+            }[];
+        projects:
+          | null
+          | {
+              id: string;
+              name: string;
+            }[];
+        team_id?: string;
+        project_id?: string;
+        expires_at: string;
+        error?: string;
+      }[];
+}
+
+export interface ProviderLoginParams {
+  flow_id: string;
+}
+
+export interface ProviderLoginProjectParams {
+  flow_id: string;
+  project_id: string;
+}
+
+export interface ProviderLoginStatus {
+  flow_id: string;
+  provider?: string;
+  state: string;
+  verification_url?: string;
+  user_code?: string;
+  email?: string;
+  teams:
+    | null
+    | {
+        id: string;
+        name: string;
+      }[];
+  projects:
+    | null
+    | {
+        id: string;
+        name: string;
+      }[];
+  team_id?: string;
+  project_id?: string;
+  expires_at: string;
+  error?: string;
+}
+
+export interface ProviderLoginTeamParams {
+  flow_id: string;
+  team_id: string;
+}
+
+export interface ProviderNameParams {
+  provider: string;
+}
+
+export interface ProviderRemoveParams {
+  revision: string;
+  provider: string;
+}
+
+export interface ProviderRemoveResult {
+  revision: string;
+  warning?: string;
+}
+
+export interface ProviderStatus {
+  provider: string;
+  configured: boolean;
+  key_source: string;
+  available?: null | boolean;
+  disabled?: boolean;
+  environment_variable?: string;
+  credential_path?: string;
+  auth_method?: string;
+  auth_state?: string;
+  account_id?: string;
+  plan?: string;
+  email?: string;
+  team_name?: string;
+  project_id?: string;
+  project_name?: string;
+  machine_key_name?: string;
+  warnings: null | string[];
+}
+
+export interface ProviderUpdateParams {
+  revision: string;
+  provider: string;
+  name?: null | string;
+  base_url?: null | string;
+  credential?: null | {
+    mode: string;
+    key?: string;
+    environment_variable?: string;
+  };
+  manual_model?: null | {
+    alias: string;
+    id: string;
+    context?: number;
+    max_output?: number;
+  };
+  allow_unverified?: boolean;
+}
+
+export interface ProviderValidateParams {
+  name: string;
+  base_url: string;
+  key: string;
+}
+
+export interface ProviderValidateResult {
+  models:
+    | null
+    | {
+        id: string;
+        context_length?: number;
+        max_completion_tokens?: number;
+        reasoning_efforts?: null | string[];
+        pricing?: null | {
+          prompt: string;
+          completion: string;
+          input_cache_read?: string;
+        };
+        input_modalities?: null | string[];
+        output_modalities?: null | string[];
+        supports_tools?: null | boolean;
+        type?: string;
+      }[];
+}
+
+export interface QueryParams {
+  root_id?: string;
+  operation: string;
+  payload?: unknown;
+}
+
+export interface QueryResult {
+  result?: unknown;
+  content?: null | {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  root_id?: string;
+}
+
+export interface QuestionAnswerParams {
+  id: string;
+  answer: null | string[];
+  dismissed: boolean;
+  answers?:
+    | null
+    | {
+        answer?: null | string[];
+        dismissed?: boolean;
+      }[];
+}
+
+export interface RPCError {
+  data?: null | {
+    kind: string;
+  };
+  code: number;
+  message: string;
+}
+
+export interface ReplayParams {
+  root_id: string;
+  cursor: string;
+  limit?: number;
+}
+
+export interface ReplayResult {
+  events:
+    | null
+    | {
+        subscription_id?: string;
+        root_id: string;
+        seq: string;
+        kind: string;
+        payload?: unknown;
+      }[];
+  latest: string;
+  expired?: boolean;
+}
+
+export interface Resolved {
+  id: string;
+  name: string;
+  dark: boolean;
+  colors: {
+    background: string;
+    foreground: string;
+    muted: string;
+    faint: string;
+    primary: string;
+    on_primary: string;
+    accent: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
+    link: string;
+    emphasis: string;
+    border: string;
+    border_focus: string;
+    diff_add: string;
+    diff_del: string;
+    panel: string;
+    element: string;
+    hover: string;
+  };
+  syntax: {
+    keyword: string;
+    string: string;
+    number: string;
+    comment: string;
+    function: string;
+    type: string;
+    operator: string;
+    punctuation: string;
+  };
+  markdown: {
+    heading: string;
+    strong: string;
+    code: string;
+    quote: string;
+  };
+  code: {
+    foreground: string;
+    background: string;
+    tokens: {
+      [k: string]: {
+        color: string;
+        background: string;
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+      };
+    };
+  };
+  web?: null | {
+    navigation?: string;
+    quiet_border?: string;
+    code_background?: string;
+    inline_code_background?: string;
+  };
+}
+
+export interface RestartNotice {
+  generation: string;
+  cursors: {
+    [k: string]: string;
+  };
+}
+
+export interface RestartParams {
+  generation: string;
+}
+
+export interface RewindParams {
+  expected_revision: string | null;
+  cut: number;
+}
+
+export interface RewindResult {
+  cut: number;
+  restored_files: number;
+}
+
+export interface RootCollectionPage {
+  root_id: string;
+  collection: string;
+  revision: string;
+  event_cursor: string;
+  items:
+    | null
+    | ({
+        agent?: null | {
+          execution_engine: string;
+          last_turn?: null | {
+            turn_id?: string;
+            status: string;
+            started_at?: string;
+            finished_at?: string;
+            event_seq: string;
+            error?: string;
+            error_truncated?: boolean;
+            error_details?: null | {
+              inline?: unknown;
+              text?: null | string;
+              binary?: string | null;
+              reference_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              source: string;
+            };
+            model_calls?: number;
+            compactions?: number;
+            last_activity_at?: string;
+          };
+          id: string;
+          root_id: string;
+          parent_id: string;
+          name: string;
+          model: string;
+          provider: string;
+          effort: string;
+          cwd: string;
+          report: string;
+          status: string;
+          pending_mail: number;
+          lifecycle_phase: string;
+          blocking_reason: string;
+          terminal_cause: string;
+          allowed_controls: null | string[];
+        };
+        inbox?: null | {
+          delivery_seq?: string;
+          origin?: string;
+          command_client_id?: string;
+          command_id?: string;
+          steer_turn_id?: string;
+          preview?: null | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+            };
+            text: string;
+            truncated?: boolean;
+            attachments?:
+              | null
+              | {
+                  kind: string;
+                  name?: string;
+                  content: {
+                    inline?: unknown;
+                    text?: null | string;
+                    binary?: string | null;
+                    reference_id: string;
+                    digest: string;
+                    size: string;
+                    media_type: string;
+                    source: string;
+                  };
+                }[];
+            attachment_count?: number;
+          };
+          root_id: string;
+          agent_id: string;
+          seq: string;
+          kind: string;
+          status: string;
+          payload: {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        };
+        blackboard?: null | {
+          key: string;
+          version: string;
+          author_agent_id: string;
+          payload: {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        };
+        budget?: null | {
+          agent_id: string;
+          state: {
+            kind: string;
+            limit: string | null;
+            used: string;
+            reserved: string;
+            remaining: string | null;
+            uncertain: string;
+            incomplete: boolean;
+          };
+        };
+        capability?: null | {
+          id: string;
+          root_id: string;
+          agent_id: string;
+          issuer_agent_id: string;
+          operations: null | string[];
+          scopes: null | string[];
+          file_scope?: string;
+          file_issuer_id?: string;
+          file_issuer_generation?: string;
+          mcp:
+            | null
+            | {
+                server: string;
+                tool: string;
+                definition: string;
+              }[];
+          mcp_all: boolean;
+          browser?: null | {
+            provider_id: string;
+            provider_epoch: string;
+            tab_id: string;
+            tab_generation: string;
+            profile_id: string;
+            attachment_id?: string;
+            attachment_generation?: string;
+            rights: null | string[];
+            preview?: null | {
+              host_id: string;
+              host_identity: string;
+              connection_generation: string;
+              environment_id: string;
+              loopback: string;
+              ports: null | number[];
+            };
+          };
+          browser_issuer_id?: string;
+          browser_issuer_generation?: number;
+          browser_delegation_only?: boolean;
+          generation: string;
+          status: string;
+          expires_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        schedule?: null | {
+          id: number;
+          schedule: string;
+          prompt: string;
+          anchor: string;
+          last_fire: string;
+        };
+        permission?: null | {
+          id: string;
+          agent_id: string;
+          operation_id: string;
+          operation: string;
+          canonical_path: string;
+          request_digest: string;
+          capability_id: string;
+          capability_generation: string;
+          status: string;
+          command: string;
+          rule: string;
+        };
+        body?: null | {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      } & (
+        | {
+            agent: null | {
+              execution_engine: string;
+              last_turn?: null | {
+                turn_id?: string;
+                status: string;
+                started_at?: string;
+                finished_at?: string;
+                event_seq: string;
+                error?: string;
+                error_truncated?: boolean;
+                error_details?: null | {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+                model_calls?: number;
+                compactions?: number;
+                last_activity_at?: string;
+              };
+              id: string;
+              root_id: string;
+              parent_id: string;
+              name: string;
+              model: string;
+              provider: string;
+              effort: string;
+              cwd: string;
+              report: string;
+              status: string;
+              pending_mail: number;
+              lifecycle_phase: string;
+              blocking_reason: string;
+              terminal_cause: string;
+              allowed_controls: null | string[];
+            };
+          }
+        | {
+            inbox: null | {
+              delivery_seq?: string;
+              origin?: string;
+              command_client_id?: string;
+              command_id?: string;
+              steer_turn_id?: string;
+              preview?: null | {
+                design_context?: null | {
+                  context_attachment_id: string;
+                  screenshot_attachment_id?: string;
+                  elements:
+                    | null
+                    | {
+                        label: string;
+                        selector?: string;
+                      }[];
+                  element_count: number;
+                  page_url?: string;
+                  page_title?: string;
+                };
+                text: string;
+                truncated?: boolean;
+                attachments?:
+                  | null
+                  | {
+                      kind: string;
+                      name?: string;
+                      content: {
+                        inline?: unknown;
+                        text?: null | string;
+                        binary?: string | null;
+                        reference_id: string;
+                        digest: string;
+                        size: string;
+                        media_type: string;
+                        source: string;
+                      };
+                    }[];
+                attachment_count?: number;
+              };
+              root_id: string;
+              agent_id: string;
+              seq: string;
+              kind: string;
+              status: string;
+              payload: {
+                inline?: unknown;
+                text?: null | string;
+                binary?: string | null;
+                reference_id: string;
+                digest: string;
+                size: string;
+                media_type: string;
+                source: string;
+              };
+            };
+          }
+        | {
+            blackboard: null | {
+              key: string;
+              version: string;
+              author_agent_id: string;
+              payload: {
+                inline?: unknown;
+                text?: null | string;
+                binary?: string | null;
+                reference_id: string;
+                digest: string;
+                size: string;
+                media_type: string;
+                source: string;
+              };
+            };
+          }
+        | {
+            budget: null | {
+              agent_id: string;
+              state: {
+                kind: string;
+                limit: string | null;
+                used: string;
+                reserved: string;
+                remaining: string | null;
+                uncertain: string;
+                incomplete: boolean;
+              };
+            };
+          }
+        | {
+            capability: null | {
+              id: string;
+              root_id: string;
+              agent_id: string;
+              issuer_agent_id: string;
+              operations: null | string[];
+              scopes: null | string[];
+              file_scope?: string;
+              file_issuer_id?: string;
+              file_issuer_generation?: string;
+              mcp:
+                | null
+                | {
+                    server: string;
+                    tool: string;
+                    definition: string;
+                  }[];
+              mcp_all: boolean;
+              browser?: null | {
+                provider_id: string;
+                provider_epoch: string;
+                tab_id: string;
+                tab_generation: string;
+                profile_id: string;
+                attachment_id?: string;
+                attachment_generation?: string;
+                rights: null | string[];
+                preview?: null | {
+                  host_id: string;
+                  host_identity: string;
+                  connection_generation: string;
+                  environment_id: string;
+                  loopback: string;
+                  ports: null | number[];
+                };
+              };
+              browser_issuer_id?: string;
+              browser_issuer_generation?: number;
+              browser_delegation_only?: boolean;
+              generation: string;
+              status: string;
+              expires_at: string;
+              created_at: string;
+              updated_at: string;
+            };
+          }
+        | {
+            schedule: null | {
+              id: number;
+              schedule: string;
+              prompt: string;
+              anchor: string;
+              last_fire: string;
+            };
+          }
+        | {
+            permission: null | {
+              id: string;
+              agent_id: string;
+              operation_id: string;
+              operation: string;
+              canonical_path: string;
+              request_digest: string;
+              capability_id: string;
+              capability_generation: string;
+              status: string;
+              command: string;
+              rule: string;
+            };
+          }
+        | {
+            body: null | {
+              inline?: unknown;
+              text?: null | string;
+              binary?: string | null;
+              reference_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              source: string;
+            };
+          }
+      ))[];
+  next_cursor?: null | {
+    root_id: string;
+    collection: string;
+    revision: string;
+    offset: string;
+  };
+  has_more: boolean;
+}
+
+export interface RootCollectionParams {
+  root_id: string;
+  collection: string;
+  cursor?: null | {
+    root_id: string;
+    collection: string;
+    revision: string;
+    offset: string;
+  };
+  limit: number;
+  max_bytes: number;
+}
+
+export interface RootIDResult {
+  root_id: string;
+}
+
+export interface RootParams {
+  root_id: string;
+}
+
+export interface RootSnapshot {
+  collection_revision?: string;
+  active_turns: {
+    [k: string]: string;
+  };
+  omitted?: {
+    [k: string]: boolean;
+  };
+  message_seqs: null | number[];
+  first_message_seq?: number;
+  history_revision: string;
+  root_id: string;
+  cursor: string;
+  meta: {
+    execution_engine: string;
+    definition: string;
+    definition_revision: string;
+    id: string;
+    kind: string;
+    title: string;
+    model: string;
+    provider: string;
+    cwd: string;
+    goal: string;
+    forked_from: string;
+    fork_seq: number;
+    tags: null | string[];
+    archived: boolean;
+    pinned: boolean;
+    effort: string;
+    usage_in: number;
+    usage_cached: number;
+    usage_out: number;
+    updated_at: string;
+  };
+  messages:
+    | null
+    | {
+        presentation?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+            context_part_index: number;
+            screenshot_part_index?: null | number;
+          };
+          version: number;
+          turn_id?: string;
+          parts?:
+            | null
+            | {
+                id: string;
+                kind: string;
+                start?: number;
+                end?: number;
+                text?: string;
+                tool_name?: string;
+                status?: string;
+                call_id?: string;
+                hosts?:
+                  | null
+                  | {
+                      invocation_id: string;
+                      name: string;
+                      summary?: string;
+                      status: string;
+                      duration?: string;
+                      error?: string;
+                      display?: null | {
+                        target?: string;
+                        command?: string;
+                        query?: string;
+                        child_id?: string;
+                        label?: string;
+                      };
+                    }[];
+                omitted?: number;
+              }[];
+          omitted?: number;
+        };
+        role: string;
+        content:
+          | string
+          | {
+              type: string;
+              text?: string;
+              image_url?: null | {
+                url: string;
+              };
+              w?: number;
+              h?: number;
+            }[];
+        tool_calls?:
+          | null
+          | {
+              id: string;
+              type: string;
+              function: {
+                name: string;
+                arguments: string;
+              };
+              duration_ms?: number;
+              exit_code?: number;
+            }[];
+        tool_call_id?: string;
+        name?: string;
+        authored?: boolean;
+        sent_at?: null | string;
+        usage?: null | {
+          reported?: boolean;
+          cost?: null | number;
+          prompt_tokens: number;
+          completion_tokens: number;
+          prompt_tokens_details?: null | {
+            cached_tokens: number;
+          };
+          completion_tokens_details?: null | {
+            reasoning_tokens: number;
+          };
+        };
+        model?: string;
+        rewound_from?: string;
+        call_id?: string;
+      }[];
+  presentation:
+    | null
+    | {
+        seq: string;
+        kind: string;
+        payload: unknown;
+      }[];
+  agent_presentations: {
+    [k: string]:
+      | null
+      | {
+          seq: string;
+          kind: string;
+          payload: unknown;
+        }[];
+  };
+  agents:
+    | null
+    | {
+        execution_engine: string;
+        last_turn?: null | {
+          turn_id?: string;
+          status: string;
+          started_at?: string;
+          finished_at?: string;
+          event_seq: string;
+          error?: string;
+          error_truncated?: boolean;
+          error_details?: null | {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+          model_calls?: number;
+          compactions?: number;
+          last_activity_at?: string;
+        };
+        id: string;
+        root_id: string;
+        parent_id: string;
+        name: string;
+        model: string;
+        provider: string;
+        effort: string;
+        cwd: string;
+        report: string;
+        status: string;
+        pending_mail: number;
+        lifecycle_phase: string;
+        blocking_reason: string;
+        terminal_cause: string;
+        allowed_controls: null | string[];
+      }[];
+  inbox:
+    | null
+    | {
+        delivery_seq?: string;
+        origin?: string;
+        command_client_id?: string;
+        command_id?: string;
+        steer_turn_id?: string;
+        preview?: null | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
+          text: string;
+          truncated?: boolean;
+          attachments?:
+            | null
+            | {
+                kind: string;
+                name?: string;
+                content: {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              }[];
+          attachment_count?: number;
+        };
+        root_id: string;
+        agent_id: string;
+        seq: string;
+        kind: string;
+        status: string;
+        payload: {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      }[];
+  blackboard:
+    | null
+    | {
+        key: string;
+        version: string;
+        author_agent_id: string;
+        payload: {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      }[];
+  budgets:
+    | null
+    | {
+        agent_id: string;
+        state: {
+          kind: string;
+          limit: string | null;
+          used: string;
+          reserved: string;
+          remaining: string | null;
+          uncertain: string;
+          incomplete: boolean;
+        };
+      }[];
+  accounting?: {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
+  capabilities:
+    | null
+    | {
+        id: string;
+        root_id: string;
+        agent_id: string;
+        issuer_agent_id: string;
+        operations: null | string[];
+        scopes: null | string[];
+        file_scope?: string;
+        file_issuer_id?: string;
+        file_issuer_generation?: string;
+        mcp:
+          | null
+          | {
+              server: string;
+              tool: string;
+              definition: string;
+            }[];
+        mcp_all: boolean;
+        browser?: null | {
+          provider_id: string;
+          provider_epoch: string;
+          tab_id: string;
+          tab_generation: string;
+          profile_id: string;
+          attachment_id?: string;
+          attachment_generation?: string;
+          rights: null | string[];
+          preview?: null | {
+            host_id: string;
+            host_identity: string;
+            connection_generation: string;
+            environment_id: string;
+            loopback: string;
+            ports: null | number[];
+          };
+        };
+        browser_issuer_id?: string;
+        browser_issuer_generation?: number;
+        browser_delegation_only?: boolean;
+        generation: string;
+        status: string;
+        expires_at: string;
+        created_at: string;
+        updated_at: string;
+      }[];
+  schedules:
+    | null
+    | {
+        id: number;
+        schedule: string;
+        prompt: string;
+        anchor: string;
+        last_fire: string;
+      }[];
+  upcoming_schedules?:
+    | null
+    | {
+        id: number;
+        next_fire: string;
+        prompt: string;
+        prompt_truncated?: boolean;
+      }[];
+  upcoming_schedule_count?: null | number;
+  permissions:
+    | null
+    | {
+        id: string;
+        agent_id: string;
+        operation_id: string;
+        operation: string;
+        canonical_path: string;
+        request_digest: string;
+        capability_id: string;
+        capability_generation: string;
+        status: string;
+        command: string;
+        rule: string;
+      }[];
+  questions:
+    | null
+    | {
+        turn_id?: string;
+        root_id?: string;
+        agent_id?: string;
+        sender_agent_id?: string;
+        inbox_seq?: string;
+        inbox_kind?: string;
+        delivery?: string;
+        message_id?: string;
+        phase?: string;
+        status?: string;
+        terminal_cause?: string;
+        command_client_id?: string;
+        command_id?: string;
+        operation_id?: string;
+        trace_id?: string;
+        schedule_id?: number;
+        slot?: string;
+        error?: string;
+        model_call?: null | {
+          id: string;
+          logical_id: string;
+          number: number;
+          purpose: string;
+          usage_source: string;
+          cost_source: string;
+          tokens: string;
+          cost_micros: string;
+          elapsed_millis: string;
+          exhausted: boolean;
+        };
+        acknowledged_inbox?: string[];
+        subscription_id?: string;
+        key?: string;
+        version?: string;
+        expected_version?: string;
+        restored?: null | string[];
+        not_restored?:
+          | null
+          | {
+              name: string;
+              reason: string;
+            }[];
+        attempt?: string;
+        budget_kind?: string;
+        amount?: string;
+        limit?: string;
+        used?: string;
+        reserved?: string;
+        capability_id?: string;
+        generation?: string;
+        permission_id?: string;
+        operation?: string;
+        canonical_path?: string;
+        request_digest?: string;
+        command?: string;
+        rule?: string;
+        rule_source?: string;
+        question_id?: string;
+        question?: string;
+        options?:
+          | null
+          | {
+              label: string;
+              description?: string;
+              recommended?: boolean;
+            }[];
+        multiple?: boolean;
+        questions?:
+          | null
+          | {
+              question: string;
+              options?:
+                | null
+                | {
+                    label: string;
+                    description?: string;
+                    recommended?: boolean;
+                  }[];
+              multiple?: boolean;
+            }[];
+        answer?: null | string[];
+        dismissed?: boolean;
+        answers?:
+          | null
+          | {
+              answer?: null | string[];
+              dismissed?: boolean;
+            }[];
+      }[];
+  permission_mode?: string;
+}
+
+export interface RunConfigureParams {
+  system?: string;
+  max_turns?: number;
+  headless?: boolean;
+  cache_key?: string;
+}
+
+export interface RuntimeConfiguration {
+  default_execution_engine: string;
+  disabled_providers?: null | string[];
+  discovery?: null | {
+    status: string;
+    message?: string;
+    model_count?: number;
+  };
+  remote_hosts?:
+    | null
+    | {
+        id: string;
+        name: string;
+        url: string;
+        runtime_id: string;
+        connect_on_launch: boolean;
+      }[];
+  import_claude: boolean;
+  import_codex: boolean;
+  mcp_import_offered: boolean;
+  brand_icons: boolean;
+  revision: string;
+  default_model: string;
+  default_provider: string;
+  default_effort: string;
+  default_permission_mode?: string;
+  compact_model: string;
+  compact_provider: string;
+  compact_percent: number;
+  goal_max_rounds: number;
+  max_retries: number;
+}
+
+export interface ScheduleCreateParams {
+  schedule: string;
+  prompt: string;
+}
+
+export interface ScheduleDeleteParams {
+  schedule_id: number;
+}
+
+export type ScheduleListResult =
+  | null
+  | {
+      id: number;
+      schedule: string;
+      prompt: string;
+      anchor: string;
+      last_fire: string;
+    }[];
+
+export interface ScheduleResult {
+  schedule_id: number;
+}
+
+export interface SessionCatalogPage {
+  revision: string;
+  items:
+    | null
+    | {
+        id: string;
+        kind: string;
+        title: string;
+        model: string;
+        provider: string;
+        cwd: string;
+        workspace_id?: string;
+        pinned: boolean;
+        archived: boolean;
+        updated_at: string;
+        truncated: boolean;
+      }[];
+  next_cursor?: null | {
+    revision: string;
+    offset: string;
+    search?: string;
+    status: "active" | "archived" | "all";
+  };
+  has_more: boolean;
+}
+
+export interface SessionCatalogParams {
+  search?: string;
+  status?: "active" | "archived" | "all";
+  cursor?: null | {
+    revision: string;
+    offset: string;
+    search?: string;
+    status: "active" | "archived" | "all";
+  };
+  limit: number;
+  max_bytes: number;
+}
+
+export type SessionListResult =
+  | null
+  | {
+      execution_engine: string;
+      definition: string;
+      definition_revision: string;
+      id: string;
+      kind: string;
+      title: string;
+      model: string;
+      provider: string;
+      cwd: string;
+      goal: string;
+      forked_from: string;
+      fork_seq: number;
+      tags: null | string[];
+      archived: boolean;
+      pinned: boolean;
+      effort: string;
+      usage_in: number;
+      usage_cached: number;
+      usage_out: number;
+      updated_at: string;
+    }[];
+
+export interface SessionMetadata {
+  root_id: string;
+  title: string;
+  cwd: string;
+  history_revision: string;
+  archived: boolean;
+}
+
+export interface SessionPreviewResult {
+  root_id: string;
+  user: string;
+  assistant: string;
+}
+
+export interface SessionSummariesParams {
+  /**
+   * @maxItems 32
+   */
+  root_ids: string[];
+}
+
+export interface SessionSummariesResult {
+  /**
+   * @maxItems 32
+   */
+  items: {
+    root_id: string;
+    missing: boolean;
+    archived: boolean;
+    title: string;
+    cwd: string;
+    workspace_id?: string;
+    running_agents: string;
+    queued_agents: string;
+    pending_permissions: string;
+    pending_questions: string;
+    truncated: boolean;
+  }[];
+}
+
+export interface SessionUpdateEvent {
+  archived?: null | boolean;
+  title?: string;
+  model?: string;
+  provider?: string;
+  effort?: string;
+  effort_changed?: boolean;
+  working_directory?: string;
+  permission_mode?: null | string;
+}
+
+export interface ShellParams {
+  command: string;
+}
+
+export interface SnapshotParams {
+  root_id: string;
+}
+
+export interface SpanPage {
+  root_id: string;
+  spans:
+    | null
+    | {
+        id: string;
+        trace_id: string;
+        parent_id?: string;
+        root_id: string;
+        agent_id: string;
+        turn_id?: string;
+        kind: string;
+        name: string;
+        status: string;
+        start_ns: string;
+        end_ns: string;
+        attrs?: unknown;
+        links?: unknown;
+        updated_seq: string;
+      }[];
+  next_seq: string;
+  has_more: boolean;
+  server_time_ns: string;
+}
+
+export interface SpanRecord {
+  id: string;
+  trace_id: string;
+  parent_id?: string;
+  root_id: string;
+  agent_id: string;
+  turn_id?: string;
+  kind: string;
+  name: string;
+  status: string;
+  start_ns: string;
+  end_ns: string;
+  attrs?: unknown;
+  links?: unknown;
+  updated_seq: string;
+}
+
+export interface StreamEvent {
+  part_id?: string;
+  display?: null | {
+    target?: string;
+    command?: string;
+    query?: string;
+    child_id?: string;
+    label?: string;
+  };
+  accounting?: null | {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
+  usage?: null | {
+    used: number;
+    size: number;
+    usage: {
+      reported?: boolean;
+      cost?: null | number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      prompt_tokens_details?: null | {
+        cached_tokens: number;
+      };
+      completion_tokens_details?: null | {
+        reasoning_tokens: number;
+      };
+    };
+  };
+  agent_id?: string;
+  turn_id?: string;
+  invocation_id?: string;
+  operation_id?: string;
+  host_status?: string;
+  id?: string;
+  name?: string;
+  text?: string;
+  args?: string;
+  result?: string;
+}
+
+export interface SubmitPayload {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
+  text: string;
+  parts?:
+    | null
+    | {
+        type: string;
+        text?: string;
+        image_url?: null | {
+          url: string;
+        };
+        w?: number;
+        h?: number;
+      }[];
+  attachments?:
+    | null
+    | {
+        kind: "image" | "text";
+        content: {
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type?: string;
+          source?: string;
+        };
+        name?: string;
+      }[];
+}
+
+export interface SubscribeParams {
+  root_id: string;
+  subscription_id: string;
+  cursor: string;
+}
+
+export interface SubscribeResult {
+  subscription_id: string;
+  cursor: string;
+}
+
+export interface SubscriptionFailure {
+  subscription_id: string;
+  root_id: string;
+  error: null | {
+    data?: null | {
+      kind: string;
+    };
+    code: number;
+    message: string;
+  };
+}
+
+export interface TerminalAttachParams {
+  id: string;
+  cursor: string;
+}
+
+export interface TerminalAttachResult {
+  cursor: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+  exited: boolean;
+  exit_code?: number;
+  signal?: string;
+}
+
+export interface TerminalDetachedParams {
+  id: string;
+}
+
+export interface TerminalExitedParams {
+  id: string;
+  exit_code: number;
+  signal?: string;
+}
+
+export interface TerminalIDParams {
+  id: string;
+}
+
+export interface TerminalInputParams {
+  id: string;
+  bytes: string | null;
+}
+
+export interface TerminalOpenParams {
+  cwd?: string;
+  root_id?: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalOpenResult {
+  id: string;
+  shell: string;
+  cwd: string;
+}
+
+export interface TerminalOutputParams {
+  id: string;
+  cursor: string;
+  bytes: string | null;
+}
+
+export interface TerminalResizeParams {
+  id: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalWriteParams {
+  id: string;
+  bytes: string | null;
+}
+
+export interface TextParams {
+  text: string;
+}
+
+export interface TextResult {
+  text: string;
+  output?: unknown;
+}
+
+export interface TitleParams {
+  title: string;
+}
+
+export interface TitleResult {
+  title: string;
+}
+
+export interface ToolCallParams {
+  tool: string;
+  arguments: unknown;
+}
+
+export interface ToolCancelParams {
+  invocation_id: string;
+  generation: string;
+  reason: string;
+}
+
+export interface ToolConfigureParams {
+  deny_permissions: boolean;
+}
+
+export interface ToolInvokeParams {
+  invocation_id: string;
+  definition: string;
+  revision: string;
+  generation: string;
+  root_id: string;
+  agent_id: string;
+  turn_id: string;
+  tool: string;
+  input: unknown;
+  deadline_millis: string;
+}
+
+export interface ToolProgressParams {
+  invocation_id: string;
+  generation: string;
+  text: string;
+}
+
+export interface ToolResultParams {
+  invocation_id: string;
+  generation: string;
+  output?: unknown;
+  error?: string;
+}
+
+export type ToolSchemaResult =
+  | null
+  | {
+      type: string;
+      function: {
+        name: string;
+        description: string;
+        parameters: unknown;
+      };
+    }[];
+
+export interface TraceExportParams {
+  root_id: string;
+  trace_id?: string;
+}
+
+export interface TraceExportResult {
+  content: {
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type?: string;
+    source?: string;
+  };
+  spans: number;
+  traces: number;
+}
+
+export interface TracePageParams {
+  root_id: string;
+  trace_id?: string;
+  after_seq?: string;
+  limit?: number;
+  roots_only?: boolean;
+}
+
+export interface UnsubscribeParams {
+  subscription_id: string;
+}
+
+export interface UploadBeginParams {
+  upload_id: string;
+  root_id: string;
+  agent_id?: string;
+  expected_digest: string;
+  size: string;
+  media_type?: string;
+  source?: string;
+}
+
+export interface UploadChunkParams {
+  upload_id: string;
+  offset: string;
+  data: string | null;
+}
+
+export interface UploadFinishParams {
+  upload_id: string;
+}
+
+export type UserHistoryResult = null | string[];
+
+export interface ContractTypes {
+  Accepted: Accepted;
+  AgentCancelParams: AgentCancelParams;
+  AgentInputParams: AgentInputParams;
+  AgentListResult: AgentListResult;
+  AgentSubmitResult: AgentSubmitResult;
+  AgentTranscriptResult: AgentTranscriptResult;
+  ArchiveParams: ArchiveParams;
+  ArchiveResult: ArchiveResult;
+  BoundedTranscriptPage: BoundedTranscriptPage;
+  BrowserCommand: BrowserCommand;
+  BrowserCommandCancel: BrowserCommandCancel;
+  BrowserCommandResultParams: BrowserCommandResultParams;
+  BrowserDriverParams: BrowserDriverParams;
+  BrowserInventoryRequest: BrowserInventoryRequest;
+  BrowserInventoryResultParams: BrowserInventoryResultParams;
+  BrowserProviderBindParams: BrowserProviderBindParams;
+  BrowserProviderBindResult: BrowserProviderBindResult;
+  BrowserProviderEventParams: BrowserProviderEventParams;
+  BrowserProviderRevoked: BrowserProviderRevoked;
+  BrowserProviderUnbindParams: BrowserProviderUnbindParams;
+  BrowserStatusResult: BrowserStatusResult;
+  BudgetCapParams: BudgetCapParams;
+  BudgetState: BudgetState;
+  CancelParams: CancelParams;
+  CapabilityRecord: CapabilityRecord;
+  CatalogResult: CatalogResult;
+  CatalogRevision: CatalogRevision;
+  CheckpointParams: CheckpointParams;
+  ClearHistoryParams: ClearHistoryParams;
+  CommandParams: CommandParams;
+  CommandResult: CommandResult;
+  CommandStatusParams: CommandStatusParams;
+  CompactionListResult: CompactionListResult;
+  CompactionParams: CompactionParams;
+  CompactionResult: CompactionResult;
+  CompactionRetryResult: CompactionRetryResult;
+  CompactionSettingsResult: CompactionSettingsResult;
+  CompletionParams: CompletionParams;
+  CompletionResult: CompletionResult;
+  ComputerAppParams: ComputerAppParams;
+  ComputerStatusResult: ComputerStatusResult;
+  ConfigurationUpdate: ConfigurationUpdate;
+  ContentEventPayload: ContentEventPayload;
+  ContentHandle: ContentHandle;
+  ContentReadParams: ContentReadParams;
+  ContentReadResult: ContentReadResult;
+  ContextAuditResult: ContextAuditResult;
+  CreateSessionParams: CreateSessionParams;
+  DefinitionList: DefinitionList;
+  DefinitionParams: DefinitionParams;
+  DefinitionRecord: DefinitionRecord;
+  DefinitionRegisterParams: DefinitionRegisterParams;
+  DefinitionRegisterResult: DefinitionRegisterResult;
+  EffortParams: EffortParams;
+  EffortResult: EffortResult;
+  Empty: Empty;
+  EmptyParams: EmptyParams;
+  EventNotification: EventNotification;
+  ExecutorBindParams: ExecutorBindParams;
+  ExecutorBindResult: ExecutorBindResult;
+  ExecutorPendingParams: ExecutorPendingParams;
+  ExecutorPendingResult: ExecutorPendingResult;
+  ForkParams: ForkParams;
+  GatewayStatus: GatewayStatus;
+  GoalContextParams: GoalContextParams;
+  GoalResult: GoalResult;
+  HistoryPageParams: HistoryPageParams;
+  HookInvokeParams: HookInvokeParams;
+  HookResultParams: HookResultParams;
+  HostAttentionParams: HostAttentionParams;
+  HostAttentionResult: HostAttentionResult;
+  HostDirectoryParams: HostDirectoryParams;
+  HostDirectoryPickParams: HostDirectoryPickParams;
+  HostDirectoryPickResult: HostDirectoryPickResult;
+  HostDirectoryResult: HostDirectoryResult;
+  HostSkillCompletionParams: HostSkillCompletionParams;
+  HostThemeResolveParams: HostThemeResolveParams;
+  IDParams: IDParams;
+  InboxControlResult: InboxControlResult;
+  InboxRemoveParams: InboxRemoveParams;
+  InboxSteerParams: InboxSteerParams;
+  InitializeParams: InitializeParams;
+  InitializeResult: InitializeResult;
+  LSPListResult: LSPListResult;
+  LifecycleEvent: LifecycleEvent;
+  ListParams: ListParams;
+  MCPAttachParams: MCPAttachParams;
+  MCPBrandIconsParams: MCPBrandIconsParams;
+  MCPBrandIconsResult: MCPBrandIconsResult;
+  MCPImportApplyParams: MCPImportApplyParams;
+  MCPImportApplyResult: MCPImportApplyResult;
+  MCPImportCandidatesParams: MCPImportCandidatesParams;
+  MCPImportCandidatesResult: MCPImportCandidatesResult;
+  MCPImportParams: MCPImportParams;
+  MCPImportStatusResult: MCPImportStatusResult;
+  MCPListResult: MCPListResult;
+  MCPRefreshResult: MCPRefreshResult;
+  MCPServerParams: MCPServerParams;
+  MailboxInspection: MailboxInspection;
+  MailboxPage: MailboxPage;
+  MailboxPageParams: MailboxPageParams;
+  MailboxReadParams: MailboxReadParams;
+  ModelParams: ModelParams;
+  ModelResult: ModelResult;
+  PathParams: PathParams;
+  PathResult: PathResult;
+  PermissionConfigureParams: PermissionConfigureParams;
+  PermissionDecision: PermissionDecision;
+  PermissionDecisionParams: PermissionDecisionParams;
+  PermissionDecisionResult: PermissionDecisionResult;
+  PermissionRulesResult: PermissionRulesResult;
+  PingResult: PingResult;
+  ProviderCatalogParams: ProviderCatalogParams;
+  ProviderCatalogsResult: ProviderCatalogsResult;
+  ProviderConfiguration: ProviderConfiguration;
+  ProviderCreateParams: ProviderCreateParams;
+  ProviderDisconnectParams: ProviderDisconnectParams;
+  ProviderKeySetup: ProviderKeySetup;
+  ProviderList: ProviderList;
+  ProviderListParams: ProviderListParams;
+  ProviderLoginBeginParams: ProviderLoginBeginParams;
+  ProviderLoginCreateParams: ProviderLoginCreateParams;
+  ProviderLoginList: ProviderLoginList;
+  ProviderLoginParams: ProviderLoginParams;
+  ProviderLoginProjectParams: ProviderLoginProjectParams;
+  ProviderLoginStatus: ProviderLoginStatus;
+  ProviderLoginTeamParams: ProviderLoginTeamParams;
+  ProviderNameParams: ProviderNameParams;
+  ProviderRemoveParams: ProviderRemoveParams;
+  ProviderRemoveResult: ProviderRemoveResult;
+  ProviderStatus: ProviderStatus;
+  ProviderUpdateParams: ProviderUpdateParams;
+  ProviderValidateParams: ProviderValidateParams;
+  ProviderValidateResult: ProviderValidateResult;
+  QueryParams: QueryParams;
+  QueryResult: QueryResult;
+  QuestionAnswerParams: QuestionAnswerParams;
+  RPCError: RPCError;
+  ReplayParams: ReplayParams;
+  ReplayResult: ReplayResult;
+  Resolved: Resolved;
+  RestartNotice: RestartNotice;
+  RestartParams: RestartParams;
+  RewindParams: RewindParams;
+  RewindResult: RewindResult;
+  RootCollectionPage: RootCollectionPage;
+  RootCollectionParams: RootCollectionParams;
+  RootIDResult: RootIDResult;
+  RootParams: RootParams;
+  RootSnapshot: RootSnapshot;
+  RunConfigureParams: RunConfigureParams;
+  RuntimeConfiguration: RuntimeConfiguration;
+  ScheduleCreateParams: ScheduleCreateParams;
+  ScheduleDeleteParams: ScheduleDeleteParams;
+  ScheduleListResult: ScheduleListResult;
+  ScheduleResult: ScheduleResult;
+  SessionCatalogPage: SessionCatalogPage;
+  SessionCatalogParams: SessionCatalogParams;
+  SessionListResult: SessionListResult;
+  SessionMetadata: SessionMetadata;
+  SessionPreviewResult: SessionPreviewResult;
+  SessionSummariesParams: SessionSummariesParams;
+  SessionSummariesResult: SessionSummariesResult;
+  SessionUpdateEvent: SessionUpdateEvent;
+  ShellParams: ShellParams;
+  SnapshotParams: SnapshotParams;
+  SpanPage: SpanPage;
+  SpanRecord: SpanRecord;
+  StreamEvent: StreamEvent;
+  SubmitPayload: SubmitPayload;
+  SubscribeParams: SubscribeParams;
+  SubscribeResult: SubscribeResult;
+  SubscriptionFailure: SubscriptionFailure;
+  TerminalAttachParams: TerminalAttachParams;
+  TerminalAttachResult: TerminalAttachResult;
+  TerminalDetachedParams: TerminalDetachedParams;
+  TerminalExitedParams: TerminalExitedParams;
+  TerminalIDParams: TerminalIDParams;
+  TerminalInputParams: TerminalInputParams;
+  TerminalOpenParams: TerminalOpenParams;
+  TerminalOpenResult: TerminalOpenResult;
+  TerminalOutputParams: TerminalOutputParams;
+  TerminalResizeParams: TerminalResizeParams;
+  TerminalWriteParams: TerminalWriteParams;
+  TextParams: TextParams;
+  TextResult: TextResult;
+  TitleParams: TitleParams;
+  TitleResult: TitleResult;
+  ToolCallParams: ToolCallParams;
+  ToolCancelParams: ToolCancelParams;
+  ToolConfigureParams: ToolConfigureParams;
+  ToolInvokeParams: ToolInvokeParams;
+  ToolProgressParams: ToolProgressParams;
+  ToolResultParams: ToolResultParams;
+  ToolSchemaResult: ToolSchemaResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
+  UnsubscribeParams: UnsubscribeParams;
+  UploadBeginParams: UploadBeginParams;
+  UploadChunkParams: UploadChunkParams;
+  UploadFinishParams: UploadFinishParams;
+  UserHistoryResult: UserHistoryResult;
+}
+export interface EventPayloadTypes {
+  "agent.admitted": LifecycleEvent | ContentEventPayload;
+  "agent.prompt.queued": LifecycleEvent | ContentEventPayload;
+  "agent.subtree.deleted": LifecycleEvent | ContentEventPayload;
+  "agent.subtree.stopped": LifecycleEvent | ContentEventPayload;
+  "agent.turn.cancelled": LifecycleEvent | ContentEventPayload;
+  "agent.turn.failed": LifecycleEvent | ContentEventPayload;
+  "agent.turn.interrupted": LifecycleEvent | ContentEventPayload;
+  "agent.turn.started": LifecycleEvent | ContentEventPayload;
+  "agent.turn.succeeded": LifecycleEvent | ContentEventPayload;
+  "blackboard.append": LifecycleEvent | ContentEventPayload;
+  "blackboard.cas": LifecycleEvent | ContentEventPayload;
+  "blackboard.set": LifecycleEvent | ContentEventPayload;
+  "budget.active_child.reserved": LifecycleEvent | ContentEventPayload;
+  "budget.capped": LifecycleEvent | ContentEventPayload;
+  "capability.delegated": LifecycleEvent | ContentEventPayload;
+  "capability.revoked": LifecycleEvent | ContentEventPayload;
+  "command.cancelled": LifecycleEvent | ContentEventPayload;
+  "command.control.queued": LifecycleEvent | ContentEventPayload;
+  "command.failed": LifecycleEvent | ContentEventPayload;
+  "command.interrupted": LifecycleEvent | ContentEventPayload;
+  "command.queued": LifecycleEvent | ContentEventPayload;
+  "command.running": LifecycleEvent | ContentEventPayload;
+  "command.succeeded": LifecycleEvent | ContentEventPayload;
+  "command.waiting": LifecycleEvent | ContentEventPayload;
+  "goal.continued": LifecycleEvent | ContentEventPayload;
+  "inbox.consumed": LifecycleEvent | ContentEventPayload;
+  "inbox.failed": LifecycleEvent | ContentEventPayload;
+  "inbox.queued": LifecycleEvent | ContentEventPayload;
+  "inbox.removed": LifecycleEvent | ContentEventPayload;
+  "inbox.running": LifecycleEvent | ContentEventPayload;
+  "inbox.steering": LifecycleEvent | ContentEventPayload;
+  "message.deferred": LifecycleEvent | ContentEventPayload;
+  "message.delivered": LifecycleEvent | ContentEventPayload;
+  "message.done": LifecycleEvent | ContentEventPayload;
+  "message.queued": LifecycleEvent | ContentEventPayload;
+  "message.updated": LifecycleEvent | ContentEventPayload;
+  "model.call.corrected": LifecycleEvent | ContentEventPayload;
+  "model.call.interrupted": LifecycleEvent | ContentEventPayload;
+  "model.call.settled": LifecycleEvent | ContentEventPayload;
+  "model.call.started": LifecycleEvent | ContentEventPayload;
+  "permission.auto_approved": LifecycleEvent | ContentEventPayload;
+  "permission.pending": LifecycleEvent | ContentEventPayload;
+  "question.answered": LifecycleEvent | ContentEventPayload;
+  "question.closed": LifecycleEvent | ContentEventPayload;
+  "question.pending": LifecycleEvent | ContentEventPayload;
+  "root.failed": LifecycleEvent | ContentEventPayload;
+  "root.interrupted": LifecycleEvent | ContentEventPayload;
+  "root.stopped": LifecycleEvent | ContentEventPayload;
+  "schedule.fired": LifecycleEvent | ContentEventPayload;
+  "scratch.restored": LifecycleEvent | ContentEventPayload;
+  "session.archived.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.cwd.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.effort.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.model.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.permission_mode.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.reload.failed": LifecycleEvent | ContentEventPayload;
+  "session.title.updated": SessionUpdateEvent | ContentEventPayload;
+  "span.ended": SpanRecord | ContentEventPayload;
+  "span.started": SpanRecord | ContentEventPayload;
+  "state.private.append": LifecycleEvent | ContentEventPayload;
+  "state.private.cas": LifecycleEvent | ContentEventPayload;
+  "state.private.set": LifecycleEvent | ContentEventPayload;
+  "stream.accounting": StreamEvent | ContentEventPayload;
+  "stream.cell.host": StreamEvent | ContentEventPayload;
+  "stream.cell.host.started": StreamEvent | ContentEventPayload;
+  "stream.discard": StreamEvent | ContentEventPayload;
+  "stream.hook.decision": StreamEvent | ContentEventPayload;
+  "stream.notice": StreamEvent | ContentEventPayload;
+  "stream.reasoning": StreamEvent | ContentEventPayload;
+  "stream.terminal.awaiting": StreamEvent | ContentEventPayload;
+  "stream.terminal.completed": StreamEvent | ContentEventPayload;
+  "stream.terminal.output": StreamEvent | ContentEventPayload;
+  "stream.terminal.started": StreamEvent | ContentEventPayload;
+  "stream.text": StreamEvent | ContentEventPayload;
+  "stream.tool.call": StreamEvent | ContentEventPayload;
+  "stream.tool.completed": StreamEvent | ContentEventPayload;
+  "stream.tool.output": StreamEvent | ContentEventPayload;
+  "stream.tool.progress": StreamEvent | ContentEventPayload;
+  "stream.tool.started": StreamEvent | ContentEventPayload;
+  "stream.usage": StreamEvent | ContentEventPayload;
+  "subscription.cancelled": LifecycleEvent | ContentEventPayload;
+  "subscription.created": LifecycleEvent | ContentEventPayload;
+  "turn.cancelled": LifecycleEvent | ContentEventPayload;
+  "turn.failed": LifecycleEvent | ContentEventPayload;
+  "turn.interrupted": LifecycleEvent | ContentEventPayload;
+  "turn.started": LifecycleEvent | ContentEventPayload;
+  "turn.succeeded": LifecycleEvent | ContentEventPayload;
+}
+export interface RpcMethods {
+  "browser.command.result": { params: BrowserCommandResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.inventory.result": { params: BrowserInventoryResultParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.event": { params: BrowserProviderEventParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: Accepted; execution: "ephemeral"; permission: "browser-provider"; sensitive: false };
+  "command.status": { params: CommandStatusParams; result: CommandResult; execution: "query"; permission: "client-command-namespace"; sensitive: false };
+  "command.submit": { params: CommandParams; result: CommandResult; execution: "command"; permission: "operation-specific"; sensitive: false };
+  "config.get": { params: Empty; result: RuntimeConfiguration; execution: "query"; permission: "none"; sensitive: false };
+  "config.update": { params: ConfigurationUpdate; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
+  "content.read": { params: ContentReadParams; result: ContentReadResult; execution: "query"; permission: "root-agent-content-grant"; sensitive: false };
+  "daemon.ping": { params: Empty; result: PingResult; execution: "query"; permission: "none"; sensitive: false };
+  "daemon.restart": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
+  "daemon.stop": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
+  "definitions.get": { params: DefinitionParams; result: DefinitionRecord; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "definitions.list": { params: Empty; result: DefinitionList; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "definitions.register": { params: DefinitionRegisterParams; result: DefinitionRegisterResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
+  "events.replay": { params: ReplayParams; result: ReplayResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
+  "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
+  "executor.bind": { params: ExecutorBindParams; result: ExecutorBindResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
+  "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult; execution: "query"; permission: "executor-lease"; sensitive: false };
+  "gateway.status": { params: Empty; result: GatewayStatus; execution: "query"; permission: "none"; sensitive: false };
+  "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "hook.result": { params: HookResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.skills.complete": { params: HostSkillCompletionParams; result: CompletionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.themes.list": { params: EmptyParams; result: CatalogResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.themes.resolve": { params: HostThemeResolveParams; result: Resolved; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
+  "mailbox.list": { params: MailboxPageParams; result: MailboxPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mcp.brand.icons": { params: MCPBrandIconsParams; result: MCPBrandIconsResult; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.apply": { params: MCPImportApplyParams; result: MCPImportApplyResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
+  "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
+  "provider.create": { params: ProviderCreateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
+  "provider.disconnect": { params: ProviderDisconnectParams; result: ProviderStatus; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
+  "provider.discover": { params: ProviderListParams; result: ProviderList; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.get": { params: ProviderNameParams; result: ProviderConfiguration; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
+  "provider.key.set": { params: ProviderKeySetup; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
+  "provider.list": { params: ProviderListParams; result: ProviderList; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.login.begin": { params: ProviderLoginBeginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.cancel": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.list": { params: Empty; result: ProviderLoginList; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.login.project.create": { params: ProviderLoginCreateParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.project.select": { params: ProviderLoginProjectParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.status": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "query"; permission: "none"; sensitive: false };
+  "provider.login.team.select": { params: ProviderLoginTeamParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.logout": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
+  "provider.status": { params: ProviderNameParams; result: ProviderStatus; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.update": { params: ProviderUpdateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
+  "provider.validate": { params: ProviderValidateParams; result: ProviderValidateResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
+  "query": { params: QueryParams; result: QueryResult; execution: "query"; permission: "operation-specific"; sensitive: false };
+  "root.collection": { params: RootCollectionParams; result: RootCollectionPage; execution: "query"; permission: "root-association"; sensitive: false };
+  "root.snapshot": { params: SnapshotParams; result: RootSnapshot; execution: "query"; permission: "root-association"; sensitive: false };
+  "sessions.get": { params: RootParams; result: SessionMetadata; execution: "query"; permission: "root-association"; sensitive: false };
+  "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "sessions.summaries": { params: SessionSummariesParams; result: SessionSummariesResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "terminal.attach": { params: TerminalAttachParams; result: TerminalAttachResult; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.close": { params: TerminalIDParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.open": { params: TerminalOpenParams; result: TerminalOpenResult; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.resize": { params: TerminalResizeParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: false };
+  "terminal.write": { params: TerminalWriteParams; result: Accepted; execution: "ephemeral"; permission: "host-terminal"; sensitive: true };
+  "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "trace.page": { params: TracePageParams; result: SpanPage; execution: "query"; permission: "root-association"; sensitive: false };
+  "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
+  "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
+  "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
+  "workspace.complete": { params: CompletionParams; result: CompletionResult; execution: "query"; permission: "root-agent-association"; sensitive: false };
+}
+export interface RuntimeOperations {
+  "agent.control": { params: IDParams; result: Empty; execution: "command"; permission: "agent-authority"; sensitive: false };
+  "agent.delete": { params: IDParams; result: Empty; execution: "command"; permission: "agent-authority"; sensitive: false };
+  "agent.submit": { params: AgentInputParams; result: AgentSubmitResult; execution: "command"; permission: "agent-admission"; sensitive: false };
+  "agent.transcript": { params: IDParams; result: AgentTranscriptResult; execution: "query"; permission: "human-transcript-inspection"; sensitive: false };
+  "agent.turn.cancel": { params: AgentCancelParams; result: Empty; execution: "command"; permission: "target-turn"; sensitive: false };
+  "agents.list": { params: EmptyParams; result: AgentListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "browser.set_driver": { params: BrowserDriverParams; result: BrowserStatusResult; execution: "command"; permission: "host-configuration"; sensitive: false };
+  "browser.status": { params: EmptyParams; result: BrowserStatusResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "budget.cap": { params: BudgetCapParams; result: BudgetState; execution: "command"; permission: "budget-authority"; sensitive: false };
+  "cancel": { params: CancelParams; result: Empty; execution: "command"; permission: "target-turn"; sensitive: false };
+  "capability.revoke": { params: IDParams; result: CapabilityRecord; execution: "command"; permission: "capability-authority"; sensitive: false };
+  "compaction.configure": { params: CompactionParams; result: CompactionSettingsResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "computer.allow": { params: ComputerAppParams; result: ComputerStatusResult; execution: "command"; permission: "human-computer-policy"; sensitive: false };
+  "computer.deny": { params: ComputerAppParams; result: ComputerStatusResult; execution: "command"; permission: "human-computer-policy"; sensitive: false };
+  "computer.status": { params: EmptyParams; result: ComputerStatusResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "context.audit": { params: EmptyParams; result: ContextAuditResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "daemon.checkpoint": { params: CheckpointParams; result: RestartNotice; execution: "command"; permission: "host-runtime"; sensitive: false };
+  "goal.from-context": { params: GoalContextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "goal.run": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "goal.set": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "history.clear": { params: ClearHistoryParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.compact": { params: EmptyParams; result: CompactionResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.compact.log": { params: EmptyParams; result: CompactionListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "history.compact.retry": { params: EmptyParams; result: CompactionRetryResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.rewind": { params: RewindParams; result: RewindResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.user.list": { params: EmptyParams; result: UserHistoryResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "inbox.remove": { params: InboxRemoveParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "inbox.steer": { params: InboxSteerParams; result: InboxControlResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "lsp.status": { params: EmptyParams; result: LSPListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "mcp.attach": { params: MCPAttachParams; result: Empty; execution: "ephemeral"; permission: "delegated-mcp-authority"; sensitive: true };
+  "mcp.disable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.enable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.import.configure": { params: MCPImportParams; result: MCPImportStatusResult; execution: "command"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.status": { params: EmptyParams; result: MCPImportStatusResult; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "mcp.reconnect": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.refresh": { params: EmptyParams; result: MCPRefreshResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "mcp.status": { params: EmptyParams; result: MCPListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "permission.forget": { params: IDParams; result: Empty; execution: "command"; permission: "rule-authority"; sensitive: false };
+  "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "trusted-client-mode"; sensitive: false };
+  "permission.rules": { params: EmptyParams; result: PermissionRulesResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "provider.catalogs": { params: ProviderCatalogParams; result: ProviderCatalogsResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "question.answer": { params: QuestionAnswerParams; result: Empty; execution: "command"; permission: "pending-question"; sensitive: false };
+  "run.configure": { params: RunConfigureParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
+  "schedule.create": { params: ScheduleCreateParams; result: ScheduleResult; execution: "command"; permission: "schedule-budget"; sensitive: false };
+  "schedule.delete": { params: ScheduleDeleteParams; result: ScheduleResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "schedule.list": { params: EmptyParams; result: ScheduleListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.archive": { params: ArchiveParams; result: ArchiveResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.autotitle": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.create": { params: CreateSessionParams; result: RootIDResult; execution: "command"; permission: "host-runtime"; sensitive: false };
+  "session.delete": { params: RootParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.effort": { params: EffortParams; result: EffortResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.effort.get": { params: EmptyParams; result: EffortResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.fork": { params: ForkParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.list": { params: ListParams; result: SessionListResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "session.model": { params: ModelParams; result: ModelResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.model.get": { params: EmptyParams; result: ModelResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.open": { params: IDParams; result: RootIDResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.preview": { params: IDParams; result: SessionPreviewResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.reload": { params: EmptyParams; result: ModelResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.rename": { params: TitleParams; result: TitleResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "shell.run": { params: ShellParams; result: TextResult; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "steer": { params: SubmitPayload; result: TextResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "submit": { params: SubmitPayload; result: TextResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "terminal.input": { params: TerminalInputParams; result: Empty; execution: "ephemeral"; permission: "active-terminal"; sensitive: true };
+  "tool.call": { params: ToolCallParams; result: TextResult; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "tool.configure": { params: ToolConfigureParams; result: Empty; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "tool.schema": { params: EmptyParams; result: ToolSchemaResult; execution: "query"; permission: "tool-authority"; sensitive: false };
+  "workspace.inspect": { params: EmptyParams; result: PathResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "workspace.set": { params: PathParams; result: PathResult; execution: "command"; permission: "workspace-authority"; sensitive: false };
+}
+
+export type RpcMethod = keyof RpcMethods;
+export type RuntimeOperation = keyof RuntimeOperations;
+export type RuntimeOperationOf<E extends RuntimeOperations[RuntimeOperation]['execution']> = {
+  [K in RuntimeOperation]: RuntimeOperations[K]['execution'] extends E ? K : never
+}[RuntimeOperation];
+export type QueryOperation = RuntimeOperationOf<'query'>;
+export type CommandOperation = RuntimeOperationOf<'command'>;
+export type EphemeralOperation = RuntimeOperationOf<'ephemeral'>;
+export interface OperationMetadata {
+  readonly name: string;
+  readonly surface: 'rpc' | 'runtime';
+  readonly execution: 'query' | 'command' | 'ephemeral' | 'subscription' | 'lifecycle';
+  readonly permission: string;
+  readonly sensitive: boolean;
+  readonly params_type: keyof ContractTypes;
+  readonly result_type: keyof ContractTypes;
+}
+export declare const rpcOperations: Readonly<{ [K in RpcMethod]: OperationMetadata & { readonly name: K; readonly execution: RpcMethods[K]['execution']; readonly permission: RpcMethods[K]['permission']; readonly sensitive: RpcMethods[K]['sensitive'] } }>;
+export declare const runtimeOperations: Readonly<{ [K in RuntimeOperation]: OperationMetadata & { readonly name: K; readonly execution: RuntimeOperations[K]['execution']; readonly permission: RuntimeOperations[K]['permission']; readonly sensitive: RuntimeOperations[K]['sensitive'] } }>;
+export type RootEventEnvelope = Omit<EventNotification['event'], 'kind' | 'payload'>;
+export type TypedRootEvent = { [K in keyof EventPayloadTypes]: RootEventEnvelope & { unknown?: false; kind: K; payload: EventPayloadTypes[K] } }[keyof EventPayloadTypes];
+export type UnknownRootEvent = RootEventEnvelope & { unknown: true; kind: string; payload: unknown };
+export type RootEvent = TypedRootEvent | UnknownRootEvent;
+export type TypedEventNotification = { event: RootEvent };
+export type ValidationMode = 'request' | 'response';
+export declare function validate<T extends keyof ContractTypes>(type: T, value: unknown, mode?: ValidationMode): value is ContractTypes[T];
+export declare function assertValid<T extends keyof ContractTypes>(type: T, value: unknown, mode?: ValidationMode): asserts value is ContractTypes[T];
+export declare const manifest: {
+  major: number; minor: number;
+  operations: readonly (Omit<OperationMetadata, 'sensitive'> & { readonly sensitive?: boolean })[];
+  events: Readonly<Record<string, keyof ContractTypes>>;
+  event_payloads: Readonly<Record<string, keyof ContractTypes>>;
+};

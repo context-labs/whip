@@ -1,0 +1,173 @@
+# Web workflow inventory
+
+Protocol v3 registry coverage, 2026-09-06. This inventory distinguishes implemented product surfaces from transport machinery, script-only operations, and explicit deferrals. A row marked **Web** identifies a concrete UI path; it does not claim that every path has already passed release-browser acceptance.
+
+The operation list is checked against the generated manifest by `packages/app/test/workflow-inventory.test.ts`. Runtime behavior continues to use generated metadata rather than this document.
+
+## Contract operations
+
+| Registry operation | Status | Surface and behavior |
+| --- | --- | --- |
+| `rpc:browser.command.result` | Internal | Native Browser provider SDK returns exact-command results and scoped screenshot references; unavailable in web-only clients. |
+| `rpc:browser.provider.bind` | Web | Desktop advertises inert zero-tab availability for an exact visible conversation/host/window/pane; Browser access explicitly offers a human tab. Availability is not control or preview-network authority. |
+| `rpc:browser.inventory.result` | Internal | Bounded on-demand native metadata response, fenced by request, holder, root, epoch and requested tab generations; never dispatched as a page-control command. |
+| `rpc:browser.provider.event` | Internal | Selected native provider observations, fenced by root, holder, epoch and attachment identity; no page authority inferred from events. |
+| `rpc:browser.provider.unbind` | Web | Explicit release in desktop Browser access settings removes only the current exact-holder/epoch association and leaves human tabs open. |
+| `rpc:command.status` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
+| `rpc:command.submit` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
+| `rpc:config.get` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
+| `rpc:config.update` | Web | Host settings and inspector compaction defaults use captured configuration revisions. |
+| `rpc:mcp.import.candidates` | Web | New session offer and Settings → Configuration → Servers from other agents: the MCP servers other agents configured on the host, read from files only. |
+| `rpc:mcp.import.apply` | Web | Import or Skip on that screen: writes the chosen servers into the host's native mcp block and records the answer. |
+| `rpc:mcp.brand.icons` | Web | Logos on that screen for servers the bundled marks do not cover: the daemon asks DuckDuckGo by registrable domain, caches per host, and returns data URIs; off with `brandIcons: false`. |
+| `rpc:content.read` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
+| `rpc:daemon.ping` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:daemon.restart` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
+| `rpc:daemon.stop` | Deferred | Process ownership remains CLI/future Electron shell. The web application attaches and detaches. |
+| `rpc:definitions.get` | Web | Settings › Agents & execution opens a built-in or registered definition into the agent editor (`settings/agents.tsx`); the coding definition also supplies the module and capability catalog. |
+| `rpc:definitions.list` | Web | Settings lists the host's definitions and the welcome page's Agent picker offers them for a new session (`definitions.ts`). Hidden on hosts that do not advertise it. |
+| `rpc:definitions.register` | Web | The agent editor registers data-only definitions (persona, rules, discovery, modules, capabilities, surface) built with the SDK's defineAgent; registering an existing id adds a revision. Tools and hooks stay SDK-only because their handlers are code. |
+| `rpc:events.replay` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:events.subscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:events.unsubscribe` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:executor.bind` | SDK-only | Headless custom-tool execution through client.agents.serve; claims a connection lease for a registered definition revision and tool set. The desktop renderer does not serve tools. |
+| `rpc:executor.pending` | SDK-only | Headless executor recovery through client.agents.serve after reconnect; drains pending invocations for its current lease generation. No desktop action. |
+| `rpc:gateway.status` | Internal | Local/headless CLI discovery of the daemon-owned gateway state, ready endpoint and failure separately from daemon health. Foreground gateways do not overwrite managed status; this query neither starts a process nor adds a web UI action. |
+| `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
+| `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
+| `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
+| `rpc:host.directory.pick` | Web | Welcome native OS folder picker; falls back to the web directory browser where the host has no desktop picker. |
+| `rpc:host.skills.complete` | Web | Read-only New Chat slash skill suggestions for the selected host and agent definition before a session exists: negotiated global-only discovery without a folder, or the selected project's initial scope plus globals. |
+| `rpc:host.themes.list` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
+| `rpc:host.themes.resolve` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
+| `rpc:initialize` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:mailbox.list` | Web | Inspector → Mail & shared state → Agent mailbox; revision-bound pages and explicit body/evidence reads. |
+| `rpc:mailbox.read` | Web | Inspector → Mail & shared state → Agent mailbox; revision-bound pages and explicit body/evidence reads. |
+| `rpc:operation.invoke` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
+| `rpc:permission.decide` | Web | Shared request tray; competing answers resolve on the host. No signing or connection authentication. |
+| `rpc:provider.key.rotate` | Web | Provider settings: rotate an existing Inference machine key on the execution host; refresh status after uncertainty without replaying the action. |
+| `rpc:provider.key.set` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.begin` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.cancel` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.list` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.project.create` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.project.select` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.status` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.login.team.select` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.logout` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.list` | Web | Host-owned connection inventory, credential source, readiness, default route and configuration revision; no model fetch or secret-command execution. |
+| `rpc:provider.discover` | Web | Setup-open and explicit Refresh persist missing host key references; return redacted inventory/source metadata, preserve edits and opt-outs, and never fetch models. |
+| `rpc:provider.get` | SDK-only | Redacted provider editor metadata and removal blockers. The TUI consumes this today; a web custom-provider form is deferred. |
+| `rpc:provider.create` | SDK-only | Revision-checked custom endpoint, credential and optional manual-model creation in host configuration files. Sensitive ephemeral operation, never automatically replayed. |
+| `rpc:provider.update` | SDK-only | Revision-checked provider metadata/credential/manual-model patches. Shared with the TUI; the web endpoint editor is deferred. |
+| `rpc:provider.remove` | SDK-only | Remove an unused custom definition while preserving referenced routes and historical sessions; the TUI exposes connection management. |
+| `rpc:provider.disconnect` | Web | Revision-checked removal of WHIP-owned credentials and durable disabling; keeps model aliases/defaults and external credentials intact. |
+| `rpc:provider.status` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.validate` | Web | Provider settings: validate an entered key without saving it. The normal key-setup service already validates before saving, avoiding duplicate requests. |
+| `rpc:query` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |
+| `rpc:root.collection` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
+| `rpc:root.snapshot` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:sessions.list` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
+| `rpc:sessions.get` | Web | Exact bounded title, working directory, history revision and archive state for conversation row actions without hydrating transcripts. |
+| `rpc:sessions.summaries` | Web | One bounded query supplies title, project, descendant activity and human-attention counts for open session tabs without opening roots. |
+| `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
+| `rpc:terminal.attach` | Web | Terminal tab mount and reconnect: makes this connection the shell's live receiver and replays retained output from the view's last cursor. |
+| `rpc:terminal.close` | Web | Closing a terminal tab ends its shell; unmount, reload and disconnect never send this. |
+| `rpc:terminal.open` | Web | New terminal from a pane menu, session tab menu, palette or shortcut: starts a login shell on the execution host in the chosen directory. |
+| `rpc:terminal.resize` | Web | Debounced after the fit addon resizes the terminal to its pane. |
+| `rpc:terminal.write` | Web | Keystrokes from the terminal view, base64 on the wire. |
+| `rpc:tool.progress` | SDK-only | Headless executor handlers publish progress with their invocation id and lease generation. The desktop observes resulting stream events rather than sending this RPC. |
+| `rpc:tool.result` | SDK-only | Headless executor handlers settle custom-tool invocations with output or error for their lease generation. The desktop observes recorded outcomes rather than sending this RPC. |
+| `rpc:hook.result` | SDK-only | Headless executor hook handlers answer before_tool, before_spawn, and turn_start invocations for their lease generation; an empty reply allows unchanged. The desktop observes stream.hook.decision events rather than sending this RPC. |
+| `rpc:trace.export` | SDK-only | `whip sessions export` builds the OTLP/JSON document for a session (or one trace) and reads it back through a root-scoped content reference. The SDK has no helper and the desktop trace view has no export action yet. |
+| `rpc:trace.page` | Web | Session trace view (`?view=trace`) pages the `spans` table by `updated_seq` and merges `span.started`/`span.ended` events on top (`packages/sdk/src/trace.ts`, `packages/app/src/trace-view.tsx`). |
+| `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
+| `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
+| `rpc:upload.finish` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
+| `rpc:workspace.complete` | Web | Welcome host directory picker and composer host completions. |
+| `runtime:agent.control` | Web | Inspector agent tree exposes only daemon-advertised stop/delete controls. |
+| `runtime:agent.delete` | Web | Inspector agent tree exposes only daemon-advertised stop/delete controls. |
+| `runtime:agent.submit` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
+| `runtime:agent.transcript` | Internal | Web uses bounded SDK root snapshots/collections and history pages instead of unbounded convenience queries. |
+| `runtime:agent.turn.cancel` | Web | Conversation and inspector target the captured active turn, including children. |
+| `runtime:agents.list` | Internal | Web uses bounded SDK root snapshots/collections and history pages instead of unbounded convenience queries. |
+| `runtime:browser.set_driver` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:browser.status` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:budget.cap` | Web | Inspector → Usage & authority: exact decimal counters and advertised budget controls/revocation. |
+| `runtime:cancel` | Web | Conversation and inspector target the captured active turn, including children. |
+| `runtime:capability.revoke` | Web | Inspector → Usage & authority: exact decimal counters and advertised budget controls/revocation. |
+| `runtime:compaction.configure` | Internal | Web edits the same host compaction defaults using config.update revision checks, then explicitly reloads the idle session. |
+| `runtime:computer.allow` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:computer.deny` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:computer.status` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:context.audit` | Web | Inspector → Context & model → Applied context/workspace; paths and context describe the execution host. |
+| `runtime:daemon.checkpoint` | Internal | Execution-host persistence control, available to SDK/CLI; not a product action. |
+| `runtime:goal.from-context` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
+| `runtime:goal.run` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
+| `runtime:goal.set` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
+| `runtime:history.clear` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:history.compact` | Web | Inspector → Context & model → Compaction: compact, inspect retained summaries, undo latest compaction. |
+| `runtime:history.compact.log` | Web | Inspector → Context & model → Compaction: compact, inspect retained summaries, undo latest compaction. |
+| `runtime:history.compact.retry` | Web | Inspector → Context & model → Compaction: compact, inspect retained summaries, undo latest compaction. |
+| `runtime:history.rewind` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:history.user.list` | Internal | Web navigation uses lightweight paged sessions.list metadata and selected-session history; no global prompt-history mirror. |
+| `runtime:lsp.status` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:mcp.attach` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.disable` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.enable` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.import.configure` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.import.status` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.reconnect` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:mcp.refresh` | Web | Inspector → Integrations → MCP: additive refresh from host settings for this session; Settings MCP import also refreshes the focused conversation on the matching host. |
+| `runtime:mcp.status` | Web | Inspector → Host integrations → MCP: status/lifecycle/imports and ephemeral private session configuration. |
+| `runtime:permission.forget` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |
+| `runtime:permission.mode` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |
+| `runtime:permission.rules` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |
+| `runtime:provider.catalogs` | Web | Rootless welcome/provider settings and inspector model catalog. |
+| `runtime:question.answer` | Web | Shared request tray: options, multiple answers, freeform input, and dismissal. |
+| `runtime:run.configure` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
+| `runtime:schedule.create` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
+| `runtime:schedule.delete` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
+| `runtime:schedule.list` | Internal | Schedule inspection comes from bounded root snapshot/collection pages. |
+| `runtime:session.autotitle` | Web | Inspector context: enable automatic titles. The existing one-way operation has no disable or readback contract, so the UI does not invent a toggle. |
+| `runtime:session.create` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:session.delete` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:session.effort` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
+| `runtime:session.effort.get` | Internal | The web reads authoritative model/effort from the shared root snapshot instead of duplicate queries. |
+| `runtime:session.fork` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:session.list` | Internal | Web navigation uses lightweight paged sessions.list metadata and selected-session history; no global prompt-history mirror. |
+| `runtime:session.model` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
+| `runtime:session.model.get` | Internal | The web reads authoritative model/effort from the shared root snapshot instead of duplicate queries. |
+| `runtime:session.open` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:session.preview` | Internal | Web navigation uses lightweight paged sessions.list metadata and selected-session history; no global prompt-history mirror. |
+| `runtime:session.reload` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
+| `runtime:session.archive` | Web | Archive/restore from sidebar, search and Session details; Undo preserves open work and drafts. |
+| `runtime:session.rename` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
+| `runtime:shell.run` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
+| `runtime:steer` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
+| `runtime:inbox.steer` | Web | Promote one queued client input above the composer at the targeted turn's next boundary. |
+| `runtime:inbox.remove` | Web | Remove only waiting client input; never cancel a running turn. |
+| `runtime:submit` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |
+| `runtime:terminal.input` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
+| `runtime:tool.call` | Deferred | Manual execution console remains outside this conversation-first milestone. TUI has no direct tool.call invocation workflow; daemon adapters/scripts retain typed access. Agent execution, schema inspection, and permissions remain in scope. |
+| `runtime:tool.configure` | Web | Inspector → Permissions: connected-client/host policy, deny interactive permissions, inspect and forget saved rules. |
+| `runtime:tool.schema` | Web | Inspector → Host integrations: host capability/status/diagnostics, browser driver and computer app policy, bounded tool schema inspection. |
+| `runtime:workspace.inspect` | Web | Inspector → Context & model → Applied context/workspace; paths and context describe the execution host. |
+| `runtime:workspace.set` | Web | Inspector → Context & model → Applied context/workspace; paths and context describe the execution host. |
+
+## Runtime state beyond individual operations
+
+- Agent tree status, active turns, pending questions/permissions, budgets, grants, schedules, blackboard, and Starlark/tool presentation come from the SDK SessionView. Inspector sections mount only while selected; their polling and uncached queries stop when unobserved.
+- Mailbox pages use the existing store, not the command inbox or another history database. The UI reads bodies/evidence explicitly and never acknowledges or completes mail. Revision conflicts restart paging from the first page.
+- The command inbox is shown as authoritative admitted input while work runs. It is separate from committed history; turn commit persists messages and consumes input atomically. The app does not fabricate transcript IDs or deduplicate by text.
+- Transcript content can be text or multimodal content parts. Images/text uploads have exact root/recipient grants and bounded, integrity-checked host resolution. Large transcript/collection entries remain references with explicit bounded read/download controls.
+- Executed Starlark programs, host calls, and results are inspectable through bounded transcript/live evidence. **Raw VM scratch globals are unavailable:** they are not reconstructible from this evidence, and this milestone adds no mutable VM introspection API.
+- The protocol currently has no authoritative readback of the connected-client permission policy or the complete per-session run-override configuration. The inspector labels controls as settings to apply rather than pretending its local defaults are observed host state.
+- Child deletion/stop controls come from actual allowed_controls. Targeted cancellation uses active_turns. No UI action expands a child transcript into a parent model context.
+
+## Evidence and remaining acceptance
+
+- Host, mailbox, directory/theme discovery, attachment grants/limits/integrity, clear revision checks, and generated contract behavior have Go tests; affected race suites run separately.
+- Built SDK acceptance exercises Unix/WebSocket equivalents, multimodal snapshot/history/SessionView, changed payloads and grants, clear revision invalidation, and queued attachment crash recovery.
+- `packages/app/test/inspector.test.tsx` covers actual agent control payloads, stale-target avoidance, goal/schedule commands, saved-rule deletion, bounded mailbox paging/revision recovery, and ephemeral MCP secret handling. It is a component workflow test using a fake SDK service, not a real provider/OS integration test.
+- Application lifetime/recovery, conversation/request workflows, theme accessibility, production packaging, and browser/mobile tests are tracked by their own suites and the main plan. Provider validation/rotation and the one-way automatic-title enable action have focused component tests, including secret disposal on host switch. Arbitrary manual execution, terminal/editor/review work, and runtime process management remain deferred; this inventory does not assert full TUI parity.

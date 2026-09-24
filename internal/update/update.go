@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/config"
 )
 
@@ -58,6 +59,9 @@ var fetchLatest = fetchLatestGitHub
 // say (up to date, dev build, already noted, checked recently, or the check
 // failed). Never errors.
 func Check(current string) string {
+	if buildinfo.UpdateOwner == "desktop" {
+		return ""
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return ""
@@ -68,6 +72,9 @@ func Check(current string) string {
 // Pending reads a recorded notice: the latest tag if a newer-than-current
 // release is waiting to be acknowledged, else "".
 func Pending(current string) string {
+	if buildinfo.UpdateOwner == "desktop" {
+		return ""
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return ""
@@ -132,6 +139,11 @@ func check(current, noticePath string, fetch func() (string, error), now time.Ti
 // A prerelease sorts before the same-numbered release ("v0.3.0-rc.1" <
 // "v0.3.0"). Non-semver strings ("dev", "", "v0.3") never compare newer.
 func Newer(current, latest string) bool {
+	if strings.HasPrefix(current, "whipcode-") || strings.HasPrefix(latest, "whipcode-") {
+		c, cok := whipcodeNumber(current)
+		l, lok := whipcodeNumber(latest)
+		return cok && lok && l > c
+	}
 	c, cpre, lok := parseSemver(current)
 	l, lpre, rok := parseSemver(latest)
 	if !lok || !rok {
@@ -206,6 +218,9 @@ func fetchLatestGitHub() (string, error) {
 	// thread — the 2s timeout is the bound that matters.
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
+	if buildinfo.Name == "whipcode" {
+		return fetchWhipcode(ctx, ghToken())
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
 	if err != nil {
 		return "", err

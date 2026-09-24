@@ -1,0 +1,174 @@
+{
+  "recordedAt": "2026-09-08T21:40:44.423Z",
+  "purpose": "Local development validation; dirty source and no feed, not a release candidate",
+  "signedStartup": {
+    "completed": true,
+    "archiveSHA256": "3b146e36a9fc1afed4141dd4dc464a6e44f1953c31e95474819c0e77afa6b2c7",
+    "requested": {
+      "samples": 30,
+      "firstSamples": 1
+    },
+    "statistics": {
+      "first-launch": {
+        "attempted": 1,
+        "failed": 0,
+        "shellUpperMs": {
+          "count": 1,
+          "medianMs": 2400.480333047684,
+          "minMs": 2400.480333047684,
+          "maxMs": 2400.480333047684
+        },
+        "usableUpperMs": {
+          "count": 1,
+          "medianMs": 2626.099166,
+          "minMs": 2626.099166,
+          "maxMs": 2626.099166
+        },
+        "probeWallMs": {
+          "count": 1,
+          "medianMs": 197.27629099999996,
+          "minMs": 197.27629099999996,
+          "maxMs": 197.27629099999996
+        },
+        "maxProbeBracketMs": {
+          "count": 1,
+          "medianMs": 161.756125,
+          "minMs": 161.756125,
+          "maxMs": 161.756125
+        }
+      },
+      "warm-attach": {
+        "attempted": 30,
+        "failed": 0,
+        "shellUpperMs": {
+          "count": 30,
+          "medianMs": 636.3040415119209,
+          "p95Ms": 752.9629589046326,
+          "minMs": 564.870959,
+          "maxMs": 760.956875
+        },
+        "usableUpperMs": {
+          "count": 30,
+          "medianMs": 795.433354,
+          "p95Ms": 887.363292,
+          "minMs": 698.021667,
+          "maxMs": 909.193709
+        },
+        "probeWallMs": {
+          "count": 30,
+          "medianMs": 70.05837450000001,
+          "p95Ms": 127.896457,
+          "minMs": 48.829791,
+          "maxMs": 132.68883300000002
+        },
+        "maxProbeBracketMs": {
+          "count": 30,
+          "medianMs": 30.881854,
+          "p95Ms": 82.968625,
+          "minMs": 18.599291,
+          "maxMs": 84.934208
+        }
+      },
+      "retained-start": {
+        "attempted": 30,
+        "failed": 0,
+        "shellUpperMs": {
+          "count": 30,
+          "medianMs": 684.5408954761581,
+          "p95Ms": 954.4232920476837,
+          "minMs": 584.2250829523163,
+          "maxMs": 992.172542
+        },
+        "usableUpperMs": {
+          "count": 30,
+          "medianMs": 940.4656044999999,
+          "p95Ms": 1150.650334,
+          "minMs": 818.011083,
+          "maxMs": 1269.878917
+        },
+        "probeWallMs": {
+          "count": 30,
+          "medianMs": 72.330709,
+          "p95Ms": 170.58837599999998,
+          "minMs": 52.509792000000004,
+          "maxMs": 192.97429000000002
+        },
+        "maxProbeBracketMs": {
+          "count": 30,
+          "medianMs": 30.9875215,
+          "p95Ms": 122.61975,
+          "minMs": 24.320791,
+          "maxMs": 133.13975
+        }
+      }
+    },
+    "cleanup": [
+      {
+        "scenario": "retained",
+        "state": "stopped"
+      }
+    ],
+    "environment": {
+      "cpu": "Apple M4 Max",
+      "totalMemoryBytes": 137438953472,
+      "darwin": "25.3.0",
+      "node": "v24.14.1",
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "SHELL": "/bin/zsh",
+      "applicationHOME": "dedicated empty fixture user directory",
+      "applicationTMPDIR": "dedicated fixture directory",
+      "inheritedCredentials": false
+    }
+  },
+  "package": {
+    "version": "0.2.0-beta.1",
+    "buildId": "0.2.0-beta.1",
+    "source": {
+      "commit": "b5e2f846b8322c1223d1056c311d72842be80957",
+      "dirty": true,
+      "lockfile": "5722628aaf99fb36683aee4faa08af75f1beee9679693a110c64f955f551c2ab"
+    },
+    "rendererDigest": "09ffbdc0701fa5786af571ea743481967423560320217065e11f4afec7bbc9db",
+    "nativeFiles": {
+      "whipcode": {
+        "bytes": 41134432,
+        "sha256": "48757cbfeb2c1ceaafecbb4bef62754d454e16788501b637322423ccd3b579cf"
+      },
+      "whip-computer": {
+        "bytes": 431664,
+        "sha256": "b4d8ddee5a25bcae00c278c9237201b8ee8295afc97b7fd2edb166be3396296c"
+      }
+    },
+    "signed": true,
+    "notarized": true,
+    "dmgNotary": "1ee4551a-f520-4710-83f8-98796b8d8fff",
+    "files": {
+      "Whip Beta-0.2.0-beta.1-arm64.dmg": {
+        "bytes": 144540346,
+        "sha256": "875bb2cb8f35f57de57b875081f07ae2863a69df455a9bb3c58148526bc9be4c"
+      },
+      "Whip Beta-darwin-arm64-0.2.0-beta.1.zip": {
+        "bytes": 145030554,
+        "sha256": "f8a5688db719352e31cf5dc2ad0b6224d4f5f6914b5ef65ade79275b781133c5"
+      }
+    },
+    "toolchain": {
+      "node": "v24.14.1",
+      "arch": "arm64",
+      "go": "go version go1.27.0 darwin/arm64",
+      "xcode": "Xcode 26.3\nBuild version 17C529",
+      "macOS": "26.3.1"
+    }
+  },
+  "compiledBackendUpdate": "Passed go test -race -tags=integration ./cmd/whip -run ^TestDesktopCompiledUpdate$ after maintenance validation extraction",
+  "desktopTests": {
+    "native": 72,
+    "packagingAndPublication": 86,
+    "skipped": 0
+  },
+  "govulncheck": {
+    "version": "v1.8.0",
+    "reachableVulnerabilities": 0
+  },
+  "livePublicationTested": false
+}

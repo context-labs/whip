@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -32,7 +30,8 @@ func completionTable() []cand {
 // sensibly with no arguments); others insert themselves for arguments.
 var execNow = map[string]bool{
 	"/clear": true, "/compact": true, "/computer-use": true, "/computer": true, "/context-doctor": true, "/effort": true, "/goal": true, "/goal-from-context": true, "/help": true,
-	"/mcp": true, "/model": true, "/mouse": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true, "/subagents": true, "/tasks": true,
+	"/agents": true, "/mcp": true, "/model": true, "/mouse": true, "/permissions": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true,
+	"/repl": true, "/connect": true, "/auth": true,
 }
 
 // completions splits val into an untouched head and candidates for its last
@@ -63,21 +62,10 @@ func completions(val string, models, providers, skillCands, efforts []cand) (hea
 	case strings.HasPrefix(token, "$"): // codex-style skill invocation
 		cands = filterPrefix(skillCands, token)
 	case strings.HasPrefix(token, "@"):
-		// @file mentions: path-like queries (with a separator, ~, or leading
-		// dot) complete like paths; bare words fuzzy-match the recursive
-		// index so "@roadmap" finds docs/roadmap.md without the full path.
-		if q := token[1:]; isPathQuery(q) {
-			for _, c := range mentionPathMatches(q) {
-				cands = append(cands, cand{"@" + c.Text, c.Desc})
-			}
-		} else {
-			for _, f := range fuzzyFiles(q, menuRows) {
-				cands = append(cands, cand{"@" + f, ""})
-			}
-		}
+		// File candidates arrive asynchronously from the execution host.
 	case strings.HasPrefix(val, "/"): // other slash-command args: nothing to complete
 	default:
-		cands = pathMatches(token)
+		cands = nil
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].Text < cands[b].Text })
 	return head, cands
@@ -113,58 +101,6 @@ func filterFuzzy(all []cand, q string) []cand {
 	out := make([]cand, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, h.c)
-	}
-	return out
-}
-
-// isPathQuery reports whether an @mention query looks like a path (has a
-// separator, ~, or leading dot) and should use plain glob completion rather
-// than the recursive fuzzy index.
-func isPathQuery(q string) bool {
-	return q == "" || strings.ContainsAny(q, "/\\") || strings.HasPrefix(q, "~") || strings.HasPrefix(q, ".")
-}
-
-// mentionPathMatches globs an @mention path query against the mention root
-// (not the process cwd): absolute and ~ queries glob as-is; relative ones are
-// joined to the root and returned root-relative, with dirs keeping their
-// trailing slash.
-func mentionPathMatches(q string) []cand {
-	if filepath.IsAbs(q) || q == "~" || strings.HasPrefix(q, "~/") {
-		return pathMatches(q)
-	}
-	root, err := currentRoot()
-	if err != nil {
-		return nil
-	}
-	var out []cand
-	for _, c := range pathMatches(filepath.Join(root, q)) {
-		dir := strings.HasSuffix(c.Text, "/")
-		if rel, err := filepath.Rel(root, strings.TrimSuffix(c.Text, "/")); err == nil {
-			c.Text = filepath.ToSlash(rel)
-			if dir {
-				c.Text += "/"
-			}
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-func pathMatches(prefix string) []cand {
-	p := prefix
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			p = home + p[1:]
-		}
-	}
-	matches, _ := filepath.Glob(p + "*")
-	var out []cand
-	for _, m := range matches {
-		if fi, err := os.Stat(m); err == nil && fi.IsDir() {
-			out = append(out, cand{m + "/", "dir"})
-		} else {
-			out = append(out, cand{m, ""})
-		}
 	}
 	return out
 }

@@ -1,0 +1,71 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/context-labs/whip/internal/session"
+)
+
+// The terminal cursor sits on the textarea caret inside the input rectangle,
+// follows typing and wrapping, keeps the user's cursor colour, and hides
+// while a dialog, the rewind picker or provider setup owns the keyboard.
+func TestRealCursorInsideInputRect(t *testing.T) {
+	m := goldenModel(140, 40)
+	view := m.View()
+	it := m.frameNow().inputText
+	if view.Cursor == nil || view.Cursor.X != it.Min.X || view.Cursor.Y != it.Min.Y {
+		t.Fatalf("empty input: cursor %+v, want top-left of %v", view.Cursor, it)
+	}
+	if view.Cursor.Color != currentTheme().Primary {
+		t.Fatalf("cursor colour must be the theme's primary, got %v", view.Cursor.Color)
+	}
+	m.input.SetValue("hello")
+	m.input.CursorEnd()
+	if c := m.View().Cursor; c == nil || c.X != it.Min.X+5 || c.Y != it.Min.Y {
+		t.Fatalf("after typing: cursor %+v", c)
+	}
+	m.input.SetValue(strings.Repeat("word ", 40)) // wraps onto several rows
+	m.input.CursorEnd()
+	m.layout()
+	view = m.View()
+	it = m.frameNow().inputText
+	if view.Cursor == nil || view.Cursor.Y <= it.Min.Y || view.Cursor.Y >= it.Max.Y {
+		t.Fatalf("wrapped input: cursor %+v outside rows of %v", view.Cursor, it)
+	}
+	m.input.SetValue("")
+	for name, open := range map[string]func(){
+		"palette":    func() { m.openThinThemePalette() },
+		"rewind":     func() { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
+		"provider":   func() { m.providerSetup = newTestSetup(t, &setupTestHost{}, true) },
+		"msgAction":  func() { m.msgActions = &msgActions{block: 0} },
+		"permission": func() { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1"}} },
+	} {
+		m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog, m.providerSetup = nil, nil, nil, nil, nil, nil
+		open()
+		m.layout()
+		if c := m.View().Cursor; c != nil {
+			t.Fatalf("%s open: cursor should hide, got %+v", name, c)
+		}
+	}
+	m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog, m.providerSetup = nil, nil, nil, nil, nil, nil
+	m.input.SetValue(strings.Repeat("a", m.input.Width())) // a full row: the caret sits one past the last cell, still inside the box
+	m.input.CursorEnd()
+	m.layout()
+	if c := m.View().Cursor; c == nil || !inRect(m.frameNow().inputText, c.X, c.Y) {
+		t.Fatalf("full-row caret: cursor %+v outside %v", c, m.frameNow().inputText)
+	}
+	m.input.SetValue("")
+	m.openNamePrompt("name:", "", func(string) {})
+	m.layout()
+	it = m.frameNow().inputText
+	if c := m.View().Cursor; c == nil || c.X != it.Min.X || c.Y != it.Min.Y {
+		t.Fatalf("name prompt: cursor %+v, want %v origin", c, it)
+	}
+	SetLightTheme(true)
+	defer SetLightTheme(false)
+	m.applyOpencodeStyles()
+	if c := m.View().Cursor; c == nil || c.Color != currentTheme().Primary {
+		t.Fatalf("light theme: cursor %+v, want primary %v", c, currentTheme().Primary)
+	}
+}

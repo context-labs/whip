@@ -1,1075 +1,1023 @@
-# Features
-
-whip is a minimal coding-agent harness: an interactive bubbletea TUI driving an
-LLM tool-use loop (bash / read / write / edit / subagent) with provider-routable
-models. This document is the map of what's shipped and where it lives. Each
-section links the behavior to the code and its tests.
-
-## The agent loop
-
-`internal/agent/agent.go` — `Agent.Turn` is the loop: append the user message,
-stream a completion, run any tool calls, append results, repeat until the model
-stops calling tools. Steered messages (`Steer`) inject at loop boundaries,
-never mid-generation.
-
-### Parallel tool calls with per-path file locks
-
-When the model emits several tool calls in one turn, `runTools` fans them out
-to goroutines and collects results on a buffered channel, laid back out in
-**call order** (the API matches tool results to call IDs). `OnToolStart` /
-`OnToolEnd` fire per call as they run, so the UI shows each tool live.
-
-`internal/agent/filelocks.go` — mutations to the same file serialize through a
-**per-canonical-path channel semaphore** (a 1-capacity `chan struct{}` per
-path: send to acquire, receive to release). Two edits to `foo.go` can't
-interleave; edits to different files run truly in parallel. `bash` takes a
-global lock because a command's side effects aren't attributable to one path.
-Reads don't lock.
-
-This is the Go-native port of pi's `withFileMutationQueue` (per-path promise
-chains in TypeScript). In Go the lock is a buffered channel — no explicit
-unlock bookkeeping.
-
-Tests: `parallel_test.go` — `TestToolCallsRunInParallel` (overlap measured via
-a concurrency counter), `TestSamePathEditsSerialize`, `TestToolMutationPath`,
-`TestCanonicalPathKey`.
-
-### Bash output feedback: live streaming + truncation spill
-
-Two ways a bash command stops being a black box (pi's bash tool has both):
-
-- **Streamed partial output.** `bashrun.Options.OnUpdate` reports the
-  accumulated combined stdout/stderr at most every 100ms
-  (`bashrun.updateInterval`) from a snapshot ticker goroutine owned by the
-  run — it snapshots the shared buffer under the drains' mutex and exits on a
-  done-channel close when `runPiped` returns (one trailing tick may land after
-  return; the TUI's `toolRunning` check makes it a no-op). The TUI callback
-  uses a detached `go p.Send(...)`, so a wedged UI queue can never park the
-  ticker goroutine (docs/concurrency.md's ABBA rule). The bash
-  tool receives the callback through a **per-call context value**
-  (`tools.WithOnUpdate`), not a package var, so parallel tool calls can't
-  cross wires; `agent.runTools` attaches it when `Events.OnToolOutput` is set
-  and the call is bash. The TUI (`toolOutputMsg`) renders the last three
-  non-empty lines under the running tool row's verb line (`block.live`);
-  `toolEndMsg` clears it and collapses the row as before. The final output
-  still arrives via the tool result — snapshots are progress, never state.
-- **Truncation spill.** When combined output exceeds `maxOutput` (50KB) and
-  `TruncateTail` fires, `bashrun.Spill` writes the **full** bytes to
-  `$TMPDIR/whip-bash-<pid>/*.log` (0600, OS-reaped) and the tool result
-  appends `[full output (N bytes): <path>]` so the model can read/grep the
-  head it never saw. Spill failure degrades silently — a broken temp dir must
-  not cost the tool result.
-
-Tests: `internal/tools/bashrun/feedback_test.go` — `TestOnUpdateThrottle`
-(≥95ms between fires, prefix-growing snapshots), `TestOnUpdateNil`,
-`TestOnUpdateFastCommand`, `TestSpill` (content round-trip + 0600 perms);
-`internal/tools/bash_feedback_test.go` — `TestBashToolSpillOnTruncation`
-(notice + file holds the truncated-away head), `TestBashToolNoSpillUnderCap`,
-`TestBashToolOnUpdateCtx`; `internal/agent/tool_output_test.go` —
-`TestOnToolOutputStreamsBash` (event carries the tool-call id, fires mid-run);
-`internal/tui/tool_output_test.go` — `TestToolOutputMsgUpdatesRunningRow`
-(unknown id ignored, tail replaces, end clears), `TestLastLines`.
-
-### Waiting without polling (`wait` tool)
-
-`internal/agent/wait.go` — the `wait` tool replaces `sleep N && check` loops
-(which spend a full LLM turn per poll) with a **harness-owned poller**. The
-model names a shell command, an optional `until` regex, an interval (min 2s,
-default 10s) and a timeout (default 10m, max 1h); a goroutine re-runs the
-command via `bashrun` on the interval with zero model involvement.
-
-Exactly one message re-enters the loop when the wait resolves — never a poll
-per check. Delivery routes on whether a turn is in flight (`Agent.TurnRunning`
-— an `atomic.Bool` set at `turn()` entry/exit): **busy** → `Steer`, drained at
-the next loop boundary like any steered message; **idle** → the registry's
-`OnWake` hook, which the TUI installs (`wireWaits`, called from `wireTasks` so
-every agent swap re-installs it) to submit a machine-authored turn
-(`submitTurn(text, false)`), the opencode/exo wake pattern. A turn that starts
-between the `TurnRunning` check and the wake message is caught by the
-`waitWakeMsg` handler re-checking `m.busy` and steering instead of
-double-submitting. Headless idle (`whip run`, tests) has no loop boundary and
-no wake hook, so the message is dropped by design; the busy path is the one
-that matters there.
-
-Resolution states (`WaitStatus`): `condition met` (exit 0 and `until` regex
-matches, checked immediately on registration and then per interval), `timed
-out`, and `command failing` — 3 consecutive non-zero exits strike out the wait
-early (hermes' 3-strike lesson) so a broken command doesn't poll for the full
-timeout. Delivery is once-only (`atomic.Bool` CAS in `deliver`), `Done` closes
-on settle like `BackgroundTask`, and `CancelWait` suppresses a pending
-delivery. Waits are live-only: a dead process's waits die with it, and the
-registry's `Close` cancels every poller on agent teardown.
-
-The system prompt (`cmd/whip/main.go`) tells the model to prefer `wait` over
-`sleep` loops, and the tool's return message restates the no-poll contract.
-
-Tests: `internal/agent/wait_test.go` — `TestWaitConditionMetImmediately`,
-`TestWaitUntilRegex`, `TestWaitStrikesOut`, `TestWaitTimeout`,
-`TestWaitBusySteersInsteadOfWaking` (busy → Steer, not OnWake),
-`TestWaitCancel`, `TestWaitToolRegisters` (def parsing + settle).
-`go test -race ./internal/agent` green.
-
-### Compaction
-
-When the conversation fills the context window, old turns fold into an
-LLM-generated summary. Two triggers:
-
-- **Proactive**: `maybeCompact` runs before each request once the estimated
-  token count crosses the compaction threshold — a percent of the advertised
-  context window, default 50% (`compactPct` in config, clamped 10–90;
-  `Agent.CompactThreshold` holds the fraction). Slide it in the palette's
-  "Compaction level" row (←/→ steps ±10%).
-- **Reactive**: if the provider still rejects a request with a context-limit
-  error (`context_length_exceeded`, `prompt_too_long`, HTTP 413), `Turn`
-  compacts once and retries. A `compacted` guard prevents retry loops.
-
-`compact()` keeps the system prompt and a recent tail, and is **orphan-safe**:
-a kept tail that begins with a `tool`-role message walks back to its owning
-assistant message so no tool result references an erased call ID. The summary
-runs as a non-streaming `Complete` on the compaction model — the built-in
-default `deepseek-v4-flash-0731` (`config.DefaultCompactModel`, resolved from
-the user's config when `compactModel` is empty), a configured
-`compactModel` / `compactProvider`, or the conversation's own model when the
-default isn't in the config.
-
-Token bookkeeping: `llm.Usage` (prompt/completion/cached) is read off the
-terminal stream chunk (`stream_options: include_usage`) and folded into session
-totals via `AddUsage`. Compaction and subagent calls count too.
-
-Every compaction is visible in the transcript as a pair of notes. The moment
-folding begins, `OnCompactStart` renders `◎ compacting N msgs (est. X tok) with
-<model>…` so the UI never looks hung during the summary call. When it
-completes, `OnCompacted` renders `◎ compacted — summarized N msgs, M kept ·
-<model> · $cost (in/out tok) · raw history preserved` — the counts come from
-`OnCompact`, the model and spend from `CompactInfo` (a dedicated compaction
-route is labeled `<id> @ <host>`), and the cost is priced off the provider
-catalog (hidden when the model has no advertised price). The result note
-renders even with no session store; the `raw history preserved` suffix appears
-only once the event is actually recorded.
-
-### Provider prompt-prefix caching
-
-To cut time-to-first-token on the many sequential turns of an agent loop,
-whip stamps `prompt_cache_key` on every request (OpenAI `prompt_cache_key`;
-openrouter/xai/azure/mistral honor the same field; providers that don't
-recognize it ignore the unknown top-level field). The key is the **session
-id**: `Agent.SetSessionID` sets `Client.CacheKey`, so a stable session lets
-the provider reuse the cached conversation prefix across turns. Subagents get
-a scoped key (`<sessionID>/<taskID>` in `StartBackground`) so their shorter,
-churning contexts never disturb the parent's cached prefix and two concurrent
-subagents don't collide on the session key. An explicit
-`Request.PromptCacheKey` overrides the client's (that's how the subagent
-scoping is applied); empty omits the field entirely so providers that would
-reject it never see it. The prefix-stability preconditions are already
-maintained elsewhere: the system prompt's per-turn memory block sits at the
-END of the system message (`prepareTurn`), MCP tools are name-sorted
-(`mcp.Manager.Tools`), and the context-decay pass keeps the recent hot window
-byte-stable. Anthropic-style `cache_control: ephemeral` breakpoints are out of
-scope — whip speaks OpenAI chat-completions uniformly and has no
-Anthropic-native consumer for them.
-
-Tests: `internal/llm/cache_test.go` — `TestPromptCacheKeyStampedFromClient`,
-`TestPromptCacheKeyRequestOverridesClient`, `TestConsecutiveRequestsSharePrefix`
-(the prefix-cache contract: turn N's messages are a byte-identical prefix of
-turn N+1's, same key on both).
-
-Commands: `/compact` (compact now), `/compact <model> [provider]` (pick the
-summarizer), `/compact off` (restore the built-in default). The palette's
-"Compaction model" panel lists every configured model behind a
-"default (…)" row that restores the default; "Compaction level" steps the
-threshold ←/→.
-
-Tests: `agent_test.go` — `TestTurnAutoCompactsOnContextLimit`,
-`TestCompactDoesNotLoopOnRepeatedContextLimit`, `TestCompactKeepsToolCallPair`,
-`TestProactiveCompactAtFiftyPercent`, `TestCompactThresholdExplicitOverride`,
-`TestCompactionEventsCarryModelAndUsage` (start fires before the summary call;
-done carries the model + usage, proven with a tiny context limit),
-`TestCompactionInfoLabelsDedicatedRoute`, `TestUsageAccumulates`;
-`compact_cmd_test.go` —
-`TestCompactModelEmptyResolvesDefault`, `TestCompactModelDefaultFallsBack`,
-`TestCompactThresholdFor`, `TestSetCompactPct`; `compact_vis_test.go` —
-`TestCompactionVisibleInTranscript` (the start+result notes render through the
-Update loop with a small compaction limit),
-`TestCompactionNotesRenderInOrder`, `TestCompactionResultShowsRealCounts`;
-`palette_test.go` —
-`TestPaletteCompactPanelAppliesInPlace`,
-`TestPaletteCompactPanelDefaultRowRestores`, `TestPaletteCompactionLevelSteps`.
-
-### Background subagents
-
-`internal/agent/background.go` — the `subagent` tool with `background: true` launches a
-subagent that runs **concurrently with the parent** instead of blocking the
-turn. This is the channel-native port of opencode's `background-job.ts`
-registry.
-
-Each task is a `BackgroundTask` with a `Done chan struct{}`. When the subagent
-settles, the registry `settle()`s and **closes `Done` once** — closing a
-channel broadcasts to every waiter at once, so the tool caller, the TUI, and
-`/subagents` (alias `/tasks`) all wake together with no per-waiter state (opencode needs a per-job
-`Deferred` for the same thing). On settle the report fans back into the parent
-as a **steered message**, so the model sees it on the next loop boundary.
-
-- `Tasks().List()` / `Get(id)` / `Cancel(id)` — registry snapshot + cancel.
-- `Tasks().OnChange` — the TUI installs a callback that sends a message to
-  redraw live. `Tasks().OnRecord` — a second hook the TUI uses to upsert the
-  task into the session store on start and settle.
-- `/subagents` (alias `/tasks`) lists running/done subagents with report previews; a `⚙ N sub`
-  header badge shows the running count. The persistent dock strip renders
-  **below the input** (above the status line), so focus follows the cursor's
-  geometry: ↓ on an empty input (or ctrl+t) moves focus into the list, ↑ past
-  its top row — or simply typing — hands focus back, and esc is never
-  consumed by the dock (it stays the interrupt/rewind key). With the dock
-  focused, **space expands the selected row inline** — the tail of the task's
-  journaled activity (or its prompt/report) renders under the row without
-  leaving the main view; space again, moving the selection, or the mouse
-  wheel collapses it. The strip is mouse-clickable: `dockTop()` plus the
-  per-row `dockOffsets` (expanded rows shift the rows below) map a screen row
-  to the task actually clicked — a click focuses/selects and toggles the
-  inline expansion, enter opens the full detail view.
-- **Persisted across resume.** The session store's `tasks` table records
-  every start/settle; `resume()` seeds the registry via `RestoreTask`
-  (settled, `Done` pre-closed, marked `Restored`). A row still `running` on
-  disk means the subagent died with the last process exit, so it comes back
-  as `error` — "interrupted — whip exited". Restored tasks are history:
-  `/subagents` (alias `/tasks`) lists them with a `(restored)` marker; the dock never shows them.
-  The dock itself shows running tasks plus ones settled within a one-minute
-  grace window (`dockSettledGrace`) — long enough to notice the ✓, then the
-  strip cleans itself.
-- **Full transcript on open.** The registry journals every emitted event per
-  task (`taskJournal`, byte-capped at 128KB, drop-oldest with a "[earlier
-  output dropped]" marker). `openTask` replays the journal and subscribes to
-  the live stream as ONE atomic call (`SubscribeWithJournal`), so a detail
-  view opened mid-run or after settle shows the complete transcript — tool
-  calls, steers, and all — instead of only what streams in after attach.
-  Replay and live rendering share `renderTaskEvent` (internal/tui/tasks.go)
-  so the two paths can't drift in format. Tests: `journal_test.go`
-  (recording, delta coalescing, overflow truncation, atomicity under
-  concurrent emit, survive-settle/clear lifecycle),
-  `TestTaskViewReplaysJournal`, `TestRunningTaskViewReplaysThenStreams`.
-
-- **Full transcript persisted.** When a background subagent settles, its whole
-  conversation is saved as its own attributed session
-  (`Store.SaveSubagentTranscript`, id `task-<parentID>-<taskID>` — the
-  `task-` prefix avoids a prefix-collision with the parent id in `Load`),
-  with `forked_from` = the parent session and `task_id` = the task. A
-  follow-up turn on the settled subagent re-saves the transcript
-  (`refreshTranscript` after `FollowupTask`). On resume, opening a restored
-  task replays the persisted transcript read-only (`renderTranscript`) instead
-  of showing only the bare report — a crashed process no longer loses the
-  completed work. Tests: `session_test.go`
-  `TestSubagentTranscriptRoundTrip` (attribution + follow-up re-save + no-op
-  without a parent), `tasks_test.go`
-  `TestRestoredTaskReplaysPersistedTranscript` (kill → resume → open shows the
-  full transcript).
-
-Background tasks use a context **not** tied to the current turn — they outlive
-it by design. Cancelling a task cancels its subagent's turn. `settle()`
-notifies/persists **before** closing `Done`, so a waiter woken by the close
-always sees the recorded final state.
-
-**Subagent model routing** (`internal/agent/subagent.go` `SubModel`,
-`internal/tui/taskmodel.go`): subagents default to the cheap fast
-`deepseek-v4-flash-0731` route (`config.DefaultTaskModel`, same default as
-compaction); config `taskModel`/`taskProvider` pins a different one —
-ctrl+p › Subagent model sets it and persists to the global config (the
-picker's "default" row restores the built-in default); the main
-model overrides per call via the `subagent` tool's optional `model`/`provider`
-params. Resolution chain: taskModel → built-in default → catalog id ending in
-`/<default>` (openrouter-style vendor prefixes) → silently fall back to the
-session model. The agent stays config-free: the TUI/`whip run` inject a
-`ResolveModel` closure over a `cfg.Snapshot()` (the resolver runs on tool
-worker goroutines while `/auth` mutates live config on the UI goroutine).
-
-**User-spawned subagents**: `/subagent [-m model[@provider]] <prompt>` starts a
-background task by hand — it runs mid-turn too (listed with the
-works-while-busy commands), so the LLM isn't the only driver.
-
-**Foreground fan-out and naming.** A `subagent` call without `background`
-blocks the turn on the report; emitting several in one assistant message runs
-them concurrently and returns every report together (`runTools` already
-parallelizes a tool batch). The tool description tells the model this is how to
-explore in parallel, reserving `background:true` for fire-and-forget. Two
-guardrails keep delegation legible and cheap:
-
-- A foreground report is capped at `subagentReportCap` bytes before it lands in
-  the parent's context (`subagent.go` `capReport`), so one long investigation
-  can't swamp the parent window. The subagent's own context is uncapped — only
-  what the parent ingests is bounded.
-- Transcript rows surface the task's `description` (queued + running rows via
-  `queuedSubject`/`toolSubject`, not the raw JSON args), number a parallel
-  batch `1/N` (`batchSuffix`), and background task ids are description slugs —
-  `survey-context-in-pi-3`, not `sub-1` (`taskSlug`) — so `/subagents`, the ⚙
-  badge, and steer messages name the work.
-
-Tests: `TestForegroundReportCapped`, `TestForegroundReportUnderCapPassesThrough`,
-`TestTaskSlug`, `TestStartBackgroundSlugID` (agent); `TestSubagentBatchNumbered`,
-`TestSubagentSingletonNotNumbered`, `TestBatchSuffixPerToolName` (tui).
-
-**Chat with a subagent** — a task IS a session. The retained subagent lives on
-its `BackgroundTask`; the detail view (enter from the dock) has a chat input:
-
-- while the task **runs**, enter **steers** it (`Agent.SteerTask` → the
-  child's own `pendingSteer` queue — the parent→child pipe reuses the existing
-  steer primitive, no new synchronization); the model gets the same power via
-  the `subagent_steer` tool (`{id, message}`).
-- once it **settles**, enter runs **follow-up turns** on its preserved context
-  (`Agent.FollowupTask`) — status/report/`Done` stay as they settled, usage
-  rolls into the parent session. ctrl+x cancels the running task or the
-  in-flight follow-up. Follow-up chats are live-only by design (not
-  persisted); restored tasks are read-only — their process died.
-  `ClearSettled(keep…)` protects a task whose pane is open from the new-turn
-  dock sweep.
-
-Tests: `TestBackgroundTaskDeliversReport`, `TestBackgroundTaskBroadcastsToManyWaiters`
-(8 waiters all woken by one channel close), `TestBackgroundTaskCancel`;
-persistence: `session.TestTaskRoundTrip`, `TestRestoreTaskSettledAndVisible`,
-`TestResumeRestoresTasks`, `TestTaskPersistsOnStartAndSettle`;
-spawn feedback: `TestBackgroundWorktreeRegistersBeforeProvisioning` (the task
-registers — dock row + ⚙ badge — before the synchronous worktree provision
-runs, and the worktree path is baked into the subagent's initial prompt so
-it's delivered deterministically with the turn, never as a post-spawn steer a
-fast-settling task would lose);
-dock click hit-testing: `TestDockClickOpensClickedRow`,
-`TestDockClickIgnoredWhilePaletteOpen`; routing: `submodel_test.go` —
-`TestTaskModelOverride`, `TestTaskDefaultRoutesSubagents`,
-`TestTaskModelOverrideErrors`; chat: `TestSteerTaskReachesRunningSubagent`,
-`TestFollowupTaskChatsOnRetainedContext`, `TestClearSettledKeep`;
-TUI: `taskmodel_test.go` — `TestTaskDefaultForResolvesDefault`,
-`TestTaskDefaultForFallbacks`, `TestTaskDefaultForCatalogSuffix`,
-`TestTaskCommandSpawns`, `TestTaskViewChat`, `TestTaskViewRestoredReadOnly`,
-`TestTaskViewCtrlXCancels`.
-
-### Dynamic workflows
-
-`internal/workflow/` + `internal/agent/workflowtool.go` — a `workflow` tool
-that runs **deterministic multi-agent orchestration scripts**: the model
-writes a JavaScript program that fans out to subagents (`agent()`), pipelines
-(`pipeline()`), or barriers (`parallel()`) and returns a structured result.
-Go port of the pi `better-workflows` extension
-(github.com/anishthite/better-workflows), faithful to Claude Code's `Workflow`
-tool. "Dynamic" = the graph is built at runtime (loops, conditionals,
-data-dependent fan-out), not a static DAG declared up front.
-
-**Experimental — opt-in required.** The tool is gated behind the
-`experimental` config list (`internal/config`): absent an entry the tool is
-not built into the agent's tool set — the model never sees the schema. Opt in
-via `~/.whip/config.json`:
-```json
-"experimental": ["workflows"]
-```
-The agent carries the whole `experimental` set (mirroring the config field)
-and each gated feature checks its own name — one general mechanism, not a
-per-feature flag. `agent.WithExperimental([]string)` threads it into
-`agent.New` before the tool set is built; fork/swap sites inherit the
-parent's set via `agent.Experimental()`. Add the next experimental feature
-with a `const FeatureX` + one `experimentalEnabled(FeatureX)` guard at its
-build site.
-
-- **Script contract** (`parse.go`). Starts with `export const meta =
-  { name, description, phases? }` — a pure literal (brace-matched,
-  strings/comments aware, evaluated in an empty goja realm; non-literals
-  throw). Body runs async with globals `agent`/`pipeline`/`parallel`/`phase`/
-  `log`/`args`/`budget`/`cwd`/`console.log`. `Date.now()`/`Math.random()`/
-  argless `new Date()` are blocked at parse time (regex) and runtime (VM
-  prelude) — they break resume.
-- **Single-goroutine sandbox** (`runtime.go`). goja isn't goroutine-safe, so
-  every VM touch — script body, JS callback, promise resolve/reject — is a
-  job on one `scheduler` goroutine (unbuffered `jobs` channel). Workers
-  (agent runs, fan-out) never touch the VM; they hand results back via
-  `enqueue`. A no-op `vm.RunString("0")` after each job pumps goja's promise
-  queue so an `await agent(...)` wakes on completion (goja only runs
-  microtasks while executing). The rejection tracker fires on the scheduler,
-  so it must not `enqueue` (self-deadlock).
-- **`agent()`** resolves model/effort (per-call → phase → meta default), takes
-  a lexical `callIndex` (resume key) + agent slot atomically (fan-out can't
-  overshoot the cap), and runs a fresh subagent via `Options.Run` (`newSub` +
-  `Turn`, usage rolled into the parent). Failures → `null`
-  (`.filter(Boolean)`) and aren't journaled, so resume retries them. With
-  `opts.schema` the subagent ends with a `structured_output` tool call whose
-  args are the return value (one repair re-prompt).
-- **`pipeline(items, …stages)`** flows each item through all stages with no
-  barrier (A in stage 3 while B in stage 1). **`parallel(thunks)`** is a
-  barrier; a throwing thunk → `null` so it never rejects. Both spawn a
-  goroutine per item; each JS stage call is a `scheduler` job delivered back
-  on a channel.
-- **Caps**: concurrency `min(16, NumCPU-2)` per run (buffered-channel
-  semaphore — capacity is the cap), 1000 agents/run, 4096 items/fan-out.
-- **Resume** (`persistence.go`). Runs persist script + journal under
-  `~/.whip/workflows/{scripts,runs}/`. `resumeFromRunId` replays the longest
-  unchanged prefix of `agent()` calls instantly — cache key is a djb2 hash
-  (`HashString`) of `{prompt, model, effort, phase, schema}`, computed
-  identically to the TS for cross-compatible journals. First edited/new call
-  onward runs live; failed agents re-run.
-- **Background by default + fan-in** (`manager.go`). `Manager.Start` returns
-  a run id immediately; a goroutine runs the script, appends to the journal
-  per settled `agent()`, and on settle `OnSettle` steers the result back into
-  the parent — the same close-`Done` + `Steer` shape background subagents
-  use. Truncated inline results point at
-  `jq '.result' ~/.whip/workflows/runs/<runId>.json`.
-- **Nested `workflow({scriptPath}, args)`** runs one child, one level deep,
-  sharing the parent's limiter/counter/budget via a pointer-shared
-  `sharedState` (only `depth` is per-level).
-- **Stop/cancel.** `Manager.Stop(id)` cancels the run ctx; in-flight agents
-  die with it. A parked script can't be interrupted (goja isn't executing), so
-  the run settles `stopped` without waiting on the promise; workers drain on
-  their own.
-
-New dependency: `github.com/dop251/goja` — pure-Go ES5.1+ engine (no cgo, no
-stdlib alternative). `goja_nodejs` is intentionally not imported (no
-`require`/`process` — the sandbox is a determinism guard, not a runtime).
-
-Tests: `parse_test.go` (meta extraction, pure-literal rejection, determinism
-blocklist, brace-matching, phase validation); `persistence_test.go`
-(`TestHashStringMatchesTS` pins djb2 against the TS values, run/script
-round-trip); `runtime_test.go` (`TestRunSimpleAgent`, `TestRunRequiresAgent`,
-`TestPipelineNoBarrier` — no-barrier ordering, `TestParallelBarrierCollects`,
-`TestParallelNullOnThrow`, `TestAgentCap`, `TestFanoutCap`,
-`TestDeterminismThrows`, `TestResumeReplaysPrefix` — same script+args → 0
-live calls, `TestResumeRunsFromFirstMiss`, `TestNestedWorkflowSharesCaps`,
-`TestNestedWorkflowDepthLimit`, `TestStopCancelsRun`,
-`TestConcurrencyCapEnforced`), all race-clean;
-`internal/agent/workflowtool_test.go` `TestWorkflowToolEndToEnd` drives the
-full path against a fake provider — the `workflow` call starts a background
-run, two `agent()` calls hit the fake, and the completion steers back into
-the parent. `TestWorkflowToolGatedByExperimental` pins the opt-in posture:
-the tool is absent by default, present with `"workflows"`, and absent for an
-unrelated experimental name.
-
-## Models & providers
-
-`internal/config/config.go`, `internal/config/catalog.go` — models route to
-providers; OpenAI-compatible providers use `GET /models` as the source of
-truth for capabilities. Two distinct limits, both honored:
-
-- **Context window (input)** — `Model.Context` (legacy `maxTokens` still
-  parses via `ContextWindow()`), overridden by the provider's
-  `context_length`. Drives the header's `% ctx` and proactive compaction.
-- **Output cap** — `Model.MaxOut`, else the provider's `max_completion_tokens`,
-  else the context window. Sent as the request's `max_tokens` for
-  OpenAI-compatible chat-completions providers; Codex subscriptions omit the
-  rejected `max_output_tokens` field and let the backend enforce its cap.
-
-The catalog (`~/.whip/models.json`) caches each provider's model list with a
-24h TTL and refreshes in the background. When the provider advertises
-per-token `pricing` (inference.net / OpenRouter shape — `prompt`,
-`completion`, `input_cache_read` decimal strings), the catalog caches the
-parsed rates and the status line appends the session's cumulative cost to the
-token spend (`31.1k(20.7k)/360 tok · $0.0134`): fresh input at the prompt
-rate, cached input at the cache-read rate (full prompt rate when none is
-advertised), output at the completion rate — `llm.SessionCost`. Providers
-without pricing hide the segment entirely. Tests: `llm/openai_test.go`
-(`TestSessionCost`, pricing unmarshal), `config/catalog_test.go`,
-`tui/status_test.go` (`TestStatusLineShowsCost`, `TestStatusLineHidesCostWithoutPricing`).
-
-`internal/llm/openai.go` — the streaming client. Typed `HTTPError` (keeps the
-`<status>: <body>` shape), `IsContextLimit()` classifies context-overflow
-errors for the compaction retry, `Stream` returns the message + usage, and
-`Complete` is the non-streaming round-trip used by compaction.
-
-Transient request failures — 429, any 5xx (e.g. a gateway's 524), and
-transport errors — retry with exponential backoff (1s→2s→4s… capped 20s,
-+25% jitter, ctx-cancellable). Budget: `maxRetries` in config (default
-`llm.DefaultMaxAttempts` = 8, `1` disables). A streaming attempt is only
-retried before the first visible delta reaches the UI — after that a retry
-would replay rendered text, so the error surfaces instead. Mid-stream
-provider `error` chunks and 4xxs (including context-limit, which the
-compaction path must see immediately) are never retried. Each retry posts a
-`⚠ request failed (…) — retrying in Ns (attempt N/M)` line via the
-`OpenAI.OnRetry` hook. Tests: `llm/retry_test.go`.
-
-`internal/tui/setup.go` — the first-run setup wizard. When `whip` starts with
-no `~/.whip/config.json` AND no `~/.whip/setup.done` marker
-(`cmd/whip/main.go` checks `config.Exists()`/`config.SetupDone()` before
-`config.Load()` creates the config, and threads the flag into `tui.Run`), a
-short plain-terminal wizard runs after the trust gate and before bubbletea
-takes the terminal — the `checkTrust` pattern, one question per line. The
-marker matters: a subcommand's `config.Load` (`whip auth`/`run`/`mcp`) writes
-the default config without running the wizard, and without the marker that
-would permanently consume the first run. `tui.Run` shares one `bufio.Reader`
-between the trust gate and the wizard — a fresh reader per prompt would lose
-the other's buffered read-ahead when a paste answers several prompts at once.
-
-1. **Provider** — `[1] Inference.net (browser sign-in) · [2] OpenRouter
-   (paste key) · [3] skip`, Enter = skip. `1` runs the device login through
-   `inferencenet.CompleteLogin` with a numbered-list `ChooseFunc` standing in
-   for the TUI picker, then mints the machine key and upserts the provider.
-   `2` validates the pasted key against OpenRouter's `/models` (the
-   `openRouterValidate` seam — an httptest stub in tests) before
-   `UpsertOpenRouter` writes anything. A failed sign-in or bad paste never
-   wedges install: the wizard prints the error and continues.
-2. **Thinking tokens** — `[Y/n]`, Enter = show (today's default; "n" writes
-   `"thinking": false`).
-3. **MCP imports** — claude (`~/.claude.json`, `.mcp.json`) and codex
-   (`~/.codex/config.toml`), both `[y/N]` — Enter = **no**: a first run that
-   only presses Enter imports nothing. The answers always land in the
-   `mcpImport` block as explicit `enabled: bool`s so the install has a
-   record, and ctrl+p → MCPs flips them later.
-
-Non-terminal stdin (piped runs, `whip run`, ACP, tests) skips the wizard
-silently and keeps the shipped defaults — headless launches never see a
-prompt. All writes go through the guarded `Config.Save`. Tests:
-`tui/setup_test.go` (`askYN` parsing incl. EOF/garbage fallback,
-Enter-through opt-out, opt-in, thinking-off persistence, OpenRouter good/bad
-key via the injected validator).
-
-### Codex subscription provider
-
-`"api": "openai-codex-responses", "auth": "codex"` routes a configured
-model through the ChatGPT Codex Responses SSE endpoint without an API key.
-`whip auth codex` implements Codex's device-code sign-in: it shows the
-verification URL and one-time code,
-polls until approval (or ctrl+c), exchanges the server-provided PKCE verifier,
-atomically stores the result in Codex-compatible `~/.codex/auth.json`, and
-then upserts the `codex-subscription` provider plus `gpt-5.5` fallback route **and fetches
-the signed-in account's `/codex/models` catalog**. `/auth codex` does the same
-within an active TUI session, so `/model` shows every available subscription
-model immediately. Neither flow changes the user's default model. The backend
-catalog is authoritative for plan and rollout availability and refreshes on
-the normal 24-hour TTL or `/model refresh`. `internal/codexauth/auth.go`
-derives missing account and expiry
-data from JWT claims, refreshes within five minutes of expiry, and preserves
-unrelated auth-file fields. Tokens are never logged or sent to the conversation.
-
-`internal/llm/codex.go` maps messages, tool calls, tool results, text/thinking
-deltas, usage, and the account-scoped `/codex/models` response to Whip's
-existing provider contract. Codex subscription requests omit
-`max_output_tokens`, which that endpoint rejects; its backend owns the output
-limit. Catalog context, vision, and supported reasoning efforts flow through
-the same picker and resolver as OpenRouter. OAuth credentials are accepted
-only for `https://chatgpt.com/backend-api`.
-
-Retries are one policy for every provider (`internal/llm/retry.go`,
-`retryPolicy`): transient failures (transport errors, 429, 5xx) back off
-exponentially, honour `Retry-After` (a header past 60s marks the error
-permanent — that's a quota, not congestion), report each retry through
-`SetOnRetry`, and stop once output has been shown so nothing replays. Codex adds
-three provider-specific rules on top: a 401 forces one token refresh
-(`codexauth.Source.ForceRefresh`) and resends before any retry budget is spent
-(the Codex CLI shares the auth file and may rotate tokens under us); a 429
-whose body says `usage_limit_reached`/`usage_not_included` becomes a permanent
-`llm.UsageLimitError` carrying the plan and reset time instead of a pointless
-backoff loop; and a mid-stream `server_error` event is retried while other
-failure codes surface. A stream that dies mid tool-call drops that call rather
-than persisting malformed arguments. `codex_live_test.go` (gated by
-`WHIP_LIVE_CODEX=1`) exercises all of this against the real backend through a
-fault-injecting proxy. Tests: `codexauth/auth_test.go`, `llm/retry_test.go`,
-`cmd/whip/auth_codex_test.go`, `llm/codex_test.go`, and `tui/model_cmd_test.go`
-(`TestBuildAgentCodexAuth*`).
-
-`/usage` (`internal/tui/usage_cmd.go`) fetches the subscription's rate-limit
-windows from the backend's usage endpoint with the stored credentials and
-prints one line per window (used %, reset countdown). It applies only to
-subscription providers — API-key providers bill per token — and says so when
-no Codex provider is configured. Pickers label the Codex endpoint "ChatGPT
-Codex subscription" instead of its raw `chatgpt.com/backend-api` URL. On the
-subscription, unpinned subagents default to `gpt-5.6-luna`
-(`config.CodexDefaultTaskModel`); any configured or catalog model can be pinned
-instead via ctrl+p › Subagent model.
-
-`whip auth <provider> logout` (`openrouter` or `codex`) removes the provider
-entry, every model route through it, any default/compact/task pin naming it,
-and its cached catalog (`config.RemoveProvider`). Removing the last provider
-persists as an intentionally empty config. Codex logout leaves
-`~/.codex/auth.json` in place because the Codex CLI shares it; `codex logout`
-revokes it. `whip auth --help` prints the provider/subcommand summary.
-
-`cmd/whip/auth.go`, `internal/config/openrouter.go`, `internal/config/codex.go`,
-`internal/tui/auth_cmd.go` — one-command provider onboarding. `whip auth openrouter [--env] [<key>]` takes
-the key from arg / `OPENROUTER_API_KEY` / a masked prompt, **validates it
-against the live API before writing anything** (a rejected key leaves no
-trace), upserts the `openrouter` provider into config (literal `apiKey` by
-default — config is 0600; `--env` stores `apiKeyEnv: OPENROUTER_API_KEY` and
-offers to append the export to the shell rc), and pre-fetches the model
-catalog so `/model` lists the entire OpenRouter catalog immediately — every
-model usable with zero per-model config via catalog resolution. In-session,
-`/auth openrouter` (bare) repurposes the input box as a **masked** one-shot
-prompt (the `namePrompt` machinery with a `mask` flag — the key never
-echoes, and the inline-key form is kept out of ↑-recallable input history);
-a session already routed through openrouter is hot-rebuilt with the new key
-so re-authing fixes a 401 without a `/model` round-trip. `whip auth codex` and
-`/auth codex` use the subscription device flow above and pre-fetch the
-account-scoped Codex catalog, so its models use the same zero-config picker
-path. Tests:
-`config/openrouter_test.go` (upsert modes, idempotence, `TrimKey`),
-`cmd/whip/auth_test.go` (httptest fake OpenRouter — good key wires provider
-+ catalog + makes catalog models resolvable, bad key writes nothing,
-re-auth keeps other providers/models), `config/codex_test.go` (fallback route,
-preservation, idempotence), `cmd/whip/auth_codex_test.go` (auth configures Codex
-and caches its catalog), and `tui/auth_cmd_test.go` (usage, masked prompt
-open/cancel, good/bad result, live-session rekey, Codex account catalog picker).
-
-`cmd/whip/auth_inferencenet.go`, `internal/inferencenet/`,
-`internal/config/inferencenet.go`, `internal/tui/auth_inferencenet_cmd.go` —
-first-class Inference.net auth. `whip auth inference-net login` runs the
-**OAuth device-authorization flow** against the relay
-(`internal/inferencenet/device.go`): request a code, open the dashboard's
-approval page in the browser, poll until approved — then select the account's
-primary project and **mint a machine API key** (`whip-<host>-<timestamp>`)
-via the relay's tRPC (`apiKey.create`), all without the user touching a key.
-State lands in `~/.whip/inference-net.json` (0600 — session token + machine
-key, kept out of config.json); the provider entry carries no key material and
-resolves the machine key from that file at request time (`Provider.ResolveKey`
-fallback, ahead of the legacy `~/.inf/config.json` read). BYOK is supported
-too: `login --key <k>` / `--env` validates against the gateway (`GET /models`)
-before writing. Subcommands: `status`, `logout` (archives the machine key +
-closes the remote session), `key rotate`. The tRPC client
-(`internal/inferencenet/trpc.go`) is stdlib-only — the superjson transport is
-plain JSON plus a `{"json": …}` envelope for the shapes whip touches. The
-provider key was renamed `inference` → `inference-net`; `Config.normalize`
-migrates old configs (provider, model routes, default/compact provider)
-transparently on load. Tests: `inferencenet/inferencenet_test.go` (stubbed
-relay: full device login + key mint, store round-trip, key validation),
-`config/inferencenet_test.go` (rename migration, upsert modes, key fallback),
-`cmd/whip/auth_inferencenet_test.go`, `tui/auth_inferencenet_cmd_test.go`.
-
-## The TUI
-
-`internal/tui/tui.go` — bubbletea fullscreen alt-screen. Highlights:
-
-- **ctrl+c is a two-stage key.** While busy it interrupts the turn (first press
-  arms, second cancels). While idle it quits — but only on a **second press
-  within a 2-second window**, so a stray ctrl+c can't nuke the session. The
-  hint `press ctrl+c again to quit` shows while armed.
-  Tests: `quit_confirm_test.go`.
-- **Collapsible tool results, claude-style.** A completed call renders as a
-  `● Verb(subject)` header (`internal/tui/toolrow.go` — `Update(path)`,
-  `Bash(cmd)`, `Subagent(description)`; the collapse never loses what the call
-  was about) over its result in a `blockTool` block: first line under a `⎿`
-  marker, collapsed to 5 lines with a `… +N lines` hint, red when the result
-  is an error. **Write/edit results render their diff**: the tools emit
-  line-numbered fenced diffs (`editDiff` with a startLine; `write` diffs
-  overwrites against the old content from line 1), and the TUI shows
-  `⎿ Added N lines, removed M lines` over red/green full-width bands with
-  absolute line numbers — the diff IS the collapsed view (capped at 30 rows),
-  and trailing LSP diagnostics stay visible under it. Resumed sessions
-  re-render call headers and diffs from the stored messages. `ctrl+e` toggles
-  the most recent (with no tool block to toggle, ctrl+e falls through to the
-  textarea's line-end binding — readline behavior); clicking a block
-  expands/collapses it (each block tracks
-  its rendered line range `y0`/`y1` so the click row maps through the
-  viewport offset). Blocks re-render at the current width on terminal resize.
-  Tests: `tool_expand_test.go`, `resize_test.go`, `toolrow_test.go`
-  (headers, extract/counts, colored diff render, preview cap, resume),
-  `tools_test.go` — `TestEditDiffLineNumbers`, `TestWriteToolDiffOnOverwrite`.
-- **Markdown.** Assistant messages render through glamour; streamed in-flight
-  text stays plain and renders on flush. `markdown.go`.
-- **Clickable links (OSC 8).** URLs and existing local file paths in the
-  transcript are terminal hyperlinks — cmd/ctrl-click opens them, no mouse
-  plumbing in whip (the terminal owns the click). `links.go` runs two passes
-  over glamour's output: `hyperlinkGlamourLinks` rewires rendered
-  `[label](url)` links so the href atom becomes the OSC 8 target on the
-  label instead of a second visible copy (bare autolinks become clickable in
-  place), and `linkifyRenderedFilePaths` wraps bare `path/to/file[:N]` tokens
-  in `file://` links — gated on the file existing on disk, resolved against
-  the process CWD. User-input echoes (submit, resume replay, steer) get the
-  same file linkification on the raw text. Unsupported terminals ignore
-  OSC 8 and show the underlined text as before; copy/selection strips the
-  sequences. Tests: `links_test.go` (ref regex, target gating, glamour
-  rewiring incl. wrap-split links, end-to-end renderMarkdown, user echo).
-- **Command palette** (ctrl+p) with sub-panels for model/effort/goal/compaction
-  and ←/→ steppers for the compaction level — `palette.go`.
-- **UI mode** (`UIMode` config key): `"opencode"` (the default on a fresh
-  install) selects the full-screen, sidebar-backed opencode render mode
-  (`internal/tui/opencode.go`); `""` is the classic inline whip look. The
-  default is seeded by `config.Default()` and only applies on first run — an
-  existing config's `UIMode` (including `""` saved by a user who switched to
-  classic) is honored as-is on reload. Toggle live with ctrl+p → "UI mode"
-  (`setUIMode`, which persists the choice).
-- **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
-  selection works, with it on shift-drag selects. `"mouse": false` in config
-  disables capture at startup.
-- **Newline keys.** `ctrl+j` / `shift+enter` / `alt+enter` insert a newline
-  instead of submitting. whip pushes the kitty keyboard-enhancement
-  **disambiguate** flag only (`CSI > 1 u`, DCS-passthrough-wrapped inside
-  tmux; applied pre-Run inline, post-Init in opencode's alt screen) so
-  terminals that support it report shift+enter as a distinguishable CSI
-  rather than a plain CR. Only flag 0x1 is pushed: flag 0x2 (report event
-  types) makes some terminals report ctrl+letter as CSI-u, which bubbletea
-  v1.3.10 can't decode, killing ctrl+a/ctrl+e. `isShiftEnterSeq` recognizes
-  both the current `?CSI[bytes]?` and the legacy `unknown csi sequence:`
-  renders, across the CSI-u, modifyOtherKeys, and kitty-57441 encodings.
-  Inside **tmux** (verified on 3.6), a modified key reaches a pane only when
-  the server option `extended-keys` is on AND the pane has requested xterm
-  modifyOtherKeys (`CSI > 4;1 m`) — tmux ignores the kitty push for that, and
-  the client's `extkeys` terminal-feature is not needed. whip does both at
-  startup: it runs `tmux set -s extended-keys on` when off (runtime only,
-  never `~/.tmux.conf`; not restored on exit so concurrent whips don't switch
-  it off under each other) and sends the mode-1 request to its pane. Mode 1,
-  never 2: mode 2 re-encodes ctrl+letter and kills ctrl+a/e. The
-  `extended-keys-format` stays xterm (csi-u broke drag-to-copy). If the set
-  fails (no tmux on PATH), whip prints the one-line `~/.tmux.conf` fix and
-  falls back to ctrl+j / alt+enter. Over **mosh** none of this helps — mosh
-  collapses S-Enter before tmux/whip see it — so whip detects mosh and warns
-  (use `ctrl-j`/`alt+enter` there).
-- Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
-  `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
-  picker, `/effort` reasoning levels — see the roadmap for the full list.
-- **Typing steers a turn that's only waiting on subagents.** When a turn is
-  running but its only in-flight tool calls are subagents
-  (`Agent.WaitingOnSubagents` — the agent tracks in-flight tool names in
-  `runTools`), typed input routes to `Agent.Steer` instead of the busy queue:
-  it reaches the model at the next loop boundary as a mid-turn correction
-  rather than queueing behind the whole turn (waiting on a subagent isn't real
-  work the message would interrupt). Any other in-flight tool (a bash, an
-  edit) keeps the queue behavior. The input placeholder reflects the routing
-  live (`syncInputPlaceholder`, consulted in `View`): "waiting on subagents —
-  type to steer this turn" vs "busy — type to queue". Tests:
-  `internal/agent/busysteer_test.go` (`TestInFlightToolsTracking`,
-  `TestWaitingOnSubagentsGating`,
-  `TestWaitingOnSubagentsDuringForegroundSubagent` — a real turn blocked on a
-  live foreground subagent reports waiting, then flips false),
-  `internal/tui/queue_test.go` (`TestBusyPlaceholderReflectsRouting`).
-- **Built-in terminal themes.** Bare `/theme` opens a scrollable picker with
-  live preview; wide terminals show a color-role sample beside the theme list,
-  while narrow terminals keep the compact list. Enter persists the selected
-  theme and escape restores the prior choice. `/theme <name>` selects the same embedded catalog directly. `auto`
-  follows terminal appearance, while `light`, `dark`, and named themes share
-  semantic foreground text (including input, transcript, muted/status, and
-  selected-row text), Markdown, code, diff, border, and surface colors. Theme
-  changes refresh stateful input/spinner styles and invalidate transcript and
-  Markdown/Chroma caches without requiring a restart. The catalog includes Seti,
-  Tokyo Night, and Neon City Dark alongside the existing palettes. Custom theme
-  files are intentionally not loaded.
-- **Settings commands run mid-turn.** `/theme`, `/mouse`, `/effort`, `/subagents` (alias `/tasks`),
-  `/help`, `/cd`, `/pwd`, and the non-submitting `/goal` forms (bare, `clear`,
-  `rounds`) execute immediately while busy instead of queueing — queued text
-  is sent to the model verbatim after the turn, which is nonsense for a
-  settings change. The `busyCmd` allow-list gates this; everything else
-  (`/model`, `/goal <text>`, plain messages) still queues. These commands only
-  touch TUI-local state or fields read at the *next* request, and their
-  confirmation notes append as transcript blocks safely behind the streaming
-  one. Tests: `queue_test.go` (`TestBusyCmdAllowList`, `TestEnterWhileBusy*`).
-- **`!` shell escape, `/cd`, `/pwd`** — `shell.go`. An input starting with
-  `!` runs locally via the same `bashrun` runner as the agent's bash tool
-  (120s cap, `tools.TruncateTail`, `(exit …)` markers) — no model turn, no
-  busy state, runs immediately even mid-turn, and queued `!` lines execute
-  when the queue drains instead of being submitted to the model. The command
-  runs on a goroutine and lands via `shellDoneMsg` (the UI never blocks), the
-  output lands in the transcript as a collapsed tool block **and** in the
-  conversation so the model sees it at the next request: idle via
-  `Agent.AppendUser` (non-authored `$ <cmd>` user message), mid-turn via
-  `Agent.Steer` (mutex-guarded, injected at the next loop boundary with the
-  usual `(steered)` echo) — the turn goroutine owns `Agent.Messages` while
-  busy. Esc stays bound to the turn; a running escape isn't cancellable (the
-  120s cap bounds it). `/cd [dir]` changes whip's process cwd (an in-flight
-  command keeps its already-resolved cwd, POSIX; the next spawns, relative
-  tool paths, and the `@` index follow); bare prints it, `~` expands. `/pwd`
-  prints it. Port of opencode's `session.shell` minus the shell-mode chrome —
-  see the `ponytail` note in `shell.go`.
-  Tests: `shell_test.go` (output/message routing idle+busy, queue-drain,
-  truncation, echo rules, cd/pwd incl. `~` and bad dirs).
-- **`/goal-from-context [n]`** distills the last *n* conversation messages
-  (default 8, clamped to the available history) into a detailed goal — a
-  concrete outcome line plus a bullet list of checkable completion criteria —
-  with one non-streaming call on the current model (the compact-model override
-  is deliberately ignored), then sets it exactly like `/goal <text>` and starts
-  the goal loop. The transcript note states the exact window used. Prompt
-  building is pure (`agent.BuildGoalFromContextPrompt` over the window from
-  `agent.GoalFromContextMessages`); the TUI command mirrors `/compact`'s
-  goroutine + `goalFromContextMsg` pattern, refusing while busy and running
-  inline when headless. Tests: `goal_test.go` (`TestGoalFromContext*`).
-  User-facing walkthrough: [goal-from-context.md](goal-from-context.md).
-
-## Conversation time travel
-
-`internal/tui/rewind.go` — **double-esc while idle** opens the rewind picker:
-the conversation's authored user messages, newest first, with the transcript
-**live-scrolling** to the selected message as you browse (opencode's
-`dialog-timeline.tsx` `onMove`, and `msgBlock` maps conversation index →
-transcript block so the jump is direct). enter rewinds to just before the
-selected message: `Agent.Messages` is truncated, the clipped tail becomes an
-in-memory **redo stack** (`m.future`, oldest first), the DB rows are deleted
-(`Store.DeleteFrom`), the transcript is rebuilt via `seedTranscript`, and the
-rewound message's text lands back in the input for editing (opencode's undo:
-"the input restore is what makes it feel good"). Cuts sit at user-message
-indices, so a tool_call is never orphaned from its results.
-
-**Forward travel:** reopening the picker while rewound lists the clipped
-messages dimmed, marked `(rewound)`; enter on one pulls the tail back in and
-re-saves it. Submitting new input while rewound discards the redo stack.
-Compaction also drops it (a stale redo would resurrect summarized history).
-esc cancels and restores the scroll position. The redo stack is in-memory
-only by design: quitting while rewound leaves the DB at the rewound point.
-
-`internal/tui/fork.go` — **`/fork [name]`** copies the conversation into a
-**new** session (one `INSERT…SELECT` in `Store.Fork`; the original is
-untouched and stays under `/resume`) and switches to it. Bare `/fork` opens an
-inline name prompt prefilled with `<title> (fork #N)` (`Store.ForkTitle`
-increments past existing forks and unwraps nested suffixes, opencode's
-`getForkedTitle`). **`f` in the rewind picker** forks from the selected
-message instead — one picker, two destinations. Forking while rewound pulls
-the redo stack up to the picked point into the copy. **Mid-turn** (`busyFork`)
-the copy of the stored rows lands immediately — the confirmation prints the
-`whip --resume <id>` line so the clone can be opened in another whip process
-right away — and the switch defers to `turnDoneMsg` (`pendingForkID` →
-`switchToForked`), since the turn goroutine owns `Agent.Messages` and the
-session id until then; the original keeps the finished turn, queued messages
-are dropped (they named the old conversation), and the goal carries over via
-the copy's stamped row. **`/rename [title]`** retitles the current session
-(`Store.SetTitle`); bare opens the same inline prompt prefilled with the
-current title. Both prompts stash and restore any in-progress draft. /rename
-refuses to run mid-turn; /fork never queues. Palette entries:
-"Rewind conversation", "Fork session", "Rename session" under Session.
-
-Tests: `rewind_test.go` — double-esc opens/cancels, busy esc still
-interrupts, truncation + input restore + DB rows deleted, forward travel,
-partial-rewind DB prefix, tool-call-pair safety, stale esc-arm across modal
-dismiss, draft preservation, resume-after-rewind. `fork_test.go` (session) —
-prefix/full copy, fork-title numbering, rename, DeleteFrom. `fork_test.go`
-(tui) — fork with arg, bare prompt suggestion + cancel, fork from the picker,
-fork while rewound into the redo stack, busy fork (immediate copy + deferred
-switch + double-fork refusal + nothing-persisted case), rename both paths.
+# Feature map
+
+whip is a local recursive coding-agent runtime. This page describes the
+current architecture; package and test names are included where they make a
+contract easier to locate.
+
+## Recursive agent runtime
+
+- One `AgentSession` implementation is used for roots and descendants
+  (`internal/daemon/recursive_runtime.go`).
+- Agents are definitions, not daemon wiring. `internal/agentdef` registers
+  `coding` and `junior-developer`; each names its persona and rules,
+  project-file, skill, and standing-instruction discovery, host modules,
+  capabilities, model and compaction defaults, and surface flags. A session
+  records its definition id at creation (`session.create.definition`,
+  `whip run -agent`, `whip --agent`; default `coding`), restores it on restart,
+  copies it on fork, and cannot resume under a different one. The prompt
+  composer derives the module catalog from the definition, the kernel installs
+  only its modules, the host refuses calls to any other module, and a new
+  root's grants cover only its capabilities. A child's effective definition is
+  its parent's narrowed by the spawn arguments. Definitions without the goal
+  loop reject goal commands (`TestDefinitionPromptGolden`,
+  `TestJuniorDeveloperSessionIsConstrained`, `TestChildDefinitionNarrowsParentDefinition`).
+- Definitions are also authored outside the binary. `definitions.register`
+  stores a JSON document under its content revision (SHA-256 of the canonical
+  encoding); `definitions.get` and `definitions.list` read built-ins and
+  registrations together; `session.create.definition` resolves a registered id
+  to its latest revision and pins it, so a daemon that no longer knows the
+  revision refuses the session rather than running a different agent. The
+  TypeScript SDK authors them with `defineAgent` and `tool`
+  (`@whip/sdk/agents`), and the JuniorDeveloper fixture is written both ways:
+  `internal/agentdef/testdata/junior-developer.json` must equal the Go built-in
+  and the SDK output (`TestTypeScriptJuniorDeveloperMatchesBuiltIn`,
+  `examples/agents`).
+- A definition's `tools` are custom operations served outside the daemon. The
+  kernel installs them as the reserved `tools` module (`tools.<name>`, keyword
+  arguments), the runtime guide catalogs them from their JSON Schema, and the
+  agent holds a `tools` grant beside files, shell, and MCP. A call is admitted
+  through the capability ledger, validated against the schema, and handed to
+  the executor bound for the definition revision (`client.agents.serve`); the
+  default timeout is 5 minutes and the ceiling 15. No executor fails the call
+  after a bounded wait, a deadline or cancelled turn settles it with
+  `tool.cancel`, and a disconnected executor's calls fail and are never
+  replayed (`TestCustomToolInvocationRoundTrip`, `TestCustomToolFailureSemantics`).
+- A definition may declare an output contract: `output` is an object JSON
+  Schema the final assistant message must match, and each tool may declare
+  `output_schema`. The runtime guide states both (the tool catalog shows
+  `-> {fields}`), the daemon validates every tool result and the final
+  message, returns one mismatch to the model for correction through the same
+  ephemeral notice channel hooks use, fails the turn on a second with
+  `output_invalid`, and returns the validated value beside the text in the
+  submit result (`TestOutputContractValidatesTheFinalMessage`,
+  `TestCustomToolOutputSchemaIsEnforced`).
+- `agents.spawn(definition="name")` selects a named child of the parent's
+  definition; its instructions, modules, capabilities, tools, budgets, and
+  report mode apply as defaults and explicit arguments still only narrow.
+  `tools=[...]` narrows custom tools like `capabilities` narrows authority; the
+  narrowing is a grant and survives restart (`TestNamedChildDefinitionsApplyAndRestore`,
+  `TestCustomToolChildNarrowingIsEnforced`).
+- A definition's `hooks` let its executor observe and gate what sessions do.
+  `before_tool` runs before every host operation a cell calls (narrowable to
+  named operations) and may deny with a reason or rewrite the arguments, which
+  then take the same validated path fresh arguments do; `before_spawn` runs
+  after a spawn request is parsed and resolved and may deny or rewrite the
+  request, which is resolved again so it cannot widen; `turn_start` contributes
+  ephemeral context to each turn and never gates. Every reply field is
+  optional and an empty reply allows unchanged. A required hook that goes
+  unanswered (no executor, timeout, disconnect) or whose handler throws denies
+  the operation; an `optional` hook proceeds with a notice. Hooks only
+  narrow: they never grant authority the ledger denies and never skip the
+  user's permission mode. Deny, rewrite, and skip emit `stream.hook.decision`,
+  and rewrites and skips add a bounded notice to the turn's next provider
+  request so the model learns what ran (`TestBeforeToolGatesEveryHostOperation`,
+  `TestBeforeSpawnSeesResolvedChildAndCannotWiden`, `TestTurnStartContributesEphemeralContext`).
+- JuniorDeveloper is a deliberately limited agent for exercising those seams:
+  seven modules (`context`, `files`, `shell`, `state`, `artifacts`,
+  `permissions`, `user`), the `read`, `write`, and `shell` capabilities, no
+  skill catalog, and no goal loop. It cannot delegate, reach MCP, or drive a
+  browser or the desktop.
+- `run.configure` state (system override, turn cap, cache key) belongs to the
+  session and is re-applied when a model change or reload replaces the runtime
+  (`TestRunConfigurationSurvivesModelReplacement`).
+- Every provider request exposes exactly `rlm_exec`; MCP discovery cannot
+  widen the model-facing catalog (`internal/agent/rlm_test.go`).
+- `agents.spawn` creates a retained asynchronous child with the same interface
+  as its parent. `inspect`, `list`, `stop`, and `delete` provide lifecycle
+  control.
+- Omitted capabilities inherit; explicit capabilities narrow. Budgets roll up
+  through ancestry and enforce tokens, cost, elapsed time, depth, active
+  children, and concurrent turns.
+- Worker capacity is reserved before child persistence. Rejection leaves no
+  child record (`TestRecursiveSpawnRejectsCapacityBeforeAdmission`).
+- The default recursion limit is root → child → grandchild.
+- Restart reconstructs retained nodes, transcripts, authority, route, and
+  kernels (`TestRecursiveRuntimeRestoresRetainedAgentAndTranscript`).
+
+## Selectable execution engines
+
+Each root session chooses `starlark` (the default) or `quickjs` (JavaScript).
+The choice is immutable and inherited by every descendant, preserved by forks,
+and asserted on an explicit resume. `rlm.defaultEngine` affects future sessions.
+CLI creation uses `--rlm-engine`; web and mobile creation use the daemon's
+advertised engine list. Retry journals retain the original choice.
+
+`internal/rlm` owns both trusted bundled engines, private worker protocol 2,
+and one daemon-hosted module registry. QuickJS runs bundled WASM in wazero
+inside the existing stripped-environment worker subprocess.
+
+- Each kernel serializes its cells so small globals persist within a worker.
+- Cells are bounded by engine compute, host requests, memory, output bytes,
+  and frame bytes. JavaScript supports top-level await and bounded asynchronous
+  host calls; `rlm.maxConcurrentHostCalls` defaults to 16 (Starlark stays serial).
+- The worker has no ambient daemon/provider credentials or host I/O API.
+- Completed cells save engine-qualified checkpoints. Starlark retains its
+  tagged partial codec; QuickJS restores the settled heap, including closures,
+  lexical bindings, classes, and cycles. Active operations are not checkpointed.
+- Large cell results and host outputs become content handles.
+- Result version 2 carries engine/language, explicit value presence, and
+  engine-specific metrics. SDK, web, mobile, and TUI accept legacy Starlark
+  history; JavaScript completion does not depend on Starlark step counts.
+- Public protocol major 6 requires compatible clients and advertises the
+  `execution_engines` capability. The language picker is a creation control.
+
+Implementation and validation: `internal/rlm/quickjs_test.go`,
+`internal/session/execution_engine_test.go`,
+`internal/daemon/execution_engine_test.go`, SDK execution tests, web creation
+and REPL tests, mobile creation tests, and `internal/tui/repl_result_test.go`.
+See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints) and
+the [benchmark workflow](../evals/runtime-ab/README.md).
+
+Available modules are summarized in [tools.md](tools.md).
+
+## Focused context
+
+- Full history and oversized inputs are stored behind content handles.
+- A request carries at most four recent user/assistant exchanges and one
+  bounded summary.
+- `context.inspect/search/read` returns source metadata and byte spans.
+- Proactive and reactive compaction protect the provider context window.
+- Large values are immutable, content-addressed, and separately authorized.
+
+The deterministic evaluation expands a corpus above 500 KB and proves the
+answer can be found through bounded reads without copying the corpus into the
+root prompt (`evals/rlm`).
+
+## Messages and collaboration
+
+- A child’s ordinary assistant response is local to its transcript.
+- `messages.send(delivery="steer"|"queued"|"next_turn")` stores a durable
+  body; readiness is derived from pending mail, not a separate wake row.
+- `messages.list/read/complete/defer` make body admission and lifecycle
+  (`pending → delivered → done`) explicit; delivery is committed with the turn.
+- Bursts retain every message and derive one ready signal
+  (`TestMailboxBurstDerivesOneReadySignal`); a turn receives one bounded digest.
+- Evidence handles can be granted to a direct relative with the message.
+- Child turn results arrive as `agent.completed|failed|cancelled` messages
+  with a short preview and evidence handle; they do not inject child output.
+- Private state is agent-scoped; blackboard state is shared and supports
+  append, compare-and-swap, history, and subscriptions.
 
 ## MCP
 
-`internal/mcp/` — whip is an MCP client (stdio + streamable HTTP) and, via
-`whip mcp serve`, an MCP server. Three sources of server config merge with
-whip's own on top (per-name, whole entry): a project `.mcp.json`
-(claude-style: `{"mcpServers": {name: {type, command, args, env, url,
-headers}}}`), `~/.codex/config.toml` `[mcp_servers.*]` (codex-style), and the
-`"mcp"` block in `~/.whip/config.json`. Claude `type: sse` imports as
-disabled-with-note (legacy transport); `${VAR}` references in env/headers
-expand from whip's environment.
+- Stdio and streamable HTTP servers are discovered from five sources merged
+  by name with this precedence: native WHIP configuration, the project's
+  `.mcp.json`, the user's Codex file, the user's global Claude file, the
+  user's OpenCode files (`internal/mcp/config.go`, `TestMergePrecedence`).
+  Each import source has its own gate; the project source is off unless
+  enabled because a repository author wrote it (`TestLoadMergedFilteredPolicy`).
+  OpenCode's three global files merge in its own order and an `oauth` entry
+  imports disabled with a sign-in note (`internal/mcp/opencode.go`,
+  `TestParseOpenCode`, `TestLoadMergedOpenCode`).
+- Only native configuration is trusted. `whip mcp import` writes native,
+  trusted entries (`cmd/whip/mcp_import_test.go`). The web and desktop app
+  reach the same state through the import screen: a host that has servers
+  configured for other agents is offered them once on New session (after a
+  provider is ready) and again from Settings › Agents & execution › MCP
+  servers; the list shows every discovered server once with a state
+  (importable, already in Whip, off in its source, excluded by your rules,
+  unsupported sign-in), Import writes the ticked names as native entries and
+  Skip records the answer in `mcpImport.offered`. The daemon reads files only
+  for this and puts no command line, env or header on the wire
+  (`internal/mcp/import.go`, `internal/daemon/mcp_import_service.go`,
+  `packages/app/src/mcp-import.tsx`; `TestCandidatesStatesAndOrder`,
+  `TestApplyWritesNativeEntries`, `TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer`,
+  `packages/app/test/{mcp-import,settings-mcp-import,welcome}.test.tsx`).
+  The CLI shares the core and no longer copies servers a source turned off or
+  ones whip cannot run. The definition's server
+  list is applied by one selection step for startup, reload and attachment
+  (`mcp.Select`, `TestSelect`); `mcp.attach` is additive and untrusted, and a
+  name outside the list or belonging to a native server becomes a blocked row
+  (`TestMCPAttachmentIsAdditiveAndBounded`).
+- Rows on that screen carry a logo. The app bundles 199 marks keyed by
+  registrable domain (`packages/app/src/assets/mcp-brands.json`, the MCP
+  vendors in Executor's catalogue, built by `scripts/mcp-brands.mjs`); the
+  daemon derives that key from the server URL (`brandKey`,
+  `internal/mcp/import.go`, `TestBrandKey`) and, for domains the bundle
+  lacks, `mcp.brand.icons` asks DuckDuckGo's icon endpoint once per domain
+  and caches the answer under `~/.whip/icons` with a byte cap, a sniffed
+  type allowlist, no redirects and no credentials (`internal/brandicon`,
+  `TestResolveCachesHitsAndMisses`, `TestResolveRefusesWhatIsNotASmallRasterImage`,
+  `TestResolveFetchesAConcurrentKeyOnce`). `brandIcons: false` in the host
+  config, or the "Server logos" switch under Settings › Agents & execution ›
+  MCP servers, keeps every lookup on the host
+  (`TestMCPBrandIconsHonourTheHostSwitch`). Anything unresolved shows a
+  tinted monogram (`packages/app/src/mcp-brand.tsx`,
+  `packages/app/test/mcp-brand.test.tsx`). Local hosts, IP literals and
+  tailnet names never leave the machine.
+- Root and child kernels use `mcp.search/describe/list_servers/list_tools/call`;
+  search ranks the daemon's cached catalogs across servers, describe returns one
+  schema, and listings are windowed and schema-free by default
+  (`internal/mcp/search.go`, [MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
+- Status rows distinguish `blocked` (policy-filtered or refused at attach) and
+  `unreadable` (a discovery source that failed to parse) from live servers;
+  the web panel, TUI palette and `whip mcp list` derive their controls from
+  those states (`TestSourceErrorsAreStatusRows`, `mcp_palette_test.go`,
+  `packages/app/test/inspector.test.tsx`).
+- Secrets resolve once at connect for both transports, bounded by the
+  connect's context (`connectSecrets`, `TestResolveSecretContextCancelled`);
+  remote credentials never follow a cross-origin redirect
+  (`TestRemoteRedirectKeepsCredentialsOnOrigin`); auto-reconnect re-arms after
+  a failed redial until its three-attempt cap
+  (`TestManagerAutoReconnectRecoversAfterFailedRedial`); a server that withholds
+  the end of its standalone stream's header block (Executor 1.0.0) cannot stall
+  connect past a two-second grace, and its events still arrive if the stream
+  completes later (`TestStandaloneStreamWithoutHeaderTerminatorDoesNotStallConnect`,
+  `TestStandaloneStreamCompletingLateStillDeliversNotifications`).
+- Live MCP refresh is additive and session-scoped: root agents can call
+  `mcp.refresh()` to discover newly configured host servers without rebuilding
+  their runtime, and `mcp.reconnect(server="paper")` to retry an existing
+  enabled server. Both require an active MCP capability; children cannot mutate
+  root-owned connections and retain their original tool-grant snapshots.
+  Refresh keeps healthy and disabled connections, applies the definition's
+  server filter, and reports added/existing/changed names with current server
+  states, blocked entries, and source errors. Each refresh replaces stale
+  discovery diagnostics while preserving attachment refusals. Changed existing
+  configuration needs a runtime reload; reconnect does not adopt it. Connection requests do
+  not imply readiness or replay earlier calls, and call approval stays enforced
+  (`internal/daemon/mcp.go`, `internal/mcp/manager.go`,
+  `internal/daemon/recursive_runtime.go`).
+  The SDK exposes `session.mcp.refresh()`. Settings imports refresh the focused
+  conversation only when it belongs to the selected execution host; imports
+  remain saved if refresh fails. Integrations also offers manual refresh for
+  CLI/external additions. Other live conversations are untouched, and older
+  daemons retain the import-only flow (`packages/app/src/mcp-import.tsx`,
+  `packages/app/src/details/integrations.tsx`). Regression coverage includes
+  `TestMCPRefreshSessionIsolationAndFiltering`,
+  `TestMCPRefreshReplacesDiscoveryDiagnostics`, the both-engine recursive-host
+  refresh tests, and the settings MCP import/inspector component tests.
+- Provider tool catalogs remain stable at one tool while MCP servers change.
+- Connections have startup/call deadlines, per-server serialization,
+  reconnect generation guards, complete cursor-paged tool discovery, and
+  results that keep structured content and store binary parts as handles.
+- Remote HTTP requests remain tied to the transport lifetime through SSE body
+  reads, including startup before a session is published. Retirement cancels
+  stalled streams and permits a one-second best-effort session DELETE. Healthy
+  notification streams survive startup completion and catalog refresh
+  (`internal/mcp/http_transport.go`, `http_transport_test.go`).
+- `whip mcp serve` is a daemon protocol tool host, not a model agent.
+- Secrets stay references: `$VAR`/`${VAR}`/`!cmd` in env and headers resolve
+  at connect time (`config.ResolveSecret`/`ResolveEnvMap`/`ExpandTemplate`)
+  inside the daemon's environment — run `whip daemon restart` after exporting
+  new vars. Codex `bearer_token_env_var` imports as `Authorization: Bearer
+  $VAR`; `http_headers`/`env_http_headers` import as headers.
 
-- **Manager** (`manager.go`) — one lifecycle goroutine per server; a
-  `ready chan struct{}` closes once on first settle (the BackgroundTask
-  close-to-broadcast pattern), so tool calls block only on *their* server and
-  startup never waits. Statuses: connecting → ready/failed (plus disabled);
-  a dropped session flips to failed via a generation-guarded watcher
-  (opencode's client-identity check, `mcp/index.ts:443`). Connect/list bounded
-  by `startupTimeout` (default 30s — opencode's DEFAULT_TIMEOUT).
-- **Tool bridge** — listed tools become agent tools named
-  `mcp__<server>__<tool>` (claude-code convention; double underscores keep
-  the split unambiguous since tool names contain `_`). Unsafe server-name
-  chars get an fnv hash suffix so sanitized names can't collide (an opencode
-  weakness). Calls serialize per server (1-cap channel — many stdio servers
-  are single-request), run under `toolTimeout` (default 60s), and respect
-  ctrl+c via ctx. Results flatten to text: images/audio/binary resources →
-  placeholders, `structuredContent` → JSON when there's no text, `IsError` →
-  `"Error: …"` fed back to the model — a broken MCP tool never kills a turn.
-  Output capped at the shared 50KB truncation. MCP tools take no file locks
-  and run in parallel with everything.
-- **Late arrivals** — `Manager.SetOnChange` pushes refreshed tool sets into
-  `Agent.SetMCPTools` (mutex-guarded; a settle mid-turn can't race the slice
-  a request reads), so a server connecting after turn 1 appears without a
-  restart.
-- **TUI** — `/mcp` shows the status table (`● N tools` / `✗ err` /
-  `○ disabled` / `◌ connecting…`); `/mcp <name> reconnect|enable|disable`
-  reconnects live or persists a toggle through the guarded `Config.Save`.
-- **Palette panel** — ctrl+p → "MCPs" drills into a sub-panel (the `panelMCP`
-  kind) with two source-toggle rows (`Import Claude MCPs`, `Import Codex
-  MCPs`) then one row per live or policy-blocked server. enter/←/→ toggles:
-  source rows go through `mcpSetImport`, server rows through the same
-  `mcpSetEnabled` as `/mcp`. Toggling rebuilds the rows in place so the
-  checkbox flips visibly. A source with `only`/`exclude` filters notes
-  "(name filters set — edit config)" instead of pretending the toggle is
-  complete.
-- **Live source toggles, no restart** — `mcpSetImport` persists the gate then
-  applies it in place: off calls `Manager.RemoveServers` (sessions close, the
-  gen bump stops auto-reconnect and stale watchers, tools leave
-  `Agent.SetMCPTools` on the next `fireOnChange`); on calls
-  `Manager.AddServers` (lazy-with-kickoff connects like startup, skipped for
-  names already live so whip-owned shadow entries win). Both refresh
-  `SetBlocked` so `/mcp` stays accurate. With no manager yet (nothing
-  configured), enabling builds one on the spot so imports can be switched on
-  from zero. Every `Manager.servers` map read (Tools/Statuses/Config/Disable/
-  Enable/Reconnect/InstructionsBlock/Close) takes `onChangeMu` — the same
-  lock that guards AddServers/RemoveServers mutations — so a mid-turn toggle
-  never races the slice a running request reads. Source attribution matches
-  BOTH shapes: `Filtered.Sources` uses short labels (`"codex"`,
-  `".mcp.json"`) while the live manager's `Statuses()` carry the absolute
-  discovery path — `isSource` in `tui/mcp.go` normalizes both, and a
-  remove-mid-connect is guarded by `connect`'s `startGen`/`stillOurs` check
-  so a toggled-off server's in-flight connect can't resurrect it.
-- **CLI** — `whip mcp list` (merged view with per-name source labels —
-  `whip config` / `.mcp.json` / `codex config` — and a `blocked` state),
-  `whip mcp add <name> -- <cmd...>` / `--url`, `whip mcp remove`,
-  `whip mcp import [--dry-run]` (materializes imported servers into whip's
-  config; `--dry-run` prints the JSONC fragment without writing; blocked
-  servers are never imported). `whip mcp serve` (`serve.go`) exposes whip's
-  read/bash/edit/write as an MCP stdio server for other harnesses.
-- **Secrets stay references** — `$VAR`/`${VAR}`/`!cmd` values in env and
-  headers are never expanded at parse or import time: discovery, `whip mcp
-  import`, and `/mcp` enable all carry the reference verbatim (resolved
-  secrets never land in `~/.whip/config.json`), and resolution happens at
-  connect/spawn via `config.ResolveSecret` / `ResolveEnvMap` /
-  `ExpandTemplate`. Codex's auth keys map too: `bearer_token_env_var` →
-  `Authorization: Bearer $VAR`, `http_headers` → headers verbatim,
-  `env_http_headers` → header values as `$VAR` references. A whole-value
-  reference to an unset var drops the stdio env entry (never a masking
-  `KEY=`) or the header, and a template with an unset ref fails the connect
-  loudly instead of sending `Bearer ` upstream.
-- **Import gating** — the `"mcpImport"` block in `~/.whip/config.json`
-  (`{"claude": …, "codex": …}` per source: `enabled`, `only` allowlist,
-  `exclude` denylist — exclude wins over only; absent block imports both
-  sources, the pre-gating behavior). Filtered-out imports land in the
-  discovery result's `Blocked` map as disabled+noted copies
-  (`LoadMergedFiltered`), stay visible in `/mcp` and `whip mcp list`
-  (`○ disabled — blocked by mcpImport config`), and `/mcp <name> enable` on a
-  blocked name refuses with a pointer at the config instead of silently
-  shadowing. This is the fix for third-party apps writing MCP entries into
-  `~/.codex/config.toml` (e.g. the ChatGPT desktop app's `node_repl`) that
-  whip would otherwise pick up wholesale.
-- **Shutdown** — `Manager.Close()` runs before `bashrun.KillAll()`; stdio
-  children spawn in their own process group, and the SDK terminates them
-  (stdin close → SIGTERM → SIGKILL after 3s).
+## Built-in capabilities
 
-Polish (the "never stuck, always know why" pass):
+- `files`: list/search/read/write/patch with canonical path authorization and
+  same-path mutation ordering.
+- `shell`: managed process groups, bounded output, interactive PTY support,
+  and workspace-wide effect authority.
+- `browser`: live/dedicated/headless/extension backends behind daemon policy.
+- `computer`: macOS accessibility and screenshots with per-app policy.
+- LSP diagnostics can be attached after file changes.
+- Permission requests are durable and any connected client can approve or deny.
+  The daemon revalidates authority before the exact operation resumes; there is
+  no client pairing, signing key or first-run approver enrollment prompt.
+- Ask for approval / Full Access is saved per root session and inherited by its
+  child agents. Changing it while idle persists across daemon restarts, client
+  reconnects and session switches. Full Access allows filesystem operations and
+  working directories outside the project under the execution host's OS user.
+  Explicit child path and operation limits still apply. Ask retains the original
+  project file boundary; changing cwd never grants access. Fresh sessions inherit
+  the execution host's Default permission level from Settings alongside model
+  and effort, unless explicitly overridden. Existing configurations default to
+  Ask; forks keep their separate Ask default. Changing host defaults and upgrades
+  preserve existing saved session choices. Explicit terminal launch flags update the initial
+  session; ACP loading preserves the saved mode and follows other clients'
+  changes. Remembered allow rules and headless/deny execution policies remain
+  separate. Implementation: `internal/session/permission_mode.go`, daemon
+  startup/control, ACP bridge and TUI client. Coverage: session and daemon
+  `permission_mode_test.go`, `migrations_test.go`, ACP bridge and TUI client tests.
+  Schema 14 tags known root grants as session-scoped. Legacy child grants keep
+  their recorded path limits because their original scope intent is ambiguous;
+  newly created default children inherit the session policy. Shell commands
+  retain ordinary OS-user authority and Ask is not a filesystem sandbox.
 
-- **Fail-fast calls** — a call to a failed/disabled server returns instantly
-  with an actionable message (`/mcp <name> reconnect|enable`); a
-  still-connecting server caps the wait at a 5s grace then returns "retry in
-  a moment". No turn parks on a 30s startup timeout.
-- **Did-you-mean** — `tools.Suggester` (installed by `Agent.SetMCPTools`)
-  runs an early-exit Levenshtein over live tool names, so a stale/typo'd
-  `mcp__` call gets `did you mean mcp__docs__greet?` instead of a dead end.
-- **First-settle notes** — each server's first settle lands one transcript
-  line (`⚡ mcp: docs ready (4 tools)` / `✗ mcp: x failed: …`); later
-  transitions stay quiet.
-- **Auto-reconnect** — a dropped session retries in the background with
-  backoff (1s/2s/4s, cap 3), guarded against close/disable/dupes; manual
-  `/mcp reconnect` stays unlimited.
-- **Server instructions** — initialize-result instructions render into an
-  `<mcp_instructions>` block appended to the system prompt every turn
-  (alongside skills), tracking live sessions.
-- **`whip mcp test <name>`** — the doctor: connect + list + timing + tool
-  names, stderr tail on failure, non-zero exit — CI-checkable `.mcp.json`.
+## Provider loop and models
 
-Tests: `config_test.go` (claude/codex parsing incl. a real-world codex
-config, merge precedence, discovery errors, tool-name round-trips, import
-policy filtering — blocked-in-`Blocked`, exclude-beats-only, whip-name
-shadow protection — and the blocked node_repl scenario at the manager
-level), `manager_test.go` (connect/call, error-as-output, structured+media
-flattening, dead-server degradation, reconnect, parallel calls under `-race`,
-ctx cancel mid-connect), `loop_test.go` (model→MCP→model round trip against
-a fake provider; stale def on a dead server returns `"Error: …"` and the turn
-completes), `selfhost_test.go` (`whip mcp serve` end-to-end, gated on
-`WHIP_TEST_SELFHOST=1`), `tui/mcp_test.go` (status view incl. blocked rows,
-toggle persistence round-trip, enable-on-blocked refusal),
-`tui/mcp_panel_test.go` (row assembly, palette-driven source toggle off →
-server gone + gate persisted + whip-owned entries untouched, enable → live
-re-discovery, only/exclude filters survive a toggle, panel row replaces the
-old run-row), `manager_live_test.go` (`AddServers` connects a late server,
-duplicate add no-ops, `RemoveServers` drops tools immediately, remove-
-while-connecting + concurrent readers race-clean, stale tool closure fails
-as an error string, remove-then-add reconnects),
-`config/config_test.go` (mcpImport JSONC round-trip, clobber recovery
-preserving the block), `cmd/whip/mcp_import_test.go` (import dry-run vs
-apply, idempotence, blocked servers never imported).
+- OpenAI-compatible streaming with retry events and usage accounting. Stall
+  detection (120 s chat, 300 s Responses and subscription), a retryable
+  ten-minute per-attempt ceiling, text classification of provider error chunks,
+  `Retry-After`, and regeneration of a stream that failed after its first delta
+  (two per call, announced through `stream.discard` and a notice). See
+  [agent-loop.md](agent-loop.md).
+- Model-to-provider routing, live catalog discovery, context/output limits,
+  reasoning effort, vision flags, sampling parameters, and pricing.
+- `models.call` and `models.batch` provide stateless analysis without creating
+  durable child identities; batch results retain input order.
+- Prompt-cache keys are stable per retained session: the daemon stamps
+  `prompt_cache_key` with the session id. Headless `whip run -cache-key <key>`
+  pins a stable key (e.g. `repo/reviewer`) so one-off runs reuse the cached
+  system prefix.
 
-## Process safety
+### Models.dev metadata and named local keys
 
-`internal/tools/bashrun/bashrun.go` — every command the agent runs is tracked
-in a process registry (`track`/`untrack`). On exit (`tui.Run` returning — quit,
-`/quit`, or a signal), `KillAll()` SIGKILLs every tracked **process group** and
-waits briefly for reaping, so an agent-started server or watcher never outlives
-whip.
+Ten supported API presets use a checked-in Models.dev subset with upstream
+provenance and MIT attribution. Whip policy controls supported protocols,
+endpoints, recommendation order and defaults. Live lists own membership; exact
+metadata enrichment preserves explicit false/zero/empty fields and timestamps.
+`task models:update` refreshes metadata; `task models:check` validates it offline
+and verifies the generated desktop shell-key names.
 
-The non-interactive path captures via explicit `StdoutPipe`/`StderrPipe` and
-closes the read ends the moment the process exits, so a detached grandchild
-(`nohup`, `sleep 30 &`, a daemonized server) holding the write end can't hang
-the agent on pipe EOF. The interactive path runs in a PTY for sudo/ssh-style
-prompts, killed after 15s of no input.
+`providerKeySources` declares env files, mapped raw-key files and directories of
+exact variable filenames. Bounded parsing never executes shell content. Named
+keys resolve consistently through inventory, connection validation and actual
+model clients. Daemon startup and `provider.discover` persist only missing
+`apiKeyEnv` references using revision-safe, no-op-aware writes. Sources-only config,
+existing routes, disabled providers, defaults and sessions survive discovery.
+File keys reread on discovery/new clients; existing sessions require reload after
+rotation. OpenCode credential/config/database import and desktop probes are removed.
 
-Tests: `killall_test.go` — `TestKillAllReapsChildren` (kills a live `sleep 60`),
-`TestBackgroundGrandchildDoesNotHang`.
+Code: `cmd/modelgen`, `internal/config/modelsdev`,
+`internal/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
+`internal/daemon/provider_{discovery,list,configuration,model,service}.go`,
+`internal/tui/setup.go`, `packages/app/src/provider-setup.tsx`,
+`apps/desktop/src/provider-environment.ts`.
+Tests: importer/presence/pricing tests in `cmd/modelgen` and
+`internal/config/modelsdev`; `internal/config/provider_credentials_test.go`;
+`TestDiscoveredFileKeyPersistsReferenceAndReachesInference`,
+`TestProviderDiscoveryRPCUsesHostSourcesAndPreservesOptOut`,
+`TestDiscoveredOpenRouterKeyStillRequiresAuthentication`; CLI file-key checks in
+`TestClientEntryPathsSendAssembledPromptToProvider` and
+`TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt`; SDK/app source and
+host-refresh tests; desktop generated-name and shell-recovery tests. See
+[implementation and validation](../.ai-docs/plans/models-dev-discovery/README.md).
 
-## Update check
+### Provider connections and environment discovery
 
-`internal/update/update.go` — on interactive startup `main` fires
-`update.Check(version)` in a goroutine, concurrent with the trust prompt and
-agent setup, so its ~1 RTT is usually free: when the check wins, the notice
-shows in that very startup report; when startup wins, the recorded notice is
-durable and shows next launch.
+Settings renders a host-owned provider inventory with bundled logos, credential
+source labels and per-provider connect/manage dialogs. Existing API/account
+flows are reused. Known-preset environment and declared key-file discovery save
+missing provider references during daemon startup and setup/Refresh; regular
+inventory reads remain read-only. Secret values stay in their original sources.
+Saved overrides win; revision-checked disconnect removes Whip-owned credentials
+and restores normal setup, preserving aliases, custom endpoints, and defaults.
+Disable on this host preserves credentials; Enable on this host restores the
+existing connection without entering a key or signing in again. Disabled providers
+appear in their own Settings group. Disconnect also clears the disabled flag. Model menus exclude unavailable routes; catalog publication
+rejects stale route/account responses. Desktop recovers only the supported local
+shell keys, bounded and without forwarding them to remote hosts.
 
-The check reads `~/.whip/update.json` first and skips the network when a
-notice is pending for a release not yet installed (never nags twice about the
-same version) or the last check is under 24h old. Otherwise it GETs
-`api.github.com/.../releases/latest` (2s timeout, `gh` token / `GH_TOKEN`
-auth mirroring `install.sh` while the repo is private), and a strictly newer
-semver (prereleases sort before their release) is written to the notice file
-atomically (tmp+rename). The startup report shows `update available: vX.Y.Z
-(run: whip update)`; a successful `whip update` calls `update.Acknowledge()`
-so an installed release stops nagging — and a user who updates out of band
-(curl|sh) has the now-stale notice cleared on next launch, so checks resume.
-`dev` builds never check. Every failure — offline, rate-limited, corrupt
-notice — is silent by design: a version check must never break startup.
+Code: `internal/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
+`internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
+`packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
+Tests: `internal/config/providers_test.go`,
+`internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
+`packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
+`apps/desktop/tests/provider-environment.test.ts`, and the production
+`apps/web/scripts/provider-connections.mjs` workflow. See the
+[implementation plan](../.ai-docs/plans/provider-connections/README.md) for scope
+and validation results.
 
-Tests: `internal/update/update_test.go` (`TestCheckNewerRelease`,
-`TestCheckSkips` — pending notice / fresh TTL / dev build never fetch,
-`TestCheckStaleTTLRefetches`, `TestCheckOutOfBandUpdate` clears the stale
-notice of a curl|sh updater, `TestCheckFetchFailure` still records the
-attempt, `TestCheckCorruptNotice`, `TestNewer`, `TestPendingAndAcknowledge`);
-`tui/startup_report_test.go` (`TestStartupReportUpdateNotice`).
+### Provider onboarding and the first message
 
-## LSP diagnostics
+TUI startup and the web/desktop welcome composer use host-owned route readiness.
+A usable selection skips provider setup; otherwise the same reusable chooser
+offers detected connections, masked key entry and account login. Inference.net
+leads the Popular group with one quiet Recommended label; search relevance and
+saved selections take priority. Detected connections keep their positions.
+An explicit TUI selection or successful connection of Inference.net, OpenRouter,
+or OpenAI automatically chooses `kimi-k3-fast` (high), `z-ai/glm-5.3` (max, its
+provider default), or `gpt-6-astra` (medium) and returns to the composer. Fresh
+onboarding saves model, provider and effort together with a revision check.
+Existing sessions persist the selection locally; saved startup choices remain
+unchanged. Missing models or incompatible destinations retain the model picker.
+Other provider flows offer model choices directly. Enter on a model applies it
+and returns to the composer without a second confirmation. First-time onboarding
+saves the choice for new sessions; an existing session keeps the change local.
+Explicit manual models use the same direct selection after their configuration
+is saved. Failed saves retain the model picker with refresh/retry guidance.
+Singleton Inference.net team/project choices advance on the host; genuine choices
+remain explicit.
 
-`internal/lsp/` — a stdlib-only LSP client over stdio (JSON-RPC +
-`Content-Length` framing; no new dependencies) that feeds language-server
-diagnostics back into the model's `write`/`edit` tool results, so the model
-sees and fixes breakage in the same turn instead of spending a `go build`
-round-trip. Ported from opencode's diagnostics flow
-(`packages/opencode/src/lsp/`, research in
-`docs/learnings/other-harnesses/opencode/lsp.md`) with two widenings:
-sibling-file errors (opencode renders only the touched file) and wait-free
-wakeup (a per-file channel close instead of polling timeouts).
+TUI startup opens one normal Bubble Tea interface and one reconnecting client
+without a folder-trust prompt. Tool approvals follow the session's saved permission
+level. Before a session exists, host queries power a floating
+provider dialog over the normal composer. Esc returns to drafting; `/connect`,
+`/auth`, Model commands or submitting an unconfigured draft reopen the dialog.
+Provider/model/workspace/project lists use themed selection and height-bounded
+windows. Legacy inline-key commands open the same masked confirmation. The old
+standalone setup program, duplicate composer and separate auth prompts are gone.
 
-- **Tool output** — after a successful `write`/`edit`, the tool result gains
-  a `<diagnostics file="…">ERROR [l:c] msg</diagnostics>` block (format
-  ported verbatim from opencode's `lsp/diagnostic.ts`): errors+warnings for
-  the edited file (max 20), errors-only for up to 5 sibling files in the
-  same directory, with a "this edit introduced errors in other files" note.
-  Injection is via the package hook `tools.LSP` (same pattern as
-  `tools.InteractiveBash`); nil hook = unchanged output.
-- **Manager** (`manager.go`) — the registry is data: `gopls` built-in (root =
-  nearest `go.work`/`go.mod`/`go.sum`, found by walking up from the file);
-  the `"lsp"` block in `~/.whip/config.json` (same shape as the `mcp`
-  block: `command`, `extensions`, `rootMarkers`, `env`, `enabled`) adds
-  servers or disables the built-in. Servers spawn lazily on first covered
-  file touch; concurrent touches dedup through a close-to-broadcast channel,
-  failed spawns (binary not on PATH, initialize error) are remembered per
-  (server, root) so a broken server is a permanent no-op, never a retry
-  storm. The wait for diagnostics is capped at 1.5s and honors the tool
-  call's ctx (ctrl+c cancels); timeout = no block appended, the tool result
-  is never delayed further or failed.
-- **Client** (`client.go`) — one reader goroutine parses frames and routes
-  responses by id into cap-1 pending channels; writes funnel through a
-  buffered channel drained by one writer goroutine (no locks). Server→client
-  requests (`window/workDoneProgress/create`, `workspace/configuration`,
-  `client/registerCapability`) get a null-result ack, same as opencode.
-  Shutdown is polite `shutdown`/`exit` then SIGKILL of the process group;
-  `Manager.Close()` runs next to `mcpMgr.Close()` on exit.
-- **TUI** — `/lsp` prints per-server rows (`● connected (root: …)` /
-  `○ not started` / `✗ err`); the manager is built in the same startup block
-  as MCP and installed on `tools.LSP`.
+Session creation waits for a usable model/provider selection and retains one
+create identity across reconnects. Permission setup completes before execution.
+An onboarding draft requires explicit Enter after connection; late login replies,
+poll ticks or earlier launch prompts cannot submit or clear an edited draft.
+Preparation errors allow Enter to retry; a terminal connection failure displays
+its cause and instructions to quit/relaunch. Fresh installations
+leave external Claude/Codex MCP imports off, keep the repository's `.mcp.json`
+source off until enabled, and no longer use `setup.done`.
 
-Tests: `internal/lsp/client_test.go` (frame parsing incl. split/garbage,
-request routing, ctx-cancel on unanswered requests, server-request acks),
-`manager_test.go` (in-process fake LSP server over pipes — no real gopls:
-edited-file blocks, sibling blocks, didOpen→didChange versioning, timeout,
-cancel, broken-spawn caching, config merge, root walk),
-`concurrency_test.go` (spawn dedup across 8 concurrent touches, parallel
-waiter wake with goroutine-leak check, publish-before-wait interleaving),
-`internal/tools/lsp_test.go` (block appended to write/edit output, nil hook,
-failure never fails the tool), `internal/agent/lsp_test.go`
-(`TestLSPDiagnosticsReachModel`: fake provider receives the diagnostics
-block in the tool result on the next call), `internal/tui/lsp_test.go`
-(`/lsp` status view).
+Welcome retains the draft during setup, requires a project folder, and creates
+the session with the chosen tool permission mode before sending. Its bounded
+host-scoped journal retains original create/submit identities across reloads;
+uncertain delivery is checked before explicit retry. A later draft edit is never
+cleared by an earlier acceptance. Native **Set up this Mac** composes verified
+backend installation and the existing connection owner in one action. Existing
+installations, advanced diagnostics and remote hosts retain their policies.
 
-Out of scope (breadcrumbs in `.ai-docs/plans/lsp-diagnostics/README.md`):
-@-mention symbol-range expansion (Linear INF-4991), read warm-up
-(opencode forks `touchFile` on read — cut; revisit if first-edit latency
-annoys), pull diagnostics, navigation tools (definition/references/hover),
-auto-installing servers.
+Code: `internal/daemon/provider_selection.go`, `internal/daemon/provider_service.go`,
+`internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
+`internal/session/command.go`,
+`packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
+`packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
+Tests: `internal/daemon/{provider_selection,root_client}_test.go`,
+`internal/tui/{setup,startup,client,cursor}_test.go`,
+`internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
+`packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
+`apps/desktop/tests/runtime.test.ts`, and `apps/desktop/scripts/onboarding-smoke.mjs`.
+See the [implementation and acceptance record](../.ai-docs/plans/provider-onboarding/README.md)
+and [integrated TUI completion](../.ai-docs/plans/provider-onboarding/TUI-INTEGRATION.md).
+
+`task onboarding:docker` builds the current checkout into a disposable Linux TUI
+and embedded web server at `localhost:4000`. Both clients share an empty runtime
+home; quitting removes test state while retaining build caches. The launcher also
+supports dirty linked worktrees without copying Git internals. See
+[fresh onboarding in Docker](setup.md#test-fresh-onboarding-in-docker).
+Code: `scripts/onboarding-docker.mjs`, `scripts/docker/onboarding.Dockerfile`,
+`scripts/docker/onboarding-entrypoint.sh`, and `scripts/renderer-artifact.mjs`.
+Tests: `scripts/onboarding-docker.test.mjs` and `scripts/renderer-artifact.test.mjs`.
+Linux worker startup also accounts for Go's existing virtual memory reservations
+before setting its address-space ceiling, while retaining the resident RAM limit.
+Code: `internal/rlm/memory_linux.go`; regression:
+`TestMemoryLimitPreservesRuntimeReservations` in `internal/rlm/memory_linux_test.go`.
+
+### Known provider picker and local credentials
+
+The TUI uses compact provider, authentication-method and masked key dialogs.
+Popular contains Inference.net, OpenRouter and an OpenAI family row; seven more
+known compatible providers follow alphabetically. Connection checkmarks stay in
+stable positions, search has no prompt prefix, and refresh preserves selection.
+OpenAI API billing and ChatGPT subscription keep distinct stored route IDs.
+Other/custom setup uses small prompts with optional manual models and limits.
+
+The host's bundled preset registry supplies URLs, environment aliases, category,
+family and key-page metadata, augmented from a pinned Models.dev subset. Effective
+connections reuse named environment/file keys without copying secrets or writing
+configuration during inventory. Setup/discovery persists missing references. Explicit overrides and disabled routes
+remain authoritative. Desktop recovers only bounded local shell values and routing
+guards; remote hosts resolve their own credentials. OpenRouter discovery checks
+the authenticated `/key` endpoint before its public model list, rejecting bad
+credentials in the API-key dialog before saving. DeepInfra's public catalog and
+bundled discovery remain unverified in host metadata and management;
+TUI provider/model pickers omit informational discovery footers. Observed
+authentication failures still reject a submitted key.
+All ten API presets use live model membership, accepting new IDs with sparse
+metadata and excluding explicit incompatibilities. Bundled models only fill
+missing metadata or provide offline candidates. Old allowlist caches refresh on
+next use, and failed refreshes preserve the last catalog. Stream/tool fixtures
+cover the ten API presets. Canonical OpenAI Astra API calls use the shared Responses codec, including
+output caps, accounting and credential-scoped reasoning continuation; other custom
+OpenAI-compatible endpoints retain Chat Completions. No paid live-provider
+acceptance is implied.
+
+Code: `internal/tui/setup_picker.go`, `internal/tui/ui/list.go`,
+`internal/config/{providers,provider_credentials,provider_models}.go`,
+`internal/daemon/provider_{list,model,service}.go`,
+`internal/llm/provider_compatibility.go`, `apps/desktop/src/runtime.ts`.
+Tests: `internal/tui/setup_picker_test.go`, credential/preset model tests under
+`internal/config`, preset discovery/key tests under `internal/daemon`,
+`internal/llm/provider_compatibility_test.go`, and desktop provider environment tests.
+See [picker implementation and evidence](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
+One-step defaults: `internal/tui/setup_default{,_test}.go`,
+`internal/daemon/provider_default_test.go`, and
+`internal/llm/openai_responses{,_test}.go`. See
+[verified selectors and validation](../.ai-docs/plans/tui-provider-configuration/AUTO-MODELS.md).
+
+### File-backed custom provider configuration
+
+The TUI's `/connect` dialog includes **Other…** and **ctrl+e**
+management. Users can configure an OpenAI-compatible Chat Completions endpoint
+with a masked API key, a host environment-variable reference, or explicit no
+authentication. Discovery populates the model picker; manual models and explicit
+unverified saves support endpoints without `/models`. **ctrl+d** controls whether
+the selected pair becomes the default for new sessions.
+
+The execution host writes definitions, credentials and manual model aliases to
+its existing configuration file through revision-checked operations. Reads are
+redacted, refreshing conflicts preserves edited fields, and changing an endpoint
+requires an explicit credential decision. Current sessions can explicitly reload
+changed connections; references block removal without rewriting model routes or
+history. Web/desktop inventory sees the same connections. No provider database or
+web custom-provider form is introduced.
+
+Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
+`internal/daemon/provider_configuration.go`, `internal/config/providers.go`,
+`internal/llm/openai.go`, `internal/protocol/provider_types.go`, and
+`packages/sdk/src/services.ts`.
+Tests: `internal/tui/setup_provider_test.go`,
+`internal/daemon/provider_configuration_test.go`,
+`internal/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
+`cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
+See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
+and [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
+
+### ChatGPT subscription provider
+
+`openai-codex` adds host-owned device login, restart-safe rotating credentials,
+account-scoped model discovery, and a Responses adapter to the existing model
+client. Settings, CLI and TUI share daemon login/status/logout; API-key routes
+remain separate. Public history excludes opaque model continuation, while the
+durable transcript retains it through restart, fork and rewind. Unknown cost,
+natural output reservations, and explicit-cap rejection preserve accounting.
+Completed stream items survive an empty terminal output array. Model menus
+include discovered models and select explicit model/provider pairs.
+See [models and providers](models-providers.md#openai-chatgpt-subscription) for
+setup and limits; live acceptance is tracked in the
+[implementation plan](../.ai-docs/plans/openai-subscriptions/README.md).
+
+Code: `internal/openaiauth`, `internal/llm/{subscription,responses}.go`,
+`internal/daemon/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
+`internal/tui/auth_cmd.go`, `packages/app/src/settings/providers.tsx`, and
+`packages/app/src/model-options.ts`.
+Tests: `internal/openaiauth/auth_test.go`, `internal/llm/{subscription,responses}_test.go`,
+`internal/daemon/provider_openai_test.go`, `internal/session/continuation_test.go`,
+and `packages/app/test/{providers,model-selection}.test.tsx` cover rotation races,
+cross-transport login recovery, secret isolation, stream completion, budgeting,
+model/provider selection and client state. Live Pro-account acceptance also
+verified tools, helpers, a child, images, title/compaction and restart recovery.
+
+## Daemon and clients
+
+- The daemon is the only runtime/store owner.
+- TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
+- WHIP v5 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
+  WebSockets; compatible builds attach without replacing the daemon. The operation
+  and event registry generates TypeScript declarations and Ajv validators.
+- The daemon core is always socket-only. Ordinary startup opens no web listener.
+  `whip web` requires a compatible running daemon and owns a separate foreground
+  gateway; it opens the browser and waits. `--no-open` still waits; `--url` checks
+  and opens an existing gateway without starting any server or local daemon.
+  `WHIP_NETWORK=1` opts daemon launch paths into the same gateway as an owned
+  child after socket readiness. Unset/`0` means no automatic gateway, not a ban
+  on explicit `whip web`; `WHIP_LISTEN` alone is not opt-in. Whipcode uses
+  `WHIPCODE_*`. The implicit bind is `127.0.0.1:4444`, with ephemeral fallback
+  only on address-in-use; explicit binds never silently move. Code:
+  `cmd/whip/{web,daemon,gateway_process}.go`, `internal/webgateway`.
+  Validation sources: `cmd/whip/{web_test,daemon_network_test,gateway_process_test}.go` and
+  the gateway package tests; migration acceptance remains tracked in the
+  [gateway plan](../.ai-docs/plans/web-gateway/README.md), not inferred from this map.
+- Gateway HTTP content uses existing bounded upload/read RPCs, never direct
+  store access; each browser WebSocket gets its own upstream socket. Exact
+  Host/Origin checks remain at the gateway and are not authentication. The
+  gateway forces `network-client-v1` and requires the daemon's negotiated
+  acknowledgement before forwarding traffic, failing closed against old daemons.
+  Terminal authorization stays daemon-owned for these restricted socket clients.
+  Code: `internal/webgateway`, `internal/protocol/gateway.go`,
+  `internal/daemon/{server,terminal_rpc}.go`; validation:
+  `internal/webgateway/{server,websocket,content}_test.go`,
+  `internal/daemon/{server_gateway,gateway_ownership,terminal_rpc}_test.go`.
+- Managed web status is independent of daemon health: `gateway.status` and a
+  ready-only `init.network_endpoint` never describe foreground instances. A
+  gateway crash leaves daemon work alive; owner/daemon loss stops the gateway.
+  Bounded readiness/lifetime pipes and process reaping prevent owned-child
+  leaks. There is no automatic restart loop; foreground `whip web` is the
+  non-disruptive recovery path. Code: `cmd/whip/gateway_process.go` and
+  `internal/daemon/server.go`; validation: `cmd/whip/gateway_process_test.go`,
+  `internal/daemon/server_gateway_test.go`, and the gateway acceptance plan.
+- Command submission returns committed acceptance. Stable client/command IDs
+  deduplicate retries; changed payloads conflict. Status exposes queued, running,
+  waiting and terminal outcomes. Disconnecting does not cancel accepted execution.
+- Dynamic subscriptions have explicit unsubscribe, durable replay and a 16-root
+  connection cap. Consistent bounded snapshots, history/collection revisions and
+  replaced-subscription filtering let reconnects converge.
+- Recent transcripts bootstrap quickly; older root/child messages are pageable.
+  Large values use granted content references. HTTP transfers reuse the content
+  store and limits. Raw human transcript inspection never changes model context.
+- Omitted session model/provider routes and permission mode resolve from host
+  defaults after command deduplication. Provider readiness determines setup even when daemon startup has
+  already created configuration (`session_defaults_test.go`, `setup_test.go`).
+- TUI startup, initial host queries, the first prompt and automatic title delivery
+  run against both transports in release acceptance (`client_integration_test.go`).
+- Provider setup/login, versioned configuration updates and completion execute on
+  the daemon host. TUI themes/keybindings remain local. Secret credentials and
+  ephemeral terminal input are excluded from command journals.
+- Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
+  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/session`, and
+  `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
+  `transport_test.go`, `client_admission_test.go`, provider/config tests and the
+  generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
+- Slow clients lose their bounded connection instead of blocking a root.
+- Workspace terminals: `internal/terminal` owns one PTY per terminal tab with a
+  1 MiB replay ring and one live attachment whose bounded queue stalls the shell
+  behind a slow receiver instead of overflowing the connection; `terminal.*`
+  RPCs and `terminal.output/exited/detached` notifications live in
+  `internal/daemon/terminal_rpc.go`, with the network gate on
+  `WHIPCODE_NETWORK_TERMINALS`. Coverage: `internal/terminal/*_test.go` (ring,
+  replay, resize, hangup, backpressure, limits, shutdown under `-race`) and
+  `internal/daemon/terminal_rpc_test.go` (round trip, exit ordering, detach on
+  disconnect, takeover, gating, validation).
+- Schedules and blackboard subscriptions create durable wakeups. Desktop/web root
+  chats show upcoming scheduled wake-ups in a compact composer-width disclosure
+  with expandable prompt previews. Fired occurrences disappear independently of
+  turn execution; recurring schedules show their next occurrence. Full schedule
+  inspection and management remain in the session inspector.
+- Process shutdown is root-owned and waits for supervised workers.
+
+## TypeScript client SDK
+
+- Desktop/web active-turn messages enter a durable queue above the composer.
+  Each waiting message offers read-only text/attachment preview, Steer, and
+  Remove. Steer targets the current turn's next safe boundary; unused intent
+  expires with that turn and the message retains ordinary FIFO eligibility.
+  Remove never cancels already-started work. Multiple attachments, reconnect,
+  child recipients, and explicit uncertain-command recovery use existing scoped
+  input/content identities. Older daemons retain the previous delivery selector.
+
+- Private Node 24 ESM workspace: `@whip/protocol` generates typed RPC/runtime
+  maps and standalone CSP-safe validators; `@whip/sdk` attaches over native
+  WebSockets or Node Unix sockets without owning daemon processes.
+- Stable session handles, committed command acceptance, typed terminal outcomes,
+  metadata-only application recovery storage, explicit identical-request retries,
+  runtime identity checks and targeted cancellation share one connection engine.
+- Optional `/state` views reconstruct bounded snapshots/history/live output,
+  questions, permissions and recursive agent state. History revisions prevent
+  mixing rewind epochs; catalog polling is observed and never opens every root.
+  Live and snapshot presentation share delta/cumulative update rules and stable
+  row keys; interleaved tool updates do not create duplicate transcript rows.
+- `/react` hooks subscribe to those immutable views. The working example owns
+  drafts and storage; no React dependency is loaded by core/state consumers.
+  Consecutive identical internal mailbox digests share one expandable row with
+  a delivery count; raw transcript entries and authored messages remain intact.
+- Content reads verify root/agent grants, size and SHA-256. Permission helpers
+  send typed decisions from trusted clients without a signer; the example always
+  exposes Allow once and Deny. Provider configuration and terminal input are
+  ephemeral and never enter SDK recovery storage.
+- `/agents` authors agent definitions. `tool({ name, description, input,
+  output, execute })` infers the handler's input type from a Standard JSON
+  Schema (zod 4.2+, ArkType, Valibot) and derives the wire schema at draft
+  2020-12; raw JSON Schema still works and types `unknown`. `output` types
+  the return, is validated locally, and travels as `output_schema` for the
+  guide and the daemon. `defineAgent` builds the canonical document, including
+  hooks, named children, and an `output` contract; `client.agents.serve`
+  registers it, binds this process as its executor, and returns an
+  `AgentRuntime` whose `sessions.create/open` hand out sessions pinned to
+  that revision. `session.run(input)` yields one async iterable of typed turn
+  events (text, cell, host, hook, question and permission with reply methods,
+  child, end, raw) and a `TurnResult` typed by the output contract;
+  `session.prompts()` recovers open prompts from a snapshot.
+  `@whip/sdk/testing` ships the scripted daemon (with `turn()` scripts) and
+  `@whip/sdk/testing/node` the live daemon fixture. `examples/agents/
+  support-triage.ts` is the README program with a scripted-daemon test and a
+  live acceptance; `incident-commander.ts` uses every primitive at once and
+  `incident-commander.acceptance.mjs` drives it through a live daemon (the SDK
+  fixture with `WHIP_SDK_AGENTS_FIXTURE=1` runs the recursive runtime behind a
+  scripted model), including hook denials and rewrites, a spawn redirected to
+  a named child, and the fail-fast behavior of a closed executor
+  (`npm run acceptance -w @whip/agents-example`).
+- Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
+  unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
+  strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
+  package installation. See [SDK usage](../packages/sdk/README.md).
+
+## macOS desktop application
+
+Web and desktop share a themed startup splash with the centered whipcode logo
+and HALO's entrance/exit animations. The initial Local connection releases the
+splash with no minimum hold and a three-second ceiling; remote connections run
+in the background and reduced motion is supported. Desktop preparation shares
+one shell environment and reuses unchanged-runtime verification per attempt;
+reconnect and restart refresh it. See [desktop startup](desktop.md).
+Implementation: `packages/app/src/startup-screen.tsx`, `apps/web/src/bootstrap.tsx`.
+Coverage: `packages/app/test/startup-screen.test.tsx`, `packages/app/test/bootstrap.test.tsx`,
+`packages/app/test/hosts.test.ts`, `apps/desktop/tests/runtime.test.ts`.
+
+The Electron host packages the same production renderer as the web application.
+The [desktop guide](desktop.md) documents local builds, canonical runtime installation,
+signing and release configuration. [Desktop acceptance](../.ai-docs/plans/desktop-app/progress.md)
+is still open for notarized distribution, actual updates and manual device checks.
+
+Local connections use one selected installed `whipcode` executable, with
+`~/.whipcode` as the default home in both normal desktop channels. The packaged
+backend is an installation payload, not a privately retained daemon. The initial
+canonical path on this Mac is `/usr/local/bin/whipcode`. The historical-state
+cleanup and signed/notarized local installation are complete. Actual desktop
+diagnostics, CLI/desktop startup, shared WebSocket sessions, reconnects and a live
+provider message passed; see the
+[canonical installation record](../.ai-docs/plans/canonical-whipcode/README.md).
+
+| Behavior | Implementation | Validation |
+| --- | --- | --- |
+| Composer image previews before sending, including the first message of a New Chat: multiple cropped thumbnails, local decode/upload indicators, full-image dialog, independent removal, file/paste/drop input, and bounded draft-owned preview lifetimes. New Chat stages files locally until Send and preserves failed uploads in the created session. | `packages/app/src/{composer,composer-attachments,welcome}.tsx`, `packages/app/src/compositions.ts` | `packages/app/test/{composer-attachments,compositions,welcome}.test.ts*`, `apps/web/scripts/new-chat-tabs.mjs`, `composer-attachments.mjs` and `composer-reading.mjs` via `WHIP_CHAT_COMPOSER_ONLY=1 node apps/web/scripts/chat-activity.mjs` |
+| One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
+| Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
+| One-command local source update of the signed app and shared backend; verify before quit, wait through macOS deferred quit, retain previous binaries, gracefully restart and check the running build | `scripts/update-local.mjs`, `Taskfile.yaml` (`update:local`), `cmd/whip/desktop_runtime_sync.go`; [usage](setup.md#update-your-local-installation-from-source) | `scripts/update-local.test.mjs` (deferred quit, cancellation, real filesystem staging and failure preservation), `TestDesktopCompiledUpdate` (real backend handoff) |
+| Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
+| Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
+| Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |
+| This Mac setup before daemon availability, read-only Test Connection, native executable choice, explicit installation/restart and expandable path/build diagnostics | `packages/app/src/{platform,desktop-bridge}.ts`, `packages/app/src/host-dialog.tsx`, `apps/web/src/platform/desktop.ts`, `apps/desktop/src/{main,preload,runtime}.ts` | `packages/app/test/{local-runtime,desktop-adapter,architecture}.test.ts*`; `TestDaemonStatusDoesNotInitializeHome`, `TestDaemonStatusPreservesExistingRuntime`; Chromium missing-daemon UI check |
+| Lazy SSH alias discovery with bounded Includes, filter/refresh, single selection, retained manual drafts and cancellation/retry | `apps/desktop/src/ssh-profiles.ts`, `packages/app/src/connection-dialog.tsx`, `packages/app/src/host-dialog.tsx`, shared RadioGroup card variant and desktop bridge | Desktop `ssh-profiles.test.ts`, app `ssh-profile-picker.test.tsx`, Chromium/Firefox light/dark/narrow fixture `apps/web/scripts/ssh-profiles.mjs` |
+| Shared SSH connection dialog for initial setup and saved reconnects; inline authentication, cancellation, retry, and preserved configuration | `packages/app/src/{host-connection-dialog,host-prompts,host-prompt-form}.tsx`, `host-prompt-controller.ts`, desktop platform adapter | `host-connection-dialog`, `host-prompts`, `server-manager`, `desktop-adapter` tests; Chromium/Firefox SSH fixture with stable progress/authentication geometry |
+| System SSH configuration, private Unix forwarding, in-app prompts and owned helper cleanup on GUI death | `apps/desktop/src/ssh.ts`, `cmd/whip/desktop_{ssh,askpass,wait_darwin,wait_linux}.go`, `packages/app/src/host-prompts.tsx` | Real isolated sshd native tests, Go race/integration process-group and askpass tests, shared prompt stale/cancel tests |
+| Native save/copy/folder/link effects, opt-in attention notifications, restored tabs and draft-aware close | `apps/desktop/src/{main,native,links}.ts`, `packages/app/src/{attention-notifications,session-tab-routing,session-tab-strip,settings}.ts*` | Native save/disposal tests, app attention/close-tab/settings tests, signed Finder launch and tab/draft checks |
+| Deferred updater, one-action managed backend synchronization, attested candidate staging and conditional feed promotion | `apps/desktop/src/{updates,runtime}.ts`, `cmd/whip/desktop_runtime_sync.go`, `internal/daemon/maintenance_unix.go`, `apps/desktop/scripts/{ci-signing,publish,publish-github,release-candidate,notices}.mjs`, `.github/workflows/release-desktop.yml` | Updater release-name/approval/retry tests, `TestDesktopCompiledUpdate` (real two-build handoff and session/config preservation), maintenance-lock race tests, candidate/publisher identity and conditional-write tests; actual Squirrel N→N+1 remains a release gate ([runbook](desktop-releases.md)) |
+
+### Experimental desktop Browser tabs
+
+Native Browser tabs are experimental and **enabled by default** in packaged and
+development builds. Set `WHIP_DESKTOP_BROWSER_TABS=0` at launch to disable them.
+Main owns the decision; renderer storage, URLs and restored descriptors cannot
+enable a disabled feature or restore authority. Default availability does not
+grant agent control or SSH network access, or complete broad-release acceptance.
+See [desktop behavior](desktop.md#browser-tabs-experimental) and the
+[agent control contract](browser-computer-use.md#desktop-browser-tabs).
+
+| Behavior | Implementation | Validation |
+| --- | --- | --- |
+| Design Mode (Cmd+Shift+D toggles in the active Browser pane, including native guest and floating composer focus) hover/multi-selection (hover-only 100ms ease-out outline motion, geometry-invalidation snapping, app/OS reduced motion) with a trusted floating composer, explicit conversation recipient, bounded text evidence plus optional viewport PNG; isolated drafts reuse ordinary upload/send/recovery. Submitted evidence appears as a compact screenshot/element reference with on-demand captured details and raw context; persisted provenance keeps agent evidence out of authored transcript prose. No direct visual editing or automatic browser grants. | [App UI/controller](../packages/app/src/browser-design.tsx), [isolated overlay](../packages/app/src/browser-design-overlay.tsx), [native inspection/capture](../apps/desktop/src/browser-design.ts), [shared submission](../packages/app/src/chat-submission.ts) | [Shortcut/focus scope tests](../packages/app/test/browser-workspace.test.tsx), [Controller/motion tests](../packages/app/test/browser-design.test.ts), [overlay interactions](../packages/app/test/browser-design-overlay.test.tsx), [real SDK/upload integration](../packages/app/test/browser-design-integration.test.tsx), [compact transcript presentation](../packages/app/test/browser-design-message.test.tsx), [persisted evidence provenance](../internal/daemon/design_context_test.go), [production renderer checks](../apps/web/scripts/browser-design.mjs), [production Electron fixture](../apps/desktop/scripts/browser-design-production.mjs), [native compositor spike](../apps/desktop/scripts/browser-design-native.mjs) |
+| Human navigation, find/zoom, split-pane movement and metadata recovery without an execution daemon; web-only pages remain unavailable metadata. Native guests have no app preload, and interactive overlays wait for native hide ACK. | [Workspace coordinator](../packages/app/src/browser-workspace.ts), [native manager](../apps/desktop/src/browser-manager.ts), [shared overlay boundary](../packages/ui/src/native-surfaces.tsx) | [Workspace/UI regressions](../packages/app/test/browser-workspace.test.tsx), [actual renderer→preload→IPC restore seam](../apps/desktop/scripts/browser-workspace-native-renderer.ts), [native policy tests](../apps/desktop/tests/browser-policy.test.ts) |
+| Explicit host/conversation selection offers exact resources, not permission. Browser v1 open/attach/port expansion use durable Once-only approval; release or disconnect ends agent control without closing human pages, and reconnect never reselects automatically. Historical roots are not upgraded. | [Provider controls](../packages/app/src/browser-provider-controls.tsx), [SDK provider transport](../packages/sdk/src/browser.ts), [daemon Browser operations](../internal/tools/browser_desktop.go) | [Selection/UI tests](../packages/app/test/browser-provider.test.tsx), [SDK lifecycle tests](../packages/sdk/test/browser.test.ts), [daemon provider tests](../internal/daemon/browser_provider_test.go) |
+| Human SSH previews need no agent/root selection: choose a saved connected SSH host, verified runtime catalog project and literal-loopback URL, then confirm natively before routes commit. Network policy belongs to the project environment, separately from agent grants; no URL-host, Mac-local or direct fallback exists. | [Human preview controls](../packages/app/src/browser-preview-controls.tsx), [native confirmation/admission](../apps/desktop/src/browser-human-preview.ts), [environment lifecycle](../apps/desktop/src/preview-environments.ts) | [Preview UI/admission tests](../packages/app/test/browser-preview.test.tsx), [native human-preview tests](../apps/desktop/tests/browser-human-preview.test.ts), [selected-host SSH fixture](../apps/desktop/scripts/browser-preview-native-main.ts) |
+| The main-process opt-out is independent of persisted metadata; disabling the feature must not erase saved addresses or make old clients/providers authoritative. | [Main-owned feature gate](../apps/desktop/src/browser-feature.ts), [workspace persistence](../packages/app/src/session-tabs.ts) | [Feature-gate tests](../apps/desktop/tests/browser-feature.test.ts), [workspace downgrade/recovery regressions](../packages/app/test/browser-workspace.test.tsx) |
+
+These links identify implemented behavior and its test seams, not blanket
+acceptance. The [rollout milestone](roadmap.md) remains unchecked pending the
+[Phase 7 acceptance matrix](../.ai-docs/plans/browser-tabs/README.md), including
+shipping-security packaged local/SSH and overlay/focus checks, dependency/security
+review, minimum-supported-macOS and VoiceOver/IME/manual coverage, performance and
+lifecycle measurements, and disabled/old-client/rollback evidence. Exact results
+and remaining blockers belong to the
+[implementation ledger](../.ai-docs/plans/browser-tabs/implementation.md).
+
+## React web application
+
+The private web application is implemented as a thin consumer of the same SDK.
+The release gate remains open for the manual device/accessibility checks recorded
+in the [web plan](../.ai-docs/plans/web-app/README.md); this table maps implemented
+behavior to its owning code and repeatable validation.
+
+| Behavior | Implementation | Validation |
+| --- | --- | --- |
+| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whip sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
+| Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
+| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
+| Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
+| Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
+| Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
+| Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
+| Drag saved sidebar sessions into any pane's tab strip or split left/right/up/down at its content edges, or use Open in new tab; always another root chat view, never a fork; atomic four-pane/32-view limits; normal clicks still reuse views | `packages/app/src/{session-sidebar,session-actions,session-tabs,session-tab-routing,session-tab-strip,shell}.ts*`, `packages/ui/src/{workspace-drag,workspace-tab-drag,workspace-tabs,workspace-layout}.tsx` | App store/routing/action/sidebar tests; UI external-source layout Chromium/Firefox strict-CSP fixture; `apps/web/scripts/workspace-layout.mjs` |
+| Desktop File > New session / `CmdOrCtrl+T` opens an independent draft in the focused pane, including from Settings and guest website focus; modal/capacity guards preserve existing work. Web shortcuts are unchanged. | `apps/desktop/src/{main,browser-manager}.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform}.ts`, `packages/app/src/shell.tsx` | `packages/app/test/{desktop-adapter,desktop-close-tab}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
+| Desktop File > Reopen closed tab / `CmdOrCtrl+Shift+T` restores the last closed tab through existing bounded history, including from Settings or a hidden window; repeated presses restore earlier tabs. No web shortcut. | `apps/desktop/src/main.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform,session-tab-routing,shell,session-tab-strip}.ts*` | `packages/app/test/{desktop-adapter,desktop-close-tab,session-tabs,session-tab-routing}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
+| Independent New Chat tabs, host/setup persistence, and in-place promotion on first-message acceptance, or after session creation when files need uploading | `packages/app/src/{session-tabs,session-tab-routing,welcome,runtime}.ts*` | App tab/routing/Welcome/runtime/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
+| Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
+| Shared session top bar with single-selection Chat/REPL/Trace navigation within the current tab, Details open-state toggle and narrow-pane controls | `packages/app/src/{session-top-bar,conversation,session-tab-strip,session-tab-routing,session-tabs}.ts*`, `packages/ui/src/actions.tsx` | App top-bar, tab and routing tests; `apps/web/scripts/{browser-toolbar,repl-viewer}.mjs` |
+| Every shared web/desktop code block has a top-right copy button, platform clipboard routing, exact loaded-source copying (including raw REPL output), and local retryable failure feedback | `packages/ui/src/{code-block,actions,presentation}.tsx`, `clipboard.ts`; `packages/app/src/{index,repl-view}.tsx` | `packages/app/test/{code-block-copy,clipboard-provider,repl-view}.test.tsx`; `packages/ui/tests/csp.mjs` (keyboard/touch, bounded source, narrow layout, failures) |
+| Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
+| Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
+| Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
+| Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
+| Errors owned by application, host, session, turn, execution, submission, resource, action or validation, each with one canonical display | [Ownership rules](frontend.md#error-ownership-and-canonical-displays), `packages/app/src/error-feedback.tsx`; latest turn outcome only, recorded execution failures retained | `local-errors.test.tsx`, `welcome-recovery.test.tsx`, error ownership browser fixture |
+| Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
+| Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
+| Full-window Settings with six categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
+| Terminal tabs: a login shell on the session's host in a fourth tab kind, opened from pane and tab menus, the palette or the terminal shortcut; drawn by ghostty-web; reattached with replay after reload or reconnect; closing the tab ends the shell | `packages/app/src/terminal-view.tsx`, `session-tabs.ts` (`TerminalTab`, `openTerminal`, `updateTerminal`), `session-tab-routing.ts` (`openTerminalTab`, `terminalDestination`), `routes/h.$runtimeId.t.$terminalId.tsx`, `session-tab-strip.tsx`, `packages/sdk/src/terminals.ts` | `terminal-view.test.tsx`, `session-tabs.test.ts`, `session-tab-routing.test.ts`, `packages/sdk/test/terminals.test.ts`, `apps/web/scripts/terminal-tabs.mjs`, `apps/desktop/scripts/terminal-smoke.mjs` |
+| Host-scoped configuration, login cleanup and unsaved-edit guards | `packages/app/src/settings/{configuration,providers,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
+| Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
+| Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
+| Packaged same-origin web assets, foreground `whip web`, and optional same-implementation managed gateway; socket-only daemon default | `internal/{webassets,webgateway}`, `cmd/whip/{web,gateway_process}.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, gateway tests, `cmd/whip/web_test.go`, lifecycle/process tests, `scripts/pack-web.test.mjs`; migration acceptance tracked separately in the gateway plan |
+
+React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI owns
+accessible component interactions; StyleX extracts authored CSS. Source UI/app
+packages expose explicit public entry points and are tested as real installed
+archives in both production and Vite development builds. No editor, code-review
+surface, account, pairing or signer UI is included. Tool requests that require
+terminal input direct the user to the TUI; terminal tabs are a human-only shell
+beside the conversation, not an agent input path.
+
+Closing a page detaches the client. It neither cancels accepted work nor sends
+unsent drafts. A command outcome is separate from completion of descendant agents,
+mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
+trusted-network setup and current browser evidence.
+
+## Session information bar and contoured tabs
+
+Desktop and web use contoured tabs and a compact bar showing host/project,
+selected agent and current activity. The bar exposes REPL, agent details and
+existing session actions; narrow panes move secondary actions into its menu.
+New Chat shows setup identity and **Not started**. REPL uses the same agent
+inspector, including pagination, and retains its language/history toolbar.
+
+Every **Open REPL** creates a fresh view immediately right of the source in its
+pane. **Open chat** selects the nearest same-agent chat there or creates one.
+Drafts, source view state, shared root subscriptions and the 32-view cap remain
+intact. History restores exact view identities, including expired closed entries.
+
+- UI: `packages/app/src/{session-info-bar,chat-activity,conversation,welcome}.tsx`,
+  `packages/ui/src/workspace-tabs{,.stylex}.ts*`.
+- Navigation: `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip}.ts*`.
+- Coverage: `session-top-bar.test.tsx`, tab model/routing tests, UI all-theme/CSP
+  tests, and the packaged `repl-viewer.mjs` and `chat-activity.mjs` browser workflows.
+
+## Chat activity
+
+Desktop and web share Zeron-style streaming activity trees with Whip themes,
+typography and accessibility preferences. Adjacent reasoning, Read/Search/Run/Edit/
+Browser operations form one expandable group; spawned agents have compact inline
+launch records linked through typed child IDs. A bounded composer dock shows direct
+children, active/attention work first and finished turns collapsed. Dock and launch
+links open child chats in a reusable right split, leaving the main composer and
+draft intact; insufficient space offers an explicit Open in tab alternative.
+The inspector remains the complete agent directory. Current work opens
+automatically; Compact and Comfortable fold settled
+work, Detailed keeps it open, and manual choices take precedence. Keyboard focus
+and text selection defer automatic folding.
+
+New runs retain bounded operation metadata and exposed reasoning in the existing
+transcript, including disconnected execution and interrupted turns. Older history
+uses generic execution rows. Complete available execution code/output remains
+accessible through details and **Open in REPL**. Long trees and top-level Markdown
+blocks are virtualized. Live Markdown coalesces updates, appended text fades in,
+activity branches reveal, and chat stays pinned to the growing tail until the
+reader scrolls up. Returning to the bottom, choosing **Latest**, or an accepted
+composer send resumes following; only **Latest** animates scrolling. Accepted
+sends (including queued/child messages) jump immediately in the sending chat view
+only. Rejected or delivery-uncertain sends preserve reading position, and upward
+input cancels following even while latest history loads. The admission callback
+in `composer.tsx` connects through `conversation.tsx`/`timeline.tsx` to the existing
+`reading-list.tsx` Latest action; regression coverage lives in
+`composer.test.tsx`, `timeline-reading.test.tsx`, and `conversation-agent-dock.test.tsx`. Reduced motion and hidden windows stop animation work. Native mobile's
+portable presentation remains unchanged.
+
+Chat scrollback softly fades at the top and above the composer using a
+theme-independent alpha mask in `packages/app/src/reading-list.tsx`. End padding
+keeps the newest content readable; composer and Latest controls stay unmasked.
+The effect is static and disabled for forced-colors and print.
+
+An inline activity line appears immediately on send, before the first response
+event. It bridges **Sending…** into a thinking caption or the actual tool/response
+phase with a turn timer. A small theme-colored 3×3 dot wave animates during work;
+queued, uncertain, disconnected and human-input states stay explicit. The line
+scrolls with the transcript and disappears on completion. Reduced motion stops
+the wave and caption rotation.
+
+- Sources: `internal/daemon/transcript_presentation.go`, `internal/llm/presentation.go`,
+  `packages/sdk/src/executions.ts`, `packages/app/src/{chat-activity-rows,streaming-markdown,transcript-motion,transcript-activity,timeline,reading-list}.ts*`.
+- Coverage: journal/storage/SDK reconciliation tests, app activity/Markdown/reading
+  tests, and the isolated production browser fixture `apps/web/scripts/chat-activity.mjs`.
+- Composer agent dock and child splits: `packages/app/src/{agent-dock,conversation,session-tabs,session-tab-routing}.ts*`;
+  `agent-dock.test.tsx`, `conversation-agent-dock.test.tsx`, tab/routing/workspace tests;
+  `WHIP_CHAT_AGENTS_ONLY=1 node apps/web/scripts/chat-activity.mjs` exercises the real
+  production renderer with `apps/web/scripts/agent-dock.mjs`.
+- Ownership and limits: [frontend guide](frontend.md#conversation-and-navigation-patterns).
+
+## Mermaid diagrams in chat
+
+Web and desktop conversations render supported fenced `mermaid` source through
+`beautiful-mermaid` in a lazy, bounded worker. Diagram/Source, Copy source, and an
+expanded Fit/100% view use shared controls and the selected theme/UI font. Live
+responses remain source until settlement. Invalid, unsupported, truncated, or
+oversized source stays readable with an explanation; copying a response preserves
+its original Markdown. Tool and REPL code viewers remain source-only.
+
+This is a deliberately conservative subset across flowchart, state, sequence,
+class, ER, and single-series XY diagrams—not all Mermaid syntax. Advanced syntax,
+source-defined CSS/configuration, actions, and external resources are not accepted.
+Diagrams are local Blob-backed SVG images, not injected page markup; fonts are
+bundled, no content is sent to a renderer service, and production CSP is unchanged.
+See [frontend.md](frontend.md#mermaid-diagrams) for ownership, limits, and security.
+
+Behavior-to-test map: shared renderer/worker tests and the production-CSP
+`packages/ui/tests/mermaid.mjs` probe cover real output, themes, lifecycle, and
+controls; `packages/app/test/mermaid-markdown.test.tsx` covers both Markdown paths,
+readiness, copying, and bounded view retention; the isolated packed-app
+`apps/web/scripts/mermaid-diagrams.mjs` checks actual conversation integration.
+
+## Conversation row actions
+
+Sidebar, search, and Session details share Open in, Rename, same-directory Fork,
+Archive/Restore, and confirmed Delete. Archived roots retain execution, Attention,
+open tabs, and drafts; active/archived/all search and Undo restore their visibility.
+Desktop opens local folders or remote SSH aliases in installed Cursor, VS Code,
+and Zed; Finder is local-only and browsers can copy the exact directory.
+
+| Behavior | Implementation | Verification |
+| --- | --- | --- |
+| Bounded full metadata without transcript hydration | `internal/session/metadata.go`, `sessions.get`, `packages/sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
+| Durable archive, filtered cursor revisions, one-way v10→v11 preservation | `internal/session/{migrations,metadata,catalog_page}.go`, `internal/daemon/client_control.go` | Migration rollback/reopen and catalog tests, busy archive/dedup/event tests, race suite |
+| Shared host-bound actions and deletion cleanup | `packages/app/src/session-actions.tsx`, `session-search-dialog.tsx`, `runtime.ts`, `session-tabs.ts`, `compositions.ts` | `session-actions.test.tsx`, runtime/tabs/compositions tests, `apps/web/scripts/session-actions.mjs` |
+| Fixed native editor launchers and verified runtime identity | `apps/desktop/src/project-open.ts`, main/preload bridge and web desktop adapter | Project opening/adapter tests, real Electron IPC, local launches and Cursor/VS Code SSH handoff; [native acceptance limits](../.ai-docs/plans/conversation-row-actions/README.md#implementation-record--2026-09-08) |
+
+## Terminal UI behavior
+
+- Streaming text, reasoning, tool, plan, permission, usage, and terminal
+  events are rendered from daemon events.
+- `/agents` inspects or controls the recursive tree; `/mcp` manages server
+  lifecycle.
+- `/model`, `/effort`, `/goal`, `/compact`, `/rewind`, `/fork`, `/schedule`,
+  `/browser`, and `/computer-use` are daemon commands.
+- ACP maps editor sessions and permission decisions onto the same root
+  protocol. It does not own a second agent loop.
+- The TUI is a single full-screen (alternate-screen) interface laid out like
+  opendocker: a left column of panels, the transcript with its input box, and
+  a key-hint footer across the whole last row. On exit it prints a resume line
+  to the scrollback. The former inline mode and the `uiMode` config key are
+  gone.
+- The empty-transcript home screen centers a "whipcode" wordmark drawn in the
+  opencode ▀▄█ block-glyph pixel font, rendered in the active theme's
+  foreground (bold), so it recolors on every theme or light/dark swap like the
+  web wordmark's `currentColor` (`opencodeLogo` in `internal/tui/opencode.go`).
+- The left column shows on terminals of 120 columns or more and holds three
+  panels: `[1] Agents`, `[2] Context` (tokens, share of the window, spend) and
+  `[3] LSP`. One is expanded and the others collapse to their header row;
+  `ctrl+x 1/2/3` pick the expanded one, `ctrl+x b` hides the column. The
+  `sidebar` and `panel` config keys set the startup state.
+- Agent rows are structured: a lifecycle badge (running, blocked, idle, done,
+  failed, queued…), the name indented by depth, and what the agent is doing
+  (its running REPL cell or tool with the elapsed time, or pending mail). The
+  root heads the tree. `ctrl+t` or ↓ on an empty input focuses the panel
+  (its bar lights up), ↑/↓ select, enter opens an agent, `ctrl+x s` stops
+  the selected one, esc leaves; enter on the root, or esc with an empty
+  input, returns from a child to the main transcript. When the left column
+  is hidden or the terminal is narrow, `/dock` shows the same rows under the
+  input; they are hidden by default, and `ctrl+t` shows them to focus them.
+- `ctrl+r` (or `ctrl+x r`, `/repl`, config key `repl`) opens the REPL panel
+  on the right: the open agent's live Starlark cells, code as the model
+  writes it, print output as it happens, each host call from start to
+  outcome, results, errors, and worker restarts. Below 150 columns the panel
+  takes the left column's place; from 150 the two share the screen. The panel
+  takes half of the width right of the left column (half the terminal when
+  the column is hidden). The wheel over the panel scrolls it
+  independently of the chat (it follows the newest cell until you scroll up,
+  then a "↓ N more lines" chip and a scrollbar mark the position). The panel
+  keeps every cell seen during the TUI session, even after snapshots drop
+  idle children.
+- `user.ask` from the root agent opens a floating dialog over the dimmed
+  session: the question, the numbered options with their descriptions (a ★
+  marks the agent's recommended option), and key hints. ↑↓ (j/k) move,
+  1–6 jump, space toggles when several answers are allowed, enter answers,
+  esc dismisses. A batched ask (`user.ask(questions=[...])`) pages: the title
+  reads "Question 2/4", enter answers and advances, tab/→ next,
+  shift+tab/← back, s skips the page, / types a written response, and the
+  last page's enter submits the batch; the transcript line notes
+  "answered 3/4". The dialog stays up until the daemon
+  records the answer (it may come from another client), then a dim transcript
+  line notes what was chosen.
+- The frame has a one-row margin above the columns and a two-row footer band
+  at the bottom (a blank row, then the key hints on the last row) under the
+  prompt or, when `/dock` shows the agents dock, under it. The hints' right
+  side lists `ctrl+r repl` and `ctrl+p commands`; the left side follows the
+  keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
+  `ctrl+x` leader (every chord), the focused Agents panel, or the working
+  directory.
+- `shift+enter`, `ctrl+j` and `alt+enter` insert a newline. Bubble Tea v2
+  requests kitty key disambiguation and modifyOtherKeys at startup; inside
+  tmux a modified key only reaches the pane when the server option
+  `extended-keys` is on. whip never changes your tmux server: when the option
+  is off it warns and suggests `set -s extended-keys on` in `~/.tmux.conf`.
+  mosh collapses shift+enter before tmux or whip see it — use ctrl+j there.
+- Pasted images show as chips. A clipboard image (`ctrl+v`) lands in the
+  input as `[Image N]`; a pasted or dropped image path, or a macOS screenshot
+  preview, as `[Image N: name.png]` (long names shortened to 24 columns), with
+  the bytes copied to `~/.whip/pastes/`. The live transcript echoes the chip;
+  only the text sent to the daemon expands it to the real `@path` mention,
+  which is what a resumed or rebuilt transcript shows. The registry resets on
+  `/clear` and when the TUI switches root session, so a recalled chip from
+  before stays literal text.
+
+## Storage and recovery
+
+Runtime-v2 stores command/event journals, agents, per-agent transcripts,
+messages, state, capabilities, budgets, permissions, schedules, and content
+references in SQLite WAL plus immutable content files.
+
+On restart:
+
+- committed command outcomes remain final;
+- running descendant sessions become retained idle sessions;
+- queued recursive notifications remain actionable;
+- uncertain operations are interrupted and reservations are reconciled;
+- external side effects are never guessed or replayed automatically.
+
+See [architecture.md](architecture.md), [rlm-runtime.md](rlm-runtime.md), and
+[concurrency.md](concurrency.md) for the contracts behind these features.
+
+## Transcript navigation
+
+The transcript scrolls with the wheel and PgUp/PgDn. When it is longer than
+the window a scrollbar sits in the column right of the text; scrolled away from
+the newest rows, a "↓ N more lines" chip marks how far, and clicking it (or a
+new turn, when following) jumps back to the bottom. Drag to select and copy
+(OSC 52, with a clipboard tool fallback); double-click selects a word,
+triple-click a row, both copying immediately. Clicking a user or assistant
+message opens Message Actions (revert, copy, fork); clicking a tool result
+expands it. Failed local commands report in the top-right toast rather than in
+the conversation.
 
 ## Skills
 
-`internal/skills/skills.go` — scans `.agents/skills/*/SKILL.md` (project),
-`~/.whip/skills/`, and `~/.agents/skills/` (user) for a name+description
-frontmatter block, injected into the system prompt as an `<available_skills>`
-catalog in the Agent Skills spec format (`<skill><name>/<description>/<location>`,
-XML-escaped). The model reads a SKILL.md with its own read tool when relevant.
-Skills re-index every turn, so new ones load without restarting.
+The agent prompt and skill suggestions use the authorized catalog: `.agents/skills`
+in the working directory and applicable ancestors within project boundaries, the
+configured Whip user directory's `skills` folder (normally `~/.whip/skills`), and
+`~/.agents/skills`. With no project selected, New Chat discovers only those two
+user-global roots on the selected execution host; after folder selection it
+previews the initial selected-project boundary plus globals. The Desktop
+Whipcode distribution uses `$WHIPCODE_HOME/skills` (normally
+`~/.whipcode/skills`) for its application-owned root. That override does not
+relocate the daemon user's `~/.agents/skills`. Discovery does not implicitly
+choose the daemon's launch directory or import another harness's skill folders.
+The CLI listing/import helpers retain `skills.DirsFor` discovery (working-directory
+and user locations). Skill instructions are loaded on demand, not all at startup.
 
 CLI: `whip skills list` (names, sources, warnings) and `whip skills import
 [--dry-run]` — copies skills from other harnesses' user dirs
@@ -1085,308 +1033,327 @@ hyphens), description ≤1024 chars (a *validity* ceiling, not a prompt budget),
 invocable via `$name`. Violations load with a `Warning` (surfaced in the
 startup report), never silently disappear. Tests: `skills/spec_test.go`.
 
-**`/context-doctor` (alias `/context-doctor`)** — fresh-session context audit: every
-automatic injection source with its estimated token cost (base system prompt,
-skills block with the 5 biggest offenders, per-server MCP tool schemas, server
-instructions, built-in tool schemas, conversation history, and actual session
-spend once requests have run), a TOTAL line, and trim pointers. Built for
-users arriving from heavier harnesses whose first call silently carries tens
-of thousands of tokens of skill/MCP bloat. Tests: `tui/context_doctor_test.go`.
+**Desktop/web slash skill suggestions:** type `/` at a word boundary in a chat
+or New Chat composer to browse skills on the selected execution host. Typing
+filters by the existing case-sensitive name prefix. Up/Down navigates; Enter or
+click inserts `$name` and closes the panel without sending. Escape dismisses
+without editing; Shift+Enter still inserts a newline. The existing Add context
+picker and direct `$name` references remain available.
 
-**`/report`** — bug-report bundle for terminal/rendering issues: one
-transcript block pairing a clickable OSC 8 link (opens a prefilled
-`context-labs/whip` issue with a What-happened/Expected skeleton + the
-environment bundle in a fenced block) with the same bundle as a
-copy-pastable fenced snippet. Strict env whitelist (whip version/model/
-provider, theme + *how it was detected* — captured at startup, never
-re-queried, mouse, session id; TERM/TERM_PROGRAM/COLORTERM/COLORFGBG, tmux +
-`tmux -V`, SHELL, locale, window size, ssh flag; OS/arch, uname, sw_vers, Go
-version) — no secrets, no conversation content. Nothing is submitted or
-persisted: the user clicks or pastes. Version is plumbed from `main.version`
-via `tui.Version`. Tests: `tui/report_cmd_test.go` (whitelist, no-secret
-leak, issue URL round-trip, fenced snippet, busy-safe).
+New Chat requires a connected host and resolved effective permission mode, but
+not a project, ready model/provider, or session. Its read-only
+`host.skills.complete` query uses `scope: 'global'` without cwd when both
+`host_skill_completion` and `host_global_skill_completion` are negotiated. After
+a folder is selected, the existing cwd request previews the selected definition's
+initial project-plus-global skill scope. Older hosts without global discovery
+require a folder for New Chat suggestions; no implicit-folder fallback occurs.
+Browsing and selecting neither create a session nor grant access. Sending still
+requires a project and the normal first-message readiness checks; invocation
+resolves and authorizes the reference in that final session context.
+Older hosts can still offer existing-session suggestions via
+`workspace.complete`/`workspace_completion`. Hosts advertising
+`skill_catalog_completion` preload up to 1,024 metadata entries when the active
+composer gains focus (or becomes ready while focused). Warm typing filters locally
+and immediately before the 32-row display cap, without per-character requests.
+Metadata stays in the current composer's in-memory Query scope; fresh reopen
+reuses it, stale focus/open refreshes in the background, and reconnect uses the
+normal runtime invalidation. Cold loading labels wait 150 ms, not the request.
+Refresh errors retain existing matches with a visible retry action. Older hosts
+and incomplete catalogs use the bounded server-prefix fallback; host warnings
+remain visible, without count/insertion or narrowing helper text. Scope changes
+cancel obsolete reads; cached globals are not merged client-side with project
+results. Metadata discovery returns no skill instructions and authorizes no
+invocation; its bounded file-prefix parser may read body bytes while extracting
+metadata. Existing user-root trust and duplicate-name precedence are unchanged.
 
-**Startup resource report** — first paint names what whip loaded: `skills: N
-loaded`, one `⚠` line per degraded skill (description over maxDesc → truncated
-in the prompt) or unparseable SKILL.md (pi's [Skill conflicts] lesson — a
-broken skill is never silent), and one `mcp:` line with per-server status
-glyphs (`✓ N tools` / `✗` / `○ disabled` / `◌ connecting`). Skipped on resume.
-Tests: `tui/startup_report_test.go` (warnings, MCP glyphs, silence when empty).
+Implementation: `packages/app/src/skill-completion.ts`,
+`use-skill-completion.tsx`, `composer.tsx`, `welcome.tsx`;
+`packages/ui/src/textarea-suggestions.tsx`; `internal/daemon/skill_completion.go`.
+Host coverage: `internal/daemon/skill_completion_test.go`. Catalog lifecycle and
+instant filtering: `packages/app/test/skill-catalog.test.tsx`, plus both composer
+component suites. The reusable textarea
+interaction has Storybook fixtures and a repeatable browser probe at
+`packages/ui/tests/textarea-suggestions.mjs`.
 
-Installed: the `golang-*` skill set plus `i-have-adhd` (output-shaping for ADHD
-readers; invoke with `/i-have-adhd`, off with "stop adhd mode").
+## Themes
 
-## Browser automation
+Every color whip paints comes from one theme: text, muted, accents, the
+selection fill, the raised surfaces behind cards and the prompt box, and the
+syntax colors inside code blocks (markdown and tool output share them). `auto`
+follows the terminal background; `light` and `dark` pin the built-ins.
 
-`internal/browser/` + `internal/tools/browser*.go` — a native Go browser
-subsystem (go-rod/rod; no Python/Node) exposed to the model as one
-code-shaped tool, `browser_exec`. Design: docs/learnings/browser-use-integration.md §5b.
+`/theme` with no argument opens the switcher. `/theme <name>` pins a theme and
+saves it to the config (`"theme": "<name>"`).
 
-- **Three modes** (`config.Browser.Mode`): `live` attaches to the user's
-  running Chromium-family browser (their real cookies/sessions) via
-  DevToolsActivePort profile scan + SingletonLock liveness + `/json/version`
-  → WS resolution (Chrome 147+ 404 falls back to the file's WS path after
-  the path proves it answers a WebSocket upgrade; Chrome 144+ 403 surfaces
-  as `ErrPermissionBlocked` with user-actionable text). `dedicated`
-  launches a separate Chrome with a whip-owned
-  `~/.whip/browser/dedicated-profile` (no popups); `headless` is the same
-  without a window. Explicit endpoints win: `WHIP_CDP_WS`/`WHIP_CDP_URL`
-  env or `browser.cdpUrl` config.
-- **Auto-launch fallback** (hermes `/browser connect` model, ported in
-  `.ai-docs/plans/browser-auto-launch`): when live discovery finds no
-  debuggable browser (`ErrNoLiveBrowser` — including a non-Chrome process
-  squatting the debug port), `Open`/`openRod` silently launch the dedicated
-  Chrome for that session instead of dead-ending the tool call. Discovery
-  probes both loopbacks (127.0.0.1 + [::1]) and verifies `/json/version`'s
-  `Browser` field, so a squatter on 9222 no longer resolves to a bogus WS
-  URL — it triggers the fallback. A still-running whip Chrome is reattached
-  via `DiscoverWSForProfile` (its profile's DevToolsActivePort) rather than
-  re-launched; `Browser.Obtained()` reports live/launched/reattached, and
-  `Session.Do` prepends a one-line notice to the first tool output when a
-  live session fell back (the model relays which browser it's driving).
-  `Close` detaches (severs the CDP socket via `detach.go`, no Browser.close)
-  for live/reattached/dedicated so a reattach target survives; headless
-  still kills its process.
-- **Extension relay** (`config.Browser.Mode: "extension"`,
-  `internal/browser/extrelay/`): drives the user's real, logged-in Chrome
-  tab — the only way onto the default profile on Chrome ≥ 136, where direct
-  CDP is blocked. The unpacked MV3 extension (`extension/manifest.json` +
-  `background.js`, go:embed'd) holds an outbound WebSocket to a loopback
-  relay (`relay.go`, gobwas/ws — already vendored via rod, no new deps) and
-  pipes raw CDP through `chrome.debugger` on the pinned tab. The relay
-  synthesizes the few browser-level `Target.*` responses rod's attach needs
-  (one attached page target) and tunnels everything else verbatim, so the
-  existing rod Backend is reused unchanged (navigate/click/type/screenshot/
-  AX tree). Security: loopback only, per-process bearer token in
-  `~/.whip/browser/extension/relay.json` (0600), and only a tab the user
-  pinned by clicking the extension icon is drivable. Accepted trade-off:
-  Chrome shows a "whip is debugging this browser" infobar while pinned.
-  Setup: `whip browser install` writes the extension + relay.json, mints
-  the token, and opens `chrome://extensions` + the folder (the 3 manual
-  clicks — Developer mode → Load unpacked → select folder — are on the user;
-  Chrome forbids programmatic install).
-- **One tool, per hermes's benchmark** (36/36 task success at ~60% fewer
-  schema tokens vs a 12-tool granular set): the `code` argument is a line/
-  semicolon-separated helper-call program (`goto`, `js`, `click`, `type`,
-  `press`, `fill`, `scroll`, `waitLoad`, `waitFor`, `ax`+`box` for
-  AX-tree→coordinate workflows, `tabs`/`useTab`, `upload`, `dialog`,
-  `screenshot`, `info`, `print`) — parsed by a ~200-line quote-aware
-  mini-interpreter (`browser_lang.go`), no eval surface in whip.
-- **Named sessions** (`session: "<name>"`, prefix `<mode>:` to override the
-  default mode per session): one lazily-opened browser per (mode, name),
-  calls serialized through a 1-capacity channel semaphore (the filelocks
-  idiom), dead connections reopened once (stale-tab recovery).
-- **Safety floor** (`safety.go`, ported from hermes's url_safety.py):
-  cloud-metadata endpoints (169.254.169.254, metadata.google.internal, ECS)
-  blocked unconditionally on every `goto` in every mode, all DNS answers
-  checked, fail-closed on resolution errors; private/LAN addresses blocked
-  on dedicated/headless unless `browser.allowPrivateUrls`; post-action URL
-  recheck neutralizes the page to about:blank when JS navigation laundered
-  the target.
-- **Vision loop**: `screenshot()` returns a JPEG (≤1568px, quality 80, via
-  CDP clip-scale); when the model has vision, the TUI's `ScreenshotSink`
-  steers the image into the conversation as a multimodal user message
-  (`Agent.SteerImages` → `pendingSteer.parts`), so the model inspects it
-  natively on the next request — no temp-file dance.
-- **UX**: the TUI tool row shows the code's first `# comment` as a
-  plain-language step label (`tui/browser.go browserStepLabel`) instead of
-  raw JSON; `browser.enabled: false` removes the tool.
-- **Screencast hook (follow-up, not shipped)**: because the driver is
-  in-process, `Page.startScreencast` frames could stream to a TUI pane for
-  a live view of the agent's page — impossible through the CLI-subprocess
-  design. The seam is `internal/browser.Backend` (add a
-  `Screencast(ctx, func(frame []byte))` method) feeding a new transcript
-  block type; no agent-loop changes needed.
+The whole view is painted with the theme's background and text colour, so a
+light theme reads on a dark terminal and the terminal's own colours follow
+the theme while whip runs (they are restored on exit). Besides whip's `light`
+and `dark`, the switcher lists opencode's theme catalog, converted from its
+assets with `internal/theme/themes/convert_opencode.py`: aura, ayu,
+carbonfox, catppuccin (latte/frappe/macchiato), cobalt2, cursor, dracula,
+everforest, flexoki, github, gruvbox, kanagawa, lucent-orng, material, matrix,
+mercury, monokai, nightowl, nord, one-dark, opencode, orng, osaka-jade,
+palenight, rosepine, solarized, synthwave84, tokyonight, vercel, vesper and
+zenburn — each as `<name>` (dark) and `<name>-light`. Catalog themes pin their
+surfaces, syntax colours and markdown accents; whip's own themes derive them.
 
-Tests: `internal/browser/browser_test.go` (DevToolsActivePort parsing,
-profile scan with fake dirs, /json/version + 404-upgrade-fallback +
-403-permission discovery, dual-stack portLive, squatter rejection,
-per-profile reattach discovery, fallback notice once-per-session, SSRF
-floor, session/mode selection), `e2e_test.go` (real Chrome × all three
-modes — cookie round-trip, AX-tree→click, screenshot JPEG,
-dedicated-profile isolation, live-attach survival after Close, live→launched
-fallback, dedicated reattach-no-duplicate),
-`internal/browser/extrelay/relay_test.go` (token auth, CDP tunnel
-round-trip, Target.* synthesis, no-tab error, disconnect-detach) +
-`rod_e2e_test.go` (a real rod.Browser drives attach + Eval through the relay
-against a fake extension — proves the tunnel + Target synth end-to-end),
-`internal/tools/browser_lang_test.go` (parser), `schema_test.go` (all
-built-in tool schemas parse — ratchet for the request-corrupting malformed
-schema class), `browser_e2e_test.go` (tool-level E2E),
-`internal/agent/browser_test.go` (fake-provider loop: model calls
-browser_exec, page title reaches the model).
+User themes are JSON files in `~/.whip/themes/<name>.json` (or under
+`$WHIP_HOME`). Any token you leave out defaults from the built-in of the same
+darkness; unknown keys and malformed colors are reported with the allowed keys
+when you run `/theme`. Colors are `#rrggbb` or an ANSI palette index `0`-`255`.
 
-Environment note (this dev box): Playwright's Chromium + unpacked Ubuntu
-debs under `/tmp/chromelibs` (LD_LIBRARY_PATH) drive the E2E tests; tests
-skip cleanly without a Chromium binary. Form-control text input
-(`<input>`/textarea) wedges the renderer in that sandboxed build — an
-environment quirk, not a rod/whip bug; verified on real Chrome.
-
-The browser-use CLI-over-MCP escape hatch remains available via config for
-anyone wanting the Python ecosystem (§4 option B).
-
-## `whip up <prompt>` — start the TUI with a first-turn prompt from argv
-
-`whip up <words...>` (`cmd/whip/main.go`) joins every argv token after `up`
-with spaces and opens the interactive TUI with that text submitted as the
-first user turn — the exact typed-submission path (`submitTurn`,
-`Authored: true`), so it lands in up-arrow input history and the transcript.
-Flags still work because Go's `flag` package stops parsing at `up`
-(`whip -m kimi up do the thing`), and the prompt itself may start with `-`
-untouched — the `up` handler never re-parses its args.
-
-The prompt rides the `model.initialPrompt` field into the session; `Init()`
-emits a one-shot `initialPromptMsg` (batched with the textarea blink) and
-`Update` submits it. Kicking off from `Init` — not from `Run` before
-`tea.NewProgram` — is the load-bearing choice: the turn goroutine's event
-callbacks `p.Send` through `m.prog`, which only exists once the program is
-constructed. Combined with `--resume` the replayed history renders first and
-the prompt fires as the next turn, matching `whip run`'s
-prompt-after-resume order.
-
-## Startup resume flags — `whip -c` / `-r` / `--browse`
-
-- **`whip -r <id>`** (or `--resume <id>`) — resume a session by id or unique prefix.
-- **`whip -r`** (or `--resume`, bare) — open the `/resume` picker at startup.
-- **`whip -c`** (or `--continue`) — resume the most-recent ordinary session in
-  the current dir; starts fresh (with a notice) if none.
-- **`whip --browse`** — alias for bare `--resume` (the picker).
-
-Precedence: `-r <id>` > `-c` > `--browse`. With `whip up <prompt>`, the
-resume/continue/picker runs first and the prompt fires as the next turn
-(`-r up …` reads as resume-by-id "up", so use `--browse up …` for
-picker-then-prompt).
-
-Bare `--resume` works despite stdlib `flag` having no optional values:
-`normalizeBareResume` (cmd/whip/main.go) rewrites a trailing bare `-r`/
-`--resume` to `--browse` before `flag.Parse`; `-r <id>` and `-r=<id>` are
-left untouched.
-
-
-Tests: `internal/session/session_test.go` — `TestLatestInDir` (newest per dir,
-`sql.ErrNoRows` when none), `TestLatestInDirExcludesSubagentTranscripts`,
-`TestLatestInDirSkipsEmptySessions`. `internal/tui/resume_browse_test.go` —
-`TestContinueRecentResumesNewestInCwd`, `TestContinueRecentNoSessionInDirStartsFresh`,
-`TestBrowseOpensPickerAndEnterResumes`, `TestBrowseNoSessionsPrintsEmptyState`.
-
-Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
-kickoff → busy turn, authored user message, history entry, one-shot
-consumption), `TestNoInitialPromptNoKickoff` (bare blink Init, empty msg is
-a no-op), `TestInitialPromptMsgIgnoredWhileBusy` (a replayed msg can't
-double-submit mid-turn).
-
-## ACP agent mode
-
-`whip acp` (`cmd/whip/acp.go`, `internal/acp/`) serves whip as an **Agent
-Client Protocol** v1 agent over stdio: an editor (Zed et al.) spawns the
-binary and drives the agent loop with newline-delimited JSON-RPC 2.0. Stdout
-is exclusively protocol frames; diagnostics go to stderr + the event log.
-Wire types, framing, and per-session cancel plumbing come from
-`github.com/coder/acp-go-sdk` (schema-generated, zero transitive deps).
-
-- **Bridge** (`internal/acp/bridge.go`) — implements the SDK's `Agent` +
-  `AgentLoader`: `initialize` negotiates protocol version 1 and advertises
-  `loadSession` (with a store), prompt capabilities (image only when the
-  resolved model has vision; embeddedContext always), MCP-over-http, and
-  `sessionCapabilities.list`/`close`. `session/new` builds a fresh
-  `agent.Agent` via a `Factory` (model/key/system-prompt rooted at the
-  client's `cwd`, per-session MCP manager merging client-sent servers over
-  whip's config — whip wins name clashes). `session/prompt` runs
-  `Agent.TurnParts` (the one-line export of the loop's parts-taking turn);
-  streamed text/thought chunks, tool cards (`tool_call`/`tool_call_update`
-  with kind, title, locations, raw input, and `diff` content for
-  write/edit), `plan` updates from todowrite (via the new
-  `Agent.SetOnTodos` hook), `usage_update` (per-request prompt tokens over
-  the advertised context window), and a `session_info_update` title once the
-  store auto-titles the session — all flow through `SessionUpdate`
-  notifications. Stop reasons: `end_turn` normally, `cancelled` on
-  `session/cancel` (never an error response, per spec), `max_tokens` when a
-  context-limit error survives the compaction retry.
-- **One turn at a time** — a prompt arriving mid-turn gets a JSON-RPC
-  "session busy" error (ACP clients serialize turns; queueing prompts nobody
-  is watching invites zombie work). The turn runs on a ctx decoupled from
-  the request ctx because the SDK auto-cancels a session's in-flight prompt
-  when a second prompt arrives; cancellation flows through `session/cancel`
-  → `Bridge.Cancel` instead, and an idle-session cancel (which the SDK parks
-  against the next request's ctx) is a no-op. `session/close` and process
-  teardown (`Bridge.CloseAll` on conn EOF/signal) cancel running turns and
-  close per-session MCP managers before `bashrun.KillAll()`.
-- **Persistence** — turns save into the same SQLite store as the TUI
-  (`storeFrom` starts at 1: the system prompt is never persisted), so an ACP
-  session is resumable with `whip --resume <id>` and appears in
-  `session/list`. `session/load` rejects prefix ids, verifies the request
-  cwd matches the recorded one, then replays the full history (user/agent
-  chunks + tool cards in terminal state, `replayUpdates` in translate.go)
-  **before** responding, per spec.
-- **Modes & permissions** (`internal/acp/permission.go`) — sessions
-  advertise modes `auto` (default; tools ungated, `whip run` posture) and
-  `ask` (gated bash/write/edit round-trip through
-  `session/request_permission` with allow-once/always/reject options).
-  `session/set_mode` flips live and echoes `current_mode_update`. The gate
-  installs on the package-global `tools.Gate` serialized bridge-wide for the
-  turn's duration (a second ask-mode turn waits rather than interleave
-  mislabeled prompts); the permission request runs on the turn ctx so cancel
-  unblocks it, and cancelled/errored prompts fail closed. "Allow always"
-  rules are remembered per session for the session's lifetime.
-
-Out of scope by design (recorded in `.ai-docs/plans/acp/README.md`):
-terminal suite, `fs/*` client calls, elicitation, auth, config options,
-session/resume+delete, ACP v2. Known gap: background subagents gated
-mid-turn share the session's gate.
-
-Tests: `internal/acp/translate_test.go` (content-block conversion, tool
-kind/title/locations, diff cards, replay ordering), `bridge_test.go` +
-`bridge_lifecycle_test.go` (in-memory client over pipes + scripted httptest
-provider: capabilities, streaming order, cancel mid-turn → cancelled not
-error, prompt-while-busy → "session busy" error + recovery, unknown session,
-idle-cancel no-op, plan updates, context-limit → max_tokens),
-`permission_test.go` (allow-once/reject/always-covers-repeats, auto mode
-never prompts, unknown mode, cancelled outcome fails closed),
-`load_test.go` (persistence incremental + system-prompt exclusion, replay
-before response with tool cards, prefix-id rejection, session/list with cwd
-filter, usage + title updates). All green under `-race`.
-
-Editor setup (Zed `settings.json`):
 ```json
-{ "agent_servers": { "whip": { "command": "/path/to/whip", "args": ["acp"] } } }
+{
+  "dark": true,
+  "palette": {
+    "text": "#e0e0e0", "muted": "#808080", "faint": "#5a5a5a",
+    "primary": "#00aaff", "accent": "#c678dd",
+    "success": "#98c379", "warning": "#e5c07b", "error": "#e06c75", "info": "#61afef",
+    "link": "#56b6c2", "emphasis": "#e5c07b", "onPrimary": "#0a0a0a",
+    "border": "#3a3a3a", "borderFocus": "#61afef", "bg": "#1e1e1e",
+    "diffAdd": "22", "diffDel": "52"
+  },
+  "surfaces": { "panel": "#262626", "element": "#303030", "hover": "#3a3a3a" },
+  "chroma": "dracula"
+}
 ```
 
-## Computer-use (macOS)
+`diffAdd`/`diffDel` are the background tints behind added and removed diff
+lines. Optional `syntax` (`keyword`, `string`, `number`, `comment`, `function`,
+`type`, `operator`, `punctuation`) and `markdown` (`heading`, `strong`, `code`,
+`quote`) blocks pin those colours instead of deriving them from the palette.
+`surfaces` is optional: without it the card and prompt fills are derived from
+the terminal's real background so they read as raised layers on any terminal.
+`chroma` is optional: without it the code colors are generated from the
+palette; with it, that registered chroma style is used instead.
 
-`internal/computer/` + `internal/tools/computer.go` — `computer_exec` drives
-the user's Mac via AppleScript (osascript), with the already-open Chrome as
-the flagship path: their real tabs and logins, zero CDP setup. Design and the
-codex/mack borrow rationale: .ai-docs/plans/computer-use/README.md and
-docs/learnings/other-harnesses/codex-computer-use-plugin.md (dissected from
-the on-disk driver).
 
-- **Chrome via AppleScript** (`internal/computer/chrome.go`) — the user's
-  running Chrome answers AppleScript: active-tab URL/title, every tab of
-  every window, goto/new-tab/activate/close/back/reload, and
-  `execute javascript` (needs Chrome's View→Developer→"Allow JavaScript
-  from Apple Events" toggle; the error surfaces it). Our osascript helper
-  fixes mack's flaws: newlines preserved (tab lists stay readable), quotes
-  escaped (no injection).
-- **Per-app policy** (`policy.go`, ported from codex's computer_use.rs):
-  every action targets an app. **Default is allow-all** — users build
-  blocklists (`computer.deny` config, or `/computer-use deny <app>`
-  in-session), not allowlists. `computer.deny` always wins (config and
-  session). `computer.allow` and `computer.defaultDeny: true` restore the
-  gated posture for anyone who wants it.
-- **Tool shape** — the same helper-call mini-language as browser_exec
-  (`internal/tools/browser_lang.go`, now shared): `chrome_state`,
-  `chrome_tabs`, `chrome_goto`, `chrome_new_tab`, `chrome_activate`,
-  `chrome_close`, `chrome_back`, `chrome_reload`, `chrome_js`,
-  `chrome_find`, and the `tell(app, script)` escape hatch. Step-label
-  `# comment` convention carried over (the TUI row shows it).
-- **Safety**: URLs pass the browser SSRF floor (`browser.CheckURL`) before
-  any navigation; login walls → stop and ask (in the tool description).
-- macOS-only for now (`computer.Available()` gates on darwin); Linux/Windows
-  backends are follow-ups. The AX/CGEvent/ScreenCaptureKit tier (full
-  desktop control) is v2 — a signed embedded helper binary extracted to a
-  stable path so TCC grants stick.
+The renderer-independent specification, catalog and ANSI/Chroma resolver live in
+`internal/theme`; the TUI retains terminal-specific rendering and background
+handling in `internal/tui/theme`. The browser generates all 66 named palettes with
+`cmd/themegen`, follows `prefers-color-scheme` for `auto`, and stores selection on
+the viewing device. Its accessible surface/text derivation leaves source palettes
+unchanged and retains full Chroma code styling. Host custom discovery and pasted
+JSON import share the Go resolver; the browser never compiles arbitrary CSS.
 
-Tests: `internal/computer/computer_test.go` (quote escaping, policy
-allow/deny/session-approval, tab-list parse), `internal/tools/computer_test.go`
-(tool gating, policy enforcement, approver flow); the schema ratchet
-(`schema_test.go`) now covers computer_exec.
+**Claude Code** (`claude-code`) is a built-in dark theme based on the supplied
+Paper desktop screens: `#141414` canvas, `#111110` sidebar, warm gray text,
+`#222221` composer/hover fills, and `#343434` selected rows. Select it under
+**Settings → Appearance → Color theme**, or use `/theme claude-code` in the TUI.
+The source is `internal/theme/themes/claude-code.json`; research and the role
+mapping are in `.ai-docs/plans/claude-code-theme/README.md`. Optional `displayName`
+and optional `web` fields (`navigation`, `quietBorder`, `codeBackground`,
+`inlineCodeBackground`) preserve the stable theme ID and pin browser surfaces; themes without overrides retain the existing derivation.
+The browser still adjusts insufficient text contrast, including inline code.
+Tests: `internal/theme/resolve_test.go`, `packages/ui/tests/themes.test.ts`,
+and `apps/web/scripts/claude-code-theme.mjs` cover catalog parity, validation,
+source colors, rendered surfaces, selection, reload and switching away.
+
+## Web directory navigation
+
+The saved-session sidebar follows the compact Claude/Paper hierarchy while using
+WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
+worktrees distinct, preserves pin/recency order, and shows seven sessions per folder
+by default. More reveals seven additional loaded sessions at a time; once all are
+visible, Less resets the folder to seven. It offers New session, Search
+sessions and Settings. Hosts have separate headings and connection status within
+one sidebar. Directory + preselects its source host and folder in the Local/Remote
+creation form; it does not create work until submitted. Search opens a centered
+dialog with host labels/filter, recent sessions, debounced host search, independent
+bounded paging, partial errors and arrow/Enter navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
+Native session links and
+background-tab menus preserve remembered child/inspector locations.
+
+The sidebar has a 320 px default, keyboard/pointer resizing (256–420 px), a
+hide/show toggle, window-local layout and bounded host-specific collapse state.
+The brand and New session remain pinned while Search, Settings, folders, sessions,
+and Servers scroll together. A faint border and soft shadow/fade appear below the
+header only when scrolled. Mobile uses the same layout in a contained Sheet with
+touch targets. Virtualized
+catalog updates preserve the visible reading anchor and never hydrate roots to
+obtain labels. See [frontend navigation](frontend.md#saved-session-navigation).
+
+Code: `packages/app/src/session-sidebar.tsx`, `sidebar-state.ts`,
+`sidebar-layout.tsx`, `welcome.tsx`, and `session-tab-routing.ts`.
+Tests: `sidebar-state.test.ts`, `sidebar-layout.test.tsx`,
+`sidebar-creation.test.tsx`, `session-tab-routing.test.ts`, and the isolated
+production-browser workflow `apps/web/scripts/sidebar.mjs`.
+
+
+## Multiple execution hosts in the web workspace
+
+Local owns a `remote_hosts` registry in its existing distribution-specific
+configuration file. Saved IDs, names, URLs, verified runtime IDs and startup
+connection preferences are shared across browsers through revision-checked config
+updates. Browser-only addresses remain explicitly importable. Separate SDK clients
+connect directly to existing LAN/Tailscale daemons, verify identity, and reject
+runtime aliases or unaccepted replacements. Losing one host preserves the others;
+losing Local blocks profile edits while attached remote sessions remain usable.
+
+One v3 window layout carries runtime identity on every tab and allows mixed-host
+panes. The existing four-pane, 32-tab and four-root-view budgets apply to the whole
+window. Migration adopts the last-used legacy host layout and keeps original
+v1/v2 data, with remaining layouts available under **Restore previous host tabs**.
+If a complete layout cannot fit, open individual previous tabs, including closed
+entries, without consuming the original layout.
+Runtime/root/recipient and runtime/client/command identities prevent collisions
+in drafts, views, content and command observations.
+
+New sessions explicitly choose Local or Remote, host, folder and that host's
+model/default. Settings identify the target execution host; saved-host edits
+always target Local and viewing preferences stay local to the browser. Search
+and attention show source hosts, filters, separate bounded pages and partial
+failures. Responses open their owning sessions; neither index hydrates roots.
+Remote listener/proxy setup and exact browser Origin allowlists remain explicit
+trusted-network configuration; automatic stable-Origin handling is deferred.
+The local daemon is socket-only by default; `whip web` starts its foreground
+gateway without a daemon restart, or `WHIP_NETWORK=1` opts into managed startup.
+The desktop origin `whip-app://bundle` can be explicitly allowed through
+`WHIP_ALLOWED_ORIGINS` (`WHIPCODE_ALLOWED_ORIGINS` for the whipcode distribution).
+Other custom origins, wildcards, suffixes, ports and paths remain rejected.
+`internal/webgateway/server_test.go:TestDesktopOriginExplicitAndExact` covers
+validation, explicit opt-in and CORS response headers; the daemon no longer
+hosts HTTP handlers.
+
+Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
+`packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
+`{host-dialog,welcome,settings,session-search-dialog,attention}.tsx`.
+Tests: `internal/config/remote_hosts_test.go`, the remote-host configuration test
+in `internal/daemon/provider_client_behavior_test.go`, and
+`packages/app/test/{hosts,runtime,session-tabs,session-tab-routing,workspace-views}.test.ts`,
+`sidebar-creation.test.tsx`, `multi-host-discovery.test.tsx`.
+See [architecture](frontend.md#runtime-construction-and-lifetimes) and
+[operation](web-app.md#multiple-execution-hosts). Validation evidence is tracked in
+the [phased plan](../.ai-docs/plans/web-multiple-hosts/README.md).
+
+
+## Model usage budgets
+
+New root sessions and uncapped descendants have unlimited cumulative cost,
+tokens, and elapsed usage. Optional `agents.spawn(..., budgets=...)` limits still
+constrain a subtree; zero is a zero allowance. Worker/concurrency, recursion,
+storage, and provider response limits remain independent and bounded.
+
+Web and TUI budget inspection is read-only. Per-attempt accounting uses each
+route's model prices, including child overrides, compaction, and helper calls.
+Unknown provider usage is marked incomplete and retained separately from known
+usage; finite caps account for that uncertainty conservatively. Catalog-derived
+costs are estimates, not provider invoices. Protocol 4 carries nullable limits;
+the fresh runtime schema is version 8. Older stores are rejected without being
+modified; this change includes no session migration or automatic data deletion.
+
+
+## Whipcode distribution
+
+The `whip-rlm` branch publishes a separate `whipcode` executable through copied
+CI, security, and release workflows. Both distributions use one Go runtime and
+the same embedded web application. A compiled `internal/buildinfo` identity
+selects CLI instructions, `.whipcode` home paths, `WHIPCODE_HOME`, and isolated
+network controls. Application-owned config, auth, sessions, locks, notices,
+skills, browser profiles/extension state, and macOS helper extraction follow
+that home; renaming a binary does not switch its identity.
+
+`install-whipcode.sh` verifies complete, versioned prerelease assets and SHA-256
+checksums before atomic replacement. `whipcode update` stays in its channel,
+replaces the invoked installation, and requests only its daemon's restart.
+Stable `whip` release discovery remains unchanged. See [installation](setup.md#whipcode-branch-builds).
+
+Code: `internal/buildinfo`, `internal/config`, `internal/update/whipcode.go`,
+`cmd/whip/update.go`, `install-whipcode.sh`, `scripts/publish-whipcode.sh`, and
+`.github/workflows/{ci,security,release}-whipcode.yml`.
+Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`,
+`TestWhipcodeVersionComparison`, `scripts/test-install-whipcode.py`, and
+`scripts/test-distributions.py` (both compiled binaries, independent sockets,
+restart, and self-update).
+## Native mobile companion (development)
+
+The Expo workspace in `apps/mobile` provides multi-host private setup, themed
+Sessions/Attention/Settings, root and child conversations, queued/steering input,
+turn-specific Stop, question forms and one-shot permission decisions. It consumes
+the existing SDK WebSocket protocol; execution stays on the host. Application auth,
+QR pairing and push notifications remain outside this release.
+
+- Connection diagnostics: `apps/mobile/src/runtime/connection-test.ts` and
+  `app/server.tsx`; transient HTTPS/WSS/session probes, per-step deadlines,
+  identity checks and modal-local actionable errors. `connection-test.test.ts`
+  and `server-screen.test.tsx` cover HTTP/protocol failures, headless hosts,
+  response bounds, cancellation and late results. SDK transport tests preserve
+  React Native close reasons without leaking callbacks after disposal.
+- Native runtime and lifecycle: `apps/mobile/src/runtime/runtime.ts`, SDK
+  `client.pause/resume` and synchronized views; covered by SDK client/state tests
+  and mobile runtime tests.
+- Durable local identity, revisioned drafts and atomic correlation:
+  `apps/mobile/src/runtime/storage.ts`, local `WhipStorage` native module;
+  `storage.test.ts` and `storage.native.test.ts` cover SQLite atomicity, quotas,
+  key/database mismatch and native setup boundaries.
+- Partial creation recovery: `apps/mobile/src/features/creation.ts` and
+  `creation.test.ts`; separate create/effort/input identities preserve the created
+  root without automatic continuation after restart.
+- Combined session home, search/host/archive filters and a single foreground
+  attention owner: `apps/mobile/src/features/workspace-index.tsx`,
+  `workspace-index.test.tsx`, `runtime/read-lane.ts` and its tests. Qualified host
+  identities, partial failures, two simultaneous reads and bounded page replacement
+  prevent one host from blocking or overwriting another.
+- Native design library and all generated web themes: `apps/mobile/src/ui`,
+  `theme/preferences.ts`, `theme/theme.tsx`, `app/settings/appearance.tsx`.
+  Catalog-wide contrast tests and storage migration/atomic-write tests cover
+  theme selection and the separate custom-theme bucket. JSON import uses the
+  existing host resolver; imports persist offline.
+- Host lifecycle and management: `runtime/workspace.ts`, `workspace.test.ts`,
+  `app/settings/hosts.tsx`; independent connections, cancellation, verified
+  identity deduplication, local names and shared database lifetime.
+- Guided host/folder/review creation and session options preserve the existing
+  creation journal. Chat adds a keyboard-aware composer, reduced-motion status,
+  native agent/request/detail sheets, local pins, rename and archive/restore.
+  `session-screen.test.tsx` retains reading-position and mutation guard tests.
+- Bounded native text: `apps/mobile/src/components/paged-text.tsx` and
+  `conversation.tsx`; paging, recycling, full-copy and explicit body-read tests
+  cover the rendering boundary. `markdown.test.tsx` covers source fallback for
+  images/HTML and the external-link allowlist.
+- Permission recovery: SDK `permissions.status`, daemon permission outcome
+  normalization/legacy decoding; SDK services and daemon server tests cover both
+  transports, failed outcomes and original decision identity.
+- Pure reuse: `@whip/app/presentation` and `@whip/ui/theme-data`; web retains its
+  own renderer. See [frontend.md](frontend.md) for package boundaries.
+
+Native device validation and distribution are not implied by this entry.
+[Mobile setup](mobile.md) and the
+[UI implementation evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md) track the actual
+build/device/release state.
+
+## Canonical Frontier evaluations
+
+[Evaluation workflow](../evals/README.md): `uv run --project evals --locked whip-eval`
+runs fixed, nested Smoke 8 / Medium 15 / Full 30 profiles against Kimi K3 on
+Inference.net. All code and locks live under `evals/`; native Harbor/Pier graders
+remain authoritative. No live evaluations or qualification containers were run
+as part of this implementation, and the accepted baseline starts uninitialized.
+
+- `whip_evals/tasks.py`, `prepare.py`, and `frontier/` pin source/files, OCI images,
+  native resources/deadlines, model catalog and build/configuration. Runtime A/B
+  captures one shared binary; dirty snapshots remain development-only.
+  `test_contract.py` covers workload expansion, limits, vision capabilities,
+  immutable task preparation, native parsing and shared build identity.
+- `execution.py` owns a cross-suite pool of at most 32 native trial subprocesses,
+  reserves separate-verifier capacity, and cancels workers before waiting for
+  shutdown. Cleanup verifies native container identity and log mounts.
+  `test_pool.py` proves overlap, admission, failed-cleanup dispatch stop and
+  callback-failure cancellation; historical cleanup tests remain applicable.
+- `adapter.py` / `observe.py` retain whole-tree finality, scoped SQLite/content
+  export and cost accounting. `report.py` cross-checks ledger/state/metrics and
+  emits one JSON result plus Markdown/CSV under `evals/reports/<run-id>/`.
+  Native failures, missing grades, cost uncertainty and timeout causes remain
+  distinct. `test_reports.py` covers stale accounting, corrupt evidence, planned
+  denominators, timing, paired comparisons and immutable publication.
+- `baseline.py` accepts only explicit clean Full campaigns with three repetitions,
+  complete evidence and the versioned quality/cost/latency gates. The accepted
+  pointer uses locked compare-and-swap plus immutable history.
+  `test_baseline.py` covers first acceptance, replacement guards, stale/concurrent
+  publishers, evidence tampering and interrupted pointer writes.
+- `doctor --integration` is an explicit future-machine check using authored fake
+  model responses and both engines/runners/verifier modes. `fixtures/native/`
+  verifies paging, background service survival and a committed patch collected
+  into a separate verifier. It is excluded from proficiency scores.
+- Reports can be regenerated offline into new analysis directories. Interrupted
+  execution is not resumed. There is no eval CI or automatic artifact pruning.
+  Existing `evals/runtime-ab` studies and `evals/rlm` tests are retained.

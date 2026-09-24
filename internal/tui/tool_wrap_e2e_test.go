@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -80,7 +79,7 @@ func TestToolResultFullyVisibleWhenExpanded(t *testing.T) {
 	// collapsed: preview + a hint (an ellipsis is fine HERE — it's the
 	// collapse affordance, and it must say how to expand)
 	joined := strings.Join(m.viewportPlain(), "\n")
-	if !strings.Contains(joined, "… +7 lines") {
+	if !strings.Contains(joined, "↳ 12 lines") {
 		t.Fatalf("collapsed view should announce hidden lines, got:\n%s", joined)
 	}
 	if strings.Contains(joined, "output row "+strings.Repeat("x", 12)) {
@@ -88,7 +87,7 @@ func TestToolResultFullyVisibleWhenExpanded(t *testing.T) {
 	}
 
 	// expand: every row visible, no truncation
-	tm, _ = m.key(tea.KeyMsg{Type: tea.KeyCtrlE})
+	tm, _ = m.key(ctrlKey('e'))
 	m = tm.(*model)
 	joined = strings.Join(m.viewportPlain(), "\n")
 	for i := 1; i <= 12; i++ {

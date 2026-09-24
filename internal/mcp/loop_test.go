@@ -47,7 +47,7 @@ func TestAgentLoopWithMCPTool(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := agent.New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := agent.NewRuntime(llm.New(srv.URL, "k"), "m", 100, "sys", tools.NewServices())
 	ag.Tools = append(tools.All(), m.Tools()...)
 
 	final, err := ag.Turn(context.Background(), "greet me", agent.Events{})
@@ -103,7 +103,7 @@ func TestAgentLoopDeadServerToolCallsReturnErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := agent.New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := agent.NewRuntime(llm.New(srv.URL, "k"), "m", 100, "sys", tools.NewServices())
 	// Deliberately include a stale tool def for the dead server: disconnects
 	// mid-session leave defs behind until the next rebuild.
 	stale := tools.Tool{

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/TerminalDetachedParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TerminalDetachedParams",
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}

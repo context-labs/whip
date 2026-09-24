@@ -1,0 +1,7 @@
+import { router } from 'expo-router';
+import { Monitor, Palette, Inbox, Activity, Info } from 'lucide-react-native';
+import { useTheme } from '../../theme/theme';
+import { useWorkspaceState } from '../../runtime/workspace-context';
+import { ListRow, Screen, Section, Text } from '../../ui';
+export default function SettingsScreen() { const theme = useTheme(); const state = useWorkspaceState(); return <Screen><Text variant="title">Settings</Text><Section><ListRow title="Hosts" detail={`${state.hosts.length} saved computers`} leading={<Monitor size={22} color={theme.colors.muted} />} onPress={() => router.push('/settings/hosts')} /><ListRow title="Appearance" detail={theme.name} leading={<Palette size={22} color={theme.colors.muted} />} onPress={() => router.push('/settings/appearance')} /></Section><Section title="ON THIS PHONE"><ListRow title="Drafts, activity & recovery" detail="Saved drafts, delivery checks and diagnostics" leading={<Activity size={22} color={theme.colors.muted} />} onPress={() => router.push('/settings/activity')} /><ListRow title="Connection help" leading={<Info size={22} color={theme.colors.muted} />} onPress={() => router.push('/setup-help')} /><ListRow title="Font licenses" onPress={() => router.push('/licenses')} />{__DEV__ && <ListRow title="Component gallery" onPress={() => router.push('/gallery')} />}</Section><Text variant="caption" muted>Whip mobile 0.1.0
+Your hosts do the work. This phone keeps you connected.</Text></Screen>; }

@@ -1,0 +1,2212 @@
+package daemon
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"math"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/rlm"
+	"github.com/context-labs/whip/internal/schedule"
+	sessionstore "github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
+)
+
+type RecursiveRuntimeOptions struct {
+	Engine string
+	// Definition describes the root agent; children narrow it. The zero value
+	// selects the coding agent.
+	Definition    agentdef.Definition
+	Agent         *agent.Agent
+	History       []llm.Message
+	Limits        rlm.Limits
+	Kernels       *rlm.Manager
+	KernelCommand []string
+}
+
+// RecursiveRuntime owns one tree of identical RLM agent sessions. The daemon
+// root actor remains the durable serialization boundary for the whole tree.
+type RecursiveRuntime struct {
+	engine      string
+	definition  agentdef.Definition
+	mu          sync.RWMutex
+	root        *Session
+	rootNode    *AgentSession
+	agents      map[string]*AgentSession
+	limits      rlm.Limits
+	kernels     *rlm.Manager
+	command     []string
+	hookMu      sync.RWMutex
+	runTurnHook func(*AgentSession)
+	closed      bool
+}
+
+func (runtime *RecursiveRuntime) setRunTurnHook(hook func(*AgentSession)) {
+	runtime.hookMu.Lock()
+	runtime.runTurnHook = hook
+	runtime.hookMu.Unlock()
+}
+
+func (runtime *RecursiveRuntime) observeRunTurn(session *AgentSession) {
+	runtime.hookMu.RLock()
+	hook := runtime.runTurnHook
+	runtime.hookMu.RUnlock()
+	if hook != nil {
+		hook(session)
+	}
+}
+
+// AgentSession is the live model loop, Starlark kernel, and identity for one
+// root or child. Root and child sessions use this exact type.
+type AgentSession struct {
+	runtime      *RecursiveRuntime
+	root         *Session
+	agent        *agent.Agent
+	host         *recursiveHost
+	kernel       *rlm.Kernel
+	authority    capability.Authority
+	definition   agentdef.Definition
+	id           string
+	parentID     string
+	name         string
+	capabilities []string
+
+	accountingStopped error
+	mu                sync.Mutex
+	running           bool
+	closed            bool
+	failures          int // consecutive failed turns; drives the re-wake backoff
+	cancel            context.CancelFunc
+	turn              turnJournal
+	spanStarts        map[string]int64 // open tool/host span starts by span id, for their ends
+	emit              func(string, StreamEvent)
+	interactive       *daemonInteractiveRunner
+	prompt            rlm.PromptSnapshot
+	promptOverride    string
+	report            string // spawn report mode: "" or "notice", "message", "inline"
+}
+
+type recursiveHost struct {
+	session *AgentSession
+}
+
+func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, error) {
+	descriptor, err := rlm.ResolveEngine(options.Engine)
+	if err != nil {
+		return nil, err
+	}
+	if options.Agent == nil {
+		return nil, errors.New("recursive runtime requires an agent")
+	}
+	if options.Kernels == nil {
+		options.Kernels = rlm.NewManager(options.Limits.MaxWorkers)
+	}
+	definition := options.Definition
+	if definition.ID == "" {
+		definition = agentdef.Coding()
+	}
+	if err := definition.Validate(); err != nil {
+		return nil, err
+	}
+	runtime := &RecursiveRuntime{
+		engine: descriptor.ID, definition: definition, agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
+		command: append([]string(nil), options.KernelCommand...),
+	}
+	node, err := runtime.newNode(options.Agent, definition, "", "root", nil, capability.Authority{})
+	if err != nil {
+		return nil, err
+	}
+	node.agent.Messages = append(node.agent.Messages[:1], rlm.FocusedHistory(options.History)...)
+	runtime.rootNode = node
+	return runtime, nil
+}
+
+// RootSession returns the root model session. Root and descendants are the
+// same concrete execution unit; only their persistence envelopes differ.
+func (runtime *RecursiveRuntime) RootSession() *AgentSession { return runtime.rootNode }
+
+// identity derives who this node is from the live tree.
+func (node *AgentSession) identity() rlm.Identity {
+	identity := rlm.Identity{AgentID: node.id, Name: node.name, ParentID: node.parentID, Report: node.report}
+	if node.runtime == nil || node.parentID == "" {
+		return identity
+	}
+	node.runtime.mu.RLock()
+	defer node.runtime.mu.RUnlock()
+	for parent := node.runtime.agents[node.parentID]; parent != nil; parent = node.runtime.agents[parent.parentID] {
+		if identity.Depth == 0 {
+			identity.ParentName = parent.name
+		}
+		identity.Depth++
+		if parent.parentID == "" {
+			break
+		}
+	}
+	if identity.Depth == 0 {
+		identity.Depth = 1
+	}
+	return identity
+}
+
+// scratchStore persists a node's Starlark scratch through the root actor. A
+// node that is not bound to a root yet has nothing to load or save.
+type scratchStore struct{ node *AgentSession }
+
+func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifest, error) {
+	node := store.node
+	if node.root == nil || node.id == "" {
+		return "", rlm.SnapshotManifest{}, nil
+	}
+	snapshot, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
+	var manifest rlm.SnapshotManifest
+	if err == nil && len(encoded) > 0 {
+		err = json.Unmarshal(encoded, &manifest)
+	}
+	return snapshot, manifest, err
+}
+
+func (node *AgentSession) emitHostStart(call rlm.HostCall) {
+	node.hostSpanStart(call)
+	node.emitHostEvent("stream.cell.host.started", call)
+}
+
+// The existing kind remains completion-only for older clients.
+func (node *AgentSession) emitHostCall(call rlm.HostCall) {
+	node.hostSpanEnd(call)
+	node.emitHostEvent("stream.cell.host", call)
+}
+
+func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+	partID := node.recordHostPresentation(call)
+	emit := node.emit
+	if emit == nil {
+		return
+	}
+	node.mu.Lock()
+	turnID := node.turn.TurnID
+	node.mu.Unlock()
+	event := StreamEvent{
+		PartID: partID, Display: call.Display, ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
+		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err, OperationID: call.OperationID,
+	}
+	if kind == "stream.cell.host" {
+		event.Text = call.Duration.String()
+	}
+	emit(kind, event)
+}
+
+// recordScratchRestore persists the restore outcome off the kernel lock; the
+// event is an audit trail, so ordering against the turn does not matter.
+func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.RestoreReport) {
+	root, id := node.root, node.id
+	if root == nil || id == "" {
+		return
+	}
+	root.supervisor.launchWorker("scratch restore audit", func() {
+		auditCtx, cancel := context.WithTimeout(root.supervisor.ctx, 5*time.Second)
+		defer cancel()
+		if err := root.RecordScratchRestore(auditCtx, id, report); err != nil && auditCtx.Err() == nil {
+			root.supervisor.report("scratch restore audit", err)
+		}
+	})
+}
+
+func (store scratchStore) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
+	node := store.node
+	if node.root == nil || node.id == "" {
+		return nil
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	return node.root.SaveAgentScratch(ctx, node.id, snapshot, encoded)
+}
+
+func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef.Definition, parentID, name string, capabilities []string, authority capability.Authority) (*AgentSession, error) {
+	node := &AgentSession{
+		runtime: runtime, agent: value, definition: definition, parentID: parentID, name: name,
+		capabilities: append([]string(nil), capabilities...), authority: authority,
+	}
+	host := &recursiveHost{session: node}
+	kernel, err := rlm.NewKernel(rlm.KernelOptions{
+		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
+		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
+	})
+	if err != nil {
+		return nil, err
+	}
+	node.host, node.kernel = host, kernel
+	value.ExecutionLanguage = kernel.Describe().Language
+	value.SetExclusiveTool(rlm.Tool(kernel), "rlm")
+	if runtime.root != nil {
+		node.bindPresentation(runtime.root)
+	}
+	return node, nil
+}
+
+func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error {
+	if root == nil {
+		return errors.New("recursive runtime requires a daemon root")
+	}
+	runtime.mu.Lock()
+	if runtime.closed {
+		runtime.mu.Unlock()
+		return errors.New("recursive runtime is closed")
+	}
+	if root.meta.ExecutionEngine != runtime.engine {
+		runtime.mu.Unlock()
+		return fmt.Errorf("session execution engine %s does not match runtime %s", root.meta.ExecutionEngine, runtime.engine)
+	}
+	runtime.root = root
+	node := runtime.rootNode
+	node.root, node.id, node.authority = root, root.AgentID(), root.authority
+	node.capabilities = slices.Clone(runtime.definition.Capabilities)
+	runtime.agents[node.id] = node
+	runtime.mu.Unlock()
+	node.agent.SetModelCallBudget(agentModelBudget{node: node})
+	node.agent.Services.SetDesktopBrowserProvider(root.desktopBrowserProvider)
+	node.agent.TransformInput = node.host.focusInput
+	return runtime.restoreChildren(ctx)
+}
+
+func (runtime *RecursiveRuntime) RootTool() tools.Tool { return rlm.Tool(runtime.rootNode.kernel) }
+
+func (runtime *RecursiveRuntime) Close() {
+	runtime.mu.Lock()
+	if runtime.closed {
+		runtime.mu.Unlock()
+		return
+	}
+	runtime.closed = true
+	nodes := make([]*AgentSession, 0, len(runtime.agents))
+	for _, node := range runtime.agents {
+		nodes = append(nodes, node)
+	}
+	runtime.mu.Unlock()
+	for _, node := range nodes {
+		node.close(node != runtime.rootNode)
+	}
+}
+
+func (runtime *RecursiveRuntime) WakeAgent(agentID string) {
+	runtime.mu.RLock()
+	node := runtime.agents[agentID]
+	runtime.mu.RUnlock()
+	if node != nil && node != runtime.rootNode {
+		node.wake()
+	}
+}
+
+func (runtime *RecursiveRuntime) HasRunningAgents() bool {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		node.mu.Lock()
+		running := node.running
+		node.mu.Unlock()
+		if running {
+			return true
+		}
+	}
+	return false
+}
+
+func (runtime *RecursiveRuntime) SetExternalPermissions(enabled bool) {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		if node.agent.Services != nil {
+			node.agent.Services.SetExternalPermissions(enabled)
+			node.agent.Services.SetMCPAutomatic(!enabled)
+			node.agent.Services.SetHeadlessPermissions(false)
+		}
+	}
+}
+
+func (runtime *RecursiveRuntime) PermissionResolver(agentID string) clientPermissionRunner {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	node := runtime.agents[agentID]
+	if node == nil || node.agent.Services == nil {
+		return nil
+	}
+	return node.agent.Services
+}
+
+func (runtime *RecursiveRuntime) DenyToolPermissions() {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		node.DenyToolPermissions()
+	}
+}
+
+func (runtime *RecursiveRuntime) SetHeadlessPermissions(headless bool) {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		node.agent.Services.SetHeadlessPermissions(headless)
+		if headless {
+			node.agent.Services.SetExternalPermissions(false)
+		}
+	}
+}
+
+func (runtime *RecursiveRuntime) ControlAgent(ctx context.Context, id, status string) error {
+	if status != "stopped" && status != "deleted" {
+		return errors.New("agent control requires stopped or deleted status")
+	}
+	if _, err := runtime.root.store.TerminalizeSubtree(ctx, runtime.root.ID(), runtime.root.AgentID(), id, status); err != nil {
+		return err
+	}
+	runtime.closeTerminalizedAgents(id, status)
+	return nil
+}
+
+func (runtime *RecursiveRuntime) CancelAgentTurn(id string) bool {
+	runtime.mu.RLock()
+	node := runtime.agents[id]
+	runtime.mu.RUnlock()
+	if node == nil || node == runtime.rootNode {
+		return false
+	}
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if !node.running || node.cancel == nil {
+		return false
+	}
+	node.cancel()
+	return true
+}
+
+func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
+	// Initial binding happens before publication; replacement binding already
+	// runs on the root actor. Read the store directly so restoring an idle
+	// runtime never queues a control request back to its own waiting actor.
+	records, err := runtime.root.store.LoadRetainedAgents(ctx, runtime.root.ID())
+	if err != nil {
+		return err
+	}
+	pending := append([]sessionstore.RuntimeAgent(nil), records...)
+	for len(pending) > 0 {
+		progress := false
+		next := pending[:0]
+		for _, record := range pending {
+			runtime.mu.RLock()
+			parent := runtime.agents[record.ParentID]
+			runtime.mu.RUnlock()
+			if parent == nil {
+				next = append(next, record)
+				continue
+			}
+			authority, capabilities, err := runtime.root.store.LoadAgentAuthority(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				return err
+			}
+			// The tools grant is the durable narrowing; no grant means no tools,
+			// not inheritance.
+			tools, err := runtime.root.store.LoadAgentTools(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				return err
+			}
+			if tools == nil {
+				tools = []string{}
+			}
+			childName, err := runtime.root.store.AgentDefinitionName(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				return err
+			}
+			definition, err := parent.definition.Child(childName, agentdef.ChildOverrides{
+				Capabilities: capabilities, Tools: tools, Model: agentdef.ModelDefaults{Model: record.Model, Provider: record.Provider, Effort: record.Effort},
+			})
+			if err != nil {
+				return err
+			}
+			services, err := parent.agent.Services.CloneForAuthority(runtime.root.store, runtime.root.store.Workspaces(), runtime.root.store.Processes(), authority)
+			if err != nil {
+				return err
+			}
+			arguments := map[string]any{"effort": record.Effort}
+			if record.Model != "" && (record.Model != parent.agent.ModelName || record.Provider != parent.agent.Provider) {
+				arguments["model"] = record.Model
+				arguments["provider"] = record.Provider
+			}
+			child, _, _, err := cloneRuntimeAgent(parent.agent, services, arguments)
+			if err != nil {
+				services.Close()
+				return err
+			}
+			if record.CWD != "" {
+				child.WorkingDir = record.CWD
+			}
+			node, err := runtime.newNode(child, definition, record.ParentID, record.Name, definition.Capabilities, authority)
+			if err != nil {
+				services.Close()
+				return err
+			}
+			node.id, node.root, node.report = record.ID, runtime.root, record.Report
+			child.SetSessionID(runtime.root.ID() + "/" + record.ID)
+			child.SetModelCallBudget(agentModelBudget{node: node})
+			child.TransformInput = node.host.focusInput
+			transcript, err := runtime.root.store.LoadAgentTranscript(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				node.close(true)
+				return err
+			}
+			child.Messages = append(child.Messages[:1], rlm.FocusedHistory(transcript)...)
+			runtime.mu.Lock()
+			runtime.agents[node.id] = node
+			runtime.mu.Unlock()
+			progress = true
+		}
+		if !progress {
+			return errors.New("retained agent tree contains a missing parent")
+		}
+		pending = next
+	}
+	for _, record := range records {
+		work, err := runtime.root.store.AgentWorkStatus(ctx, runtime.root.ID(), record.ID, time.Now())
+		if err != nil {
+			return err
+		}
+		if work.HasExplicitInput || work.HasReadyMail {
+			runtime.agents[record.ID].wake()
+		}
+	}
+	return nil
+}
+
+type agentModelBudget struct{ node *AgentSession }
+
+func (budget agentModelBudget) BeginModelAttempt(ctx context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	if err := budget.node.accountingStopError(); err != nil {
+		return llm.ModelPermit{}, err
+	}
+	return budget.node.root.beginAgentModelAttempt(ctx, budget.node.id, attempt)
+}
+
+func (node *AgentSession) close(closeAgent bool) {
+	node.mu.Lock()
+	if node.closed {
+		node.mu.Unlock()
+		return
+	}
+	node.closed = true
+	if node.cancel != nil {
+		node.cancel()
+	}
+	node.mu.Unlock()
+	node.revokeDesktopAttachments()
+	if node.kernel != nil {
+		node.kernel.Close()
+	}
+	if closeAgent {
+		if node.agent.Services != nil {
+			node.agent.Services.Close()
+		}
+	}
+}
+
+func (node *AgentSession) wake() {
+	node.mu.Lock()
+	if node.closed {
+		node.mu.Unlock()
+		return
+	}
+	if node.running {
+		node.mu.Unlock()
+		return
+	}
+	node.running = true
+	node.mu.Unlock()
+	node.launch()
+}
+
+func (node *AgentSession) launch() {
+	if node.root.LaunchRuntimeWorker("agent "+node.id, node.run) {
+		return
+	}
+	node.mu.Lock()
+	node.running = false
+	node.mu.Unlock()
+}
+
+func (node *AgentSession) run() {
+	ctx, cancel := context.WithCancel(context.Background())
+	node.mu.Lock()
+	if node.closed {
+		node.running = false
+		node.mu.Unlock()
+		cancel()
+		return
+	}
+	node.cancel = cancel
+	node.mu.Unlock()
+	defer cancel()
+
+	turnID := agentTurnID(node.id)
+	var items []sessionstore.InboxItem
+	started := false
+	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (llm.Message, error) {
+		start, err := node.root.StartAgentTurn(turnCtx, node.id, turnID)
+		if err != nil {
+			return llm.Message{}, err
+		}
+		started = true
+		items = start.Items
+		if len(items) == 0 {
+			return llm.Message{}, nil
+		}
+		return node.root.decodeInboxMessage(turnCtx, items[0])
+	})
+	if !started {
+		node.finishLiveTurn()
+		// A wake that arrived while this node looked busy was dropped by
+		// wake(); reconcile queued work across the tree before returning.
+		node.runtime.wakeQueuedAgents("")
+		return
+	}
+	status := "succeeded"
+	if errors.Is(ctx.Err(), context.Canceled) {
+		status = "cancelled"
+	} else if turnErr != nil {
+		status = "failed"
+	}
+	journal := node.turnJournal()
+	var ack []int64
+	if status == "succeeded" {
+		for _, item := range items {
+			ack = append(ack, item.Seq)
+		}
+		ack = append(ack, journal.DeliveredInbox...)
+	}
+	finishErr := node.root.FinishAgentTurn(context.Background(), node.id, sessionstore.AgentTurnCommit{
+		TurnID: turnID, Status: status, AcknowledgedInbox: ack, DeliveredMessages: journal.DeliveredMessages,
+		Messages: journal.Messages, Compactions: journalCompactions(journal), Error: errorText(turnErr),
+		RetryInput: !errors.Is(turnErr, sessionstore.ErrInvalidInput) && !llm.IsPermanentRequestError(turnErr),
+	})
+	if finishErr != nil {
+		// A rolled-back commit still owns a durable running claim. Fail the
+		// root so its shutdown transaction records the interruption; a live
+		// idle node must not hide that claim or announce success.
+		if !errors.Is(finishErr, ErrStopped) && !errors.Is(finishErr, sessionstore.ErrAgentTerminal) {
+			node.root.supervisor.report("agent "+node.id+" turn commit", finishErr)
+		}
+		node.finishLiveTurn()
+		return
+	}
+	node.finishLiveTurn()
+	node.postCompletionNotice(status, output, turnErr)
+	switch status {
+	case "succeeded":
+		node.mu.Lock()
+		node.failures = 0
+		node.mu.Unlock()
+		if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {
+			node.wake()
+		}
+		node.runtime.wakeQueuedAgents("")
+	case "failed":
+		// FinishAgentTurn returned this turn's claimed items to the queue.
+		// Re-wake after a backoff so a persistent provider error cannot
+		// hot-loop; a cancelled turn is user intent and is not re-woken.
+		node.scheduleRetryWake()
+	case "cancelled":
+		// A busy node drops nudges. Resume explicit follow-ups and other
+		// children waiting on capacity, without retrying this turn's mail.
+		node.runtime.wakeQueuedAgents(node.id)
+	}
+	node.root.applyPendingReloadAfterAgent()
+}
+
+// scheduleRetryWake re-wakes this node after an exponential backoff
+// (2s, 4s, ... capped at 64s) if it still has queued work.
+// maxChildRetryWakes bounds how long a child keeps re-waking on a failing
+// provider: six wakes is about ten minutes at the 64 s cap. Its queued input
+// stays queued, so the next explicit wake (new mail, a parent nudge) resumes
+// it; the parent already has the completion notice with the last error.
+const maxChildRetryWakes = 6
+
+func (node *AgentSession) scheduleRetryWake() {
+	node.mu.Lock()
+	node.failures++
+	attempt := node.failures
+	node.mu.Unlock()
+	if attempt > maxChildRetryWakes {
+		return
+	}
+	delay := time.Duration(1<<min(attempt, 6)) * time.Second
+	time.AfterFunc(delay, func() {
+		if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {
+			node.wake()
+		}
+	})
+}
+
+func (node *AgentSession) finishLiveTurn() {
+	node.mu.Lock()
+	node.running = false
+	node.cancel = nil
+	node.mu.Unlock()
+}
+
+// agentNoticePreviewBytes bounds the preview; the full result is an evidence handle.
+const agentNoticePreviewBytes = 160
+
+func (node *AgentSession) postCompletionNotice(status, output string, failure error) {
+	if node.parentID == "" || node.root == nil {
+		return
+	}
+	ctx := context.Background()
+	kind := sessionstore.MessageKindAgentCompleted
+	switch status {
+	case "failed":
+		kind = sessionstore.MessageKindAgentFailed
+	case "cancelled":
+		kind = sessionstore.MessageKindAgentCancelled
+	}
+	previewBytes := agentNoticePreviewBytes
+	switch node.report {
+	case "message":
+		// The child reports explicitly; only failures still surface.
+		if status == "succeeded" {
+			return
+		}
+	case "inline":
+		previewBytes = agentNoticeInlineBytes
+	}
+	preview := strings.TrimSpace(output)
+	evidence := ""
+	if len(preview) > previewBytes {
+		if stored, err := node.root.StoreContent(ctx, node.id, sessionstore.RuntimePayload{
+			Data: []byte(output), MediaType: "text/plain", Source: "agent final text",
+		}); err == nil {
+			evidence = stored.ReferenceID
+		}
+		preview = utf8PrefixRuntime(preview, previewBytes) + "…"
+	}
+	body := fmt.Sprintf("agent %s (%s) %s", node.name, node.id, status)
+	if failure != nil {
+		body += ": " + failure.Error()
+	}
+	if preview != "" {
+		body += "\nlast text: " + preview
+	}
+	// One pending notice per child: a later turn replaces an unread one.
+	_, _ = node.root.SendMailboxMessage(ctx, node.id, node.parentID, sessionstore.MailboxSend{
+		Kind: kind, Delivery: sessionstore.MessageDeliveryQueued, Subject: node.name + " " + status,
+		Body: body, EvidenceReferenceID: evidence, UpsertKey: "agent.turn:" + node.id,
+	})
+}
+
+// agentNoticeInlineBytes is the preview cap for report="inline" children.
+const agentNoticeInlineBytes = 4 << 10
+
+// resolveRecipient accepts "parent", a direct relative's name, or an agent
+// id. Messages travel one hop, so there is no "root" alias: below depth one it
+// could only fail the relative check.
+func (node *AgentSession) resolveRecipient(ctx context.Context, recipient string) (string, error) {
+	recipient = strings.TrimSpace(recipient)
+	if recipient == "" {
+		return "", errors.New("recipient is required")
+	}
+	relatives, err := node.root.ListAgentRelatives(ctx, node.id)
+	if err != nil {
+		return "", err
+	}
+	if recipient == "parent" {
+		if relatives.Parent == nil {
+			return "", errors.New("the root agent has no parent")
+		}
+		return relatives.Parent.ID, nil
+	}
+	candidates := append(append([]sessionstore.RuntimeAgent(nil), relatives.Children...), relatives.Siblings...)
+	if relatives.Parent != nil {
+		candidates = append(candidates, *relatives.Parent)
+	}
+	for _, candidate := range candidates {
+		if candidate.ID == recipient {
+			return recipient, nil
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate.Name == recipient {
+			return candidate.ID, nil
+		}
+	}
+	return recipient, nil
+}
+
+// WakeQueuedAgents re-derives readiness for every retained descendant from
+// durable state and wakes those with runnable work; deferred mail arms a
+// timer. It is the reconciliation point for lost in-memory wakes.
+func (runtime *RecursiveRuntime) WakeQueuedAgents() { runtime.wakeQueuedAgents("") }
+
+// cancelledAgentID suppresses an immediate mailbox retry for that agent;
+// explicit queued input and work for the rest of the tree remain runnable.
+func (runtime *RecursiveRuntime) wakeQueuedAgents(cancelledAgentID string) {
+	runtime.mu.RLock()
+	nodes := make([]*AgentSession, 0, len(runtime.agents))
+	for _, node := range runtime.agents {
+		if node != runtime.rootNode {
+			nodes = append(nodes, node)
+		}
+	}
+	runtime.mu.RUnlock()
+	for _, node := range nodes {
+		work, err := node.root.AgentWorkStatus(context.Background(), node.id)
+		if err != nil {
+			continue
+		}
+		switch {
+		case work.HasExplicitInput || work.HasReadyMail && node.id != cancelledAgentID:
+			node.wake()
+		case !work.NextDeferredAt.IsZero():
+			time.AfterFunc(max(time.Until(work.NextDeferredAt), 0)+time.Second, func() {
+				if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {
+					node.wake()
+				}
+			})
+		}
+	}
+}
+
+func (host *recursiveHost) Call(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	if node.root == nil {
+		return nil, errors.New("RLM host is not bound")
+	}
+	if err := node.accountingStopError(); err != nil {
+		return nil, err
+	}
+	node.root.accountingMu.Lock()
+	pending := len(node.root.pendingAccounting) > 0
+	node.root.accountingMu.Unlock()
+	if pending {
+		return nil, errors.New("model accounting is unresolved; further host calls are paused")
+	}
+	if err := node.root.store.CheckModelWork(ctx, node.root.ID(), node.id); err != nil {
+		return nil, fmt.Errorf("model budget stops further host calls: %w", err)
+	}
+	// The definition's before_tool hook sees every operation here, before any
+	// module handles it; rewritten arguments take the same path fresh ones do.
+	arguments, err := node.beforeTool(ctx, module, operation, arguments)
+	if err != nil {
+		return nil, err
+	}
+	if module == rlm.ToolsModule {
+		return host.tools(ctx, operation, arguments)
+	}
+	// The kernel installs only the definition's modules; the worker is not an
+	// authority boundary, so the host refuses anything else too.
+	if !slices.Contains(node.effectiveDefinition().Modules, module) {
+		return nil, fmt.Errorf("module %q is not available to this agent", module)
+	}
+	switch module {
+	case "context":
+		return host.context(ctx, operation, arguments)
+	case "files":
+		return host.files(ctx, operation, arguments)
+	case "shell":
+		return host.shell(ctx, operation, arguments)
+	case "browser":
+		return host.browser(ctx, operation, arguments)
+	case "computer":
+		if operation != "run" {
+			return nil, fmt.Errorf("unknown computer operation %q", operation)
+		}
+		return host.invoke(ctx, "computer_exec", arguments)
+	case "models":
+		return host.models(ctx, operation, arguments)
+	case "agents":
+		return host.agents(ctx, operation, arguments)
+	case "messages":
+		return host.messages(ctx, operation, arguments)
+	case "mcp":
+		return host.mcp(ctx, operation, arguments)
+	case "state":
+		return host.state(ctx, operation, arguments)
+	case "artifacts":
+		return host.artifacts(ctx, operation, arguments)
+	case "schedules":
+		return host.schedules(ctx, operation, arguments)
+	case "user":
+		return host.user(ctx, operation, arguments)
+	case "permissions":
+		if operation == "request" {
+			return map[string]any{"status": "invoke_operation", "message": "invoke the exact operation to create a durable permission request"}, nil
+		}
+		if operation == "status" {
+			id, _ := stringArgument(arguments, "id")
+			return node.root.InspectPermission(ctx, id)
+		}
+		return nil, fmt.Errorf("unknown permissions operation %q", operation)
+	default:
+		return nil, fmt.Errorf("unknown RLM module %q", module)
+	}
+}
+
+// tools routes a custom tool call through the dispatcher under the agent's
+// tools grant. Small JSON results come back as values; large ones as handles.
+func (host *recursiveHost) tools(ctx context.Context, name string, arguments map[string]any) (any, error) {
+	node := host.session
+	if !slices.Contains(node.effectiveDefinition().ToolNames(), name) {
+		return nil, fmt.Errorf("tool %q is not available to this agent", name)
+	}
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	body, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, err
+	}
+	node.mu.Lock()
+	turnID := node.turn.TurnID
+	node.mu.Unlock()
+	callID := tools.ToolCallID(ctx)
+	progress := func(text string) {
+		if emit := node.emit; emit != nil {
+			emit("stream.tool.progress", StreamEvent{ID: callID, Name: "tools." + name, TurnID: turnID, Text: text})
+		}
+	}
+	output, err := node.agent.Services.InvokeTool(tools.WithOnUpdate(ctx, progress), name, turnID, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(output) > sessionstore.InlineValueLimit {
+		return host.boundedText(ctx, "tools."+name+" output", output)
+	}
+	decoder := json.NewDecoder(strings.NewReader(output))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return map[string]any{"output": output}, nil //nolint:nilerr // Successful tools may return plain text; JSON decoding only chooses the result representation.
+	}
+	return value, nil
+}
+
+func (host *recursiveHost) focusInput(ctx context.Context, input string) (string, error) {
+	node := host.session
+	if len(input) <= sessionstore.InlineValueLimit {
+		return input, nil
+	}
+	value, err := node.root.StoreContent(ctx, node.id, sessionstore.RuntimePayload{Data: []byte(input), MediaType: "text/plain", Source: "agent input"})
+	if err != nil {
+		return "", err
+	}
+	const head, tail = 4 << 10, 2 << 10
+	prefix := utf8PrefixRuntime(input, head)
+	suffix, suffixStart := utf8SuffixRuntime(input, tail)
+	return fmt.Sprintf("%s\n\n[Input continues in context handle %s; size=%d; shown spans=0:%d,%d:%d.]\n\n%s",
+		prefix, value.ReferenceID, value.Size, len(prefix), suffixStart, len(input), suffix), nil
+}
+
+func (host *recursiveHost) context(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	reference, _ := stringArgument(arguments, "handle")
+	if operation == "history" && reference != "" {
+		return nil, errors.New("context.history reads the caller's transcript; omit handle")
+	}
+	if reference == "" {
+		return host.history(ctx, operation, arguments)
+	}
+	node := host.session
+	switch operation {
+	case "inspect":
+		_, metadata, err := node.root.ReadContent(ctx, node.id, reference, 0, 0)
+		return contentMetadataMap(metadata), err
+	case "read":
+		offset := int64Argument(arguments, "offset", 0)
+		length := min(intArgument(arguments, "length", sessionstore.InlineValueLimit), sessionstore.InlineValueLimit)
+		body, metadata, err := node.root.ReadContent(ctx, node.id, reference, offset, length)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"text": string(body), "source": metadata.Source, "handle": reference, "span": map[string]any{"start": offset, "end": offset + int64(len(body))}, "size": metadata.Size}, nil
+	case "search":
+		query, _ := stringArgument(arguments, "query")
+		if query == "" {
+			return nil, errors.New("query is required")
+		}
+		return host.searchContentFrom(ctx, reference, query, int64Argument(arguments, "offset", 0))
+	default:
+		return nil, fmt.Errorf("unknown context operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) files(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	tool := operation
+	switch operation {
+	case "read", "write":
+	case "patch":
+		tool = "edit"
+		arguments = cloneArguments(arguments)
+		arguments["old_string"] = arguments["old"]
+		arguments["new_string"] = arguments["new"]
+	case "list":
+		path, _ := stringArgument(arguments, "path")
+		if path == "" {
+			path = "."
+		}
+		arguments, tool = map[string]any{"path": path, "_rlm_mode": "list"}, "read"
+	case "search":
+		query, _ := stringArgument(arguments, "query")
+		path, _ := stringArgument(arguments, "path")
+		if query == "" {
+			return nil, errors.New("query is required")
+		}
+		if path == "" {
+			path = "."
+		}
+		arguments, tool = map[string]any{"path": path, "query": query, "_rlm_mode": "search"}, "read"
+	default:
+		return nil, fmt.Errorf("unknown files operation %q", operation)
+	}
+	return host.invoke(ctx, tool, arguments)
+}
+
+// maxJobWaitMS bounds shell.wait like agents.wait: the wait is a host call the
+// cell clock does not charge, but a blocked cell still holds a kernel slot.
+const maxJobWaitMS = 25000
+
+func (host *recursiveHost) shell(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	switch operation {
+	case "run":
+		return host.invoke(ctx, "bash", arguments)
+	case "read":
+		return host.context(ctx, "read", arguments)
+	case "start":
+		data, err := json.Marshal(arguments)
+		if err != nil {
+			return nil, err
+		}
+		output, err := node.agent.Services.Invoke(ctx, "shell_start", data)
+		if err != nil {
+			return nil, err
+		}
+		var status tools.JobStatus
+		if err := json.Unmarshal([]byte(output), &status); err != nil {
+			return nil, err
+		}
+		return host.jobView(ctx, status, false)
+	case "poll", "kill", "wait":
+		id, _ := stringArgument(arguments, "id")
+		status, ok := node.agent.Services.JobStatus(id)
+		if !ok {
+			return nil, fmt.Errorf("no such job %q (jobs do not survive a daemon restart)", id)
+		}
+		if operation == "kill" {
+			if err := node.agent.Services.KillJob(id); err != nil {
+				return nil, err
+			}
+		}
+		timedOut := false
+		if operation == "wait" && status.Running {
+			job, _ := node.agent.Services.Job(id)
+			timeout := time.Duration(min(max(intArgument(arguments, "timeout_ms", 10000), 0), maxJobWaitMS)) * time.Millisecond
+			select {
+			case <-job.Done():
+			case <-time.After(timeout):
+				timedOut = true
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if operation == "kill" {
+			if job, _ := node.agent.Services.Job(id); job != nil {
+				select {
+				case <-job.Done():
+				case <-time.After(2 * time.Second):
+				}
+			}
+		}
+		status, _ = node.agent.Services.JobStatus(id)
+		view, err := host.jobView(ctx, status, !status.Running)
+		if err == nil && operation == "wait" {
+			view["timed_out"] = timedOut
+		}
+		return view, err
+	case "tail":
+		id, _ := stringArgument(arguments, "id")
+		job, ok := node.agent.Services.Job(id)
+		if !ok {
+			return nil, fmt.Errorf("no such job %q (jobs do not survive a daemon restart)", id)
+		}
+		limit := min(max(intArgument(arguments, "bytes", 4096), 1), sessionstore.InlineValueLimit)
+		text, total := job.Output(limit)
+		return map[string]any{"id": id, "running": job.Running(), "tail": text, "bytes": total}, nil
+	case "list":
+		statuses := node.agent.Services.Jobs()
+		result := make([]any, 0, len(statuses))
+		for _, status := range statuses {
+			view, err := host.jobView(ctx, status, false)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, view)
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unknown shell operation %q", operation)
+	}
+}
+
+// jobView renders a job for the model; a finished job carries its output as
+// inline text or, above the inline limit, as a handle with a preview.
+func (host *recursiveHost) jobView(ctx context.Context, status tools.JobStatus, withOutput bool) (map[string]any, error) {
+	view := map[string]any{
+		"id": status.ID, "pid": status.PID, "command": status.Command, "running": status.Running,
+		"bytes": status.Bytes, "started_at": status.StartedAt.UTC().Format(time.RFC3339),
+	}
+	if status.Exit != "" {
+		view["exit"] = status.Exit
+	}
+	if status.Killed {
+		view["killed"] = true
+	}
+	if !status.EndedAt.IsZero() {
+		view["ended_at"] = status.EndedAt.UTC().Format(time.RFC3339)
+	}
+	if withOutput {
+		if job, ok := host.session.agent.Services.Job(status.ID); ok {
+			text, _ := job.Output(0)
+			bounded, err := host.boundedText(ctx, "shell job output", text)
+			if err != nil {
+				return nil, err
+			}
+			maps.Copy(view, bounded)
+		}
+	}
+	return view, nil
+}
+
+func (host *recursiveHost) invoke(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	data, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, err
+	}
+	output, callErr := host.session.agent.Services.Invoke(ctx, operation, data)
+	result, boundErr := host.boundedText(ctx, operation+" output", output)
+	if callErr != nil {
+		return result, callErr
+	}
+	return result, boundErr
+}
+
+func (host *recursiveHost) models(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	call := func(prompt string, maxTokens int) map[string]any {
+		output, usage, err := node.complete(ctx, prompt, maxTokens)
+		result, boundErr := host.boundedText(ctx, "stateless model output", output)
+		if result == nil {
+			result = make(map[string]any)
+		}
+		result["usage"] = usage
+		if err == nil {
+			err = boundErr
+		}
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		return result
+	}
+	switch operation {
+	case "call":
+		prompt, _ := stringArgument(arguments, "prompt")
+		if prompt == "" {
+			return nil, errors.New("prompt is required")
+		}
+		return call(prompt, intArgument(arguments, "max_tokens", 0)), nil
+	case "batch":
+		items, ok := arguments["prompts"].([]any)
+		if !ok || len(items) == 0 {
+			return nil, errors.New("prompts must be a non-empty list")
+		}
+		results := make([]map[string]any, len(items))
+		maxTokens := intArgument(arguments, "max_tokens", 0)
+		var calls sync.WaitGroup
+		for index, item := range items {
+			prompt, ok := item.(string)
+			if !ok {
+				results[index] = map[string]any{"error": "prompt is not a string"}
+				continue
+			}
+			calls.Go(func() { results[index] = call(prompt, maxTokens) })
+		}
+		calls.Wait()
+		return results, nil
+	default:
+		return nil, fmt.Errorf("unknown models operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) agents(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	switch operation {
+	case "spawn":
+		prompt, _ := stringArgument(arguments, "prompt")
+		if prompt == "" {
+			return nil, errors.New("prompt is required")
+		}
+		name, _ := stringArgument(arguments, "name")
+		if name == "" {
+			name = "agent-" + randomRuntimeSuffix()
+		}
+		return node.runtime.spawn(ctx, node, name, prompt, arguments)
+	case "submit":
+		id, _ := stringArgument(arguments, "id")
+		text, _ := stringArgument(arguments, "text")
+		delivery, _ := stringArgument(arguments, "delivery")
+		return node.runtime.submit(ctx, node, id, text, delivery)
+	case "wait":
+		ids, err := stringListArgument(arguments, "ids")
+		if err != nil {
+			return nil, err
+		}
+		return node.runtime.wait(ctx, node, ids, intArgument(arguments, "timeout_ms", 10000))
+	case "list":
+		return node.root.ListAgentRelatives(ctx, node.id)
+	case "inspect":
+		id, _ := stringArgument(arguments, "id")
+		value, provided := arguments["include_grants"]
+		includeGrants, ok := value.(bool)
+		if provided && !ok {
+			return nil, errors.New("include_grants must be a boolean")
+		}
+		return node.runtime.inspect(ctx, node, id, includeGrants)
+	case "stop", "delete":
+		id, _ := stringArgument(arguments, "id")
+		return node.runtime.terminalize(ctx, node, id, operation)
+	default:
+		return nil, fmt.Errorf("unknown agents operation %q", operation)
+	}
+}
+
+func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession, name, prompt string, arguments map[string]any) (any, error) {
+	for range 3 {
+		result, err := runtime.spawnAttempt(ctx, parent, name, prompt, arguments)
+		if !errors.Is(err, sessionstore.ErrAgentIDCollision) {
+			return result, err
+		}
+	}
+	return nil, sessionstore.ErrAgentIDCollision
+}
+
+func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *AgentSession, name, prompt string, arguments map[string]any) (any, error) {
+	for _, key := range []string{"execution_engine", "engine", "rlm_engine"} {
+		if _, present := arguments[key]; present {
+			return nil, fmt.Errorf("agents.spawn does not accept %s; descendants inherit session execution engine %s", key, runtime.engine)
+		}
+	}
+	request, err := parseSpawnRequest(name, prompt, arguments)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := resolveSpawn(parent, request)
+	if err != nil {
+		return nil, err
+	}
+	// The before_spawn hook sees the request and its resolution; a rewrite is
+	// resolved again, so it narrows exactly as a model's request would.
+	if request, resolved, err = parent.beforeSpawn(ctx, request, resolved); err != nil {
+		return nil, err
+	}
+	name, prompt, childName := request.Name, request.Prompt, request.Definition
+	definition, capabilities, budgets, report := resolved.definition, resolved.definition.Capabilities, resolved.budgets, resolved.report
+	arguments = spawnArguments(request)
+	id := sessionstore.NewAgentID()
+	authority := capability.Authority{
+		RootID: parent.root.ID(), AgentID: id,
+		Files: capability.Reference{ID: "files:" + id, Generation: 1},
+		Shell: capability.Reference{ID: "shell:" + id, Generation: 1},
+		MCP:   capability.Reference{ID: "mcp:" + id, Generation: 1},
+		Tools: capability.Reference{ID: "tools:" + id, Generation: 1},
+	}
+	delegations := capabilityDelegations(parent, authority, capabilities, definition.ToolNames())
+	mcpTools, err := delegatedMCPTools(ctx, parent, capabilities, arguments["mcp_tools"])
+	if err != nil {
+		return nil, err
+	}
+	if slices.Contains(capabilities, "mcp") {
+		delegations = append(delegations, sessionstore.CapabilityDelegation{
+			ID: authority.MCP.ID, Issuer: parent.authority.MCP, AgentID: id,
+			Operations: []string{"mcp.call"}, MCP: mcpTools,
+		})
+	}
+	services, err := parent.agent.Services.CloneForAuthority(parent.root.store, parent.root.store.Workspaces(), parent.root.store.Processes(), authority)
+	if err != nil {
+		return nil, err
+	}
+	child, modelName, providerName, err := cloneRuntimeAgent(parent.agent, services, arguments)
+	if err != nil {
+		services.Close()
+		return nil, err
+	}
+	node, err := runtime.newNode(child, definition, parent.id, name, capabilities, authority)
+	if err != nil {
+		services.Close()
+		return nil, err
+	}
+	node.id, node.root, node.report = id, parent.root, report
+	child.SetSessionID(parent.root.ID() + "/" + id)
+	child.SetModelCallBudget(agentModelBudget{node: node})
+	child.TransformInput = node.host.focusInput
+	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
+	cause := parent.hostSpanLink(ctx)
+	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
+		ParentAgentID: parent.id, ChildAgentID: id, Name: name, Definition: childName,
+		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir, Report: report,
+		Prompt:       sessionstore.RuntimePayload{Data: []byte(task), MediaType: "text/plain", Source: "initial agent prompt"},
+		Capabilities: delegations, Budgets: budgets, ParentSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
+	}); err != nil {
+		node.close(true)
+		return nil, err
+	}
+	if len(request.BrowserAttachments) != 0 {
+		if _, err := parent.agent.Services.TransferDesktopAttachments(ctx, id, request.BrowserAttachments); err != nil {
+			// No child is published or awakened until the provider acknowledges
+			// the complete transfer. Its failure path restores parent control.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			cleanupErr := parent.root.TerminalizeSubtree(cleanupCtx, parent.id, id, "deleted")
+			cancel()
+			node.close(true)
+			return nil, errors.Join(err, cleanupErr)
+		}
+	}
+	runtime.mu.Lock()
+	if runtime.closed {
+		runtime.mu.Unlock()
+		node.close(true)
+		_ = parent.root.TerminalizeSubtree(ctx, parent.id, id, "deleted")
+		return nil, errors.New("recursive runtime is closed")
+	}
+	// A policy update may have happened while durable admission was queued.
+	// Copy under the publication lock so tree-wide updates either include this
+	// node or precede the copy; a newly admitted child cannot miss a denial.
+	child.Services.CopyPermissionPolicyFrom(parent.agent.Services)
+	runtime.agents[id] = node
+	runtime.mu.Unlock()
+	attachments := node.desktopAttachments(ctx)
+	node.wake()
+	return map[string]any{
+		"id": id, "name": name, "parent_id": parent.id, "status": "queued", "report": report,
+		"browser_attachments": attachments,
+	}, nil
+}
+
+func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments map[string]any) (*agent.Agent, string, string, error) {
+	client, modelID := parent.Client, parent.Model
+	pricing := parent.Pricing
+	contextLimit, maxTokens, effort, vision := parent.ContextLimit, parent.MaxTokens, parent.Effort, parent.Vision
+	modelName, _ := stringArgument(arguments, "model")
+	providerName, _ := stringArgument(arguments, "provider")
+	if modelName == "" && providerName != "" {
+		return nil, "", "", errors.New("provider override requires a model override")
+	}
+	requestedEffort, _ := stringArgument(arguments, "effort")
+	effectiveModel, effectiveProvider := parent.ModelName, parent.Provider
+	if modelName != "" {
+		if parent.ResolveModel == nil {
+			return nil, "", "", errors.New("model overrides are unavailable")
+		}
+		resolved, err := parent.ResolveModel(modelName, providerName)
+		if err != nil {
+			return nil, "", "", err
+		}
+		client, modelID = resolved.Client, resolved.Model
+		pricing = resolved.Pricing
+		effectiveModel, effectiveProvider = resolved.ModelName, resolved.Provider
+		if effectiveModel == "" {
+			effectiveModel = modelName
+		}
+		if effectiveProvider == "" {
+			return nil, "", "", errors.New("model override resolved without a provider")
+		}
+		contextLimit, maxTokens = resolved.ContextLimit, resolved.MaxTokens
+		if resolved.Effort != "" {
+			effort = resolved.Effort
+		}
+		vision = resolved.Vision
+	}
+	if requestedEffort != "" {
+		effort = requestedEffort
+	}
+	copyClient := *client
+	child := agent.NewRuntime(&copyClient, modelID, maxTokens, "", services)
+	child.ModelName, child.Provider = effectiveModel, effectiveProvider
+	child.Pricing = pricing
+	child.ContextLimit, child.Effort = contextLimit, effort
+	child.Vision = vision
+	child.Temperature, child.TopP = parent.Temperature, parent.TopP
+	child.CompactClient, child.CompactModel, child.CompactThreshold = parent.CompactClient, parent.CompactModel, parent.CompactThreshold
+	child.CompactPricing, child.CompactProvider = parent.CompactPricing, parent.CompactProvider
+	child.WorkingDir = parent.WorkingDir
+	child.ResolveModel = parent.ResolveModel
+	return child, child.ModelName, child.Provider, nil
+}
+
+func capabilityDelegations(parent *AgentSession, child capability.Authority, names, tools []string) []sessionstore.CapabilityDelegation {
+	fileOps, shellOps, _ := agentdef.Operations(names)
+	var result []sessionstore.CapabilityDelegation
+	if len(fileOps) > 0 {
+		result = append(result, sessionstore.CapabilityDelegation{ID: child.Files.ID, Issuer: parent.authority.Files, AgentID: child.AgentID, Operations: fileOps, InheritScope: true})
+	}
+	if len(shellOps) > 0 {
+		result = append(result, sessionstore.CapabilityDelegation{ID: child.Shell.ID, Issuer: parent.authority.Shell, AgentID: child.AgentID, Operations: shellOps})
+	}
+	if toolOps := agentdef.ToolOperations(tools); len(toolOps) > 0 {
+		result = append(result, sessionstore.CapabilityDelegation{ID: child.Tools.ID, Issuer: parent.authority.Tools, AgentID: child.AgentID, Operations: toolOps})
+	}
+	return result
+}
+
+// submit lets a parent send follow-up work to a direct child. The default
+// delivery is steer: the text joins the child's running turn at its next loop
+// boundary, or starts a turn if the child is idle.
+func (runtime *RecursiveRuntime) submit(ctx context.Context, caller *AgentSession, id, text, delivery string) (any, error) {
+	text = strings.TrimSpace(text)
+	if id == "" || text == "" {
+		return nil, errors.New("submit requires id and text")
+	}
+	kind := "steer"
+	switch delivery {
+	case "", "steer":
+	case "queued":
+		kind = "submit"
+	default:
+		return nil, fmt.Errorf("unknown delivery %q (steer or queued)", delivery)
+	}
+	relatives, err := caller.root.ListAgentRelatives(ctx, caller.id)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.ContainsFunc(relatives.Children, func(child sessionstore.RuntimeAgent) bool { return child.ID == id }) {
+		return nil, sessionstore.ErrAgentAccess
+	}
+	seq, err := caller.root.SubmitAgentInput(ctx, caller.id, id, kind, text, "parent follow-up", caller.hostSpanLink(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "inbox_seq": seq, "kind": kind, "status": "queued"}, nil
+}
+
+// maxAgentWaitMS bounds how long a blocked cell may hold its kernel pool slot.
+// Host-call time is not charged to the cell clock, so this is pool fairness,
+// not deadline safety.
+// ponytail: fixed cap; make it configurable if pools grow beyond a handful of slots.
+const maxAgentWaitMS = 25000
+
+// wait polls direct children until each is idle with no runnable work, or the
+// timeout passes. It is bounded so a kernel cell cannot block forever.
+func (runtime *RecursiveRuntime) wait(ctx context.Context, caller *AgentSession, ids []string, timeoutMS int) (any, error) {
+	if len(ids) == 0 {
+		return nil, errors.New("wait requires ids")
+	}
+	timeout := time.Duration(min(max(timeoutMS, 0), maxAgentWaitMS)) * time.Millisecond
+	deadline := time.Now().Add(timeout)
+	for {
+		relatives, err := caller.root.ListAgentRelatives(ctx, caller.id)
+		if err != nil {
+			return nil, err
+		}
+		result := make(map[string]any, len(ids))
+		settled := true
+		for _, id := range ids {
+			index := slices.IndexFunc(relatives.Children, func(child sessionstore.RuntimeAgent) bool { return child.ID == id })
+			if index < 0 {
+				return nil, sessionstore.ErrAgentAccess
+			}
+			child := relatives.Children[index]
+			work, err := caller.root.AgentWorkStatus(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			busy := child.Status == "running" || child.Status == "queued" || work.HasExplicitInput || work.HasReadyMail
+			if child.LifecyclePhase == "terminal" {
+				busy = false
+			}
+			settled = settled && !busy
+			result[id] = map[string]any{"status": child.Status, "busy": busy, "pending_mail": child.PendingMail}
+		}
+		if settled || time.Now().After(deadline) {
+			return map[string]any{"agents": result, "settled": settled, "timed_out": !settled, "timeout_ms": int(timeout / time.Millisecond)}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSession, id string, includeGrants bool) (any, error) {
+	if id == "" {
+		return nil, errors.New("agent id is required")
+	}
+	relatives, err := caller.root.ListAgentRelatives(ctx, caller.id)
+	if err != nil {
+		return nil, err
+	}
+	var found *sessionstore.RuntimeAgent
+	if relatives.Parent != nil && relatives.Parent.ID == id {
+		found = relatives.Parent
+	}
+	for _, values := range [][]sessionstore.RuntimeAgent{relatives.Children, relatives.Siblings} {
+		for index := range values {
+			if values[index].ID == id {
+				value := values[index]
+				found = &value
+			}
+		}
+	}
+	if found == nil {
+		return nil, sessionstore.ErrAgentAccess
+	}
+	summary, _ := caller.root.MailboxSummary(ctx, id)
+	budgets, _ := caller.root.InspectBudgets(ctx, caller.id, id)
+	authority, names, err := caller.root.store.LoadAgentAuthority(ctx, caller.root.ID(), id)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{
+		"id": found.ID, "name": found.Name, "parent_id": found.ParentID, "status": found.Status,
+		"model": found.Model, "provider": found.Provider, "effort": found.Effort, "cwd": found.CWD,
+		"unread_messages": summary.UnreadCount, "budgets": budgets, "report": found.Report,
+		"effective_capabilities": names,
+	}
+	runtime.mu.RLock()
+	target := runtime.agents[id]
+	runtime.mu.RUnlock()
+	if target != nil {
+		result["browser_attachments"] = target.desktopAttachments(ctx)
+	}
+	if !includeGrants {
+		return result, nil
+	}
+	var selectors []capability.MCPSelector
+	var all bool
+	if authority.MCP.ID != "" {
+		selectors, all, err = caller.root.store.MCPSelectors(ctx, caller.root.ID(), id, authority.MCP)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if selectors == nil {
+		selectors = []capability.MCPSelector{}
+	}
+	encoded, err := json.Marshal(map[string]any{"all": all, "selectors": selectors})
+	if err != nil {
+		return nil, err
+	}
+	grants, err := caller.host.boundedText(ctx, "MCP grants: "+id, string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	result["mcp_grants"] = grants
+	return result, nil
+}
+
+func (runtime *RecursiveRuntime) terminalize(ctx context.Context, caller *AgentSession, id, operation string) (any, error) {
+	runtime.mu.RLock()
+	target := runtime.agents[id]
+	runtime.mu.RUnlock()
+	if target == nil || target == runtime.rootNode {
+		return nil, sessionstore.ErrAgentAccess
+	}
+	status := "stopped"
+	if operation == "delete" {
+		status = "deleted"
+	}
+	if err := caller.root.TerminalizeSubtree(ctx, caller.id, id, status); err != nil {
+		return nil, err
+	}
+	runtime.closeTerminalizedAgents(id, status)
+	return map[string]any{"id": id, "status": status}, nil
+}
+
+func (runtime *RecursiveRuntime) closeTerminalizedAgents(id, status string) {
+	runtime.mu.Lock()
+	var subtree []*AgentSession
+	queue := []string{id}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if value := runtime.agents[current]; value != nil {
+			subtree = append(subtree, value)
+		}
+		for childID, value := range runtime.agents {
+			if value.parentID == current {
+				queue = append(queue, childID)
+			}
+		}
+	}
+	if status == "deleted" {
+		for _, value := range subtree {
+			delete(runtime.agents, value.id)
+		}
+	}
+	runtime.mu.Unlock()
+	for _, value := range subtree {
+		value.close(true)
+	}
+}
+
+func (host *recursiveHost) messages(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	switch operation {
+	case "send":
+		recipient, _ := stringArgument(arguments, "recipient")
+		recipient, err := node.resolveRecipient(ctx, recipient)
+		if err != nil {
+			return nil, err
+		}
+		subject, _ := stringArgument(arguments, "subject")
+		body, _ := stringArgument(arguments, "body")
+		evidence, _ := stringArgument(arguments, "evidence_handle")
+		delivery, _ := stringArgument(arguments, "delivery")
+		cause := node.hostSpanLink(ctx)
+		message, err := node.root.SendMailboxMessage(ctx, node.id, recipient, sessionstore.MailboxSend{
+			Subject: subject, Body: body, EvidenceReferenceID: evidence, Delivery: delivery,
+			SenderSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
+		})
+		return map[string]any{
+			"id": message.ID, "recipient": recipient, "delivery": message.Delivery, "status": message.Status, "created_at": message.CreatedAt,
+		}, err
+	case "list":
+		status, _ := stringArgument(arguments, "status")
+		sender, _ := stringArgument(arguments, "sender")
+		messages, err := node.root.ListMailboxMessages(ctx, node.id, status, sender, intArgument(arguments, "limit", 50))
+		if err != nil {
+			return nil, err
+		}
+		result := make([]map[string]any, 0, len(messages))
+		for _, message := range messages {
+			node.recordObserved(sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision})
+			result = append(result, map[string]any{
+				"revision": message.Revision, "id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
+				"subject": message.Subject, "excerpt": message.Excerpt, "size": message.Body.Size,
+				"evidence_handle": message.EvidenceReferenceID, "status": message.Status, "created_at": message.CreatedAt,
+			})
+		}
+		return result, nil
+	case "read":
+		id, _ := stringArgument(arguments, "id")
+		message, body, err := node.root.ReadMailboxMessage(ctx, node.id, id)
+		if err != nil {
+			return nil, err
+		}
+		node.recordDelivered(sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision})
+		return map[string]any{
+			"revision": message.Revision, "id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
+			"subject": message.Subject, "body": string(body),
+			"evidence_handle": message.EvidenceReferenceID, "status": message.Status, "created_at": message.CreatedAt,
+		}, nil
+	case "complete", "ack":
+		ids, err := stringListArgument(arguments, "ids")
+		if err != nil {
+			return nil, err
+		}
+		count, err := node.root.CompleteMailboxMessages(ctx, node.id, node.messageReceipts(ids))
+		return map[string]any{"completed": count}, err
+	case "defer":
+		id, _ := stringArgument(arguments, "id")
+		until := time.Time{}
+		if value, ok := stringArgument(arguments, "until"); ok && value != "" {
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return nil, fmt.Errorf("until must be RFC3339: %w", err)
+			}
+			until = parsed
+		} else if seconds := intArgument(arguments, "seconds", 0); seconds > 0 {
+			until = time.Now().Add(time.Duration(seconds) * time.Second)
+		}
+		if until.IsZero() {
+			return nil, errors.New("defer requires until (RFC3339) or seconds")
+		}
+		revision, err := node.root.DeferMailboxMessage(ctx, node.id, node.messageReceipts([]string{id})[0], until)
+		if err == nil {
+			node.recordObserved(sessionstore.MailboxReceipt{ID: id, Revision: revision})
+		}
+		return map[string]any{"id": id, "revision": revision, "available_at": until.UTC().Format(time.RFC3339)}, err
+	default:
+		return nil, fmt.Errorf("unknown messages operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	if operation == "refresh" || operation == "reconnect" {
+		return host.mcpRecovery(ctx, operation, arguments)
+	}
+	manager := host.session.root.mcpManager()
+	if manager == nil {
+		return nil, errors.New("no MCP servers are configured")
+	}
+	switch operation {
+	case "list_servers":
+		servers := manager.Statuses()
+		result := make([]map[string]any, 0, len(servers))
+		for _, server := range servers {
+			cfg, _ := manager.Config(server.Name)
+			result = append(result, map[string]any{"name": server.Name, "status": server.Status.String(), "error": server.Err, "tools": server.Tools, "source": server.Source, "trusted": cfg.Trusted})
+		}
+		return result, nil
+	case "list_tools":
+		server, _ := stringArgument(arguments, "server")
+		listed, err := manager.ListTools(server)
+		if err != nil {
+			return nil, err
+		}
+		// A window over the name-sorted catalog, light by default: schemas
+		// come from describe, and list_servers reports each server's total.
+		offset := min(max(intArgument(arguments, "offset", 0), 0), len(listed))
+		limit := intArgument(arguments, "limit", mcpListDefaultLimit)
+		if limit <= 0 {
+			limit = mcpListDefaultLimit
+		}
+		schemas := arguments["schemas"] == true
+		window := listed[offset:min(offset+limit, len(listed))]
+		result := make([]map[string]any, 0, len(window))
+		for _, tool := range window {
+			result = append(result, host.mcpToolEntry(ctx, manager, server, tool, schemas))
+		}
+		return result, nil
+	case "search":
+		server, _ := stringArgument(arguments, "server")
+		query, _ := stringArgument(arguments, "query")
+		matches, err := manager.Search(server, query, intArgument(arguments, "limit", 0))
+		if err != nil {
+			return nil, err
+		}
+		result := make([]map[string]any, 0, len(matches))
+		for _, match := range matches {
+			_, authorized := host.mcpAuthorized(ctx, manager, match.Server, match.Name)
+			result = append(result, map[string]any{
+				"server": match.Server, "name": match.Name, "title": match.Title, "summary": match.Summary, "authorized": authorized,
+			})
+		}
+		return result, nil
+	case "describe":
+		server, _ := stringArgument(arguments, "server")
+		tool, _ := stringArgument(arguments, "tool")
+		described, err := manager.Describe(server, tool)
+		if err != nil {
+			return nil, err
+		}
+		entry := host.mcpToolEntry(ctx, manager, server, described, true)
+		entry["server"] = server
+		return entry, nil
+	case "instructions":
+		server, _ := stringArgument(arguments, "server")
+		text, generation, source, err := manager.Instructions(server)
+		if err != nil {
+			return nil, err
+		}
+		result, err := host.boundedText(ctx, "MCP instructions: "+server+" ("+source+", generation "+generation+")", text)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"server": server, "generation": generation, "source": source, "instructions": result}, nil
+	case "call":
+		server, _ := stringArgument(arguments, "server")
+		tool, _ := stringArgument(arguments, "tool")
+		args, ok := arguments["arguments"].(map[string]any)
+		if !ok {
+			return nil, errors.New("arguments must be a dictionary")
+		}
+		body, err := json.Marshal(args)
+		if err != nil {
+			return nil, err
+		}
+		output, err := host.session.agent.Services.InvokeMCP(ctx, server, tool, body)
+		result, boundErr := host.boundedText(ctx, "MCP "+server+"."+tool+" output", output)
+		if err != nil {
+			return result, err
+		}
+		return result, boundErr
+	default:
+		return nil, fmt.Errorf("unknown mcp operation %q", operation)
+	}
+}
+
+// Recovery changes the root-owned connections, not just the caller's view.
+// Children retain the MCP grant snapshot they received at spawn.
+func (host *recursiveHost) mcpRecovery(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	if node.id != node.root.AgentID() {
+		return nil, errors.New("MCP recovery is only available to the root agent")
+	}
+	if _, _, err := node.root.store.MCPSelectors(ctx, node.root.ID(), node.id, node.authority.MCP); err != nil {
+		return nil, fmt.Errorf("MCP recovery requires an active mcp capability: %w", err)
+	}
+	for key := range arguments {
+		if operation != "reconnect" || key != "server" {
+			return nil, fmt.Errorf("mcp.%s: unexpected argument %q", operation, key)
+		}
+	}
+	if operation == "refresh" {
+		return node.root.refreshMCP(ctx)
+	}
+	server, ok := arguments["server"].(string)
+	if !ok || strings.TrimSpace(server) == "" {
+		return nil, errors.New("mcp.reconnect: server must be a non-empty string")
+	}
+	status, err := node.root.reconnectMCP(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"name": status.Name, "status": status.Status.String(), "error": status.Err,
+		"tools": status.Tools, "source": status.Source, "note": status.Note,
+	}, nil
+}
+
+func (host *recursiveHost) state(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	key, _ := stringArgument(arguments, "key")
+	var payload sessionstore.RuntimePayload
+	if strings.HasSuffix(operation, "_set") || strings.HasSuffix(operation, "_append") || strings.HasSuffix(operation, "_cas") {
+		value, exists := arguments["value"]
+		if !exists {
+			return nil, errors.New("state mutation requires value (use the selected language's null literal for JSON null)")
+		}
+		var err error
+		payload, err = runtimeStatePayload(value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	version := int64(0)
+	if strings.HasSuffix(operation, "_cas") {
+		var err error
+		version, err = statePageInteger(arguments, "version", 0)
+		if err != nil || version < 0 {
+			return nil, errors.New("version must be a non-negative integer")
+		}
+	}
+	switch operation {
+	case "private_get":
+		return stateResult(node.root.GetPrivateState(ctx, node.id, key))
+	case "private_list":
+		return host.statePage(ctx, operation, arguments)
+	case "private_set":
+		return stateResult(node.root.SetPrivateState(ctx, node.id, key, payload))
+	case "private_append":
+		return stateResult(node.root.AppendPrivateState(ctx, node.id, key, payload))
+	case "private_cas":
+		return stateResult(node.root.CompareAndSwapPrivateState(ctx, node.id, key, version, payload))
+	case "blackboard_get":
+		return stateResult(node.root.GetBlackboard(ctx, node.id, key))
+	case "blackboard_set":
+		return stateResult(node.root.SetBlackboard(ctx, node.id, key, payload))
+	case "blackboard_append":
+		return stateResult(node.root.AppendBlackboard(ctx, node.id, key, payload))
+	case "blackboard_cas":
+		return stateResult(node.root.CompareAndSwapBlackboard(ctx, node.id, key, version, payload))
+	case "blackboard_history":
+		return host.statePage(ctx, operation, arguments)
+	case "subscribe":
+		return node.root.CreateBlackboardSubscription(ctx, node.id, key)
+	case "subscriptions":
+		return node.root.ListBlackboardSubscriptions(ctx, node.id)
+	case "cancel_subscription":
+		id, _ := stringArgument(arguments, "id")
+		return map[string]any{"cancelled": id}, node.root.CancelBlackboardSubscription(ctx, node.id, id)
+	default:
+		return nil, fmt.Errorf("unknown state operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) artifacts(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	switch operation {
+	case "put":
+		text, _ := stringArgument(arguments, "text")
+		source, _ := stringArgument(arguments, "source")
+		if source == "" {
+			source = "agent artifact"
+		}
+		value, err := node.root.StoreContent(ctx, node.id, sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: source})
+		return runtimeValueMap(value), err
+	case "inspect":
+		return host.context(ctx, "inspect", arguments)
+	case "read":
+		return host.context(ctx, "read", arguments)
+	default:
+		return nil, fmt.Errorf("unknown artifacts operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) schedules(ctx context.Context, operation string, arguments map[string]any) (any, error) {
+	node := host.session
+	switch operation {
+	case "create":
+		expression, _ := stringArgument(arguments, "schedule")
+		prompt, _ := stringArgument(arguments, "prompt")
+		if _, err := schedule.Parse(expression); err != nil {
+			return nil, err
+		}
+		id, err := node.root.AddSchedule(ctx, expression, prompt, time.Now())
+		return map[string]any{"id": id}, err
+	case "list":
+		return node.root.ListSchedules(ctx)
+	case "cancel":
+		id := intArgument(arguments, "id", 0)
+		return map[string]any{"cancelled": id}, node.root.CancelSchedule(ctx, id)
+	default:
+		return nil, fmt.Errorf("unknown schedules operation %q", operation)
+	}
+}
+
+func (host *recursiveHost) boundedText(ctx context.Context, source, value string) (map[string]any, error) {
+	if len(value) <= sessionstore.InlineValueLimit {
+		return map[string]any{"output": value}, nil
+	}
+	node := host.session
+	stored, err := node.root.StoreContent(ctx, node.id, sessionstore.RuntimePayload{Data: []byte(value), MediaType: "text/plain", Source: source})
+	if err != nil {
+		return nil, err
+	}
+	const preview = 2 << 10
+	prefix := utf8PrefixRuntime(value, preview)
+	suffix, _ := utf8SuffixRuntime(value, preview)
+	return map[string]any{
+		"handle": stored.ReferenceID, "size": stored.Size, "source": stored.Source,
+		"preview": prefix + "\n... [handle-backed remainder] ...\n" + suffix,
+	}, nil
+}
+
+// requestedCapabilities decodes the spawn argument; nil means inherit. The
+// parent's definition narrows the result.
+func requestedCapabilities(value any) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return nil, errors.New("capabilities must be a list")
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		name, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("capability %q is not available to the parent", name)
+		}
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// spawnRequest is protocol.SpawnRequest with the runtime's parsing attached.
+type spawnRequest = protocol.SpawnRequest
+
+// parseSpawnRequest decodes the raw agents.spawn arguments into the wire
+// shape a before_spawn hook sees. Absent lists stay nil, meaning inherit.
+func parseSpawnRequest(name, prompt string, arguments map[string]any) (spawnRequest, error) {
+	capabilities, err := requestedCapabilities(arguments["capabilities"])
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	toolNames, err := requestedNames(arguments["tools"], "tools")
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	attachments, err := requestedNames(arguments["browser_attachments"], "browser_attachments")
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	limits, err := requestedBudgets(arguments["budgets"])
+	if err != nil {
+		return spawnRequest{}, err
+	}
+	// The wire shape is a non-nullable object, so the map is never nil.
+	budgets := make(map[string]int64, len(limits))
+	for _, limit := range limits {
+		budgets[string(limit.Kind)] = limit.Limit
+	}
+	request := spawnRequest{Prompt: prompt, Name: name, Capabilities: capabilities, Tools: toolNames, Budgets: budgets, BrowserAttachments: attachments}
+	request.Definition, _ = stringArgument(arguments, "definition")
+	request.Report, _ = stringArgument(arguments, "report")
+	request.Model, _ = stringArgument(arguments, "model")
+	request.Provider, _ = stringArgument(arguments, "provider")
+	request.Effort, _ = stringArgument(arguments, "effort")
+	if raw, ok := arguments["mcp_tools"]; ok && raw != nil {
+		encoded, err := json.Marshal(raw)
+		if err != nil {
+			return spawnRequest{}, err
+		}
+		request.MCPTools = encoded
+	}
+	return request, nil
+}
+
+// spawnArguments rebuilds the argument map the agent clone and MCP delegation
+// read, from a request that may have been rewritten.
+func spawnArguments(request spawnRequest) map[string]any {
+	arguments := map[string]any{}
+	for key, value := range map[string]string{"model": request.Model, "provider": request.Provider, "effort": request.Effort} {
+		if value != "" {
+			arguments[key] = value
+		}
+	}
+	if len(request.MCPTools) > 0 {
+		var value any
+		if json.Unmarshal(request.MCPTools, &value) == nil {
+			arguments["mcp_tools"] = value
+		}
+	}
+	return arguments
+}
+
+// resolvedSpawn is a request after the named child's defaults apply and
+// narrowing is checked.
+type resolvedSpawn struct {
+	definition         agentdef.Definition
+	budgets            []sessionstore.BudgetLimit
+	report             string
+	browserAttachments []string
+}
+
+// preview is the wire view a before_spawn hook receives.
+func (r resolvedSpawn) preview() protocol.ResolvedChild {
+	budgets := make(map[string]int64, len(r.budgets))
+	for _, limit := range r.budgets {
+		budgets[string(limit.Kind)] = limit.Limit
+	}
+	return protocol.ResolvedChild{
+		Definition: r.definition.ID, Modules: r.definition.Modules, Capabilities: r.definition.Capabilities,
+		Tools: r.definition.ToolNames(), Budgets: budgets, Report: r.report,
+		BrowserAttachments: slices.Clone(r.browserAttachments),
+	}
+}
+
+// resolveSpawn applies the named child and its defaults under the request and
+// enforces narrowing. It runs again after a hook rewrite.
+func resolveSpawn(parent *AgentSession, request spawnRequest) (resolvedSpawn, error) {
+	if request.Prompt == "" {
+		return resolvedSpawn{}, errors.New("prompt is required")
+	}
+	if request.Name == "" {
+		return resolvedSpawn{}, errors.New("name is required")
+	}
+	definition, err := parent.definition.Child(request.Definition, agentdef.ChildOverrides{
+		Capabilities: request.Capabilities, Tools: request.Tools, Model: agentdef.ModelDefaults{Model: request.Model, Provider: request.Provider, Effort: request.Effort},
+	})
+	if err != nil {
+		return resolvedSpawn{}, err
+	}
+	if err := validateSpawnBrowserAttachments(parent, definition, request.BrowserAttachments); err != nil {
+		return resolvedSpawn{}, err
+	}
+	kinds := slices.Sorted(maps.Keys(request.Budgets))
+	budgets := make([]sessionstore.BudgetLimit, 0, len(kinds))
+	for _, kind := range kinds {
+		if request.Budgets[kind] < 0 || request.Budgets[kind] == math.MaxInt64 {
+			return resolvedSpawn{}, fmt.Errorf("budget %q must be a non-negative integer", kind)
+		}
+		budgets = append(budgets, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(kind), Limit: request.Budgets[kind]})
+	}
+	report := request.Report
+	if named, ok := parent.definition.Children[request.Definition]; ok && request.Definition != "" {
+		budgets = namedChildBudgets(named.Budgets, budgets)
+		if report == "" {
+			report = named.Report
+		}
+	}
+	switch report {
+	case "":
+		report = "notice"
+	case "notice", "message", "inline":
+	default:
+		return resolvedSpawn{}, fmt.Errorf("unknown report mode %q (notice, message, or inline)", report)
+	}
+	return resolvedSpawn{definition: definition, budgets: budgets, report: report, browserAttachments: slices.Clone(request.BrowserAttachments)}, nil
+}
+
+// namedChildBudgets applies a named child's budgets as defaults under the
+// explicit spawn budgets, in canonical (sorted) order.
+func namedChildBudgets(defaults map[string]int64, explicit []sessionstore.BudgetLimit) []sessionstore.BudgetLimit {
+	if len(defaults) == 0 {
+		return explicit
+	}
+	merged := make(map[string]int64, len(defaults)+len(explicit))
+	maps.Copy(merged, defaults)
+	for _, limit := range explicit {
+		merged[string(limit.Kind)] = limit.Limit
+	}
+	kinds := slices.Sorted(maps.Keys(merged))
+	result := make([]sessionstore.BudgetLimit, 0, len(kinds))
+	for _, kind := range kinds {
+		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(kind), Limit: merged[kind]})
+	}
+	return result
+}
+
+// requestedNames decodes an optional list-of-names spawn argument; nil means
+// inherit and an empty list narrows to none.
+func requestedNames(value any, key string) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a list of names", key)
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		name, ok := item.(string)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("%s must be a list of names", key)
+		}
+		result = append(result, name)
+	}
+	return result, nil
+}
+
+func requestedBudgets(value any) ([]sessionstore.BudgetLimit, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("budgets must be a dictionary")
+	}
+	keys := make([]string, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]sessionstore.BudgetLimit, 0, len(keys))
+	for _, key := range keys {
+		limit, ok := runtimeInteger(items[key])
+		if !ok || limit < 0 || limit == math.MaxInt64 {
+			return nil, fmt.Errorf("budget %q must be a non-negative integer", key)
+		}
+		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(key), Limit: limit})
+	}
+	return result, nil
+}
+
+func runtimeStatePayload(value any) (sessionstore.RuntimePayload, error) {
+	normalized, err := normalizeStateJSON(value, 0)
+	if err != nil {
+		return sessionstore.RuntimePayload{}, err
+	}
+	data, err := json.Marshal(normalized)
+	return sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "agent state"}, err
+}
+
+func runtimeValueMap(value sessionstore.RuntimeValue) map[string]any {
+	return map[string]any{"inline": string(value.Inline), "handle": value.ReferenceID, "digest": value.Digest, "size": value.Size, "media_type": value.MediaType, "source": value.Source}
+}
+
+func contentMetadataMap(value sessionstore.ContentMetadata) map[string]any {
+	return map[string]any{"handle": value.ReferenceID, "digest": value.Digest, "size": value.Size, "media_type": value.MediaType, "source": value.Source}
+}
+
+func cloneArguments(arguments map[string]any) map[string]any {
+	result := make(map[string]any, len(arguments))
+	maps.Copy(result, arguments)
+	return result
+}
+
+func stringArgument(arguments map[string]any, key string) (string, bool) {
+	value, ok := arguments[key].(string)
+	return value, ok
+}
+
+func stringListArgument(arguments map[string]any, key string) ([]string, error) {
+	items, ok := arguments[key].([]any)
+	if !ok || len(items) == 0 {
+		return nil, fmt.Errorf("%s must be a non-empty list", key)
+	}
+	result := make([]string, len(items))
+	for index, item := range items {
+		value, ok := item.(string)
+		if !ok || value == "" {
+			return nil, fmt.Errorf("%s must contain message ids", key)
+		}
+		result[index] = value
+	}
+	return result, nil
+}
+
+func runtimeInteger(value any) (int64, bool) {
+	switch value := value.(type) {
+	case json.Number:
+		number, err := value.Int64()
+		return number, err == nil
+	case int:
+		return int64(value), true
+	case int64:
+		return value, true
+	case float64:
+		if value >= -0x1p63 && value < 0x1p63 && value == math.Trunc(value) {
+			return int64(value), true
+		}
+	}
+	return 0, false
+}
+
+func intArgument(arguments map[string]any, key string, fallback int) int {
+	value, ok := runtimeInteger(arguments[key])
+	if !ok || value < math.MinInt || value > math.MaxInt {
+		return fallback
+	}
+	return int(value)
+}
+
+func int64Argument(arguments map[string]any, key string, fallback int64) int64 {
+	value, ok := runtimeInteger(arguments[key])
+	if !ok {
+		return fallback
+	}
+	return value
+}
+
+func utf8PrefixRuntime(value string, bytes int) string {
+	end := min(len(value), bytes)
+	for end > 0 && end < len(value) && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
+}
+
+func utf8SuffixRuntime(value string, bytes int) (string, int) {
+	start := max(0, len(value)-bytes)
+	for start < len(value) && !utf8.RuneStart(value[start]) {
+		start++
+	}
+	return value[start:], start
+}
+
+func randomRuntimeSuffix() string {
+	var value [8]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(value[:])
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

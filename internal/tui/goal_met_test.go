@@ -28,30 +28,3 @@ func TestGoalMet(t *testing.T) {
 		}
 	}
 }
-
-// The loop bug from the wild: a turn whose final text leads with a
-// verification preamble and declares GOAL_MET mid-message must END the goal
-// loop — no continuation submitted, goal cleared.
-func TestGoalLoopEndsOnMidMessageToken(t *testing.T) {
-	m := &model{goal: "ship the thing", goalRounds: 1}
-	m.cfg = nil
-	tm, cmd := m.Update(turnDoneMsg{final: "Verified: all checks pass.\n\nGOAL_MET — shipped and verified."})
-	mm := tm.(*model)
-	if mm.goal != "" {
-		t.Fatalf("goal must clear on GOAL_MET, still %q", mm.goal)
-	}
-	if cmd != nil {
-		t.Fatal("no continuation turn must be submitted")
-	}
-}
-
-// A turn without the token continues the loop (submits a goal-check turn).
-func TestGoalLoopContinuesWithoutToken(t *testing.T) {
-	m := goalFromContextModel(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
-	m.goal = "ship the thing"
-	m.goalRounds = 0
-	_, cmd := m.Update(turnDoneMsg{final: "still working"})
-	if cmd == nil {
-		t.Fatal("goal loop must continue when the token is absent")
-	}
-}

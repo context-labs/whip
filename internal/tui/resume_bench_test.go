@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // benchTranscript builds a realistic resumed conversation: n exchanges, each
@@ -47,6 +48,35 @@ func BenchmarkAppendStream(b *testing.B) {
 	m := compactCmdModel()
 	m.Update(mkWinSize(120, 40))
 	m.seedTranscript(benchTranscript(200), 1)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := range b.N {
+		m.append(fmt.Sprintf("streamed line %d", i))
+	}
+}
+
+// BenchmarkView measures one full frame: the number the compositor work must
+// not make worse (B/op is the one to watch: a fresh 140×40 cell buffer per
+// frame is ~600 KB and would show up there).
+func BenchmarkView(b *testing.B) {
+	m := compactCmdModel()
+	m.clientView.agents = []session.RuntimeAgent{{ID: "root-agent", LifecyclePhase: "running"}}
+	m.Update(mkWinSize(140, 40))
+	m.seedTranscript(benchTranscript(200), 1)
+	m.layout()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = m.View()
+	}
+}
+
+// BenchmarkAppendStream1k is the streaming hot path on a long transcript: an
+// append must not re-touch the other thousand blocks.
+func BenchmarkAppendStream1k(b *testing.B) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(120, 40))
+	m.seedTranscript(benchTranscript(1000), 1)
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := range b.N {

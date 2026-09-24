@@ -1,0 +1,47 @@
+[
+  {
+    "args": [
+      "status",
+      "--json"
+    ],
+    "returncode": 0,
+    "stdout": "{\n  \"state\": \"running\",\n  \"network_endpoint\": \"http://[::]:4000\",\n  \"pid\": 105,\n  \"generation\": 2,\n  \"daemon_build\": \"dev-modelsdev-7058e007fec0-dirty\",\n  \"client_build\": \"dev-modelsdev-7058e007fec0-dirty\",\n  \"build_match\": true,\n  \"started_at\": \"2026-09-10T04:36:35.893265043Z\",\n  \"uptime_seconds\": 72,\n  \"socket\": \"/home/whip/.whip/runtime-v2/daemon.sock\",\n  \"database\": \"/home/whip/.whip/runtime-v2/sessions.db\",\n  \"log\": \"/home/whip/.whip/runtime-v2/daemon.log\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "args": [
+      "stop",
+      "--timeout",
+      "10s"
+    ],
+    "returncode": 0,
+    "stdout": "daemon stopped\n",
+    "stderr": ""
+  },
+  {
+    "args": [
+      "status",
+      "--json"
+    ],
+    "returncode": 0,
+    "stdout": "{\n  \"state\": \"stopped\",\n  \"client_build\": \"dev-modelsdev-7058e007fec0-dirty\",\n  \"build_match\": false,\n  \"socket\": \"/home/whip/.whip/runtime-v2/daemon.sock\",\n  \"database\": \"/home/whip/.whip/runtime-v2/sessions.db\",\n  \"log\": \"/home/whip/.whip/runtime-v2/daemon.log\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "args": [
+      "start"
+    ],
+    "returncode": 0,
+    "stdout": "daemon started (pid 243, build dev-modelsdev-7058e007fec0-dirty)\n",
+    "stderr": ""
+  },
+  {
+    "args": [
+      "status",
+      "--json"
+    ],
+    "returncode": 0,
+    "stdout": "{\n  \"state\": \"running\",\n  \"network_endpoint\": \"http://[::]:4000\",\n  \"pid\": 243,\n  \"generation\": 3,\n  \"daemon_build\": \"dev-modelsdev-7058e007fec0-dirty\",\n  \"client_build\": \"dev-modelsdev-7058e007fec0-dirty\",\n  \"build_match\": true,\n  \"started_at\": \"2026-09-10T04:37:48.443578424Z\",\n  \"socket\": \"/home/whip/.whip/runtime-v2/daemon.sock\",\n  \"database\": \"/home/whip/.whip/runtime-v2/sessions.db\",\n  \"log\": \"/home/whip/.whip/runtime-v2/daemon.log\"\n}\n",
+    "stderr": ""
+  }
+]

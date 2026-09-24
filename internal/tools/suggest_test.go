@@ -58,14 +58,11 @@ func TestLevenshteinCap(t *testing.T) {
 }
 
 func TestExecuteSuggestsOnUnknownTool(t *testing.T) {
-	defer func() { Suggester = nil }()
-	Suggester = func(name string) []string { return []string{"mcp__docs__greet"} }
-	out := Execute(context.Background(), nil, "mcp__doc__greet", nil)
+	out := ExecuteWithSuggester(context.Background(), nil, "mcp__doc__greet", nil, func(name string) []string { return []string{"mcp__docs__greet"} })
 	if !strings.Contains(out, `unknown tool "mcp__doc__greet"`) || !strings.Contains(out, "did you mean mcp__docs__greet") {
 		t.Errorf("got %q", out)
 	}
 	// No suggester → plain error (zero-config path unchanged).
-	Suggester = nil
 	out = Execute(context.Background(), nil, "nope", nil)
 	if strings.Contains(out, "did you mean") {
 		t.Errorf("no-suggester path should be plain, got %q", out)

@@ -1,0 +1,61 @@
+[
+  {
+    "browser": "chromium",
+    "rendererDigest": "74c3a0abbe888d0d920bd364c63703cc189d6cb04db5564f5620b4ee52cbc169",
+    "checks": [
+      "identical embedded renderer",
+      "grouped executions",
+      "visible collapsed preview",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "firefox",
+    "rendererDigest": "74c3a0abbe888d0d920bd364c63703cc189d6cb04db5564f5620b4ee52cbc169",
+    "checks": [
+      "identical embedded renderer",
+      "grouped executions",
+      "visible collapsed preview",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "bounded production history"
+    ]
+  },
+  {
+    "browser": "electron",
+    "rendererDigest": "74c3a0abbe888d0d920bd364c63703cc189d6cb04db5564f5620b4ee52cbc169",
+    "checks": [
+      "identical embedded renderer",
+      "grouped executions",
+      "visible collapsed preview",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "bounded production history",
+      "staged main/preload",
+      "400% native zoom"
+    ]
+  }
+]

@@ -1,0 +1,374 @@
+package session
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
+var ErrCommandConflict = errors.New("command ID was reused with a different request")
+
+// CommandAdmission is the durable protocol identity and work item admitted by
+// either the daemon-control actor or one root actor.
+type CommandAdmission struct {
+	ClientID      string
+	CommandID     string
+	Scope         CommandScope
+	RootID        string
+	AgentID       string
+	Kind          string
+	Operation     string
+	RequestDigest string
+	Payload       RuntimePayload
+}
+
+type CommandRecord struct {
+	Operation     string
+	ClientID      string
+	CommandID     string
+	Scope         CommandScope
+	RootID        string
+	RequestDigest string
+	Status        string
+	IngressSeq    int64
+	Outcome       RuntimeValue
+}
+
+type CommandAdmissionResult struct {
+	Command  CommandRecord
+	EventSeq int64
+	New      bool
+}
+
+// AdmitCommand compares command identity and request digest and, for a new
+// root command, inserts the command and its actor inbox item in one commit.
+func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if admission.Operation == "" {
+		admission.Operation = admission.Kind
+	}
+	if len(admission.Payload.Data) > MaxInputPayloadBytes {
+		return CommandAdmissionResult{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrInvalidInput, MaxInputPayloadBytes)
+	}
+
+	if err := validateCommandAdmission(admission); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if existing, found, err := loadCommandTx(ctx, tx, admission.ClientID, admission.CommandID); err != nil {
+		return CommandAdmissionResult{}, err
+	} else if found {
+		if existing.Operation != admission.Operation || existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
+			return CommandAdmissionResult{}, ErrCommandConflict
+		}
+		return CommandAdmissionResult{Command: existing}, nil
+	}
+	commandValue, err := s.prepareRuntimeValue(admission.Payload, ContentGrant{RootID: admission.RootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	var inboxValue preparedRuntimeValue
+	if admission.Scope == CommandScopeRoot {
+		inboxValue, err = s.prepareRuntimeValue(admission.Payload, ContentGrant{
+			RootID: admission.RootID, AgentID: admission.AgentID, Scope: ContentGrantAgent,
+		})
+		if err != nil {
+			return CommandAdmissionResult{}, err
+		}
+	}
+
+	stamp := now()
+	if err := insertRuntimeValue(ctx, tx, commandValue, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	result := CommandAdmissionResult{New: true}
+	if admission.Scope == CommandScopeRoot {
+		sequence, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
+			RootID: admission.RootID, AgentID: admission.AgentID, Kind: admission.Kind,
+			Origin:          clientInputOrigin(admission.Kind),
+			CommandClientID: admission.ClientID, CommandID: admission.CommandID,
+			Payload: admission.Payload,
+		}, inboxValue, "command.queued", actorEvent{})
+		if err != nil {
+			return CommandAdmissionResult{}, err
+		}
+		result.Command.IngressSeq = sequence.InboxSeq
+		result.EventSeq = sequence.EventSeq
+	} else if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ingress_seq),0)+1 FROM commands WHERE scope='daemon'`).Scan(&result.Command.IngressSeq); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	inline, reference := runtimeValueColumns(commandValue.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, nullableString(admission.RootID),
+		admission.Operation, admission.RequestDigest, inline, reference, result.Command.IngressSeq, stamp, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	result.Command.Operation = admission.Operation
+	result.Command.ClientID = admission.ClientID
+	result.Command.CommandID = admission.CommandID
+	result.Command.Scope = admission.Scope
+	result.Command.RootID = admission.RootID
+	result.Command.RequestDigest = admission.RequestDigest
+	result.Command.Status = "queued"
+	if err := tx.Commit(); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	return result, nil
+}
+
+// AdmitControlCommand durably admits a root-scoped command that executes on
+// the actor itself instead of becoming model input. Matching retries observe
+// the existing command; only a newly inserted row may execute its action.
+func (s *Store) AdmitControlCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if admission.Operation == "" {
+		admission.Operation = admission.Kind
+	}
+	if err := validateCommandAdmission(admission); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	if admission.Scope != CommandScopeRoot {
+		return CommandAdmissionResult{}, errors.New("control command must be root scoped")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if existing, found, err := loadCommandTx(ctx, tx, admission.ClientID, admission.CommandID); err != nil {
+		return CommandAdmissionResult{}, err
+	} else if found {
+		if existing.Operation != admission.Operation || existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
+			return CommandAdmissionResult{}, ErrCommandConflict
+		}
+		return CommandAdmissionResult{Command: existing}, nil
+	}
+	commandValue, err := s.prepareRuntimeValue(admission.Payload, ContentGrant{RootID: admission.RootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	stamp := now()
+	if err := insertRuntimeValue(ctx, tx, commandValue, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, admission.RootID, "command.control.queued", actorEvent{
+		AgentID: admission.AgentID, Status: "queued", CommandClientID: admission.ClientID, CommandID: admission.CommandID,
+	}, stamp)
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	// Positive root ingress values are reserved for model-input commands and
+	// equal their inbox sequence. Actor-local controls use a separate negative
+	// sequence so they cannot collide with that durable correlation.
+	var ingressSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(ingress_seq),0)-1 FROM commands WHERE root_id=? AND ingress_seq<0`, admission.RootID).Scan(&ingressSeq); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	inline, reference := runtimeValueColumns(commandValue.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, admission.RootID,
+		admission.Operation, admission.RequestDigest, inline, reference, ingressSeq, stamp, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	return CommandAdmissionResult{Command: CommandRecord{
+		Operation: admission.Operation, ClientID: admission.ClientID, CommandID: admission.CommandID, Scope: admission.Scope, RootID: admission.RootID,
+		RequestDigest: admission.RequestDigest, Status: "queued", IngressSeq: ingressSeq,
+	}, EventSeq: eventSeq, New: true}, nil
+}
+
+func (s *Store) LoadCommand(ctx context.Context, clientID, commandID string) (CommandRecord, error) {
+	record, found, err := loadCommand(ctx, s.db, clientID, commandID)
+	if err != nil {
+		return CommandRecord{}, err
+	}
+	if !found {
+		return CommandRecord{}, sql.ErrNoRows
+	}
+	return record, nil
+}
+
+// CreateSessionForCommand commits the daemon command's only durable side
+// effect and terminal outcome together, closing the crash window between the
+// two records.
+func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithPermission(ctx, clientID, commandID, kind, cwd, model, provider, "")
+}
+
+// CreateSessionForCommandWithPermission persists the initial consent choice in
+// the same transaction as session creation and the durable command outcome.
+func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithEngine(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, "")
+}
+
+// CreateSessionForCommandWithEngine pins language with creation and its command
+// receipt. The session runs the coding agent.
+func (s *Store) CreateSessionForCommandWithEngine(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithDefinition(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, engine, "coding", "")
+}
+
+// CreateSessionForCommandWithDefinition records which agent definition the
+// session executes and, for a registered definition, the revision it pins. The
+// daemon validates both against its registry; the store only requires that an
+// agent session names a definition.
+func (s *Store) CreateSessionForCommandWithDefinition(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine, definition, revision string) (CommandRecord, error) {
+	if engine == "" {
+		engine = "starlark"
+	}
+	if kind == SessionKindAgent && definition == "" {
+		return CommandRecord{}, errors.New("agent session requires an agent definition")
+	}
+	if engine != "starlark" && engine != "quickjs" {
+		return CommandRecord{}, fmt.Errorf("unknown execution engine %q", engine)
+	}
+
+	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
+		return CommandRecord{}, err
+	}
+	if permissionMode == "" {
+		permissionMode = PermissionModePrompt
+	}
+	if permissionMode != PermissionModePrompt && permissionMode != PermissionModeAutomatic {
+		return CommandRecord{}, errors.New("invalid session permission mode")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	record, found, err := loadCommandTx(ctx, tx, clientID, commandID)
+	if err != nil {
+		return CommandRecord{}, err
+	}
+	if !found || record.Scope != CommandScopeDaemon {
+		return CommandRecord{}, errors.New("daemon session command was not admitted")
+	}
+	if record.Status != "queued" {
+		return record, nil
+	}
+	rootID, err := unusedAgentID(ctx, tx, NewAgentID)
+	if err != nil {
+		return CommandRecord{}, err
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine,definition,definition_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine, definition, revision); err != nil {
+		return CommandRecord{}, err
+	}
+	outcome, _ := json.Marshal(struct {
+		RootID string `json:"root_id"`
+	}{RootID: rootID})
+	result, err := tx.ExecContext(ctx, `UPDATE commands SET status='succeeded',outcome_inline=?,updated_at=?
+		WHERE client_id=? AND command_id=? AND status='queued'`, outcome, stamp, clientID, commandID)
+	if err != nil {
+		return CommandRecord{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return CommandRecord{}, err
+		}
+		return CommandRecord{}, errors.New("daemon session command changed during execution")
+	}
+	if err := tx.Commit(); err != nil {
+		return CommandRecord{}, err
+	}
+	record.Status = "succeeded"
+	record.Outcome = RuntimeValue{Inline: outcome}
+	return record, nil
+}
+
+type commandQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func loadCommand(ctx context.Context, q commandQueryer, clientID, commandID string) (CommandRecord, bool, error) {
+	var record CommandRecord
+	var rootID sql.NullString
+	var outcomeReference string
+	err := q.QueryRowContext(ctx, `SELECT c.client_id,c.command_id,c.scope,c.root_id,c.operation,c.request_digest,c.status,c.ingress_seq,
+		substr(c.outcome_inline,1,?),COALESCE(c.outcome_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		FROM commands c LEFT JOIN content_references r ON r.id=c.outcome_ref WHERE c.client_id=? AND c.command_id=?`,
+		InlineValueLimit+1, clientID, commandID).Scan(&record.ClientID, &record.CommandID, &record.Scope, &rootID,
+		&record.Operation, &record.RequestDigest, &record.Status, &record.IngressSeq, &record.Outcome.Inline, &outcomeReference,
+		&record.Outcome.Digest, &record.Outcome.Size, &record.Outcome.MediaType, &record.Outcome.Source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CommandRecord{}, false, nil
+	}
+	if err != nil {
+		return CommandRecord{}, false, err
+	}
+	record.RootID = rootID.String
+	if outcomeReference != "" {
+		record.Outcome.ReferenceID = outcomeReference
+		record.Outcome.Inline = nil
+	} else if len(record.Outcome.Inline) > InlineValueLimit {
+		return CommandRecord{}, false, errors.New("command has an oversized inline outcome")
+	}
+	return record, true, nil
+}
+
+func loadCommandTx(ctx context.Context, tx *sql.Tx, clientID, commandID string) (CommandRecord, bool, error) {
+	return loadCommand(ctx, tx, clientID, commandID)
+}
+
+func validateCommandAdmission(admission CommandAdmission) error {
+	if admission.ClientID == "" || admission.CommandID == "" || admission.RequestDigest == "" {
+		return errors.New("command admission requires client, command, and request digest")
+	}
+	switch admission.Scope {
+	case CommandScopeRoot:
+		if admission.RootID == "" || admission.AgentID == "" || admission.Kind == "" {
+			return errors.New("root command admission requires root, agent, and kind")
+		}
+	case CommandScopeDaemon:
+		if admission.RootID != "" || admission.AgentID != "" {
+			return errors.New("daemon command admission cannot name a root or agent")
+		}
+		if len(admission.Payload.Data) > InlineValueLimit {
+			return errors.New("daemon-scoped large content has no root grant")
+		}
+	default:
+		return fmt.Errorf("invalid command scope %q", admission.Scope)
+	}
+	return nil
+}
+
+// SetCommandState durably reports a nonterminal execution transition and its
+// event together. Terminal commands can never be resurrected by a late worker.
+func (s *Store) SetCommandState(ctx context.Context, clientID, commandID, state string) error {
+	if state != "running" && state != "waiting" {
+		return errors.New("command state must be running or waiting")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var rootID sql.NullString
+	var current string
+	if err := tx.QueryRowContext(ctx, `SELECT root_id,status FROM commands WHERE client_id=? AND command_id=?`, clientID, commandID).Scan(&rootID, &current); err != nil {
+		return err
+	}
+	if current == state {
+		return tx.Commit()
+	}
+	if current != "queued" && current != "running" && current != "waiting" {
+		return errors.New("terminal command cannot change execution state")
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,updated_at=? WHERE client_id=? AND command_id=?`, state, stamp, clientID, commandID); err != nil {
+		return err
+	}
+	if rootID.Valid {
+		if _, err := s.insertActorEventTx(ctx, tx, rootID.String, "command."+state, actorEvent{Status: state, CommandClientID: clientID, CommandID: commandID}, stamp); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

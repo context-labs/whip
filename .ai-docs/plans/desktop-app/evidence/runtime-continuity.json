@@ -1,0 +1,154 @@
+{
+  "purpose": "Signed retained runtime and RLM worker continuity across client detach and copied application-source removal; not an actual Squirrel upgrade",
+  "recordedAt": "2026-09-08T07:24:29.135Z",
+  "source": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "fixture": "/private/tmp/whip-continuity-mAmUZ1",
+  "manifest": {
+    "schema": 1,
+    "version": "0.1.0",
+    "architecture": "arm64",
+    "teamId": "JAPWPV5JY2",
+    "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+    "source": {
+      "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+      "dirty": true,
+      "lockfile": "f2600c94e7ca7ced68a33ba9e933b8b4dbce18800fe6d5f2e765c6d191470f85"
+    },
+    "compatibility": {
+      "protocolMajor": 4,
+      "protocolMinor": 1,
+      "schemaVersion": 10
+    },
+    "files": {
+      "whip": {
+        "bytes": 40952784,
+        "sha256": "07e9c391ef161e18b987e5cd32f33af100633c324775658fc91f1768a3d6cffe"
+      },
+      "whip-computer": {
+        "bytes": 431824,
+        "sha256": "70695c187b1105545ff9abe1721913793d022efa34208983be20053783bb93e5"
+      }
+    }
+  },
+  "legacyManifest": false,
+  "executableMetadata": {
+    "buildId": "0.1.0",
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "schemaVersion": 10
+  },
+  "negotiated": {
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "runtimeId": "8d242ff0f1a78714aba916584eec360c",
+    "buildId": "0.1.0"
+  },
+  "environment": {
+    "WHIP_HOME": "/private/tmp/whip-continuity-mAmUZ1/home",
+    "WHIP_COMPUTER_BIN": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip-computer",
+    "inheritedCredentials": false,
+    "provider": "http://127.0.0.1:63589",
+    "daemonTCP": false
+  },
+  "daemon": {
+    "pid": 95848,
+    "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _daemon",
+    "executableMapped": true
+  },
+  "finalDaemonPID": 95848,
+  "beforeWorkers": [
+    {
+      "pid": 96060,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "heldWorkers": [
+    {
+      "pid": 96060,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 96267,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "afterWorkers": [
+    {
+      "pid": 96060,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 96267,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    },
+    {
+      "pid": 96643,
+      "command": "/private/tmp/whip-continuity-mAmUZ1/retained-runtimes/0.1.0-60a1111146d23f355dd0828350704ba8fa4bce33dd27be1d4134ffa7e3bcecb3/whip _kernel -steps 1000000 -host-requests 1024 -memory-bytes 268435456 -output-bytes 65536 -frame-bytes 1048576",
+      "executableMapped": true
+    }
+  ],
+  "newWorkerPIDsAfterSourceRemoval": [
+    96643
+  ],
+  "before": {
+    "rootId": "46a12f89ca5a71e0325d9e42c1d77d19",
+    "commandId": "e8b8d7fa-b79c-4c76-9f4a-a9c56e4091b2",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-before-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-before-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6"
+      }
+    },
+    "answer": "Verified continuity-before-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6: 42",
+    "snapshotVerified": true
+  },
+  "disconnectedAcceptedTurn": {
+    "rootId": "8edd59aebf54d8cb38cd6d051ee4eb49",
+    "commandId": "c7540185-7e06-47d3-80d0-6a4830e348bd",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-held-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-held-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6"
+      }
+    },
+    "answer": "Verified continuity-held-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6: 42",
+    "snapshotVerified": true
+  },
+  "after": {
+    "rootId": "f02781091bd54ef673520953058e6b17",
+    "commandId": "c89854d0-ac5b-4c02-8074-77fc0ed573f4",
+    "status": "succeeded",
+    "toolResult": {
+      "output": "continuity-after-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6\n",
+      "steps": 18,
+      "value": {
+        "answer": 42,
+        "marker": "continuity-after-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6"
+      }
+    },
+    "answer": "Verified continuity-after-aa5be6d4-82e4-45ff-a0e5-84fbc4f97cc6: 42",
+    "snapshotVerified": true
+  },
+  "providerRequests": 6,
+  "sourceCopyRemoved": true,
+  "retainedSignaturesAndHashesVerified": true,
+  "limits": [
+    "No Electron process launched: SDK client disconnect models GUI detachment.",
+    "No N-to-N+1 Squirrel installation or notarization tested."
+  ],
+  "cleanup": {
+    "daemonStopped": true,
+    "fixtureRemoved": true
+  }
+}

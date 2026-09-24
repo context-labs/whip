@@ -53,13 +53,11 @@ func TestDriverParity(t *testing.T) {
 	table := map[string]map[string]result{}
 
 	for _, drv := range drivers {
-		Driver = drv
 		table[drv] = map[string]result{}
 		t.Setenv("HOME", t.TempDir())
-		AllowPrivateURLs = true
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 
-		b, err := Open(ctx, ModeHeadless)
+		b, err := openNamedWithOptions(ctx, ModeHeadless, "default", drv, nil, nil, "")
 		if err != nil {
 			t.Fatalf("%s open: %v", drv, err)
 		}
@@ -145,9 +143,6 @@ func TestDriverParity(t *testing.T) {
 		b.Close()
 		cancel()
 	}
-	AllowPrivateURLs = false
-	Driver = "rod"
-
 	// Emit the decision table.
 	ops := []string{"Navigate", "Eval", "Info", "AXTree", "ClickAt", "Screenshot", "Fill-focus", "Scroll", "WaitElement", "Tabs"}
 	fmt.Println("\n=== DRIVER PARITY (headless, warm) ===")

@@ -1,0 +1,308 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import type { DesktopBridge, DesktopEvent } from '../src/desktop-bridge';
+import { createDesktopPlatform, desktopTransport } from '../../../apps/web/src/platform/desktop';
+import { localProfile, urlProfile, type ConnectionProfile } from '../src/connections';
+
+function fixture() {
+  const listeners = new Set<(event: DesktopEvent) => void>();
+  const bridge = {
+    version: 2, getSystemContrast: async () => false, appVersion: '1.2.3', connectionKinds: ['local', 'url', 'ssh'],
+    onEvent(listener: (event: DesktopEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    openTransport: vi.fn(async (_id: string, _connectionId: string) => {}),
+    sendTransport: vi.fn(), closeTransport: vi.fn(), acknowledgeTransport: vi.fn(),
+    prepareConnection: vi.fn(async (_id: string, _profile: ConnectionProfile) => {}), releaseConnection: vi.fn(),
+    beginSave: vi.fn(async () => 'save'), writeSave: vi.fn(async () => {}),
+    finishSave: vi.fn(async () => {}), cancelSave: vi.fn(async () => {}),
+    checkForUpdates: vi.fn(async () => {}), installUpdate: vi.fn(async () => {}),
+    pickDirectory: vi.fn(async () => '/native/project'),
+    listProjectEditors: vi.fn(async () => [{ id: 'cursor', label: 'Cursor', installed: true }]),
+    openProject: vi.fn(async () => {}),
+    testLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Ready to start.', canInstall: false })),
+    chooseLocalRuntime: vi.fn(async () => ({ state: 'missing', home: '/home/.whipcode', message: 'Choose whipcode.', canInstall: true })),
+    installLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Installed.', canInstall: false })),
+    restartLocalRuntime: vi.fn(async () => ({ state: 'running', home: '/home/.whipcode', message: 'Running.', canInstall: false })),
+    notify: vi.fn(async () => {}),
+    setNotificationsEnabled: vi.fn(), hideWindow: vi.fn(),
+  };
+  return { bridge, api: bridge as unknown as DesktopBridge, listeners,
+    emit(event: DesktopEvent) { for (const listener of listeners) listener(event); } };
+}
+afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
+
+it('surfaces inset window chrome only when the bridge reports it', () => {
+  expect(createDesktopPlatform(fixture().api, vi.fn()).chrome).toBeUndefined();
+  const inset = { ...fixture().api, chrome: 'inset' as const };
+  expect(createDesktopPlatform(inset, vi.fn()).chrome).toBe('inset');
+});
+
+it('binds editor opening to the requested prepared host, including renderer-owned URL connections', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  const request = { app: 'cursor' as const, directory: '/full/project', connectionId: 'local', runtimeId: 'runtime-local' };
+  await expect(platform.projectEditors!.open(request)).rejects.toThrow('source host is disconnected');
+  expect(await platform.projectEditors!.list()).toEqual([{ id: 'cursor', label: 'Cursor', installed: true }]);
+  const options = { signal: new AbortController().signal, onProgress() {} };
+  const local = await platform.resolveConnection!(localProfile, options);
+  const remoteProfile = urlProfile('https://remote.ts.net');
+  const remote = await platform.resolveConnection!(remoteProfile, options);
+  expect(remote.endpoint).toBe('https://remote.ts.net/');
+  const localHandle = f.bridge.prepareConnection.mock.calls[0]![0];
+  expect(f.bridge.prepareConnection).toHaveBeenCalledOnce();
+  await platform.projectEditors!.open(request);
+  expect(f.bridge.openProject).toHaveBeenLastCalledWith({ ...request, connectionId: localHandle }, undefined);
+  const remoteRequest = { ...request, connectionId: remoteProfile.id, runtimeId: 'runtime-remote', sshAlias: 'gpu-4090-sam' };
+  await platform.projectEditors!.open(remoteRequest);
+  expect(f.bridge.openProject).toHaveBeenLastCalledWith({ ...remoteRequest, connectionId: expect.any(String) }, remoteProfile);
+  remote.dispose();
+  await expect(platform.projectEditors!.open(remoteRequest)).rejects.toThrow('source host is disconnected');
+  await platform.projectEditors!.open(request);
+  local.dispose(); platform.dispose?.();
+  await expect(platform.projectEditors!.open(request)).rejects.toThrow('closed');
+  await expect(platform.projectEditors!.list()).rejects.toThrow('closed');
+});
+
+it('forwards local runtime actions separately without starting or installing during a read-only test', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  expect(f.bridge.testLocalRuntime).not.toHaveBeenCalled();
+  expect((await platform.localRuntime!.test()).state).toBe('stopped');
+  expect(f.bridge.prepareConnection).not.toHaveBeenCalled();
+  expect(f.bridge.installLocalRuntime).not.toHaveBeenCalled();
+  expect(f.bridge.restartLocalRuntime).not.toHaveBeenCalled();
+  await platform.localRuntime!.choose(); await platform.localRuntime!.install(); await platform.localRuntime!.restart();
+  expect(f.bridge.chooseLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.installLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.restartLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  platform.dispose?.();
+  for (const method of ['test', 'choose', 'install', 'restart'] as const)
+    await expect(platform.localRuntime![method]()).rejects.toThrow('closed');
+  expect(f.bridge.testLocalRuntime).toHaveBeenCalledOnce();
+});
+
+it('exposes one-action native installation only when the bridge supports it', async () => {
+  const f = fixture();
+  expect(createDesktopPlatform(f.api, vi.fn()).localRuntime?.installDefault).toBeUndefined();
+  const installDefaultLocalRuntime = vi.fn(async () => ({ state: 'stopped' as const, home: '/home/.whipcode', message: 'Installed.', canInstall: false }));
+  const platform = createDesktopPlatform({ ...f.api, installDefaultLocalRuntime }, vi.fn());
+  expect((await platform.localRuntime!.installDefault!()).state).toBe('stopped');
+  expect(installDefaultLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.prepareConnection).not.toHaveBeenCalled();
+  platform.dispose?.();
+  await expect(platform.localRuntime!.installDefault!()).rejects.toThrow('closed');
+});
+
+it('shows actionable native failures without Electron IPC wrapper text', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  f.bridge.prepareConnection.mockRejectedValueOnce(new Error("Error invoking remote method 'whip:prepareConnection': Error: Set up this Mac to continue."));
+  await expect(platform.resolveConnection!(localProfile, { signal: new AbortController().signal, onProgress() {} })).rejects.toThrow(/^Set up this Mac to continue\.$/);
+  f.bridge.installLocalRuntime.mockRejectedValueOnce(new Error("Error invoking remote method 'whip:installLocalRuntime': Error: Choose a writable location."));
+  await expect(platform.localRuntime!.install()).rejects.toThrow(/^Choose a writable location\.$/);
+  expect(f.bridge.releaseConnection).toHaveBeenCalledOnce();
+  platform.dispose?.();
+});
+
+it('preserves frame order, bounded backpressure and listener lifetime across the bridge', async () => {
+  const f = fixture();
+  const handlers = { message: vi.fn(), close: vi.fn() };
+  const transport = await desktopTransport(f.api, 'connection')(handlers, new AbortController().signal);
+  const id = f.bridge.openTransport.mock.calls[0]![0];
+  transport.send('hello');
+  expect(transport.kind).toBe('unix');
+  expect(transport.bufferedAmount).toBe(6);
+  f.emit({ kind: 'sent', id, sequence: 1, buffered: 4 });
+  expect(transport.bufferedAmount).toBe(4);
+  f.emit({ kind: 'buffered', id, bytes: 0 });
+  expect(transport.bufferedAmount).toBe(0);
+  f.emit({ kind: 'frame', id, sequence: 1, frame: 'response' });
+  expect(handlers.message).toHaveBeenCalledWith('response');
+  expect(f.bridge.acknowledgeTransport).toHaveBeenCalledWith(id, 1);
+  expect(() => transport.send('x'.repeat(1 << 20))).toThrow('limit');
+  f.emit({ kind: 'frame', id, sequence: 3, frame: 'out of order' });
+  expect(handlers.close).toHaveBeenCalledOnce();
+  transport.close();
+  expect(f.listeners.size).toBe(0);
+  expect(f.bridge.closeTransport).toHaveBeenCalledOnce();
+});
+
+it('cancels unresolved host discovery immediately and releases a late native attempt', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  f.bridge.prepareConnection.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const controller = new AbortController();
+  const pending = platform.resolveConnection(localProfile, { signal: controller.signal, onProgress() {} });
+  controller.abort();
+  await expect(pending).rejects.toThrow();
+  expect(f.bridge.releaseConnection).toHaveBeenCalledOnce();
+  expect(f.listeners.size).toBe(2); // The platform's update and prompt observers remains until application disposal.
+  platform.dispose?.();
+  expect(f.listeners.size).toBe(0);
+  finish();
+  await Promise.resolve();
+  expect(f.bridge.releaseConnection).toHaveBeenCalledOnce();
+});
+
+it('cancels transport opening without waiting for a native response', async () => {
+  const f = fixture();
+  f.bridge.openTransport.mockImplementation(() => new Promise(() => {}));
+  const controller = new AbortController();
+  const pending = desktopTransport(f.api, 'connection')({ message() {}, close() {} }, controller.signal);
+  controller.abort();
+  await expect(pending).rejects.toThrow();
+  expect(f.bridge.closeTransport).toHaveBeenCalledOnce();
+  expect(f.listeners.size).toBe(0);
+});
+
+it('restores desktop window storage separately from device preferences', () => {
+  const f = fixture();
+  const first = createDesktopPlatform(f.api, vi.fn());
+  first.storage.setItem('theme', 'paper');
+  first.windowStorage!.setItem('tabs', 'retained');
+  const second = createDesktopPlatform(f.api, vi.fn());
+  expect(second.windowStorage!.keys()).toEqual(['tabs']);
+  expect(second.windowStorage!.getItem('tabs')).toBe('retained');
+  second.windowStorage!.removeItem('tabs');
+  expect(second.storage.getItem('theme')).toBe('paper');
+});
+
+it('uses bounded save chunks and cancels failed writes', async () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  expect(await platform.download(new Uint8Array(600_000), 'content', 'application/octet-stream')).toBe('saved');
+  expect(f.bridge.writeSave).toHaveBeenCalledTimes(3);
+  expect(f.bridge.finishSave).toHaveBeenCalledOnce();
+  f.bridge.writeSave.mockRejectedValueOnce(new Error('Disk full'));
+  await expect(platform.download(new Uint8Array(1), 'content', 'application/octet-stream')).rejects.toThrow('Disk full');
+  expect(f.bridge.cancelSave).toHaveBeenCalledOnce();
+});
+
+it('copies navigational session links without exposing the asset origin or SSH configuration', () => {
+  const platform = createDesktopPlatform(fixture().api, vi.fn());
+  expect(platform.sessionLink('/h/runtime/s/root?agent=child', localProfile)).toBe('whip://session/runtime/root?agent=child');
+  expect(() => platform.sessionLink('/settings', localProfile)).toThrow();
+  const beta = createDesktopPlatform({ ...fixture().api, sessionScheme: 'whip-beta' }, vi.fn());
+  expect(beta.sessionLink('/h/runtime/s/root', localProfile)).toBe('whip-beta://session/runtime/root');
+});
+
+it('retains immutable native update state and forwards explicit actions without starting a check', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn()); const updates = platform.updates!;
+  const idle = updates.getSnapshot();
+  expect(idle).toEqual({ state: 'idle' }); expect(updates.getSnapshot()).toBe(idle);
+  expect(updates.currentVersion).toBe('1.2.3'); expect(f.bridge.checkForUpdates).not.toHaveBeenCalled();
+  const changed = vi.fn(); const unsubscribe = updates.subscribe(changed);
+  f.emit({ kind: 'attention-wakeup' }); expect(changed).not.toHaveBeenCalled();
+  f.emit({ kind: 'update', state: 'downloaded', version: '1.2.4' });
+  const downloaded = updates.getSnapshot();
+  expect(downloaded).toEqual({ state: 'downloaded', version: '1.2.4' }); expect(Object.isFrozen(downloaded)).toBe(true);
+  expect(idle).toEqual({ state: 'idle' }); expect(changed).toHaveBeenCalledOnce();
+  f.emit({ kind: 'update', state: 'downloaded', version: '1.2.4' }); expect(changed).toHaveBeenCalledOnce();
+  await updates.check(); await updates.install();
+  expect(f.bridge.checkForUpdates).toHaveBeenCalledOnce(); expect(f.bridge.installUpdate).toHaveBeenCalledOnce();
+  expect(await platform.pickDirectory!()).toBe('/native/project'); expect(f.bridge.pickDirectory).toHaveBeenCalledOnce();
+  const message = { id: 'notification-id', title: 'Session title', body: '1 question awaiting your response.', path: '/h/runtime/s/root' };
+  await platform.notify!(message); expect(f.bridge.notify).toHaveBeenCalledExactlyOnceWith(message);
+  platform.setNotificationsEnabled!(true); platform.setNotificationsEnabled!(true);
+  expect(f.bridge.setNotificationsEnabled).toHaveBeenCalledExactlyOnceWith(true);
+  const closeTab = vi.fn(); const offClose = platform.onCloseTab!(closeTab);
+  f.emit({ kind: 'close-tab' }); expect(closeTab).toHaveBeenCalledOnce();
+  platform.hideWindow!(); expect(f.bridge.hideWindow).toHaveBeenCalledOnce();
+  offClose(); f.emit({ kind: 'close-tab' }); expect(closeTab).toHaveBeenCalledOnce();
+  unsubscribe(); platform.dispose?.(); platform.dispose?.();
+  expect(f.listeners.size).toBe(0);
+  expect(f.bridge.setNotificationsEnabled.mock.calls).toEqual([[true], [false]]);
+  f.emit({ kind: 'update', state: 'error', error: 'late result' }); expect(updates.getSnapshot()).toBe(downloaded);
+  await expect(updates.check()).rejects.toThrow('closed'); await expect(updates.install()).rejects.toThrow('closed');
+  await platform.notify!(message); expect(f.bridge.notify).toHaveBeenCalledOnce();
+});
+
+it('forwards New session only while subscribed and alive', () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const create = vi.fn(); const off = platform.onNewSession!(create);
+  f.emit({ kind: 'close-tab' }); expect(create).not.toHaveBeenCalled();
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  off(); f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  const offLive = platform.onNewSession!(create);
+  platform.dispose?.();
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  offLive();
+  const offDisposed = platform.onNewSession!(create);
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  offDisposed(); expect(f.listeners.size).toBe(0);
+});
+
+it('forwards Reopen closed tab only while subscribed and alive', () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const reopen = vi.fn(); const off = platform.onReopenClosedTab!(reopen);
+  f.emit({ kind: 'new-session' }); f.emit({ kind: 'close-tab' }); expect(reopen).not.toHaveBeenCalled();
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  off(); f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  const offLive = platform.onReopenClosedTab!(reopen);
+  platform.dispose?.();
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  offLive();
+  const offDisposed = platform.onReopenClosedTab!(reopen);
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  offDisposed(); expect(f.listeners.size).toBe(0);
+});
+
+it('observes native contrast initially and on changes, rejects malformed flags and disposes listeners', async () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const changed = vi.fn();
+  const stop = platform.systemContrast!.subscribe(changed);
+  expect(platform.systemContrast!.getSnapshot()).toBeUndefined();
+  await Promise.resolve();
+  expect(platform.systemContrast!.getSnapshot()).toBe(false);
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  expect(changed).toHaveBeenCalledTimes(2);
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  f.emit({ kind: 'system-contrast', highContrast: 'true' } as unknown as DesktopEvent);
+  expect(changed).toHaveBeenCalledTimes(2);
+  stop(); platform.dispose?.();
+  f.emit({ kind: 'system-contrast', highContrast: false });
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  expect(f.listeners.size).toBe(0);
+});
+
+it('does not let a stale initial OS response overwrite a newer preference event', async () => {
+  const f = fixture();
+  let resolve!: (value: boolean) => void;
+  f.bridge.getSystemContrast = () => new Promise<boolean>(done => { resolve = done; });
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  resolve(false); await Promise.resolve();
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  platform.dispose?.();
+});
+
+it('discovers SSH profiles only on request and preserves old-bridge manual fallback', async () => {
+  const legacy = createDesktopPlatform(fixture().api, vi.fn());
+  expect(legacy.listSSHProfiles).toBeUndefined();
+  legacy.dispose?.();
+  const listSSHProfiles = vi.fn(async () => ({ profiles: [{ alias: 'build-box', hostname: 'build.internal' }], truncated: false }));
+  const platform = createDesktopPlatform({ ...fixture().api, listSSHProfiles }, vi.fn());
+  expect(listSSHProfiles).not.toHaveBeenCalled();
+  expect(await platform.listSSHProfiles!()).toEqual({ profiles: [{ alias: 'build-box', hostname: 'build.internal' }], truncated: false });
+  expect(listSSHProfiles).toHaveBeenCalledWith();
+  platform.dispose?.();
+});
+
+
+it('associates early SSH prompts with their profile and rejects prompts from a retired attempt', async () => {
+  const f = fixture();
+  const answerPrompt = vi.fn().mockResolvedValue(undefined);
+  const platform = createDesktopPlatform({ ...f.api, answerPrompt }, vi.fn());
+  let attemptId = '';
+  const prompt = () => ({ id: 'password', attemptId, title: 'Authenticate', message: 'Password', fields: [{ label: 'Password', secret: true }], confirmLabel: 'Continue' });
+  f.bridge.prepareConnection.mockImplementationOnce(async id => { attemptId = id; f.emit({ kind: 'prompt', prompt: prompt() }); });
+  const resolved = await platform.resolveConnection!({ id: 'gpu', label: 'GPU', target: { kind: 'ssh', host: 'gpu' } }, { signal: new AbortController().signal, onProgress() {} });
+  expect(platform.hostPrompts?.forHost('gpu')?.prompt.attemptId).toBe(attemptId);
+  resolved.dispose();
+  expect(platform.hostPrompts?.forHost('gpu')).toBeNull();
+  f.emit({ kind: 'prompt', prompt: prompt() });
+  expect(platform.hostPrompts?.getSnapshot()).toBeNull();
+  expect(answerPrompt).toHaveBeenCalledExactlyOnceWith('password', null);
+  platform.dispose?.();
+  expect(f.listeners.size).toBe(0);
+});

@@ -1,0 +1,14 @@
+{
+  "pinnedGap": 0,
+  "detachedOffset": 8402,
+  "overlapOffset": 9448,
+  "interruptedOffset": 8793,
+  "checks": [
+    "streamed tall Markdown stays pinned",
+    "ordinary clicks retain following",
+    "12px upward wheel stays detached through growth",
+    "downward return resumes following",
+    "upward gesture overlapping a new block remains detached",
+    "Latest is interruptible"
+  ]
+}

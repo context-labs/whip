@@ -1,0 +1,17 @@
+
+> whip-clients@0.0.0 build
+> npm run build -w @whip/sdk
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+Web assets packaged for go:embed: a84954a88a8936966b360d31c479052543a74625ab75e5562965d6fd95a67385
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.27s)
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whip-computer: replacing existing signature
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whipcode: replacing existing signature
+Desktop staged: /Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/app
+Renderer: a84954a88a8936966b360d31c479052543a74625ab75e5562965d6fd95a67385
+Runtime: 7f9e4dfe8011dbb3a293b1314b19a247338a5f3cca436350f61b654326e5f80e

@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/openaiauth"
 )
 
 // Message is one chat message. Content is a string; ToolCalls set on assistant
@@ -23,11 +25,16 @@ import (
 // image Parts (multimodal/vision) — when Parts is non-empty it is sent as the
 // content array and Content is mirrored as a text part so both stay in sync.
 type Message struct {
-	Role       string        `json:"role"`
-	Content    string        `json:"content"`
-	Parts      []ContentPart `json:"-"`
-	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Presentation *TranscriptPresentation `json:"presentation,omitempty"`
+	Continuation ResponseContinuation    `json:"-"`
+	// RawSequence identifies the retained transcript row. Summaries carry
+	// the last covered raw sequence. Runtime-only; never serialized.
+	RawSequence int           `json:"-"`
+	Role        string        `json:"role"`
+	Content     string        `json:"content"`
+	Parts       []ContentPart `json:"-"`
+	ToolCalls   []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID  string        `json:"tool_call_id,omitempty"`
 	// Name is the function name on role "tool" messages. OpenAI ignores it,
 	// but Moonshot/Kimi requires it ("tool messages need a resolvable tool
 	// name") — without it every tool-using turn 400s.
@@ -51,20 +58,13 @@ type Message struct {
 	// provider"), so a /model switch mid-session doesn't rewrite history
 	// silently. Internal only — never sent to the provider.
 	Model string `json:"model,omitempty"`
-	// ResponseID is the provider's output-message item ID. The Codex Responses
-	// API requires it when a prior assistant message is replayed as history.
-	// It is kept out of generic OpenAI-compatible requests.
-	ResponseID string `json:"response_id,omitempty"`
-	// ResponsePhase is the Codex output-message phase (for example,
-	// "commentary"). Codex requires it to be preserved when it appears on a
-	// prior assistant message.
-	ResponsePhase string `json:"response_phase,omitempty"`
-	// CodexReasoning holds opaque Responses reasoning items, including encrypted
-	// content. It is replayed only to Codex; generic providers never receive it.
-	CodexReasoning []json.RawMessage `json:"codex_reasoning,omitempty"`
 	// RewoundFrom notes that this message replaced an earlier clipped one
 	// (rewind + resubmit). Internal only — never sent to the provider.
 	RewoundFrom string `json:"rewound_from,omitempty"`
+	// CallID is the durable model-call identity of the attempt that produced
+	// an assistant message, so its trace span can name the exact transcript
+	// row it wrote. Internal only — never sent to the provider.
+	CallID string `json:"call_id,omitempty"`
 }
 
 // ContentPart is one element of a multimodal user message: either text or an
@@ -154,28 +154,29 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 // fields are omitempty and cleared by stripAuthored before a provider request,
 // so they only ever appear in the persisted session store.
 type messageWire struct {
-	Role           string            `json:"role"`
-	Content        any               `json:"content"`
-	ToolCalls      []ToolCall        `json:"tool_calls,omitempty"`
-	ToolCallID     string            `json:"tool_call_id,omitempty"`
-	Name           string            `json:"name,omitempty"`
-	Authored       bool              `json:"authored,omitempty"`
-	SentAt         *time.Time        `json:"sent_at,omitempty"`
-	Usage          *Usage            `json:"usage,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	ResponseID     string            `json:"response_id,omitempty"`
-	ResponsePhase  string            `json:"response_phase,omitempty"`
-	CodexReasoning []json.RawMessage `json:"codex_reasoning,omitempty"`
-	RewoundFrom    string            `json:"rewound_from,omitempty"`
+	Presentation *TranscriptPresentation `json:"presentation,omitempty"`
+	Continuation ResponseContinuation    `json:"continuation,omitzero"`
+	Role         string                  `json:"role"`
+	Content      any                     `json:"content"`
+	ToolCalls    []ToolCall              `json:"tool_calls,omitempty"`
+	ToolCallID   string                  `json:"tool_call_id,omitempty"`
+	Name         string                  `json:"name,omitempty"`
+	Authored     bool                    `json:"authored,omitempty"`
+	SentAt       *time.Time              `json:"sent_at,omitempty"`
+	Usage        *Usage                  `json:"usage,omitempty"`
+	Model        string                  `json:"model,omitempty"`
+	RewoundFrom  string                  `json:"rewound_from,omitempty"`
+	CallID       string                  `json:"call_id,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
 // content-parts array (text + images) for multimodal ones.
 func (m Message) MarshalJSON() ([]byte, error) {
 	w := messageWire{
+		Continuation: m.Continuation, Presentation: m.Presentation,
 		Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
 		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
-		Model: m.Model, ResponseID: m.ResponseID, ResponsePhase: m.ResponsePhase, CodexReasoning: m.CodexReasoning, RewoundFrom: m.RewoundFrom,
+		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID,
 	}
 	if len(m.Parts) > 0 {
 		parts := m.Parts
@@ -197,8 +198,11 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	*m = Message{}
+	m.Continuation = raw.Continuation
+	m.Presentation = raw.Presentation
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
-	m.Authored, m.SentAt, m.Usage, m.Model, m.ResponseID, m.ResponsePhase, m.CodexReasoning, m.RewoundFrom = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.ResponseID, raw.ResponsePhase, raw.CodexReasoning, raw.RewoundFrom
+	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom, m.CallID = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom, raw.CallID
 	if len(raw.Content) == 0 {
 		return nil
 	}
@@ -211,14 +215,13 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(raw.Content, &parts); err != nil {
 		return err
 	}
-	for _, p := range parts {
-		switch p.Type {
-		case "text":
-			m.Content = p.Text
-		case "image_url":
-			m.Parts = append(m.Parts, p)
-		}
+	// Content is the leading text, if any; retain every other part in order.
+	// Collapsing text parts into a single field loses all but the last one.
+	if len(parts) > 0 && parts[0].Type == "text" && parts[0].Text != "" {
+		m.Content = parts[0].Text
+		parts = parts[1:]
 	}
+	m.Parts = parts
 	return nil
 }
 
@@ -226,10 +229,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 // whip-internal execution bookkeeping (never sent to the provider): how long
 // the tool ran and how it finished, for a future /tools perf view.
 type ToolCall struct {
-	ID string `json:"id"`
-	// ItemID is the provider's function-call item ID. Codex requires it when
-	// replaying a prior function call; generic providers never receive it.
-	ItemID   string `json:"item_id,omitempty"`
+	ID       string `json:"id"`
 	Type     string `json:"type"`
 	Function struct {
 		Name      string `json:"name"`
@@ -245,42 +245,20 @@ type ToolCall struct {
 // because req.Messages typically aliases the caller's conversation slice,
 // which must keep the fields for storage/recall.
 func stripAuthored(msgs []Message) []Message {
-	return stripInternal(msgs, false)
-}
-
-// stripAuthoredForCodex keeps the response-item IDs that Codex needs to
-// replay prior assistant output and function calls.
-func stripAuthoredForCodex(msgs []Message) []Message {
-	return stripInternal(msgs, true)
-}
-
-func stripInternal(msgs []Message, keepCodexIDs bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
+		out[i].Continuation = ResponseContinuation{}
 		out[i].Authored = false
 		out[i].SentAt = nil
 		out[i].Usage = nil
 		out[i].Model = ""
-		if !keepCodexIDs {
-			out[i].ResponseID = ""
-			out[i].ResponsePhase = ""
-			out[i].CodexReasoning = nil
-		}
 		out[i].RewoundFrom = ""
-		// ToolCalls is shared with the caller's history by the shallow copy
-		// above; copy before zeroing so whip's per-tool bookkeeping survives.
-		if len(out[i].ToolCalls) > 0 {
-			calls := make([]ToolCall, len(out[i].ToolCalls))
-			copy(calls, out[i].ToolCalls)
-			for j := range calls {
-				calls[j].DurationMs = 0
-				calls[j].ExitCode = 0
-				if !keepCodexIDs {
-					calls[j].ItemID = ""
-				}
-			}
-			out[i].ToolCalls = calls
+		out[i].CallID = ""
+		out[i].Presentation = nil
+		for j := range out[i].ToolCalls {
+			out[i].ToolCalls[j].DurationMs = 0
+			out[i].ToolCalls[j].ExitCode = 0
 		}
 		// W/H are whip-local estimation bookkeeping; the provider's wire shape
 		// for image parts is just the data URL. Copy the Parts slice first —
@@ -405,66 +383,64 @@ func NewTool(name, desc, schema string) Tool {
 	return t
 }
 
-// Client is the provider contract consumed by the agent loop.
-type Client interface {
-	Models(context.Context) ([]ModelInfo, error)
-	Stream(context.Context, Request, func(string), func(string), func(id, name, args string)) (Message, Usage, error)
-	Complete(context.Context, Request) (string, Usage, error)
-	// Clone returns a shallow copy that shares the transport but owns its
-	// per-call state (retry hook, cache key), so concurrent agents don't race.
-	Clone() Client
-	// SetCacheKey sets the prompt_cache_key stamped on every request.
-	SetCacheKey(string)
-	// Endpoint is the provider base URL, for labels and diagnostics.
-	Endpoint() string
-}
-
-// OpenAI talks to an OpenAI-compatible chat-completions endpoint.
-type OpenAI struct {
+// Client talks to one provider endpoint.
+type Client struct {
+	openAI  *openaiauth.Manager
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
 	// MaxRetries caps retries of transient request failures. 0 uses
 	// DefaultMaxAttempts; 1 disables retries (a single attempt).
 	MaxRetries int
+	// StallTimeout overrides the idle deadline for one attempt: the wait for
+	// response headers and the gap between chunks. 0 uses DefaultStallTimeout
+	// for chat streams and DefaultResponsesStallTimeout for the OpenAI
+	// Responses and subscription streams.
+	StallTimeout time.Duration
+	// AttemptCeiling bounds one attempt end to end. 0 uses defaultCallTimeout.
+	// Hitting it is a retryable failure; the stall deadline does the real work.
+	AttemptCeiling time.Duration
+	// Regenerations caps how many times a stream that failed after its first
+	// delta is requested again from scratch. 0 uses DefaultRegenerations.
+	// Each regeneration re-bills the prompt and discards the partial output.
+	Regenerations int
 	// OnRetry, when set, is invoked before each retry of a transient request
 	// failure. Optional — nil means silent retries.
 	OnRetry func(RetryEvent)
 	// CacheKey is stamped as prompt_cache_key on every request (see
-	// Request.PromptCacheKey). Set once per session by the caller; subagents
+	// Request.PromptCacheKey). Set once per session by the caller; descendants
 	// get their own key so their shorter contexts don't churn the parent's
 	// cached prefix. Empty disables the field.
 	CacheKey string
 }
 
-func (c *OpenAI) Clone() Client        { cp := *c; return &cp }
-func (c *OpenAI) SetCacheKey(k string) { c.CacheKey = k }
-func (c *OpenAI) Endpoint() string     { return c.BaseURL }
-
-func (c *OpenAI) policy() retryPolicy { return newRetryPolicy(c.MaxRetries, c.OnRetry) }
-
-func New(baseURL, apiKey string) *OpenAI {
-	return &OpenAI{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		APIKey:  apiKey,
-		HTTP:    &http.Client{Timeout: 10 * time.Minute},
+// attempts returns the total try count (initial + retries) for this client.
+func (c *Client) attempts() int {
+	if c.MaxRetries > 0 {
+		return c.MaxRetries
 	}
+	return DefaultMaxAttempts
 }
 
-// SetOnRetry installs the optional retry reporter used by the agent's active
-// turn. It keeps retry reporting outside the provider contract so providers
-// that do not retry do not need a no-op implementation.
-func (c *OpenAI) SetOnRetry(fn func(RetryEvent)) {
-	c.OnRetry = fn
+func New(baseURL, apiKey string) *Client {
+	return &Client{
+		BaseURL: strings.TrimRight(baseURL, "/"),
+		APIKey:  apiKey,
+		HTTP:    &http.Client{}, // no total timeout: stall detection and the attempt ceiling bound a call
+	}
 }
 
 // Request is a chat completions request.
 type Request struct {
-	Model           string    `json:"model"`
-	Messages        []Message `json:"messages"`
-	Tools           []Tool    `json:"tools,omitempty"`
-	MaxTokens       int       `json:"max_tokens,omitempty"`
-	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	// OutputLimitExplicit distinguishes a caller's hard output cap from an
+	// internal helper target. Subscription routes cannot enforce smaller caps.
+	OutputLimitExplicit bool            `json:"-"`
+	Accounting          *CallAccounting `json:"-"`
+	Model               string          `json:"model"`
+	Messages            []Message       `json:"messages"`
+	Tools               []Tool          `json:"tools,omitempty"`
+	MaxTokens           int             `json:"max_tokens,omitempty"`
+	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	// Temperature and TopP are optional per-model sampling knobs. Pointers so
 	// 0.0 (a legitimate value) is distinguishable from unset; nil omits the
 	// field from the request, preserving provider defaults.
@@ -485,15 +461,22 @@ type Request struct {
 
 // Usage is the token accounting the provider reports for one request
 // (prompt = input, completion = output). CachedTokens counts the slice of
-// the prompt served from the provider's prompt cache. Providers that omit
-// usage leave all fields zero — the session totals just skip those calls.
+// the prompt served from the provider's prompt cache. Reported distinguishes
+// explicit zero usage from an absent payload, including after persistence.
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	decoded          bool
+	aggregated       bool
+	Reported         bool     `json:"reported"`
+	Cost             *float64 `json:"cost,omitempty"`
+	PromptTokens     int      `json:"prompt_tokens"`
+	CompletionTokens int      `json:"completion_tokens"`
 	// PromptTokensDetails nests the cache hit count (OpenAI-compatible).
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details,omitempty"`
 }
 
 // Cached is the prompt-token count served from cache (0 when unreported).
@@ -526,8 +509,8 @@ type chunk struct {
 		Delta        delta  `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Error *apiError `json:"error"`
-	Usage *Usage    `json:"usage"`
+	Error *apiError       `json:"error"`
+	Usage json.RawMessage `json:"usage"`
 }
 
 type apiError struct {
@@ -539,19 +522,50 @@ type apiError struct {
 // specific reason strings; Error() keeps the "<status>: <body>" shape the
 // existing tests assert ( e.g. "... 401 ..." ).
 type HTTPError struct {
-	Status string
-	Body   string
-	// RetryAfter is the server's Retry-After hint (0 = none). The retry loop
-	// waits at least this long; past maxRetryAfter the error is permanent.
+	Status     string
+	Body       string
+	Permanent  bool
 	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }
 
+// IsPermanentRequestError identifies provider rejections that another identical
+// agent turn cannot fix. Callers should apply their own recovery (for example,
+// context compaction) before deciding whether to requeue the input.
+func IsPermanentRequestError(err error) bool {
+	var response *HTTPError
+	if !errors.As(err, &response) {
+		return false
+	}
+	if response.Permanent {
+		return true
+	}
+	fields := strings.Fields(response.Status)
+	if len(fields) == 0 {
+		return false
+	}
+	code, _ := strconv.Atoi(fields[0])
+	return code >= 400 && code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests
+}
+
 // DefaultMaxAttempts is the built-in retry budget for transient request
 // failures (one initial try plus retries). Client.MaxRetries overrides it;
 // exported so the UI can show "attempt N/M".
 const DefaultMaxAttempts = 8
+
+// DefaultRegenerations is the budget for repeating a request whose stream
+// failed after it had started producing output. opencode and pi both
+// regenerate in that case; the budget is small because every regeneration
+// re-bills the prompt.
+const DefaultRegenerations = 2
+
+func (c *Client) regenerations() int {
+	if c.Regenerations > 0 {
+		return c.Regenerations
+	}
+	return DefaultRegenerations
+}
 
 // RetryEvent describes one failed attempt that is about to be retried. It is
 // passed to the Client.OnRetry hook so the UI can show "retrying in Ns"
@@ -561,6 +575,13 @@ type RetryEvent struct {
 	Max     int           // total attempts the client will make (initial + retries)
 	Delay   time.Duration // how long the client will sleep before retrying
 	Err     error         // the transient error that caused the retry
+	// Regenerating reports that the failed attempt had already streamed output
+	// which the client is discarding; Discarded counts the streamed characters
+	// and Regeneration is this regeneration's number out of the budget.
+	Regenerating  bool
+	Discarded     int
+	Regeneration  int
+	Regenerations int
 }
 
 // retryableStatus reports whether an HTTP status is worth retrying: rate
@@ -577,20 +598,40 @@ type nonRetryable struct{ err error }
 func (n nonRetryable) Error() string { return n.err.Error() }
 func (n nonRetryable) Unwrap() error { return n.err }
 
+// preTokenError wraps a provider failure whose wording classify() does not
+// recognise and that arrived before any delta. Nothing was generated, so the
+// request is repeated exactly once; the same wording after a delta is not
+// regenerated (see providerError).
+type preTokenError struct{ err error }
+
+func (p preTokenError) Error() string { return p.err.Error() }
+func (p preTokenError) Unwrap() error { return p.err }
+
 // retryable reports whether err is a transient request failure: a transport
 // error (connection reset, DNS, timeout — but not caller cancellation) or a
 // retryable HTTP status. Context-limit 4xxs are deliberately excluded so the
 // agent's compaction retry path still sees them immediately.
 func retryable(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil {
+		return false
+	}
+	// Whip's own deadlines (a stalled stream, the per-attempt ceiling) are
+	// transient; a caller's cancellation or deadline is not.
+	if _, ok := errors.AsType[stallError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[ceilingError](err); ok {
+		return true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	if _, ok := errors.AsType[nonRetryable](err); ok {
 		return false
 	}
 	if he, ok := errors.AsType[*HTTPError](err); ok {
-		if he.RetryAfter > maxRetryAfter {
-			return false // the server asked us to wait minutes: a quota, not a blip
+		if he.Permanent {
+			return false
 		}
 		code, _ := strconv.Atoi(strings.Fields(he.Status)[0])
 		return retryableStatus(code)
@@ -669,7 +710,10 @@ type ModelInfo struct {
 	Pricing             *Pricing `json:"pricing,omitempty"`
 	// InputModalities lists the input types the model accepts (OpenRouter
 	// shape: ["text","image"]). Nil when the provider doesn't advertise it.
-	InputModalities []string `json:"input_modalities,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+	SupportsTools    *bool    `json:"supports_tools,omitempty"`
+	Type             string   `json:"type,omitempty"`
 }
 
 // SupportsVision reports whether the model advertises image input.
@@ -686,36 +730,23 @@ type Pricing struct {
 	InputCacheRead string `json:"input_cache_read,omitempty"`
 }
 
-// Rates parses the decimal-string prices into floats (0 for missing or
-// unparseable fields).
-func (p Pricing) Rates() (in, out, cacheRead float64) {
-	in, _ = strconv.ParseFloat(p.Prompt, 64)
-	out, _ = strconv.ParseFloat(p.Completion, 64)
-	cacheRead, _ = strconv.ParseFloat(p.InputCacheRead, 64)
-	return in, out, cacheRead
-}
-
-// SessionCost returns the USD spend for cumulative usage u at per-token
-// rates. Cached prompt tokens are billed at the cache-read rate when
-// advertised, else at the full input rate (pi models.ts calculateCost has
-// the same shape, plus a cache-write term OpenAI-compatible usage lacks).
-func SessionCost(u Usage, in, out, cacheRead float64) float64 {
-	cached := u.Cached()
-	if cacheRead == 0 {
-		cacheRead = in
-	}
-	return float64(u.PromptTokens-cached)*in +
-		float64(cached)*cacheRead +
-		float64(u.CompletionTokens)*out
-}
-
 // Models fetches GET /models from the provider.
-func (c *OpenAI) Models(ctx context.Context) ([]ModelInfo, error) {
+func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
+	// Catalog calls bypass runAttempt, but still need an end-to-end bound
+	// covering response headers and body reads for both authentication modes.
+	timeout, _ := c.attemptTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if c.openAI != nil {
+		return c.subscriptionModels(ctx)
+	}
 	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, err
 	}
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return nil, err
@@ -723,15 +754,16 @@ func (c *OpenAI) Models(ctx context.Context) ([]ModelInfo, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, newHTTPError(resp, string(b))
+		return nil, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
 	}
-	var list struct {
-		Data []ModelInfo `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err != nil {
 		return nil, err
 	}
-	return list.Data, nil
+	if len(body) > 8<<20 {
+		return nil, errors.New("provider model catalog exceeds 8 MiB")
+	}
+	return decodeModels(body)
 }
 
 // Stream sends the request and invokes onText for each content delta,
@@ -741,66 +773,119 @@ func (c *OpenAI) Models(ctx context.Context) ([]ModelInfo, error) {
 // accumulated tool calls) plus the usage the provider reports on the terminal
 // chunk (stream_options:include_usage).
 //
-// Transient failures (transport errors, 429, 5xx) are retried with backoff —
-// but only until the first visible delta has been handed to onText/onThink.
-// After that point a retry would replay text the caller already rendered, so
-// the error is surfaced instead. A retry regenerates the whole assistant
-// message server-side; nothing in the request messages is mutated by a failed
-// attempt, so retrying is idempotent.
-func (c *OpenAI) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
+// Transient failures (transport errors, 429, 5xx, a stream that stalls for
+// the stall timeout, an attempt that hits its ceiling, a provider error chunk
+// that reads as transient) are retried with backoff. Before the first text,
+// reasoning, or tool-call delta the budget is MaxRetries attempts; after it
+// the partial output is discarded and the request is regenerated at most
+// Regenerations times, with OnRetry told what was thrown away. Nothing in the
+// request messages is mutated by a failed attempt. Each attempt may incur
+// usage and is settled independently. Only the caller's context bounds the
+// call as a whole.
+func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	req.Stream = true
 	req.StreamOptions = &struct {
 		IncludeUsage bool `json:"include_usage"`
 	}{IncludeUsage: true}
-	req.Messages = repairToolHistory(stripAuthored(req.Messages))
+	req.Messages = repairToolHistory(req.Messages)
 	if req.PromptCacheKey == "" {
 		req.PromptCacheKey = c.CacheKey
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return Message{}, Usage{}, err
+	logicalID := logicalCallID()
+	var total Usage
+	authRetried := false
+	regenerated := 0
+	for attempt := 1; ; attempt++ {
+		emitted := false
+		discarded := 0
+		wrapText := func(s string) {
+			emitted = true
+			discarded += len(s)
+			if onText != nil {
+				onText(s)
+			}
+		}
+		wrapThink := func(s string) {
+			emitted = true
+			discarded += len(s)
+			if onThink != nil {
+				onThink(s)
+			}
+		}
+		wrapTool := func(id, name, args string) {
+			emitted = true
+			discarded += len(args)
+			if onToolCall != nil && id != "" {
+				onToolCall(id, name, args)
+			}
+		}
+		msg, usage, err := c.runAttempt(ctx, req, logicalID, attempt, func(ctx context.Context, body []byte) (Message, Usage, error) {
+			if c.apiResponses(req.Model) {
+				return c.apiResponsesOnce(ctx, req.Model, body, wrapText, wrapThink, wrapTool)
+			}
+			return c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
+		})
+		total.add(usage)
+		if rejected, ok := errors.AsType[*subscriptionUnauthorized](err); ok && !emitted && !authRetried && !IsAccountingError(err) {
+			authRetried = true
+			if _, refreshErr := c.openAI.Refresh(ctx, rejected.token); refreshErr != nil {
+				return msg, total, &HTTPError{Status: "401 Unauthorized", Body: refreshErr.Error()}
+			}
+			continue
+		}
+		if err == nil || IsAccountingError(err) || !retryable(err) {
+			return msg, total, err
+		}
+		event := RetryEvent{Attempt: attempt, Max: c.attempts(), Err: err}
+		if emitted {
+			// The partial answer cannot be resumed; within the budget it is
+			// discarded and the whole message is generated again.
+			if regenerated >= c.regenerations() {
+				return msg, total, err
+			}
+			regenerated++
+			event.Regenerating, event.Discarded = true, discarded
+			event.Regeneration, event.Regenerations = regenerated, c.regenerations()
+		} else if attempt >= c.attempts() {
+			return msg, total, err
+		} else if _, ok := errors.AsType[preTokenError](err); ok && attempt >= 2 {
+			return msg, total, err // one repeat for an unclassified provider failure before generating
+		}
+		event.Delay = backoff(attempt)
+		if rejection, ok := errors.AsType[*HTTPError](err); ok {
+			event.Delay = max(event.Delay, rejection.RetryAfter)
+		}
+		if c.OnRetry != nil {
+			c.OnRetry(event)
+		}
+		if err := sleep(ctx, event.Delay); err != nil {
+			return msg, total, err
+		}
 	}
-	var msg Message
-	var usage Usage
-	emitted := false // true once any visible delta (text, thinking, tool-call row) reached the caller
-	wrapText, wrapThink, wrapTool := onText, onThink, onToolCall
-	if onText != nil {
-		wrapText = func(s string) { emitted = true; onText(s) }
-	}
-	if onThink != nil {
-		wrapThink = func(s string) { emitted = true; onThink(s) }
-	}
-	if onToolCall != nil {
-		wrapTool = func(id, name, args string) { emitted = true; onToolCall(id, name, args) }
-	}
-	err = c.policy().run(ctx, func() (err error) {
-		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
-		return err
-	}, func() bool { return emitted })
-	if err != nil {
-		return Message{}, Usage{}, err
-	}
-	return msg, usage, nil
 }
 
 // streamOnce performs a single streaming request attempt; the Stream retry
-// wrapper calls it per attempt and reads its own `emitted` flag (set by the
-// wrapped callbacks) to decide whether a retry would replay visible output.
-func (c *OpenAI) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
+// wrapper calls it per attempt and tracks all output, even with nil callbacks.
+func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
+	if c.openAI != nil {
+		return c.subscriptionOnce(ctx, body, onText, onThink, onToolCall)
+	}
+	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
-	resp, err := c.HTTP.Do(hr)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := c.do(hr, c.stallTimeout(chatStall))
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return Message{}, Usage{}, newHTTPError(resp, string(b))
+		usage, err := responseError(resp)
+		return Message{}, usage, err
 	}
 
 	msg := Message{Role: "assistant"}
@@ -808,6 +893,8 @@ func (c *OpenAI) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	var calls []ToolCall // arrival order; providers may use sparse stream indexes
 	callPositions := make(map[int]int)
 	finish := ""
+	done := false
+	emitted := false // any reasoning, content, or tool-call delta received
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	for sc.Scan() {
@@ -817,40 +904,42 @@ func (c *OpenAI) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			done = true
 			break
 		}
 		var ch chunk
 		if err := json.Unmarshal([]byte(data), &ch); err != nil {
+			if json.Valid([]byte(data)) {
+				return msg, usage, nonRetryable{fmt.Errorf("invalid stream chunk: %w", err)}
+			}
 			continue
 		}
-		if ch.Error != nil {
-			// The provider accepted the request (200) then failed mid-stream.
-			// These are provider-logic errors (content filter, model faults),
-			// not transport blips — surface them, don't retry.
-			return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", ch.Error.Message)}
+		var usageErr error
+		if len(ch.Usage) > 0 && string(ch.Usage) != "null" {
+			usage, usageErr = decodeUsage(ch.Usage)
 		}
-		if ch.Usage != nil {
-			usage = *ch.Usage // the terminal usage chunk carries empty choices
+		var d delta
+		if len(ch.Choices) > 0 {
+			d = ch.Choices[0].Delta
+			if fr := ch.Choices[0].FinishReason; fr != "" {
+				finish = fr
+			}
 		}
-		if len(ch.Choices) == 0 {
-			continue
-		}
-		if fr := ch.Choices[0].FinishReason; fr != "" {
-			finish = fr
-		}
-		d := ch.Choices[0].Delta
 		if d.ReasoningContent != "" {
+			emitted = true
 			if onThink != nil {
 				onThink(d.ReasoningContent)
 			}
 		}
 		if d.Content != "" {
+			emitted = true
 			msg.Content += d.Content
 			if onText != nil {
 				onText(d.Content)
 			}
 		}
 		for _, tc := range d.ToolCalls {
+			emitted = true
 			pos, ok := callPositions[tc.Index]
 			if !ok {
 				pos = len(calls)
@@ -865,16 +954,29 @@ func (c *OpenAI) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 				cur.Function.Name += tc.Function.Name
 			}
 			cur.Function.Arguments += tc.Function.Arguments
-			// Surface the streaming tool call as soon as it has an id, so the
+			// Surface every tool delta, including one preceding the id, so the
 			// UI can show a pending row before execution (tool_call arguments
 			// stream in fragments, so re-fire each delta with the snapshot).
-			if onToolCall != nil && cur.ID != "" {
+			if onToolCall != nil {
 				onToolCall(cur.ID, cur.Function.Name, cur.Function.Arguments)
 			}
 		}
+		if usageErr != nil {
+			return msg, usage, nonRetryable{usageErr}
+		}
+		if err := usage.Validate(); err != nil {
+			return msg, usage, nonRetryable{err}
+		}
+		if ch.Error != nil {
+			return msg, usage, providerError(ch.Error.Message, emitted)
+		}
 	}
 	if err := sc.Err(); err != nil {
-		return Message{}, usage, err
+		return msg, usage, err
+	}
+	if finish == "" && !done {
+		// A proxy or gateway closed the connection mid-stream: transient.
+		return msg, usage, errors.New("model stream ended without a completion marker")
 	}
 	// Never execute tool calls from a max_tokens-truncated response: the
 	// streamed JSON arguments may be silently incomplete.
@@ -915,41 +1017,52 @@ func validToolCallArgs(s string) bool {
 // content plus the reported usage. It's used internally by compaction's
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
-func (c *OpenAI) Complete(ctx context.Context, req Request) (string, Usage, error) {
+func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
+	if c.openAI != nil || c.apiResponses(req.Model) {
+		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
+		return message.Content, usage, err
+	}
 	req.Stream = false
-	req.Messages = stripAuthored(req.Messages)
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", Usage{}, err
+	req.StreamOptions = nil
+	logicalID := logicalCallID()
+	var total Usage
+	for attempt := 1; ; attempt++ {
+		msg, usage, err := c.runAttempt(ctx, req, logicalID, attempt, func(ctx context.Context, body []byte) (Message, Usage, error) {
+			text, usage, err := c.completeOnce(ctx, body)
+			return Message{Role: "assistant", Content: text}, usage, err
+		})
+		total.add(usage)
+		if err == nil || msg.Content != "" || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
+			return msg.Content, total, err
+		}
+		delay := backoff(attempt)
+		if c.OnRetry != nil {
+			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
+		}
+		if err := sleep(ctx, delay); err != nil {
+			return msg.Content, total, err
+		}
 	}
-	var text string
-	var usage Usage
-	err = c.policy().run(ctx, func() (err error) {
-		text, usage, err = c.completeOnce(ctx, body)
-		return err
-	}, nil)
-	if err != nil {
-		return "", Usage{}, err
-	}
-	return text, usage, nil
 }
 
 // completeOnce performs one non-streaming request attempt.
-func (c *OpenAI) completeOnce(ctx context.Context, body []byte) (string, Usage, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
+func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, error) {
+	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return "", Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
-	resp, err := c.HTTP.Do(hr)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := c.do(hr, c.stallTimeout(chatStall))
 	if err != nil {
 		return "", Usage{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", Usage{}, newHTTPError(resp, string(b))
+		usage, err := responseError(resp)
+		return "", usage, err
 	}
 	var out struct {
 		Choices []struct {
@@ -957,17 +1070,114 @@ func (c *OpenAI) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage *Usage `json:"usage"`
+		Usage json.RawMessage `json:"usage"`
+		Error *apiError       `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", Usage{}, err
+		return "", Usage{}, nonRetryable{err}
+	}
+	usage, usageErr := decodeUsage(out.Usage)
+	var text string
+	if len(out.Choices) > 0 {
+		text = out.Choices[0].Message.Content
+	}
+	if usageErr != nil {
+		return text, usage, nonRetryable{usageErr}
+	}
+	if err := usage.Validate(); err != nil {
+		return text, usage, nonRetryable{err}
+	}
+	if out.Error != nil {
+		return text, usage, providerError(out.Error.Message, text != "")
 	}
 	if len(out.Choices) == 0 {
-		return "", Usage{}, errors.New("no choices in completion response")
+		return "", usage, nonRetryable{errors.New("no choices in completion response")}
+	}
+	return text, usage, nil
+}
+
+func httpRequest(ctx context.Context, baseURL string, body []byte) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	if (request.URL.Scheme != "http" && request.URL.Scheme != "https") || request.URL.Host == "" {
+		return nil, errors.New("invalid model provider URL")
+	}
+	return request, nil
+}
+
+func responseError(response *http.Response) (Usage, error) {
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	httpErr := &HTTPError{Status: response.Status, Body: strings.TrimSpace(string(body)), RetryAfter: retryAfter(response)}
+	var payload struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return Usage{}, httpErr
+	}
+	usage, err := decodeUsage(payload.Usage)
+	if err != nil {
+		return usage, errors.Join(httpErr, nonRetryable{err})
+	}
+	return usage, httpErr
+}
+
+// decodeUsage validates token usage and a provider charge independently. A bad
+// field cannot erase the usable half of the accounting or the model's response.
+// retryAfter reads a Retry-After header (seconds or HTTP date), capped at one
+// minute: a provider asking for a longer wait is treated as an ordinary
+// backoff, as pi does.
+func retryAfter(response *http.Response) time.Duration {
+	value := response.Header.Get("Retry-After")
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(min(seconds, 60)) * time.Second
+	}
+	if reset, err := http.ParseTime(value); err == nil {
+		return min(max(time.Until(reset), 0), time.Minute)
+	}
+	return 0
+}
+
+func decodeUsage(data json.RawMessage) (Usage, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return Usage{}, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Usage{}, fmt.Errorf("invalid model usage: %w", err)
+	}
+	charge := fields["cost"]
+	delete(fields, "cost")
+	// reported is WHIP persistence metadata, not a provider token-count claim.
+	delete(fields, "reported")
+	tokens, err := json.Marshal(fields)
+	if err != nil {
+		return Usage{}, fmt.Errorf("invalid model usage: %w", err)
 	}
 	var usage Usage
-	if out.Usage != nil {
-		usage = *out.Usage
+	tokenErr := json.Unmarshal(tokens, &usage)
+	if tokenErr == nil {
+		tokenErr = usage.Validate()
 	}
-	return out.Choices[0].Message.Content, usage, nil
+	if tokenErr != nil {
+		usage = Usage{}
+	}
+	var costErr error
+	if len(charge) != 0 {
+		costErr = json.Unmarshal(charge, &usage.Cost)
+		if costErr == nil && usage.Cost != nil {
+			costErr = (Usage{Cost: usage.Cost}).Validate()
+		}
+		if costErr != nil {
+			usage.Cost = nil
+		}
+	}
+	if err := errors.Join(tokenErr, costErr); err != nil {
+		return usage, fmt.Errorf("invalid model usage: %w", err)
+	}
+	return usage, nil
 }

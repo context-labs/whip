@@ -1,0 +1,84 @@
+{
+  "recordedAt": "2026-09-11T00:00:22.598Z",
+  "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "version": "0.1.0",
+  "distribution": "whipcode",
+  "buildId": "local-quickjs-signing-20260910",
+  "rendererDigest": "13933e31181782369168520caa6382c1332c4ed7c2723cd885f20bd27d8c13f6",
+  "nativeFiles": {
+    "whipcode": {
+      "bytes": 46720816,
+      "sha256": "dfc63cb8e56a651f6c0c25b60486d9508853eba4ee006d60aa74f40f48c3181c"
+    },
+    "whip-computer": {
+      "bytes": 431648,
+      "sha256": "1ff6cca9fea13572a56fe6879d6676021436508629e17c8ae2c7b91f1cebee1e"
+    }
+  },
+  "source": {
+    "commit": "a322a32d7bd0fd194c021df53615694b1d03dd95",
+    "dirty": true,
+    "lockfile": "815c82ee2bd8ae9f3fa2591922af8725dfc1274126cfbdd1eabc953c01342a41"
+  },
+  "compatibility": {
+    "protocolMajor": 6,
+    "protocolMinor": 3,
+    "schemaVersion": 17
+  },
+  "teamId": "JAPWPV5JY2",
+  "runtimeSigning": {
+    "entitlements": {
+      "com.apple.security.cs.allow-unsigned-executable-memory": true
+    },
+    "hardenedRuntime": true,
+    "identifier": "com.contextlabs.whip.runtime",
+    "teamId": "JAPWPV5JY2"
+  },
+  "fuses": {
+    "0": 48,
+    "1": 49,
+    "2": 48,
+    "3": 48,
+    "4": 49,
+    "5": 49,
+    "6": 48,
+    "7": 48,
+    "8": 49,
+    "version": "1"
+  },
+  "signed": true,
+  "notarized": true,
+  "bundleDigest": "3ef4eb1e4d91740533c3de6f415da1ecfc1a7b4ad61a3387d68efd1bb029fffc",
+  "toolchain": {
+    "node": "v24.14.1",
+    "arch": "arm64",
+    "go": "go version go1.27.0 darwin/arm64",
+    "xcode": "Xcode 26.3\nBuild version 17C529",
+    "macOS": "26.3.1"
+  },
+  "dmgNotary": "81462f74-184c-48bf-af5f-c270220f6cb2",
+  "applications": {
+    "Whip-0.1.0-arm64.dmg": {
+      "bundleDigest": "3ef4eb1e4d91740533c3de6f415da1ecfc1a7b4ad61a3387d68efd1bb029fffc",
+      "rendererDigest": "13933e31181782369168520caa6382c1332c4ed7c2723cd885f20bd27d8c13f6",
+      "signed": true,
+      "notarized": true
+    },
+    "Whip-darwin-arm64-0.1.0.zip": {
+      "bundleDigest": "3ef4eb1e4d91740533c3de6f415da1ecfc1a7b4ad61a3387d68efd1bb029fffc",
+      "rendererDigest": "13933e31181782369168520caa6382c1332c4ed7c2723cd885f20bd27d8c13f6",
+      "signed": true,
+      "notarized": true
+    }
+  },
+  "files": {
+    "Whip-0.1.0-arm64.dmg": {
+      "bytes": 146724986,
+      "sha256": "4bfa1ee46887b4779ff60321abf4149569464dec4baa03e200b3b1d48e6139dd"
+    },
+    "Whip-darwin-arm64-0.1.0.zip": {
+      "bytes": 147067366,
+      "sha256": "21d856a7cf9e2af92dd4c359170c41e0dbc34e4e0a7cafde59fc0e99f40b4418"
+    }
+  }
+}

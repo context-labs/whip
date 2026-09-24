@@ -1,0 +1,78 @@
+[
+  {
+    "browser": "chromium",
+    "storedMessages": 10000,
+    "samples": [
+      {
+        "label": "multiline draft with attachment, pinned",
+        "top": 899,
+        "viewport": 606,
+        "input": 79,
+        "frames": 64,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "multiline draft with attachment, reading history",
+        "top": 499,
+        "viewport": 606,
+        "input": 79,
+        "frames": 63,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "maximum-height draft, pinned",
+        "top": 1040,
+        "viewport": 465,
+        "input": 220,
+        "frames": 61,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "narrow pane with wrapped draft, pinned",
+        "top": 1835,
+        "viewport": 399,
+        "input": 138,
+        "frames": 62,
+        "maximumScrollDrift": 0
+      }
+    ]
+  },
+  {
+    "browser": "firefox",
+    "storedMessages": 10000,
+    "samples": [
+      {
+        "label": "multiline draft with attachment, pinned",
+        "top": 899,
+        "viewport": 606,
+        "input": 79,
+        "frames": 66,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "multiline draft with attachment, reading history",
+        "top": 499,
+        "viewport": 606,
+        "input": 79,
+        "frames": 66,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "maximum-height draft, pinned",
+        "top": 1040,
+        "viewport": 465,
+        "input": 220,
+        "frames": 66,
+        "maximumScrollDrift": 0
+      },
+      {
+        "label": "narrow pane with wrapped draft, pinned",
+        "top": 1835,
+        "viewport": 399,
+        "input": 138,
+        "frames": 72,
+        "maximumScrollDrift": 0
+      }
+    ]
+  }
+]

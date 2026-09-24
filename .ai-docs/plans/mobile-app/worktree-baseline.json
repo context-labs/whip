@@ -1,0 +1,38 @@
+{
+  "branch": "mobile-app",
+  "worktree": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-mobile-app",
+  "source_branch": "whip-rlm",
+  "base_commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+  "copied_tracked_files": [
+    "docs/features.md",
+    "docs/frontend.md",
+    "docs/tools.md",
+    "internal/acp/bridge_test.go",
+    "internal/acp/question.go",
+    "internal/daemon/client_control.go",
+    "internal/daemon/question.go",
+    "internal/daemon/question_snapshot_test.go",
+    "internal/daemon/question_test.go",
+    "internal/daemon/session_summaries_test.go",
+    "internal/protocol/runtime_contract.go",
+    "internal/rlm/prompt.go",
+    "internal/session/runtime.go",
+    "internal/tui/question.go",
+    "internal/tui/thin_update.go",
+    "packages/app/src/requests.tsx",
+    "packages/protocol/generated/index.d.ts",
+    "packages/protocol/generated/request-validators.js",
+    "packages/protocol/generated/response-validators.js",
+    "packages/protocol/schema/HostAttentionResult.json",
+    "packages/protocol/schema/LifecycleEvent.json",
+    "packages/protocol/schema/QuestionAnswerParams.json",
+    "packages/protocol/schema/RootSnapshot.json",
+    "packages/sdk/src/session.ts"
+  ],
+  "tracked_patch_sha256": "bbf8d4c04ee91e0d33ce167758ca04821b97f79d341f4214f7fe23b8d11b37b8",
+  "copied_plans": [
+    "IMPLEMENTATION.md",
+    "README.md",
+    "RESEARCH.md"
+  ]
+}

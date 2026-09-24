@@ -1,0 +1,111 @@
+{
+  "runs": [
+    {
+      "engine": "electrobun",
+      "id": "electrobun-1",
+      "mode": "bundled-scheme",
+      "settleMs": 30,
+      "warmup": false,
+      "result": "timeout",
+      "events": [],
+      "processTree": [
+        {
+          "pid": 48111,
+          "ppid": 48081,
+          "rssKiB": 1680,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/launcher"
+        },
+        {
+          "pid": 48112,
+          "ppid": 48111,
+          "rssKiB": 436160,
+          "command": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail"
+        }
+      ],
+      "webkitNewOutsideTreeCandidates": [
+        {
+          "pid": 48155,
+          "ppid": 1,
+          "rssKiB": 26736,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+        },
+        {
+          "pid": 48157,
+          "ppid": 1,
+          "rssKiB": 15776,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+        },
+        {
+          "pid": 48158,
+          "ppid": 1,
+          "rssKiB": 28192,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+        }
+      ],
+      "treeRSSKiB": 437840,
+      "candidateRSSKiB": 70704,
+      "controlConnected": true,
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "Launcher starting on macos...\nCurrent directory: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS\nSpawning: /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/cottontail /private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-shell-comparison-d9vAgr/build/stable-macos-arm64/Whip Electrobun Comparison.app/Contents/MacOS/../Resources/main.js\nChild process spawned with PID 48112\n2026-09-07 23:55:56.922 cottontail[48112:38330736] ============== ERROR ========== empty response for URL: views://bundle/settings\n"
+    },
+    {
+      "engine": "electron",
+      "id": "electron-2",
+      "mode": "bundled-scheme",
+      "settleMs": 30,
+      "warmup": false,
+      "result": "failed",
+      "events": [
+        {
+          "kind": "shell-ready",
+          "at": 318.5,
+          "elapsedMs": 846.869999999999
+        },
+        {
+          "kind": "failed",
+          "url": "whip-compare://bundle/settings",
+          "body": "WHIP\nNew session\nSearch sessions\nSettings\nConnect to host\nThis Mac\nThe saved connection is unavailable. Choose an execution host to continue.\nSettings\nAppearance\nProviders\nRuntime\nDevice\nRecovery\nColor theme\n\nAll TUI themes, with accessible browser surfaces. Saved on this device.\n\nSystem appearance\ndark\n\nThemes apply to controls, dialogs, Markdown, and code. System appearance follows your operating system.\n\nBack to sessions",
+          "elapsedMs": 12799.767666999998
+        }
+      ],
+      "processTree": [
+        {
+          "pid": 48860,
+          "ppid": 48081,
+          "rssKiB": 172064,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+        },
+        {
+          "pid": 48877,
+          "ppid": 48860,
+          "rssKiB": 90304,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+        },
+        {
+          "pid": 48878,
+          "ppid": 48860,
+          "rssKiB": 51344,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+        },
+        {
+          "pid": 48886,
+          "ppid": 48860,
+          "rssKiB": 150448,
+          "command": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+        }
+      ],
+      "webkitNewOutsideTreeCandidates": [],
+      "treeRSSKiB": 464160,
+      "candidateRSSKiB": 0,
+      "controlConnected": true,
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "COMPARE control-quit\nCOMPARE before-quit\nCOMPARE close\nCOMPARE closed\nCOMPARE will-quit\n"
+    }
+  ]
+}

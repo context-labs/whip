@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "recordedAt": "2026-09-08T18:15:41.468064+00:00",
+  "cutoff": "2026-09-08T17:13:07+00:00",
+  "uid": 501,
+  "roots": [
+    "/private/tmp",
+    "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T"
+  ],
+  "policy": {
+    "contentsRead": "Only Go executable build metadata and raw bytes for binary hashes; runtime config/session/log contents never inspected. Directory digests contain names and stat metadata only.",
+    "candidatePurpose": "Recognized runtime/test fixture directories from source and Go-module-verified executables only.",
+    "freshness": "Root and all descendants require mtime and ctime older than cutoff.",
+    "processes": "Complete current-user lsof snapshot; any open path or cwd excludes its whole top-level temporary root.",
+    "deletionRequirement": "Refresh process handles and exact owner/device/inode/freshness immediately before deletion. A candidate is not authorization to delete a path that changed later.",
+    "preserved": "Source repositories/worktrees, standalone logs/reports/images/scripts/patches, unrecognized artifacts and keychain/notary files; symlink trees excluded."
+  },
+  "summary": {
+    "whipNamedEntries": {
+      "/private/tmp": 14902,
+      "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T": 52529
+    },
+    "candidateCount": 65109,
+    "candidatesByCategory": {
+      "socket-runtime": 48999,
+      "cli-test-home": 2056,
+      "daemon-test-home": 12836,
+      "whip-executable": 9,
+      "desktop-fixture": 2,
+      "worker-temp": 26,
+      "sdk-fixture": 1,
+      "tui-test-home": 1180
+    },
+    "candidateAllocatedBytes": 600449024,
+    "excludedRecognizedCount": 413,
+    "excludedByReason": {
+      "current-turn-or-recent-metadata": 221,
+      "active-open-handles": 19,
+      "unexpected-socket-runtime-content": 173
+    },
+    "ambiguousPreservedCount": 1909,
+    "activeTopLevelPaths": 21,
+    "directoryEntriesInspected": 73750
+  },
+  "originalInventorySHA256": "6a11a6cac7b1d037ea3c8de91aa0100c711ba97ef52c7d4059ee1c891e5b278b",
+  "note": "Detailed candidate inventory was used for owner/inode/freshness/open-handle checks, then discarded after successful deletion. Source-like and ambiguous files remain preserved."
+}

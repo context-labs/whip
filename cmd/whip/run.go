@@ -1,86 +1,89 @@
-// `whip run` — non-interactive (headless) mode: one turn of the agent with
-// no TUI and no trust prompt, for trusted automation and scripting. Piped
-// stdin is appended to the prompt. --format json emits the raw event stream
-// as newline-delimited JSON: {"type":"reasoning","delta":...} for thinking
-// tokens, {"type":"text","delta":...} for reply text, {"type":"tool_start"/
-// "tool_end",...} for tool calls; the final event is {"type":"done",...} or
-// {"type":"error",...}. Exit code 0 on success, 1 on error.
+// `whip run` is a one-turn automation client for the daemon. It preserves the
+// text and NDJSON contracts while the daemon owns provider execution, tools,
+// persistence, permissions, schedules, and child processes.
 package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tui"
 )
-
-// resolveCacheKey picks the prompt_cache_key for a run: an explicit -cache-key
-// wins; otherwise the session id (stable per resumable session); otherwise a
-// fresh per-run key so a one-off (-no-session) run still caches its own turns.
-func resolveCacheKey(explicit, sessionID string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if sessionID != "" {
-		return sessionID
-	}
-	return "run-" + randHex(8)
-}
-
-func randHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "run"
-	}
-	return hex.EncodeToString(b)
-}
 
 func runCLI(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	format := fs.String("format", "text", "output format: text (stream the reply) or json (newline-delimited event stream)")
-	modelFlag := fs.String("m", "", "model name from ~/.whip/config.json (default: defaultModel)")
+	modelFlag := fs.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
 	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
-	resumeFlag := fs.String("resume", "", "continue this session id (see `whip sessions`) instead of starting fresh")
+	maxCostFlag := fs.Float64("max-cost", 0, "maximum whole-session model cost in USD (0 = unlimited)")
+	maxTokensFlag := fs.Int64("max-tokens", 0, "maximum whole-session model tokens (0 = unlimited)")
+	effortFlag := fs.String("effort", "", "reasoning effort for this run")
+	permissionFlag := fs.String("permission-mode", "", "session permission mode: prompt or automatic")
+	engineFlag := fs.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
+	agentFlag := fs.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
+	resumeFlag := fs.String("resume", "", buildinfo.Text("continue this session id (see `whip sessions`) instead of starting fresh"))
 	systemFlag := fs.String("system", "", "override the system prompt for this run")
 	systemFileFlag := fs.String("system-file", "", "read the system prompt from this file (wins over -system)")
 	maxTurnsFlag := fs.Int("max-turns", 0, "cap the tool-call loop at N rounds (0 = uncapped); on the cap, the model makes one final no-tools answer instead of erroring")
 	timeoutFlag := fs.Duration("timeout", 0, "wall-clock cap on the whole run (e.g. 30s, 5m); 0 = no timeout")
 	quietFlag := fs.Bool("quiet", false, "suppress the stderr tool/session notes (clean stdout for -format json piping)")
-	noSessionFlag := fs.Bool("no-session", false, "run without persisting a session (one-off jobs don't clutter whip sessions)")
-	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id, else a per-run key. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
+	noSessionFlag := fs.Bool("no-session", false, buildinfo.Text("run without retaining a session (one-off jobs don't clutter whip sessions)"))
+	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: whip run [--format text|json] [-m model] [-p provider] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] \"prompt\"")
+		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip run [--format text|json] [-m model] [-p provider] [-agent id] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\""))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	switch *format {
-	case "text", "json":
-	default:
+	if math.IsNaN(*maxCostFlag) || math.IsInf(*maxCostFlag, 0) || *maxCostFlag < 0 {
+		return errors.New("--max-cost must be finite and nonnegative")
+	}
+	if *maxCostFlag > 0 && *maxCostFlag < 0.000001 {
+		return errors.New("--max-cost must be at least $0.000001 when nonzero")
+	}
+	maxCostMicros := math.Round(*maxCostFlag * 1e6)
+	if maxCostMicros >= float64(math.MaxInt64) {
+		return errors.New("--max-cost is too large to represent in microUSD")
+	}
+	if *maxTokensFlag < 0 {
+		return errors.New("--max-tokens must be nonnegative")
+	}
+	if *permissionFlag != "" && *permissionFlag != "prompt" && *permissionFlag != "automatic" {
+		return fmt.Errorf("unknown --permission-mode %q", *permissionFlag)
+	}
+	if *resumeFlag != "" && *permissionFlag != "" {
+		return errors.New("--permission-mode selects a new session; cannot combine with --resume")
+	}
+	if *engineFlag != "" && *engineFlag != "starlark" && *engineFlag != "quickjs" {
+		return fmt.Errorf("unknown --rlm-engine %q", *engineFlag)
+	}
+	if *format != "text" && *format != "json" {
 		return fmt.Errorf("unknown --format %q (want text|json)", *format)
+	}
+	if *maxTurnsFlag < 0 {
+		return errors.New("-max-turns cannot be negative")
 	}
 
 	prompt := strings.Join(fs.Args(), " ")
-	// Piped stdin is appended to the prompt (both matter: e.g.
-	// `git diff | whip run "review this"`). Read only when stdin is not a
-	// TTY, so interactive `whip run "…"` never blocks on it.
 	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice == 0 {
-		if data, err := io.ReadAll(os.Stdin); err == nil {
+		if data, readErr := io.ReadAll(os.Stdin); readErr == nil {
 			if piped := strings.TrimSpace(string(data)); piped != "" {
 				if prompt != "" {
 					prompt += "\n\n"
@@ -98,90 +101,33 @@ func runCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	prov, mdl, apiID, err := tui.ResolveWithRefresh(cfg, *modelFlag, *providerFlag)
+	_, model, _, err := cfg.Resolve(*modelFlag, *providerFlag)
 	if err != nil {
 		return err
 	}
-	modelName, provName := *modelFlag, *providerFlag
+	modelName, providerName := *modelFlag, *providerFlag
 	if modelName == "" {
 		modelName = cfg.DefaultModel
 	}
-	if provName == "" {
-		provName = cfg.DefaultProvider
-		if provName == "" && len(mdl.Providers) > 0 {
-			provName = mdl.Providers[0]
+	if providerName == "" {
+		providerName = cfg.DefaultProvider
+		if providerName == "" && len(model.Providers) > 0 {
+			providerName = model.Providers[0]
 		}
 	}
-	client, err := tui.ClientForProvider(prov, provName, cfg.MaxRetries)
-	if err != nil {
-		return err
-	}
 
-	// System prompt: -system-file wins over -system (a file is the deliberate
-	// choice; a stray -system alongside it is almost certainly stale).
-	sys := systemPrompt(cwd(), time.Now())
+	system := ""
 	if *systemFlag != "" {
-		sys = *systemFlag
+		system = *systemFlag
 	}
 	if *systemFileFlag != "" {
-		data, err := os.ReadFile(*systemFileFlag)
-		if err != nil {
-			return fmt.Errorf("-system-file: %w", err)
+		data, readErr := os.ReadFile(*systemFileFlag)
+		if readErr != nil {
+			return fmt.Errorf("-system-file: %w", readErr)
 		}
-		sys = string(data)
+		system = string(data)
 	}
 
-	maxOut := mdl.MaxOut
-	if maxOut == 0 {
-		maxOut = mdl.ContextWindow()
-	}
-	ag := agent.New(client, apiID, maxOut, sys, agent.WithExperimental(cfg.Experimental))
-	ag.ModelName, ag.Provider = modelName, provName
-	// Headless runs have no one to answer a consent prompt: computer_exec
-	// stays disabled (no interactive approver is ever installed).
-	ag.ComputerDisabled = true
-	ag.ContextLimit = mdl.ContextWindow()
-	// Reasoning effort: explicit cfg.DefaultEffort wins; "" resolves
-	// model-aware — "low" when the model advertises it, else the lowest
-	// supported level, else off — so a non-reasoning model never sends an
-	// effort parameter the provider would reject.
-	ag.Effort = tui.DefaultEffortFor(config.LoadCatalogs(), provName, ag.Model, cfg.DefaultEffort)
-	ag.MaxTurns = *maxTurnsFlag
-
-	// Session: resume an existing one, or create a fresh one — unless
-	// -no-session (a one-off cron job shouldn't clutter whip sessions).
-	var store *session.Store
-	var sessionID string
-	if !*noSessionFlag {
-		if dir, derr := config.Dir(); derr == nil {
-			if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
-				store = st
-				defer func() { _ = st.Close() }()
-			}
-		}
-	}
-	if store != nil {
-		if *resumeFlag != "" {
-			meta, msgs, lerr := store.Load(*resumeFlag)
-			if lerr != nil {
-				return fmt.Errorf("-resume: %w", lerr)
-			}
-			sessionID = meta.ID
-			ag.Messages = append(ag.Messages[:1], msgs[1:]...) // keep our system prompt, replay the rest
-		} else if cwd, cerr := os.Getwd(); cerr == nil {
-			if id, ierr := store.Create(cwd, modelName, provName); ierr == nil {
-				sessionID = id
-			}
-		}
-	}
-
-	// Prompt-cache key: stamped as prompt_cache_key so the provider caches the
-	// message prefix across turns (and across runs when the caller passes a
-	// stable key). -no-session left this empty, so headless runs never cached
-	// their own turns — a per-run fallback fixes that; subagents scope under it.
-	ag.SetCacheKey(resolveCacheKey(*cacheKeyFlag, sessionID))
-
-	// ctrl+c cancels the turn; -timeout caps the whole run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *timeoutFlag > 0 {
@@ -190,69 +136,302 @@ func runCLI(args []string) error {
 		defer cancel()
 	}
 
-	ev := agent.Events{}
-	var emit func(any) // set only for --format json
-	note := func(format string, a ...any) {
-		if !*quietFlag {
-			fmt.Fprintf(os.Stderr, format+"\n", a...)
+	clientID := daemonClientID("run")
+	options := daemon.RootClientOptions{
+		ClientID:  clientID,
+		RootID:    *resumeFlag,
+		Connector: daemonConnector("automation", clientID),
+	}
+	if *resumeFlag == "" {
+		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag, Definition: *agentFlag}
+	}
+	client, err := daemon.NewRootClient(options)
+	if err != nil {
+		return err
+	}
+	client.Start()
+	defer func() { _ = client.Close() }()
+	if err := client.WaitLive(ctx); err != nil {
+		return runContextError(err, *timeoutFlag)
+	}
+
+	if *resumeFlag != "" && (*engineFlag != "" || *agentFlag != "") {
+		snapshot, err := client.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		if *engineFlag != "" && snapshot.Meta.ExecutionEngine != *engineFlag {
+			return fmt.Errorf("session uses %s; cannot resume with %s", snapshot.Meta.ExecutionEngine, *engineFlag)
+		}
+		if *agentFlag != "" && sessionDefinition(snapshot.Meta.Definition) != *agentFlag {
+			return fmt.Errorf("session uses agent %s; cannot resume with %s", sessionDefinition(snapshot.Meta.Definition), *agentFlag)
 		}
 	}
-	if *format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		emit = func(v any) {
-			if err := enc.Encode(v); err != nil {
-				fmt.Fprintln(os.Stderr, "whip: json encode:", err)
+
+	configure, err := client.NewAction("run.configure", map[string]any{
+		"system": system, "max_turns": *maxTurnsFlag, "headless": true, "cache_key": *cacheKeyFlag,
+	})
+	if err != nil {
+		return err
+	}
+	configured, err := client.Command(ctx, configure)
+	if err != nil {
+		return runContextError(err, *timeoutFlag)
+	}
+	if configured.Status != "succeeded" {
+		return errors.New(configured.Error)
+	}
+
+	for _, cap := range []struct {
+		kind  string
+		limit int64
+	}{{"cost", int64(maxCostMicros)}, {"tokens", *maxTokensFlag}} {
+		if cap.limit == 0 {
+			continue
+		}
+		snapshot, err := client.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		action, err := client.NewAction("budget.cap", map[string]string{"id": snapshot.RootID, "kind": cap.kind, "limit": strconv.FormatInt(cap.limit, 10)})
+		if err != nil {
+			return err
+		}
+		result, err := client.Command(ctx, action)
+		if err != nil {
+			return err
+		}
+		if result.Status != "succeeded" {
+			return fmt.Errorf("budget cap: %s", result.Error)
+		}
+	}
+	if *effortFlag != "" {
+		action, err := client.NewAction("session.effort", map[string]any{"effort": *effortFlag, "persist_default": false})
+		if err != nil {
+			return err
+		}
+		result, err := client.Command(ctx, action)
+		if err != nil {
+			return err
+		}
+		if result.Status != "succeeded" {
+			return fmt.Errorf("reasoning effort: %s", result.Error)
+		}
+	}
+
+	baseline := client.Cursor()
+	action, err := client.NewAction("submit", daemon.SubmitPayload{Text: prompt})
+	if err != nil {
+		return err
+	}
+	type commandReply struct {
+		result daemon.CommandResult
+		err    error
+	}
+	replies := make(chan commandReply, 1)
+	go func() {
+		result, commandErr := client.Command(ctx, action)
+		replies <- commandReply{result: result, err: commandErr}
+	}()
+
+	output := newRunOutput(*format, *quietFlag)
+	var reply commandReply
+	terminalSeen := false
+	for !terminalSeen || reply.result.CommandID == "" && reply.err == nil {
+		select {
+		case <-ctx.Done():
+			cancelRun(client, action.RootID)
+			err = runContextError(ctx.Err(), *timeoutFlag)
+			output.finish("", err)
+			if *noSessionFlag {
+				_ = deleteDaemonSession(clientID, action.RootID)
+			}
+			return err
+		case update, ok := <-client.Updates():
+			if !ok {
+				if reply.result.CommandID == "" && reply.err == nil {
+					return errors.New("daemon client stopped before the run completed")
+				}
+				terminalSeen = true
+				continue
+			}
+			if update.Event == nil || update.Event.Seq <= baseline {
+				continue
+			}
+			output.event(*update.Event)
+			if update.Event.Kind == "turn.succeeded" || update.Event.Kind == "turn.failed" {
+				terminalSeen = true
+			}
+		case reply = <-replies:
+			if reply.err != nil {
+				terminalSeen = true
 			}
 		}
-		ev.OnText = func(d string) { emit(map[string]string{"type": "text", "delta": d}) }
-		ev.OnThink = func(d string) {
-			emit(map[string]string{"type": "reasoning", "delta": d})
+	}
+	if reply.err != nil {
+		err = runContextError(reply.err, *timeoutFlag)
+	} else if reply.result.Status != "succeeded" {
+		err = errors.New(reply.result.Error)
+	}
+	output.finish(reply.result.Output, err)
+
+	rootID := client.RootID()
+	if *noSessionFlag {
+		if closeErr := client.Close(); closeErr != nil && err == nil {
+			err = closeErr
 		}
-		ev.OnToolStart = func(_, name, args string) {
-			emit(map[string]string{"type": "tool_start", "name": name, "args": args})
-		}
-		ev.OnToolEnd = func(_, name, result string) {
-			emit(map[string]string{"type": "tool_end", "name": name, "result": result})
+		if deleteErr := deleteDaemonSession(clientID, rootID); deleteErr != nil && err == nil {
+			err = deleteErr
 		}
 	} else {
-		ev.OnText = func(d string) { fmt.Fprint(os.Stdout, d) }
-		ev.OnToolStart = func(_, name, args string) { note("⚒ %s", name) }
-	}
-
-	// Subagent routing: same default chain as the TUI (taskModel → built-in
-	// default → catalog suffix → the run's own model). Headless runs never
-	// mutate cfg, so no snapshot is needed for the resolver.
-	ag.ResolveModel = func(model, provider string) (agent.SubModel, error) {
-		return tui.SubModelFor(cfg, model, provider)
-	}
-	if o, terr := tui.TaskDefaultFor(cfg, provName); terr == nil {
-		ag.TaskDefault = o
-	} else {
-		note("task model: %v — subagents use the run's model", terr)
-	}
-
-	final, err := ag.Turn(ctx, prompt, ev)
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		err = fmt.Errorf("run timed out after %s", *timeoutFlag)
-	}
-	if emit != nil {
-		if err != nil {
-			emit(map[string]string{"type": "error", "error": err.Error()})
-		} else {
-			emit(map[string]string{"type": "done", "text": final})
-		}
-	} else {
-		fmt.Fprintln(os.Stdout) // end the streamed reply's line
-	}
-
-	// Best-effort persistence (the TUI's persist does the same each turn).
-	// Save from index 0: Load re-derives the system-prompt slot, so a resumed
-	// conversation must not skip it (saving from 1 shifts everything off).
-	if store != nil && sessionID != "" {
-		if serr := store.Save(sessionID, 0, ag.MessagesSnapshot(), modelName, provName); serr != nil {
-			config.LogEvent("session.save", "run FAILED id="+sessionID+": "+serr.Error())
-		}
-		note("session %s — resume with: whip run -resume %s \"…\" · or interactively: whip --resume %s", sessionID, sessionID, sessionID)
+		output.note(buildinfo.Text("session %s — resume with: whip run -resume %s \"…\" · or interactively: whip --resume %s"), rootID, rootID, rootID)
 	}
 	return err
+}
+
+type runOutput struct {
+	quiet bool
+	enc   *json.Encoder
+}
+
+func newRunOutput(format string, quiet bool) *runOutput {
+	output := &runOutput{quiet: quiet}
+	if format == "json" {
+		output.enc = json.NewEncoder(os.Stdout)
+	}
+	return output
+}
+
+func (o *runOutput) event(event daemon.ProtocolEvent) {
+	var stream daemon.StreamEvent
+	if strings.HasPrefix(event.Kind, "stream.") {
+		if err := json.Unmarshal(event.Payload, &stream); err != nil {
+			return
+		}
+	}
+	switch event.Kind {
+	case "stream.text":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "text", "delta": stream.Text})
+		} else {
+			fmt.Fprint(os.Stdout, stream.Text)
+		}
+	case "stream.reasoning":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "reasoning", "delta": stream.Text})
+		}
+	case "stream.discard":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "discard", "chars": stream.Text})
+		} else {
+			fmt.Fprintln(os.Stdout)
+			o.note("response interrupted; regenerating")
+		}
+	case "stream.tool.started":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "tool_start", "name": stream.Name, "args": stream.Args})
+		} else {
+			o.note("⚒ %s", stream.Name)
+		}
+	case "stream.tool.completed":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "tool_end", "name": stream.Name, "result": stream.Result})
+		}
+	case "permission.pending":
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "permission_pending", "detail": string(event.Payload)})
+		} else {
+			o.note("permission pending: %s", event.Payload)
+		}
+	case "question.pending":
+		// Headless runs have nobody to answer; the question stays open until
+		// the turn ends, so at least say what was asked.
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "question_pending", "detail": string(event.Payload)})
+		} else {
+			o.note("question pending: %s", event.Payload)
+		}
+	}
+}
+
+func (o *runOutput) finish(final string, err error) {
+	if o.enc != nil {
+		if err != nil {
+			o.emit(map[string]string{"type": "error", "error": err.Error()})
+		} else {
+			o.emit(map[string]string{"type": "done", "text": final})
+		}
+		return
+	}
+	fmt.Fprintln(os.Stdout)
+}
+
+func (o *runOutput) emit(value any) {
+	if err := o.enc.Encode(value); err != nil {
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: json encode:"), err)
+	}
+}
+
+func (o *runOutput) note(format string, args ...any) {
+	if !o.quiet {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
+	}
+}
+
+func runContextError(err error, timeout time.Duration) error {
+	if errors.Is(err, context.DeadlineExceeded) && timeout > 0 {
+		return fmt.Errorf("run timed out after %s", timeout)
+	}
+	return err
+}
+
+func cancelRun(client *daemon.RootClient, rootID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	action, err := client.NewAction("cancel", map[string]string{})
+	if err != nil {
+		return
+	}
+	action.RootID = rootID
+	_, _ = client.Command(ctx, action)
+}
+
+func deleteDaemonSession(clientID, rootID string) error {
+	if rootID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cleanupID := daemonCommandID(clientID, "cleanup")
+	connection, err := connectDaemon(ctx, "automation", cleanupID, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connection.Close() }()
+	payload, err := json.Marshal(map[string]string{"root_id": rootID})
+	if err != nil {
+		return err
+	}
+	result, err := connection.Command(ctx, daemon.CommandParams{
+		CommandID: cleanupID + "-delete-" + rootID,
+		Scope:     string(session.CommandScopeDaemon),
+		Operation: "session.delete",
+		Payload:   payload,
+	})
+	if err != nil {
+		return err
+	}
+	if result.Status != "succeeded" {
+		return errors.New(result.Error)
+	}
+	return nil
+}
+
+// sessionDefinition names a session's agent definition; rows from before
+// definitions existed ran the coding agent.
+func sessionDefinition(id string) string {
+	if id == "" {
+		return "coding"
+	}
+	return id
 }

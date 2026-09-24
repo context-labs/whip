@@ -1,0 +1,28 @@
+[
+  {
+    "browser": "electron",
+    "rendererDigest": "8ebec9d392f9ce8a722defea49586dbc4a0a7c5698d88afa87b6b97f2f543c4a",
+    "checks": [
+      "identical embedded renderer",
+      "restored reasoning and typed inline agent",
+      "grouped executions",
+      "live-open operation tree",
+      "accurate host phase",
+      "no phase polling",
+      "keyboard disclosure",
+      "shared REPL state",
+      "snapshot recovery",
+      "shared reduced motion",
+      "390/320px bounds",
+      "light/dark themes with minimum/maximum system type",
+      "selection through completion",
+      "automatic fold after selection release",
+      "128-operation virtual tree under 80 mounted rows",
+      "streamed Markdown, Unicode and highlighted code",
+      "accessibility tree",
+      "bounded production history",
+      "staged main/preload",
+      "400% native zoom"
+    ]
+  }
+]

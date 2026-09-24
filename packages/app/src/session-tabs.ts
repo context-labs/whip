@@ -1,0 +1,791 @@
+import { isInspectorSection, type InspectorSection } from './navigation';
+import type { AppStorage } from './platform';
+import { browserURL, browserTitle, MAX_BROWSER_TABS } from './browser-address';
+
+export interface SessionLocation { agent?: string; panel?: InspectorSection }
+export type SessionViewKind = 'chat' | 'repl' | 'trace';
+export interface ChatViewTarget { paneId?: string; index?: number; edge?: SplitEdge }
+/** View-local ownership receipt; never persisted or inferred from whichever pane is focused. */
+export interface ChildChatCompanion {
+  readonly source: SessionBackedTab;
+  readonly tab: SessionBackedTab;
+  readonly sourcePaneId: string;
+  readonly paneId: string;
+}
+export interface ChildChatOptions {
+  companion?: ChildChatCompanion;
+  openInTab?: boolean;
+  /** Checked only when allocating a split, after existing-view reuse. */
+  canSplit?: (paneId: string, edge: SplitEdge) => boolean;
+}
+export interface ChildChatResult { tab: SessionBackedTab; companion?: ChildChatCompanion }
+export interface SessionSearch extends SessionLocation { view?: 'repl' | 'trace' }
+export interface SessionBackedTab {
+  readonly id: string;
+  readonly kind: SessionViewKind;
+  readonly runtimeId: string;
+  readonly rootId: string;
+  readonly titleHint: string;
+  readonly location: Readonly<SessionLocation>;
+}
+export type PermissionMode = 'prompt' | 'automatic';
+export interface NewChatTab {
+  readonly id: string;
+  readonly kind: 'new';
+  readonly hostProfileId?: string;
+  readonly runtimeId?: string;
+  readonly cwd: string;
+  readonly permissionMode?: PermissionMode;
+  readonly executionEngine?: 'starlark' | 'quickjs';
+  readonly model?: string;
+  readonly provider?: string;
+  readonly effort?: string;
+  /** Agent definition id the session runs; absent means the host's default (coding). */
+  readonly definition?: string;
+}
+export interface TerminalTab {
+  readonly id: string;
+  readonly kind: 'terminal';
+  readonly runtimeId: string;
+  /** Daemon-owned shell identity; the tab reattaches to it after a reload. */
+  readonly terminalId: string;
+  readonly cwd: string;
+  readonly titleHint: string;
+}
+export interface BrowserTab {
+  readonly id: string;
+  readonly kind: 'browser';
+  readonly url: string;
+  readonly titleHint: string;
+  readonly environmentId?: string;
+}
+export type SessionTab = SessionBackedTab | NewChatTab | TerminalTab | BrowserTab;
+export const isBrowserTab = (tab: SessionTab): tab is BrowserTab => tab.kind === 'browser';
+/** Chat and REPL descriptors carry session identity; New Chat and terminal descriptors do not. */
+export const isSessionTab = (tab: SessionTab): tab is SessionBackedTab => tab.kind === 'chat' || tab.kind === 'repl' || tab.kind === 'trace';
+/** The route search value for a non-chat view; chat omits `view`. */
+export const viewSearch = (kind: SessionViewKind): SessionSearch['view'] => kind === 'chat' ? undefined : kind;
+export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl' || view === 'trace' ? view : 'chat';
+/** Tab title suffix for a non-chat view. */
+export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
+export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'model' | 'provider' | 'effort'>>;
+/** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
+export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
+export interface SessionPane {
+  readonly type: 'pane';
+  readonly id: string;
+  readonly tabs: readonly SessionTab[];
+  readonly selected?: string;
+}
+export interface SessionSplit {
+  readonly type: 'split';
+  readonly id: string;
+  readonly direction: 'horizontal' | 'vertical';
+  readonly ratio: number;
+  readonly first: SessionLayout;
+  readonly second: SessionLayout;
+}
+export type SessionLayout = SessionPane | SessionSplit;
+export type SplitEdge = 'left' | 'right' | 'top' | 'bottom';
+export interface TabWorkspace {
+  readonly layout: SessionLayout;
+  readonly focusedPaneId: string;
+  /** Derived catalog for labels and summaries; the pane tree owns ordering. */
+  readonly tabs: readonly SessionTab[];
+  readonly closed: readonly { tab: SessionTab; index: number; paneId: string }[];
+  readonly restoreSelection: boolean;
+}
+export interface PreviousWorkspace { readonly runtimeId: string; readonly workspace: TabWorkspace }
+export interface TabsSnapshot { readonly version: 3; readonly workspace: TabWorkspace; readonly previous: readonly PreviousWorkspace[] }
+export const MAX_SESSION_TABS = 32;
+export const MAX_SESSION_PANES = 4;
+export const TAB_STORAGE_KEY = 'whip.web.workspace.v3';
+/** Old clients discard unknown kinds. Keep both the original layout and Browser-bearing recovery separately. */
+export const PRE_BROWSER_TAB_STORAGE_KEY = 'whip.web.workspace.pre-browser.v3';
+export const BROWSER_TAB_RECOVERY_KEY = 'whip.web.workspace.browser-recovery.v1';
+export const PREVIOUS_TAB_STORAGE_KEY = 'whip.web.workspace.v2';
+export const LEGACY_TAB_STORAGE_KEY = 'whip.web.tabs.v1';
+const MAX_BYTES = 64 * 1024;
+const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+const identity = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value);
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const title = (value: unknown) => typeof value === 'string' ? [...value].slice(0, 128).join('') : '';
+const location = (value: unknown): Readonly<SessionLocation> => Object.freeze(object(value) ? {
+  ...(identity(value.agent) ? { agent: value.agent } : {}),
+  ...(isInspectorSection(value.panel) ? { panel: value.panel } : {}),
+} : {});
+export function validateSessionSearch(search: Record<string, unknown>): SessionSearch {
+  return { ...location(search), ...(search.view === 'repl' || search.view === 'trace' ? { view: search.view } : {}) };
+}
+/** Mode has one persisted owner; route search is derived from the descriptor. */
+export function sessionSearch(tab?: { kind: SessionTab['kind']; location?: Readonly<SessionLocation> }): SessionSearch {
+  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' || tab?.kind === 'trace' ? { view: tab.kind } : {}) };
+}
+const newId = () => crypto.randomUUID();
+export function sessionPanes(node: SessionLayout): readonly SessionPane[] {
+  return node.type === 'pane' ? [node] : [...sessionPanes(node.first), ...sessionPanes(node.second)];
+}
+export function selectedSessionTab(workspace: TabWorkspace): SessionTab | undefined {
+  const pane = sessionPanes(workspace.layout).find(item => item.id === workspace.focusedPaneId);
+  return pane?.tabs.find(item => item.id === pane.selected);
+}
+export function sessionViewPane(workspace: TabWorkspace, viewId: string) {
+  return sessionPanes(workspace.layout).find(pane => pane.tabs.some(tab => tab.id === viewId));
+}
+function mapPanes(node: SessionLayout, update: (pane: SessionPane) => SessionPane): SessionLayout {
+  if (node.type === 'pane') return update(node);
+  return { ...node, first: mapPanes(node.first, update), second: mapPanes(node.second, update) };
+}
+function prune(node: SessionLayout): SessionLayout | undefined {
+  if (node.type === 'pane') return node.tabs.length ? node : undefined;
+  const first = prune(node.first), second = prune(node.second);
+  return first && second ? { ...node, first, second } : first ?? second;
+}
+function replaceNode(node: SessionLayout, id: string, update: (node: SessionLayout) => SessionLayout): SessionLayout {
+  if (node.id === id) return update(node);
+  return node.type === 'pane' ? node : { ...node, first: replaceNode(node.first, id, update), second: replaceNode(node.second, id, update) };
+}
+function freezeNode(node: SessionLayout): SessionLayout {
+  if (node.type === 'split') return Object.freeze({ ...node, first: freezeNode(node.first), second: freezeNode(node.second) });
+  const tabs = Object.freeze(node.tabs.map(tab => Object.freeze(isSessionTab(tab) ? { ...tab, location: location(tab.location) } : { ...tab })));
+  return Object.freeze({ ...node, tabs, selected: tabs.some(tab => tab.id === node.selected) ? node.selected : tabs[0]?.id });
+}
+function emptyWorkspace(): TabWorkspace {
+  return freeze({ restoreSelection: false, layout: { type: 'pane', id: 'main', tabs: [] }, focusedPaneId: 'main', closed: [] });
+}
+function freeze(workspace: Omit<TabWorkspace, 'tabs'>): TabWorkspace {
+  const layout = freezeNode(workspace.layout);
+  const panes = sessionPanes(layout);
+  return Object.freeze({ ...workspace, layout, focusedPaneId: panes.some(p => p.id === workspace.focusedPaneId) ? workspace.focusedPaneId : panes[0]!.id,
+    tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze(isSessionTab(item.tab) ? { ...item.tab, location: location(item.tab.location) } : { ...item.tab }) }))) });
+}
+function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean): TabWorkspace {
+  const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
+  if (!removed.length) return workspace;
+  let layout = mapPanes(workspace.layout, p => {
+    const tabs = p.tabs.filter(t => !viewIds.includes(t.id));
+    const index = p.tabs.findIndex(t => t.id === p.selected);
+    const selected = viewIds.includes(p.selected ?? '') ? (p.tabs.slice(index + 1).find(t => !viewIds.includes(t.id)) ?? tabs.at(-1))?.id : p.selected;
+    return { ...p, tabs, selected };
+  });
+  layout = prune(layout) ?? { type: 'pane', id: workspace.focusedPaneId, tabs: [] };
+  const closed = workspace.closed.filter(item => !viewIds.includes(item.tab.id));
+  const next = freeze({ ...workspace, layout, // A closed terminal's shell is gone, so it never enters Reopen history.
+  closed: remember ? [...closed, ...removed.filter(item => item.tab.kind !== 'terminal')].slice(-20) : closed });
+  return freeze({ ...next, restoreSelection: workspace.restoreSelection && !!selectedSessionTab(next) });
+}
+function purgeRoot(workspace: TabWorkspace, runtimeId: string, rootId: string): TabWorkspace {
+  const matches = (tab: SessionTab): tab is SessionBackedTab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId;
+  const next = removeViews(workspace, workspace.tabs.filter(matches).map(tab => tab.id), false);
+  const closed = next.closed.filter(item => !matches(item.tab));
+  return closed.length === next.closed.length ? next : freeze({ ...next, closed });
+}
+function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTab | undefined {
+  if (object(value) && value.kind === 'new' && !legacy) {
+    if (!identity(value.id) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd) ||
+      (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
+      (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
+      (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
+      (value.model !== undefined && !identity(value.model)) ||
+      (value.provider !== undefined && !identity(value.provider)) ||
+      ((value.model === undefined) !== (value.provider === undefined)) ||
+      (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||
+      (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
+      (value.permissionMode !== undefined && value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
+    return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
+      ...(value.model === undefined ? {} : { model: value.model as string, provider: value.provider as string }),
+      ...(value.effort === undefined ? {} : { effort: value.effort as string }),
+      ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
+      ...(value.definition === undefined ? {} : { definition: value.definition as string }),
+      ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
+      ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
+  }
+  if (object(value) && value.kind === 'browser' && !legacy) {
+    if (!identity(value.id) || typeof value.url !== 'string' || (value.environmentId !== undefined && !identity(value.environmentId))) return;
+    try { return { id: value.id, kind: 'browser', url: browserURL(value.url), titleHint: browserTitle(typeof value.titleHint === 'string' ? value.titleHint : ''), ...(value.environmentId === undefined ? {} : { environmentId: value.environmentId as string }) }; } catch { return; }
+  }
+  if (object(value) && value.kind === 'terminal' && !legacy) {
+    if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
+    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId, cwd: value.cwd, titleHint: title(value.titleHint) };
+  }
+  if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
+  const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
+  if (kind !== 'chat' && kind !== 'repl' && kind !== 'trace') return;
+  runtimeId ??= identity(value.runtimeId) ? value.runtimeId : undefined;
+  if (!runtimeId) return;
+  return { id: legacy ? value.rootId : value.id as string, kind, runtimeId, rootId: value.rootId, titleHint: title(value.titleHint), location: location(value.location) };
+}
+function restore(raw: string | null): readonly PreviousWorkspace[] {
+  if (!raw || raw.length > MAX_BYTES || bytes(raw) > MAX_BYTES) return [];
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  if (!object(parsed) || ![1, 2, 3].includes(parsed.version as number)) return [];
+  const entries = parsed.version === 3 ? [parsed.workspace] : Array.isArray(parsed.workspaces) ? parsed.workspaces.slice(-4) : [];
+  const result: PreviousWorkspace[] = [];
+  for (const entry of entries) {
+    if (!object(entry)) continue;
+    const runtimeId = parsed.version === 3 ? undefined : identity(entry.runtimeId) ? entry.runtimeId : undefined;
+    if (parsed.version !== 3 && (!runtimeId || result.some(item => item.runtimeId === runtimeId))) continue;
+    const ids = new Set<string>(), nodes = new Set<string>();
+    let paneCount = 0;
+    const readTabs = (values: unknown, legacy = false) => {
+      const tabs: SessionTab[] = [];
+      for (const value of Array.isArray(values) ? values.slice(0, MAX_SESSION_TABS) : []) {
+        const tab = parseTab(value, runtimeId, legacy);
+        if (tab && !ids.has(tab.id) && ids.size < MAX_SESSION_TABS) { ids.add(tab.id); tabs.push(tab); }
+      }
+      return tabs;
+    };
+    const readNode = (value: unknown, depth: number): SessionLayout | undefined => {
+      if (!object(value) || !identity(value.id) || nodes.has(value.id) || depth > 3) return;
+      nodes.add(value.id);
+      if (value.type === 'pane') {
+        if (++paneCount > MAX_SESSION_PANES) return;
+        return { type: 'pane', id: value.id, tabs: readTabs(value.tabs), selected: identity(value.selected) ? value.selected : undefined };
+      }
+      if (value.type !== 'split' || !['horizontal', 'vertical'].includes(value.direction as string) || typeof value.ratio !== 'number' || !Number.isFinite(value.ratio) || value.ratio <= 0 || value.ratio >= 1) return;
+      const first = readNode(value.first, depth + 1), second = readNode(value.second, depth + 1);
+      if (!first || !second) return;
+      return { type: 'split', id: value.id, direction: value.direction as SessionSplit['direction'], ratio: value.ratio, first, second };
+    };
+    const legacy = parsed.version === 1;
+    let layout: SessionLayout | undefined = legacy ? { type: 'pane', id: 'main', tabs: readTabs(entry.tabs, true), selected: identity(entry.lastActiveRootId) ? entry.lastActiveRootId : undefined } : readNode(entry.layout, 0);
+    if (!layout) continue;
+    layout = prune(layout) ?? { type: 'pane', id: 'main', tabs: [] };
+    const closed: TabWorkspace['closed'][number][] = [];
+    const closedIds = new Set<string>();
+    for (const value of Array.isArray(entry.closed) ? entry.closed.slice(-20) : []) {
+      if (!object(value)) continue;
+      const tab = parseTab(value.tab, runtimeId, legacy);
+      if (!tab || ids.has(tab.id) || closedIds.has(tab.id)) continue;
+      closedIds.add(tab.id);
+      closed.push({ tab, index: typeof value.index === 'number' && Number.isInteger(value.index) ? Math.max(0, Math.min(MAX_SESSION_TABS, value.index)) : 0, paneId: !legacy && identity(value.paneId) ? value.paneId : 'main' });
+    }
+    const workspace = freeze({ layout, focusedPaneId: identity(entry.focusedPaneId) ? entry.focusedPaneId : 'main', closed, restoreSelection: parsed.version === 3 ? entry.restoreSelection === true : identity(entry.lastActiveRootId) });
+    result.push({ runtimeId: runtimeId ?? '', workspace });
+  }
+  return result;
+}
+function serialize(workspace: TabWorkspace, migrated: readonly string[]) {
+  const { tabs: _derived, ...saved } = workspace;
+  return JSON.stringify({ version: 3, workspace: saved, migrated });
+}
+function purgeSavedRoot(raw: string | null, runtimeId: string, rootId: string): string | undefined {
+  if (!raw || bytes(raw) > MAX_BYTES) return;
+  let saved: unknown;
+  try { saved = JSON.parse(raw); } catch { return; }
+  if (!object(saved) || ![1, 2].includes(saved.version as number) || !Array.isArray(saved.workspaces)) return;
+  let changed = false;
+  const keep = (tab: unknown) => {
+    if (object(tab) && tab.rootId === rootId) { changed = true; return false; }
+    return true;
+  };
+  const layout = (node: unknown, depth = 0): unknown => {
+    if (!object(node) || depth > 3) return node;
+    if (node.type === 'pane' && Array.isArray(node.tabs)) return { ...node, tabs: node.tabs.filter(keep) };
+    if (node.type === 'split') return { ...node, first: layout(node.first, depth + 1), second: layout(node.second, depth + 1) };
+    return node;
+  };
+  const workspaces = saved.workspaces.map(entry => {
+    if (!object(entry) || entry.runtimeId !== runtimeId) return entry;
+    return { ...entry,
+      ...(Array.isArray(entry.tabs) ? { tabs: entry.tabs.filter(keep) } : {}),
+      ...(entry.layout ? { layout: layout(entry.layout) } : {}),
+      ...(Array.isArray(entry.closed) ? { closed: entry.closed.filter(item => !object(item) || keep(item.tab)) } : {}),
+    };
+  });
+  return changed ? JSON.stringify({ ...saved, workspaces }) : undefined;
+}
+
+/** One immutable owner for window-local view identities, panes and tab order. */
+export class SessionTabs {
+  private snapshot: TabsSnapshot;
+  private migrated: string[] = [];
+  private orphanedBrowserTabs: readonly BrowserTab[] = [];
+  private listeners = new Set<() => void>();
+  constructor(private readonly storage?: AppStorage, private readonly onNotice: (message: string) => void = () => {}, preferredRuntimeId?: string) {
+    let raw: string | null = null, old: string | null = null;
+    try {
+      raw = storage?.getItem(TAB_STORAGE_KEY) ?? null;
+      old = storage?.getItem(PREVIOUS_TAB_STORAGE_KEY) ?? storage?.getItem(LEGACY_TAB_STORAGE_KEY) ?? null;
+    } catch { onNotice('Session tabs could not be restored. This window will keep its layout in memory.'); }
+    const previous = restore(old);
+    const restored = restore(raw)[0]?.workspace;
+    if (restored && raw) {
+      const saved: unknown = JSON.parse(raw);
+      if (object(saved) && Array.isArray(saved.migrated)) this.migrated = saved.migrated.filter(identity).slice(0, 4);
+    }
+    let initial = !restored ? previous.find(item => item.runtimeId === preferredRuntimeId) ?? previous.at(-1) : undefined;
+    if (initial && bytes(serialize(initial.workspace, [initial.runtimeId])) > MAX_BYTES) {
+      onNotice('The previous layout exceeds this window’s metadata limit. Its tabs remain available individually in Settings → Servers.');
+      initial = undefined;
+    }
+    if (initial) this.migrated.push(initial.runtimeId);
+    this.snapshot = Object.freeze({ version: 3, workspace: restored ?? initial?.workspace ?? emptyWorkspace(), previous: Object.freeze(previous.filter(item => !this.migrated.includes(item.runtimeId))) });
+    // Only entries absent at startup are downgrade orphans; ordinary close-history expiry must not become permanent history.
+    try {
+      const saved = restore(storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      const known = new Set([...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].map(tab => tab.id));
+      this.orphanedBrowserTabs = (saved ? [...saved.tabs, ...saved.closed.map(item => item.tab)] : []).filter(isBrowserTab).filter(tab => !known.has(tab.id));
+    } catch { /* Recovery is optional when storage is unavailable. */ }
+    // Keep original v1/v2 storage intact until the user restores or dismisses its
+    // other layouts. They must never be evicted to fit the new window limits.
+    if (initial) this.persist();
+  }
+  getSnapshot = () => this.snapshot;
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  workspace(): TabWorkspace { return this.snapshot.workspace; }
+  private browserRecoveryText(extra: readonly BrowserTab[] = []) {
+    const current = [...extra, ...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].filter(isBrowserTab);
+    const saved = [...current, ...this.orphanedBrowserTabs].filter((tab, index, all) => all.findIndex(item => item.id === tab.id) === index);
+    const text = serialize({ ...emptyWorkspace(), layout: { type: 'pane', id: 'main', tabs: saved } }, []);
+    if (saved.length > MAX_SESSION_TABS || bytes(text) > MAX_BYTES) throw new Error('Restore or forget saved Browser addresses in Settings before adding more.');
+    return saved.length ? text : undefined;
+  }
+  private persist() {
+    try {
+      const text = serialize(this.snapshot.workspace, this.migrated);
+      const recovery = this.browserRecoveryText();
+      if (recovery) {
+        if (!this.storage?.getItem(PRE_BROWSER_TAB_STORAGE_KEY)) this.storage?.setItem(PRE_BROWSER_TAB_STORAGE_KEY, this.storage.getItem(TAB_STORAGE_KEY) ?? serialize(emptyWorkspace(), []));
+        this.storage?.setItem(BROWSER_TAB_RECOVERY_KEY, recovery);
+      }
+      this.storage?.setItem(TAB_STORAGE_KEY, text);
+    }
+    catch { this.onNotice('Session tabs are kept in memory because window storage is unavailable.'); }
+  }
+  private write(workspace: Omit<TabWorkspace, 'tabs'>, previous = this.snapshot.previous, migrated = this.migrated, durable = false) {
+    let next = freeze(workspace);
+    if (!durable && bytes(serialize(next, migrated)) > MAX_BYTES) next = freeze({ ...next, closed: [] });
+    if (bytes(serialize(next, migrated)) > MAX_BYTES) throw new Error('This window’s tab layout is full. Close an open tab before adding another.');
+    if (durable && this.storage) {
+      // Production window storage can silently fall back to memory during a write.
+      // A store without storage remains useful for isolated in-memory consumers.
+      const requirePersistent = () => {
+        if (this.storage?.persistent === false) throw new Error('New Chat could not be saved. Window storage is unavailable.');
+      };
+      requirePersistent();
+      this.storage.setItem(TAB_STORAGE_KEY, serialize(next, migrated));
+      requirePersistent();
+    }
+    if (JSON.stringify(this.workspace()) === JSON.stringify(next) && previous === this.snapshot.previous) return;
+    this.migrated = migrated;
+    this.snapshot = Object.freeze({ version: 3, workspace: next, previous: Object.freeze(previous) });
+    if (!durable) this.persist();
+    for (const listener of this.listeners) listener();
+  }
+  restorePrevious(runtimeId: string) {
+    const entry = this.snapshot.previous.find(item => item.runtimeId === runtimeId);
+    if (!entry) return;
+    const workspace = this.workspace(), previous = entry.workspace;
+    if (workspace.tabs.length + previous.tabs.length > MAX_SESSION_TABS) throw new Error('Close some tabs before restoring this layout; the window supports 32 open tabs.');
+    if (workspace.tabs.length && sessionPanes(workspace.layout).length + sessionPanes(previous.layout).length > MAX_SESSION_PANES) throw new Error('Close some panes before restoring this layout; the window supports four panes.');
+    // Reassign view and pane IDs when merging independent legacy identity spaces.
+    const viewIds = new Map(previous.tabs.map(tab => [tab.id, newId()]));
+    const nodeIds = new Map<string, string>();
+    const remap = (node: SessionLayout): SessionLayout => {
+      const id = newId(); nodeIds.set(node.id, id);
+      return node.type === 'split' ? { ...node, id, first: remap(node.first), second: remap(node.second) } : { ...node, id, tabs: node.tabs.map(tab => ({ ...tab, id: viewIds.get(tab.id)! })), selected: node.selected ? viewIds.get(node.selected) : undefined };
+    };
+    const restored = remap(previous.layout);
+    const closed = previous.closed.map(item => ({ ...item, tab: { ...item.tab, id: newId() }, paneId: nodeIds.get(item.paneId) ?? workspace.focusedPaneId }));
+    if (workspace.closed.length + closed.length > 20) throw new Error('Reopen some closed tabs or open previous tabs individually before restoring this layout; the window keeps 20 closed tabs.');
+    const layout: SessionLayout = workspace.tabs.length ? { type: 'split', id: newId(), direction: 'horizontal', ratio: .5, first: workspace.layout, second: restored } : restored;
+    const combined = freeze({ ...workspace, layout, focusedPaneId: workspace.tabs.length ? workspace.focusedPaneId : nodeIds.get(previous.focusedPaneId)!, closed: [...workspace.closed, ...closed] });
+    if (bytes(serialize(combined, [...this.migrated, runtimeId])) > MAX_BYTES) throw new Error('This layout exceeds the window’s metadata limit. Open its previous tabs individually.');
+    this.write(combined, this.snapshot.previous.filter(item => item !== entry), [...this.migrated, runtimeId]);
+  }
+  openPrevious(runtimeId: string, viewId: string) {
+    const previous = this.snapshot.previous.find(item => item.runtimeId === runtimeId)?.workspace;
+    const tab = [...(previous?.tabs ?? []), ...(previous?.closed.map(item => item.tab) ?? [])].find(tab => tab.id === viewId);
+    if (!tab) return;
+    return this.add({ ...tab, id: newId() });
+  }
+  dismissPrevious(runtimeId: string) {
+    if (!this.snapshot.previous.some(item => item.runtimeId === runtimeId)) return;
+    this.write(this.workspace(), this.snapshot.previous.filter(item => item.runtimeId !== runtimeId), [...this.migrated, runtimeId]);
+  }
+  openNew(options: NewChatOptions = {}): NewChatTab {
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab = parseTab({ ...options, id: newId(), kind: 'new', cwd: options.cwd ?? '' });
+    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
+    const workspace = this.workspace();
+    this.write({ ...workspace, restoreSelection: true, layout: mapPanes(workspace.layout, pane => {
+      if (pane.id !== workspace.focusedPaneId) return pane;
+      const tabs = [...pane.tabs];
+      tabs.splice(pane.tabs.findIndex(item => item.id === pane.selected) + 1, 0, tab);
+      return { ...pane, tabs, selected: tab.id };
+    }) }, undefined, undefined, true);
+    return Object.freeze(tab);
+  }
+  updateNew(id: string, patch: NewChatOptions): boolean {
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
+    if (!current || current.kind !== 'new') return false;
+    const tab = parseTab({ ...current, ...patch, id, kind: 'new' });
+    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
+    this.replaceNew(id, tab);
+    return true;
+  }
+  /** Acceptance replaces even a closed descriptor, without selecting or reopening it. */
+  promoteNew(id: string, runtimeId: string, rootId: string): boolean {
+    if (!identity(runtimeId) || !identity(rootId)) throw new Error('Invalid session identity');
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
+    if (!current) return false;
+    if (current.kind !== 'new') {
+      if (!isSessionTab(current) || current.runtimeId !== runtimeId || current.rootId !== rootId) return false;
+      this.write(workspace, undefined, undefined, true);
+      return true;
+    }
+    this.replaceNew(id, { id, kind: 'chat', runtimeId, rootId, titleHint: '', location: location({}) });
+    return true;
+  }
+  private replaceNew(id: string, tab: SessionTab) {
+    const workspace = this.workspace();
+    this.write({ ...workspace,
+      layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })),
+      closed: workspace.closed.map(item => item.tab.id === id ? { ...item, tab } : item),
+    }, undefined, undefined, true);
+  }
+  canOpen(runtimeId?: string, rootId?: string) {
+    const workspace = this.workspace();
+    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => isSessionTab(item) && item.runtimeId === runtimeId && item.rootId === rootId);
+  }
+  preferred(runtimeId: string, rootId: string): SessionBackedTab | undefined {
+    const workspace = this.workspace();
+    const selected = selectedSessionTab(workspace);
+    const matches = (tab: SessionTab): tab is SessionBackedTab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId;
+    return (selected && matches(selected) ? selected : undefined) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)?.tabs.find(matches) ?? workspace.tabs.find(matches);
+  }
+  open(runtimeId: string, rootId: string, titleHint = '', paneId?: string): string {
+    if (!identity(runtimeId)) throw new Error('Invalid execution host identity');
+    if (!identity(rootId)) throw new Error('Invalid session identity');
+    const existing = this.preferred(runtimeId, rootId);
+    if (existing) return existing.id;
+    return this.add({ id: rootId, kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) }, paneId);
+  }
+  /** Open an independent root chat view, selecting and placing it in one write. */
+  openChatView(runtimeId: string, rootId: string, titleHint = '', target: ChatViewTarget = {}): SessionBackedTab {
+    if (!identity(runtimeId)) throw new Error('Invalid execution host identity');
+    if (!identity(rootId)) throw new Error('Invalid session identity');
+    const workspace = this.workspace();
+    const pane = sessionPanes(workspace.layout).find(p => p.id === (target.paneId ?? workspace.focusedPaneId));
+    if (!pane) throw new Error('This pane is no longer available. Choose another tab strip.');
+    if (target.index !== undefined && !Number.isFinite(target.index)) throw new Error('Invalid tab insertion index');
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab: SessionBackedTab = { id: newId(), kind: 'chat', runtimeId, rootId, titleHint: title(titleHint), location: location({}) };
+    if (target.edge) {
+      if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Open this session in an existing pane.');
+      const newPane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+      this.write({ ...workspace, focusedPaneId: newPane.id, restoreSelection: true,
+        layout: replaceNode(workspace.layout, pane.id, node => splitNode(node, newPane, target.edge!)) });
+      return tab;
+    }
+    const selected = pane.tabs.findIndex(item => item.id === pane.selected);
+    const index = target.index ?? (selected < 0 ? pane.tabs.length : selected + 1);
+    const tabs = [...pane.tabs];
+    tabs.splice(Math.max(0, Math.min(tabs.length, Math.trunc(index))), 0, tab);
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
+    return tab;
+  }
+  /** Open a child without ever transiently inserting a second root view. */
+  openChildChat(sourceId: string, agentId: string, options: ChildChatOptions = {}): ChildChatResult {
+    const workspace = this.workspace();
+    const sourcePane = sessionViewPane(workspace, sourceId);
+    const source = sourcePane?.tabs.find(tab => tab.id === sourceId);
+    if (!sourcePane || !source || source.kind !== 'chat') throw new Error('This source chat is no longer open.');
+    if (!identity(agentId)) throw new Error('Invalid child agent identity');
+    const panes = sessionPanes(workspace.layout);
+    const receipt = options.companion;
+    const companionPane = receipt && panes.find(pane => pane.id === receipt.paneId);
+    const companionTab = companionPane?.tabs.find(tab => tab.id === receipt?.tab.id);
+    const rightSibling = (node: SessionLayout): boolean => node.type === 'split' && (
+      (node.direction === 'horizontal' && node.first.id === sourcePane.id && node.second.id === companionPane?.id)
+      || rightSibling(node.first) || rightSibling(node.second));
+    const sameChat = (a: SessionBackedTab, b: SessionBackedTab) => a.id === b.id && a.kind === b.kind
+      && a.runtimeId === b.runtimeId && a.rootId === b.rootId
+      && a.location.agent === b.location.agent;
+    const companion = receipt && companionTab?.kind === 'chat'
+      && receipt.sourcePaneId === sourcePane.id && sameChat(source, receipt.source)
+      && sameChat(companionTab, receipt.tab) && companionPane?.selected === companionTab.id
+      && rightSibling(workspace.layout) ? receipt : undefined;
+    // Reuse only selected child chats in other panes; REPL/trace and hidden tabs are not chat targets.
+    const visible = panes.filter(pane => pane.id !== sourcePane.id)
+      .flatMap(pane => pane.tabs.filter(tab => tab.id === pane.selected))
+      .find((tab): tab is SessionBackedTab => tab.kind === 'chat' && tab.runtimeId === source.runtimeId
+        && tab.rootId === source.rootId && tab.location.agent === agentId);
+    if (visible) {
+      this.activate(visible.id);
+      return { tab: visible, companion };
+    }
+    if (companion && companionTab?.kind === 'chat' && !options.openInTab) {
+      const tab: SessionBackedTab = { ...companionTab, location: location({ agent: agentId }) };
+      this.write({ ...workspace, focusedPaneId: companion.paneId, restoreSelection: true,
+        layout: mapPanes(workspace.layout, pane => pane.id === companion.paneId
+          ? { ...pane, tabs: pane.tabs.map(item => item.id === tab.id ? tab : item), selected: tab.id } : pane) });
+      return { tab, companion: { ...companion, tab } };
+    }
+    if (!this.canOpen()) throw new Error('There are 32 open tabs. Close a tab before opening this child chat.');
+    if (!options.openInTab) {
+      if (panes.length >= MAX_SESSION_PANES) throw new Error('There are four panes. Close a pane or choose Open in tab.');
+      if (!options.canSplit?.(sourcePane.id, 'right')) throw new Error('Not enough room for a right split. Widen the window or choose Open in tab.');
+    }
+    const tab: SessionBackedTab = { ...source, id: newId(), kind: 'chat', location: location({ agent: agentId }) };
+    if (options.openInTab) {
+      const tabs = [...sourcePane.tabs];
+      tabs.splice(tabs.findIndex(item => item.id === source.id) + 1, 0, tab);
+      this.write({ ...workspace, focusedPaneId: sourcePane.id, restoreSelection: true,
+        layout: mapPanes(workspace.layout, pane => pane.id === sourcePane.id ? { ...pane, tabs, selected: tab.id } : pane) });
+      return { tab, companion };
+    }
+    const pane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: replaceNode(workspace.layout, sourcePane.id, node => splitNode(node, pane, 'right')) });
+    return { tab, companion: { source, tab, sourcePaneId: sourcePane.id, paneId: pane.id } };
+  }
+  /** Insert a tab for a shell the host already started, after the pane's selected tab. */
+  openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, cwd, titleHint: '' });
+    if (!tab) throw new Error('Invalid terminal identity');
+    const workspace = this.workspace();
+    const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
+    this.write({ ...workspace, focusedPaneId: target.id, restoreSelection: true, layout: mapPanes(workspace.layout, pane => {
+      if (pane.id !== target.id) return pane;
+      const tabs = [...pane.tabs];
+      tabs.splice(pane.tabs.findIndex(item => item.id === pane.selected) + 1, 0, tab);
+      return { ...pane, tabs, selected: tab.id };
+    }) });
+    return tab.id;
+  }
+  /** Title changes and in-place restarts keep the view identity and its pane position. */
+  updateTerminal(id: string, patch: TerminalOptions): boolean {
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id);
+    if (!current || current.kind !== 'terminal') return false;
+    const tab = parseTab({ ...current, ...patch, id, kind: 'terminal' });
+    if (!tab) throw new Error('Invalid terminal options');
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })) });
+    return true;
+  }
+  canOpenBrowser(): boolean { return this.canOpen() && this.workspace().tabs.filter(isBrowserTab).length < MAX_BROWSER_TABS; }
+  openBrowser(input: Omit<BrowserTab, 'kind'>, paneId?: string, options: { background?: boolean } = {}): BrowserTab {
+    if (!this.canOpenBrowser()) throw new Error('Close a Browser tab before opening another (8 Browser tabs, 32 total).');
+    if ([...this.workspace().tabs, ...this.workspace().closed.map(item => item.tab)].some(tab => tab.id === input.id)) throw new Error('This Browser tab identity was already used.');
+    const tab = parseTab({ ...input, kind: 'browser' });
+    if (!tab || tab.kind !== 'browser') throw new Error('Invalid Browser tab.');
+    this.browserRecoveryText([tab]);
+    this.add(tab, paneId); if (!options.background) this.activate(tab.id); return tab;
+  }
+  /** Roll back a failed native admission without leaking it into Reopen or downgrade recovery. */
+  discardBrowser(id: string) {
+    const workspace = this.workspace();
+    if (workspace.tabs.find(tab => tab.id === id)?.kind !== 'browser') return;
+    this.write(removeViews(workspace, [id], false));
+    try {
+      const saved = restore(this.storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      if (saved) this.storage?.setItem(BROWSER_TAB_RECOVERY_KEY, serialize(removeViews(saved, [id], false), []));
+    } catch { this.onNotice('The failed Browser tab could not be removed from saved recovery.'); }
+  }
+  updateBrowser(id: string, patch: Pick<BrowserTab, 'url' | 'titleHint'>) {
+    const workspace = this.workspace(), current = workspace.tabs.find(tab => tab.id === id);
+    if (!current || current.kind !== 'browser') return;
+    const next = parseTab({ ...current, ...patch });
+    if (!next) throw new Error('Invalid Browser address.');
+    if (next.kind === 'browser' && next.url === current.url && next.titleHint === current.titleHint) return;
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(tab => tab.id === id ? next : tab) })) });
+  }
+  browserRecovery(): readonly BrowserTab[] {
+    try {
+      const saved = restore(this.storage?.getItem(BROWSER_TAB_RECOVERY_KEY) ?? null)[0]?.workspace;
+      return (saved ? [...saved.tabs, ...saved.closed.map(item => item.tab)] : []).filter(isBrowserTab)
+        .filter((tab, index, all) => !this.workspace().tabs.some(open => open.id === tab.id) && all.findIndex(item => item.id === tab.id) === index);
+    } catch { return []; }
+  }
+  recoverBrowserTabs() {
+    const recovered = this.browserRecovery(), workspace = this.workspace();
+    if (workspace.tabs.length + recovered.length > MAX_SESSION_TABS) throw new Error('Close tabs to make room for recovered Browser addresses.');
+    this.write({ ...workspace, closed: workspace.closed.filter(item => !recovered.some(tab => tab.id === item.tab.id)), layout: mapPanes(workspace.layout, pane => pane.id === workspace.focusedPaneId ? { ...pane, tabs: [...pane.tabs, ...recovered], selected: pane.selected ?? recovered[0]?.id } : pane) });
+    this.orphanedBrowserTabs = [];
+  }
+  forgetBrowserHistory() {
+    // Explicit privacy action; never resurrect addresses from a downgrade recovery copy.
+    this.orphanedBrowserTabs = [];
+    this.storage?.removeItem(BROWSER_TAB_RECOVERY_KEY);
+    const workspace = this.workspace();
+    this.write({ ...workspace, closed: workspace.closed.filter(item => !isBrowserTab(item.tab)) });
+    this.storage?.removeItem(BROWSER_TAB_RECOVERY_KEY);
+  }
+  openRelated(viewId: string, kind: SessionBackedTab['kind']): SessionBackedTab {
+
+    const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
+    const source = pane?.tabs.find(tab => tab.id === viewId);
+    if (!pane || !source || !isSessionTab(source)) throw new Error('This session view is no longer open');
+    const index = pane.tabs.indexOf(source);
+    if (kind === 'chat') {
+      const matches = pane.tabs.filter((tab): tab is SessionBackedTab => tab.kind === 'chat'
+        && tab.runtimeId === source.runtimeId && tab.rootId === source.rootId
+        && (tab.location.agent ?? tab.rootId) === (source.location.agent ?? source.rootId));
+      const existing = matches.sort((a, b) => Math.abs(pane.tabs.indexOf(a) - index) - Math.abs(pane.tabs.indexOf(b) - index))[0];
+      if (existing) { this.activate(existing.id); return existing; }
+    }
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab: SessionBackedTab = { ...source, id: newId(), kind, location: location({ agent: source.location.agent }) };
+    const tabs = [...pane.tabs]; tabs.splice(index + 1, 0, tab);
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
+    return tab;
+  }
+  private add(tab: SessionTab, paneId?: string): string {
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const workspace = this.workspace();
+    const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
+    // Reopened roots may share an old primary ID with a different view in history.
+    if (workspace.tabs.some(t => t.id === tab.id) || workspace.closed.some(({ tab: old }) => old.id === tab.id && (!isSessionTab(old) || !isSessionTab(tab) || old.runtimeId !== tab.runtimeId || old.rootId !== tab.rootId))) tab = { ...tab, id: newId() };
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === target.id ? { ...p, tabs: [...p.tabs, tab] } : p), closed: workspace.closed.filter(item => item.tab.id !== tab.id) });
+    return tab.id;
+  }
+  visit(runtimeId: string, rootId: string, search: SessionSearch, viewId?: string) {
+    const closed = viewId && this.workspace().closed.find(item => item.tab.id === viewId && isSessionTab(item.tab)
+      && item.tab.runtimeId === runtimeId && item.tab.rootId === rootId);
+    if (closed) this.reopenView(viewId);
+    if (!identity(runtimeId) || !identity(rootId)) throw new Error('Invalid session identity');
+    const existing = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId);
+    // An expired history entry must never borrow and convert another open view.
+    const id = existing?.id ?? (viewId
+      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: kindFromSearch(search.view), runtimeId, rootId, titleHint: '', location: location(search) })
+      : this.open(runtimeId, rootId));
+    const workspace = this.workspace();
+    const pane = sessionViewPane(workspace, id)!;
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: kindFromSearch(search.view), location: location(search) } : t) } : p) });
+    return id;
+  }
+  updateLocation(viewId: string, search: SessionLocation) {
+    const workspace = this.workspace();
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => isSessionTab(t) && t.id === viewId ? { ...t, location: location(search) } : t) })) });
+  }
+  activate(viewId: string, focus = true) {
+    const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
+    if (!pane) return;
+    this.write({ ...workspace, focusedPaneId: focus ? pane.id : workspace.focusedPaneId,
+      restoreSelection: focus || workspace.restoreSelection,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: viewId } : p) });
+  }
+  home() {
+    const workspace = this.workspace();
+    if (workspace.restoreSelection) this.write({ ...workspace, restoreSelection: false });
+  }
+  titles(runtimeId: string, titles: ReadonlyMap<string, string>) {
+    const workspace = this.workspace();
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => isSessionTab(t) && t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
+  }
+  closeViews(viewIds: readonly string[], activeViewId?: string): string | null | undefined {
+    const workspace = this.workspace();
+    const next = removeViews(workspace, viewIds, true);
+    if (next === workspace) return;
+    const selected = selectedSessionTab(next);
+    this.write(next);
+    return activeViewId && viewIds.includes(activeViewId) ? selected?.id ?? null : undefined;
+  }
+  /** Deleted roots cannot remain in open views or Reopen closed tab history. */
+  purge(runtimeId: string, rootId: string) {
+    const workspace = purgeRoot(this.workspace(), runtimeId, rootId);
+    const previous = this.snapshot.previous.map(entry => {
+      const next = purgeRoot(entry.workspace, runtimeId, rootId);
+      return next === entry.workspace ? entry : { ...entry, workspace: next };
+    });
+    const previousChanged = previous.some((entry, index) => entry !== this.snapshot.previous[index]);
+    this.write(workspace, previousChanged ? previous : this.snapshot.previous);
+    // Old layouts remain available for explicit recovery. Apply the same deletion
+    // there so reopening the app cannot revive a deleted root from those layouts.
+    try {
+      for (const key of [PREVIOUS_TAB_STORAGE_KEY, LEGACY_TAB_STORAGE_KEY]) {
+        const changed = purgeSavedRoot(this.storage?.getItem(key) ?? null, runtimeId, rootId);
+        if (changed !== undefined) this.storage?.setItem(key, changed);
+      }
+    } catch { this.onNotice('The session was deleted, but its previous tab layout could not be cleared from device storage.'); }
+  }
+  close(runtimeId: string, rootIds: readonly string[], activeRootId?: string): string | null | undefined {
+    const workspace = this.workspace();
+    const active = workspace.tabs.find(t => isSessionTab(t) && t.runtimeId === runtimeId && t.rootId === activeRootId);
+    const next = this.closeViews(workspace.tabs.filter(t => isSessionTab(t) && t.runtimeId === runtimeId && rootIds.includes(t.rootId)).map(t => t.id), active?.id);
+    const tab = this.workspace().tabs.find(t => t.id === next);
+    return typeof next === 'string' ? (tab && isSessionTab(tab) ? tab.rootId : null) : next;
+  }
+  reopenView(viewId?: string): string | undefined {
+    const workspace = this.workspace(), closed = viewId === undefined ? workspace.closed.at(-1) : workspace.closed.find(item => item.tab.id === viewId);
+    if (!closed) return;
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before reopening another.');
+    const pane = sessionPanes(workspace.layout).find(p => p.id === closed.paneId) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)!;
+    if (closed.tab.kind === 'browser' && !this.canOpenBrowser()) throw new Error('Close a Browser tab before reopening another (8 Browser tabs).');
+    const reopened = closed.tab.kind === 'browser' ? { ...closed.tab, id: newId() } : closed.tab;
+    const tabs = [...pane.tabs]; tabs.splice(Math.min(closed.index, tabs.length), 0, reopened);
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.filter(item => item !== closed) });
+    return reopened.id;
+  }
+  reorderPane(paneId: string, order: readonly string[]) {
+    const workspace = this.workspace(), pane = sessionPanes(workspace.layout).find(p => p.id === paneId);
+    if (!pane || order.length !== pane.tabs.length || new Set(order).size !== order.length || order.some(id => !pane.tabs.some(t => t.id === id))) throw new Error('Invalid session tab order');
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === paneId ? { ...p, tabs: order.map(id => p.tabs.find(t => t.id === id)!) } : p) });
+  }
+  move(viewId: string, offset: -1 | 1) {
+    const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
+    if (!pane) return;
+    const order = pane.tabs.map(t => t.id), from = order.indexOf(viewId), to = from + offset;
+    if (to < 0 || to >= order.length) return;
+    [order[from], order[to]] = [order[to]!, order[from]!];
+    this.reorderPane(pane.id, order);
+  }
+  split(viewId: string, edge: SplitEdge): string {
+    const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId), source = workspace.tabs.find(t => t.id === viewId);
+    if (!pane || !source) throw new Error('This view is no longer open');
+    // Drafts and terminals move rather than duplicate: one composer, one shell.
+    if (!isSessionTab(source)) { this.transfer(viewId, pane.id, edge); return source.id; }
+    if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Move a tab to an existing pane or close a pane first.');
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before splitting this view.');
+    const duplicate = { ...source, id: newId() };
+    const newPane: SessionPane = { type: 'pane', id: newId(), tabs: [duplicate], selected: duplicate.id };
+    this.write({ ...workspace, layout: replaceNode(workspace.layout, pane.id, node => splitNode(node, newPane, edge)), focusedPaneId: newPane.id, restoreSelection: true });
+    return duplicate.id;
+  }
+  transfer(viewId: string, paneId: string, edge?: SplitEdge, index?: number) {
+    const workspace = this.workspace(), sourcePane = sessionViewPane(workspace, viewId), targetPane = sessionPanes(workspace.layout).find(p => p.id === paneId);
+    const tab = sourcePane?.tabs.find(t => t.id === viewId);
+    if (!sourcePane || !targetPane || !tab) return;
+    if (edge && sourcePane.id === paneId && sourcePane.tabs.length === 1) return;
+    if (edge && sessionPanes(workspace.layout).length + (sourcePane.tabs.length > 1 ? 1 : 0) > MAX_SESSION_PANES) throw new Error('There are four panes. Move this tab into an existing pane.');
+    let layout = mapPanes(workspace.layout, p => {
+      if (p.id !== sourcePane.id) return p;
+      const tabs = p.tabs.filter(t => t.id !== viewId);
+      return { ...p, tabs, selected: p.selected === viewId ? tabs[Math.min(p.tabs.findIndex(t => t.id === viewId), tabs.length - 1)]?.id : p.selected };
+    });
+    let focusedPaneId = paneId;
+    if (edge) {
+      const newPane: SessionPane = { type: 'pane', id: newId(), tabs: [tab], selected: tab.id };
+      focusedPaneId = newPane.id;
+      layout = replaceNode(layout, paneId, node => splitNode(node, newPane, edge));
+    } else layout = mapPanes(layout, p => {
+      if (p.id !== paneId) return p;
+      const insertion = index === undefined ? p.tabs.length : index - (sourcePane.id === paneId && sourcePane.tabs.findIndex(t => t.id === viewId) < index ? 1 : 0);
+      const tabs = [...p.tabs]; tabs.splice(Math.max(0, Math.min(tabs.length, insertion)), 0, tab);
+      return { ...p, tabs, selected: tab.id };
+    });
+    this.write({ ...workspace, layout: prune(layout)!, focusedPaneId, restoreSelection: true });
+  }
+  resize(splitId: string, ratio: number) {
+    if (!Number.isFinite(ratio)) return;
+    const workspace = this.workspace();
+    this.write({ ...workspace, layout: replaceNode(workspace.layout, splitId, n => n.type === 'split' ? { ...n, ratio: Math.max(.01, Math.min(.99, ratio)) } : n) });
+  }
+  dispose() { this.listeners.clear(); }
+}
+function splitNode(existing: SessionLayout, pane: SessionPane, edge: SplitEdge): SessionSplit {
+  const before = edge === 'left' || edge === 'top';
+  return { type: 'split', id: newId(), direction: edge === 'left' || edge === 'right' ? 'horizontal' : 'vertical', ratio: .5, first: before ? pane : existing, second: before ? existing : pane };
+}
+
+/** The draft identity a New Chat tab's first message is composed under. */
+export const welcomeDraftKey = (draftId: string) => `new:${draftId}:prompt`;

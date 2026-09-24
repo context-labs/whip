@@ -3,6 +3,8 @@ package tui
 import (
 	"sort"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // registryEntry is the single source of truth for one slash command or
@@ -23,7 +25,10 @@ type registryEntry struct {
 // their hint/keybind in palette.go as constants, so a keybind or description
 // still has exactly one home even when it's not a slash command.
 var registry = []registryEntry{
-	{Name: "/auth", Hint: "<provider> [key] — connect a provider (bare = guided login); codex = device login", Category: "Agent"},
+	{Name: "/connect", Hint: "connect a provider or choose a model", Category: "Agent"},
+	{Name: "/auth", Hint: "[provider] — connect a provider (alias of /connect)", Category: "Agent"},
+	{Name: "/agents", Hint: "[list|stop <id>|delete <id>|revoke <capability-id>] — inspect or control recursive agents", Category: "Session"},
+	{Name: "/browser", Hint: "[status|driver rod|driver chromedp] — inspect or select browser automation", Category: "Session"},
 	{Name: "/cd", Hint: "[dir] — change working directory (bare prints it)", Category: "Session"},
 	{Name: "/clear", Hint: "— reset conversation", Category: "Session"},
 	{Name: "/compact", Hint: "[model]|off|retry|log — compact the conversation now", Category: "Session"},
@@ -35,22 +40,24 @@ var registry = []registryEntry{
 	{Name: "/goal", Hint: "<text> — keep working until the goal is met (resume | clear)", Category: "Session"},
 	{Name: "/goal-from-context", Hint: "[n] — form a goal from recent messages and pursue it", Category: "Session"},
 	{Name: "/help", Hint: "— show all commands and keybindings", Category: "App"},
-	{Name: "/mcp", Hint: "[name] [reconnect|enable|disable] — MCP server status", Category: "Session"},
+	{Name: "/lsp", Hint: "[status] — inspect language servers", Category: "Session"},
+	{Name: "/mcp", Hint: "[name] [reconnect|enable|disable] | import <claude|codex> <on|off> — MCP status and imports", Category: "Session"},
 	{Name: "/me", Hint: "— edit your standing instructions in $EDITOR", Category: "Agent"},
 	{Name: "/memory", Hint: "[n] — list saved memories; mark entry n done", Category: "Session"},
 	{Name: "/model", Hint: "<name> [provider] — switch model (refresh pulls the catalog)", Category: "Agent"},
 	{Name: "/model-for-session", Hint: "<name> — switch model for this session only", Category: "Agent"},
 	{Name: "/mouse", Hint: "— toggle mouse capture", Category: "Display"},
-	{Name: "/usage", Hint: "— ChatGPT Codex subscription rate limits (needs /auth codex)", Category: "Agent"},
+	{Name: "/permissions", Hint: "[list|forget <id>] — list or forget remembered permission rules", Category: "Session"},
 	{Name: "/pwd", Hint: "— print working directory", Category: "Session"},
 	{Name: "/quit", Hint: "— exit", Keybind: "ctrl+c ctrl+c", Category: "App"},
 	{Name: "/rename", Hint: "[title] — retitle this session", Category: "Session"},
 	{Name: "/report", Hint: "— bug report: issue link + environment snippet", Category: "App"},
 	{Name: "/resume", Hint: "[id] — resume a previous session", Category: "Session"},
+	{Name: "/rewind", Hint: "[message-index] — rewind conversation and workspace state", Category: "Session"},
 	{Name: "/schedule", Hint: "@every 10m|@at <time> <prompt> — schedule a wakeup; list | cancel", Category: "Session"},
-	{Name: "/subagent", Hint: "[-m model] <prompt> — spawn a background subagent", Category: "Session"},
-	{Name: "/subagents", Hint: "[id] — subagent dock / live view (alias /tasks)", Keybind: "ctrl+t", Category: "Session"},
-	{Name: "/theme", Hint: "[name] — preview or select a built-in theme", Category: "Display"},
+	{Name: "/theme", Hint: buildinfo.Text("[light|dark|auto|<name>] — color theme (user themes: ~/.whip/themes/<name>.json)"), Category: "Display"},
+	{Name: "/repl", Hint: "— toggle the REPL panel for the open agent", Keybind: "ctrl+r", Category: "Display"},
+	{Name: "/dock", Hint: "— toggle the agent tree under the input when the left column is hidden", Category: "Display"},
 	{Name: "!cmd", Hint: "— run a shell command; output joins the conversation", Category: "App"},
 }
 
@@ -82,21 +89,6 @@ func registryFind(name string) *registryEntry {
 	return nil
 }
 
-// dispatches reports whether the command switch routes name to a real
-// handler rather than the unknown-command error. It is a probe — meant for
-// tests — that runs the bare command on a scratch model and checks the
-// transcript.
-func (m *model) dispatches(name string) bool {
-	before := len(m.blocks)
-	m.command(name)
-	for _, b := range m.blocks[before:] {
-		if strings.Contains(b.text, "unknown command") {
-			return false
-		}
-	}
-	return true
-}
-
 // helpText renders /help from the registry plus the palette's keybind hints:
 // slash commands first (sorted), then the keybindings roster. Nothing here is
 // hand-maintained anymore — every line comes from one of the two tables.
@@ -110,14 +102,15 @@ func helpText() string {
 	b.WriteString("tab — complete")
 	for _, hint := range []string{
 		"ctrl+k — clear the conversation",
-		"ctrl+t — focus the subagents dock (↑/↓ select, enter opens, esc backs out)",
+		"ctrl+t — focus the agent tree, showing the dock if nothing else does (↑/↓ select, enter opens, esc returns to root)",
+		"ctrl+r — toggle the REPL panel",
 		palHintThinking + " — toggle thinking tokens",
 		"ctrl+e — expand the last tool result",
 		"ctrl+j / shift+enter — newline",
 		"ctrl+v — paste image",
 		"esc — interrupt the agent",
 		"esc esc (idle) — " + palDescRewind + " (↑/↓ browse, enter rewinds, f forks)",
-		"while busy with queued messages: ↑/↓ select, del removes",
+		"while busy: enter steers the running turn (lands as the next turn if it ends first)",
 		"PgUp/PgDn — scroll · wheel — scroll · drag — select/copy text",
 		palHintQuit + " — quit",
 	} {

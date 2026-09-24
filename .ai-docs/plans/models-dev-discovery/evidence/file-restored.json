@@ -1,0 +1,226 @@
+{
+  "revision": "21414f53a839621edc9dc0c0c2aa9b8bced273866b71d4c8c96fe28f9cd52e40",
+  "default_provider": "inference-net",
+  "providers": [
+    {
+      "id": "inference-net",
+      "name": "Inference.net",
+      "custom": false,
+      "methods": [
+        "login",
+        "api_key"
+      ],
+      "status": {
+        "provider": "inference-net",
+        "configured": true,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "INFERENCE_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "recommended": true,
+      "category": "popular",
+      "key_url": "https://inference.net/dashboard"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "openrouter",
+        "configured": true,
+        "key_source": "key_file",
+        "available": true,
+        "environment_variable": "OPENROUTER_API_KEY",
+        "credential_path": "/home/whip/fixtures/openrouter.key",
+        "auth_state": "connected",
+        "warnings": []
+      },
+      "category": "popular",
+      "key_url": "https://openrouter.ai/settings/keys"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "openai",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "OPENAI_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "popular",
+      "family": "openai",
+      "key_url": "https://platform.openai.com/api-keys"
+    },
+    {
+      "id": "openai-codex",
+      "name": "OpenAI (ChatGPT subscription)",
+      "custom": false,
+      "methods": [
+        "login"
+      ],
+      "status": {
+        "provider": "openai-codex",
+        "configured": false,
+        "key_source": "subscription",
+        "available": false,
+        "auth_method": "chatgpt",
+        "auth_state": "signed_out",
+        "warnings": []
+      },
+      "category": "popular",
+      "family": "openai"
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "cerebras",
+        "configured": true,
+        "key_source": "env_file",
+        "available": true,
+        "environment_variable": "CEREBRAS_API_KEY",
+        "credential_path": "/home/whip/fixtures/providers.env",
+        "auth_state": "connected",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://cloud.cerebras.ai/platform/api-keys"
+    },
+    {
+      "id": "deepinfra",
+      "name": "DeepInfra",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "deepinfra",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "DEEPINFRA_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://deepinfra.com/dash/api_keys"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "deepseek",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "DEEPSEEK_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://platform.deepseek.com/api_keys"
+    },
+    {
+      "id": "fireworks-ai",
+      "name": "Fireworks AI",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "fireworks-ai",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "FIREWORKS_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://app.fireworks.ai/settings/users/api-keys"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "groq",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "GROQ_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://console.groq.com/keys"
+    },
+    {
+      "id": "togetherai",
+      "name": "Together AI",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "togetherai",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "TOGETHER_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://api.together.ai/settings/api-keys"
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "custom": false,
+      "methods": [
+        "api_key"
+      ],
+      "status": {
+        "provider": "xai",
+        "configured": false,
+        "key_source": "environment",
+        "available": false,
+        "environment_variable": "XAI_API_KEY",
+        "auth_state": "key_required",
+        "warnings": []
+      },
+      "category": "providers",
+      "key_url": "https://console.x.ai/"
+    }
+  ],
+  "selection": {
+    "ready": false,
+    "model": "kimi-k3-fast",
+    "provider": "inference-net",
+    "reason": "provider_unavailable"
+  }
+}

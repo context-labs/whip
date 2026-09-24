@@ -1,0 +1,130 @@
+{
+  "recordedAt": "2026-09-08T18:21:20.294598+00:00",
+  "explicit": [
+    {
+      "path": "/Users/samheutmaker/.whip",
+      "inode": 216720860,
+      "device": 16777232,
+      "entries": 1164,
+      "allocatedBytes": 1486368768
+    },
+    {
+      "path": "/Users/samheutmaker/.whipcode",
+      "inode": 234392605,
+      "device": 16777232,
+      "entries": 61,
+      "allocatedBytes": 4182016
+    },
+    {
+      "path": "/Users/samheutmaker/.whip-web-v4",
+      "inode": 232028531,
+      "device": 16777232,
+      "entries": 1973,
+      "allocatedBytes": 339374080
+    },
+    {
+      "path": "/Users/samheutmaker/.whip-v2-test.0k8SYz",
+      "inode": 230069793,
+      "device": 16777232,
+      "entries": 37,
+      "allocatedBytes": 50585600
+    },
+    {
+      "path": "/private/tmp/whipcode-multihost-local-home",
+      "inode": 235365183,
+      "device": 16777232,
+      "entries": 39,
+      "allocatedBytes": 3874816
+    },
+    {
+      "path": "/private/tmp/whipcode-multihost-local-desktop-origin",
+      "inode": 236746919,
+      "device": 16777232,
+      "entries": 1,
+      "allocatedBytes": 54779904
+    },
+    {
+      "path": "/usr/local/bin/whip",
+      "inode": 228234315,
+      "device": 16777232,
+      "entries": 1,
+      "allocatedBytes": 48152576
+    },
+    {
+      "path": "/usr/local/bin/whipcode",
+      "inode": 234392503,
+      "device": 16777232,
+      "entries": 1,
+      "allocatedBytes": 41140224
+    },
+    {
+      "path": "/Users/samheutmaker/Library/Application Support/Whip",
+      "inode": 236732839,
+      "device": 16777232,
+      "entries": 82,
+      "allocatedBytes": 43409408
+    },
+    {
+      "path": "/Users/samheutmaker/Library/Caches/whip-research",
+      "inode": 226898866,
+      "device": 16777232,
+      "entries": 4,
+      "allocatedBytes": 73388032
+    },
+    {
+      "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/whip",
+      "inode": 232956848,
+      "device": 16777232,
+      "entries": 1,
+      "allocatedBytes": 54628352
+    },
+    {
+      "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whipcode-publishing/whipcode",
+      "inode": 233623888,
+      "device": 16777232,
+      "entries": 1,
+      "allocatedBytes": 55091200
+    },
+    {
+      "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-mobile-integration/apps/desktop/.stage",
+      "inode": 237711291,
+      "device": 16777232,
+      "entries": 41,
+      "allocatedBytes": 65548288
+    },
+    {
+      "path": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-mobile-integration/apps/desktop/out",
+      "inode": 237718212,
+      "device": 16777232,
+      "entries": 608,
+      "allocatedBytes": 386723840
+    }
+  ],
+  "temporary": {
+    "deleted": 65109,
+    "allocatedBytes": 600449024,
+    "byCategory": {
+      "socket-runtime": 48999,
+      "cli-test-home": 2056,
+      "daemon-test-home": 12836,
+      "desktop-fixture": 2,
+      "worker-temp": 26,
+      "sdk-fixture": 1,
+      "tui-test-home": 1180,
+      "whip-executable": 9
+    },
+    "preserved": [],
+    "manifestSHA256": "6a11a6cac7b1d037ea3c8de91aa0100c711ba97ef52c7d4059ee1c891e5b278b",
+    "binaryRevalidation": "Nine file candidates use exact SHA-256 and inode/owner/open-handle validation; treeEntries applies only to directory candidates."
+  },
+  "preferencesReset": true,
+  "formerlyActiveTemporaryDirectoriesRemoved": [
+    "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-rlm-worker-3530733595"
+  ],
+  "retiredAppReplaced": true,
+  "retiredArchivesRemoved": [
+    "Whip-0.1.1-arm64.dmg",
+    "Whip-darwin-arm64-0.1.1.zip",
+    "SHA256SUMS"
+  ]
+}

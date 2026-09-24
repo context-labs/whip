@@ -1,0 +1,136 @@
+{
+  "type": "object",
+  "properties": {
+    "default_execution_engine": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "disabled_providers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "remote_hosts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "runtime_id": {
+            "type": "string"
+          },
+          "connect_on_launch": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url",
+          "runtime_id",
+          "connect_on_launch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "import_claude": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "import_codex": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "brand_icons": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "revision": {
+      "type": "string"
+    },
+    "default_model": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "default_provider": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "default_effort": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "default_permission_mode": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_model": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_provider": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_percent": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
+    "goal_max_rounds": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
+    "max_retries": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/ConfigurationUpdate",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConfigurationUpdate",
+  "required": [
+    "revision"
+  ],
+  "additionalProperties": false
+}

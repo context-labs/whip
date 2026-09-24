@@ -12,38 +12,41 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// firstContentLuminance finds the foreground luminance of the first styled run
-// that actually contains visible text. It accepts xterm-256 and truecolor SGR.
-func firstContentLuminance(l string) (float64, bool) {
-	lum, found := 0.0, false
-	for i := 0; i < len(l); {
+// firstContentFG finds the foreground color of the first styled run that
+// actually contains visible text (glamour lines start with a margin/color
+// prefix whose color is not the content color — e.g. code fences report the
+// fence's 235 before the code's 251).
+func firstContentFG(l string) int {
+	// walk SGR-then-text pairs; return the color of the first text-bearing run
+	fg := -1
+	i := 0
+	for i < len(l) {
 		if l[i] == 0x1b {
 			end := strings.IndexByte(l[i:], 'm')
 			if end < 0 {
 				break
 			}
 			seq := l[i : i+end+1]
-			var n, r, g, b int
-			switch {
-			case func() bool { _, err := fmt.Sscanf(seq, "\x1b[38;5;%dm", &n); return err == nil }():
-				lum, found = ansiLuminance(n), true
-			case func() bool { _, err := fmt.Sscanf(seq, "\x1b[38;2;%d;%d;%dm", &r, &g, &b); return err == nil }():
-				lum = 0.2126*float64(r)/255 + 0.7152*float64(g)/255 + 0.0722*float64(b)/255
-				found = true
+			var n int
+			if _, err := fmt.Sscanf(seq, "\x1b[38;5;%dm", &n); err == nil {
+				fg = n
 			}
 			i += end + 1
 			continue
 		}
+		// consume a text run up to the next escape
 		end := strings.IndexByte(l[i:], 0x1b)
 		if end < 0 {
 			end = len(l) - i
 		}
-		if strings.Trim(l[i:i+end], " \t") != "" && found {
-			return lum, true
+		// skip whitespace-only runs: chroma styles code-block indentation with
+		// the fence/background color (235), which is not the text color
+		if strings.Trim(l[i:i+end], " \t") != "" && fg >= 0 {
+			return fg
 		}
 		i += end
 	}
-	return 0, false
+	return -1
 }
 
 // sgrFG extracts the first "38;5;N" foreground index from a rendered line.
@@ -107,11 +110,11 @@ func TestMarkdownContrastBothThemes(t *testing.T) {
 				if strings.Trim(plain, " ░│─╌┃·") == "" {
 					continue
 				}
-				fgLum, ok := firstContentLuminance(l)
-				if !ok {
+				fg := firstContentFG(l)
+				if fg < 0 {
 					continue // terminal default fg: assumed fine
 				}
-				gap := fgLum - bgLum
+				gap := ansiLuminance(fg) - bgLum
 				if gap < 0 {
 					gap = -gap
 				}
@@ -120,7 +123,7 @@ func TestMarkdownContrastBothThemes(t *testing.T) {
 					need = 0.25 // chip bg dominates readability there
 				}
 				if gap < need {
-					t.Errorf("%s theme %q: foreground luminance %.2f gap %.2f < %.2f (line %q)", theme, name, fgLum, gap, need, plain)
+					t.Errorf("%s theme %q: fg=%d luminance gap %.2f < %.2f (line %q)", theme, name, fg, gap, need, plain)
 				}
 				break
 			}
@@ -129,17 +132,20 @@ func TestMarkdownContrastBothThemes(t *testing.T) {
 	SetLightTheme(false)
 }
 
-// TestInlineCodeLightChip proves the light theme's inline code uses the
-// semantic code color on the derived element surface.
+// TestInlineCodeLightChip proves the light theme's inline code is green text
+// on the element surface (stock glamour Light used salmon-on-near-white, ~0.1 gap).
 func TestInlineCodeLightChip(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("use `config.Save` here", 60)
-	if !strings.Contains(out, "48;2;220;220;220") {
-		t.Errorf("light inline code should sit on the element surface: %q", out)
+	elem := currentTheme().Surface.Element
+	r, g, b, _ := elem.RGBA()
+	chip := fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8) // the light theme's Element surface, same fill as the prompt box
+	if !strings.Contains(out, chip) {
+		t.Errorf("light inline code should sit on the element chip (%s): %q", chip, out)
 	}
-	if !strings.Contains(out, "38;2;60;154;87") {
-		t.Errorf("light inline code should use the semantic code color: %q", out)
+	if !strings.Contains(out, "38;2;61;154;87") { // #3d9a57 as glamour v2 emits it
+		t.Errorf("light inline code text should be the light code green (#3d9a57): %q", out)
 	}
 }
 

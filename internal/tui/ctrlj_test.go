@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Regression: typing a first line then hitting ctrl+j must keep the first
@@ -21,18 +22,17 @@ import (
 // goroutine, which would race the program.
 func TestCtrlJFirstLineStaysVisible(t *testing.T) {
 	m := compactCmdModel()
-	m.queueSel = -1
-	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler())
+	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24), tea.WithColorProfile(colorprofile.TrueColor))
 	done := make(chan struct{})
 	go func() { p.Run(); close(done) }()
 	defer func() { p.Kill(); <-done }()
 	time.Sleep(100 * time.Millisecond) // program started, first frame rendered
 
 	for _, r := range "hello first line" {
-		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		p.Send(keyRunes(string(r)))
 		time.Sleep(30 * time.Millisecond)
 	}
-	p.Send(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	p.Send(ctrlKey('j'))
 
 	// read the input view inside the event loop (race-safe)
 	ch := make(chan string, 1)

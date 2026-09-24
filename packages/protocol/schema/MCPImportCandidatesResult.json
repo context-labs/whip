@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "properties": {
+    "candidates": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "brand_hint": {
+            "type": "string"
+          },
+          "brand_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "offered": {
+      "type": "boolean"
+    },
+    "config_path": {
+      "type": "string"
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/MCPImportCandidatesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPImportCandidatesResult",
+  "required": [
+    "candidates",
+    "offered",
+    "config_path"
+  ],
+  "additionalProperties": false
+}

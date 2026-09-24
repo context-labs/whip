@@ -1,0 +1,73 @@
+
+> whip-clients@0.0.0 build:desktop
+> node apps/desktop/scripts/build.mjs
+
+
+> whip-clients@0.0.0 build:web
+> npm run build -w @whip/sdk && npm run build -w @whip/web && node scripts/renderer-artifact.mjs
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @whip/web@0.1.0 build
+> vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 2830 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                         0.96 kB │ gzip:   0.41 kB
+dist/assets/jetbrains-mono-cyrillic-ext-wght-normal-EocZY2iu.woff2      2.02 kB
+dist/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2        7.50 kB
+dist/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2             9.00 kB
+dist/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2                10.25 kB
+dist/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2                 11.23 kB
+dist/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2         12.10 kB
+dist/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2        15.19 kB
+dist/assets/providers-Q3hH_l9v.svg                                     16.56 kB │ gzip:   6.61 kB
+dist/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2                  18.74 kB
+dist/assets/inter-greek-wght-normal-CkhJZR-_.woff2                     18.99 kB
+dist/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2              25.96 kB
+dist/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2            40.40 kB
+dist/assets/inter-latin-wght-normal-Dx4kXJAl.woff2                     48.25 kB
+dist/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2                 85.06 kB
+dist/assets/ghostty-vt-PH6eNY6t.wasm                                  967.56 kB │ gzip: 302.64 kB
+dist/assets/index-B-GkYF7k.css                                        102.11 kB │ gzip:  23.38 kB
+dist/assets/__vite-browser-external-2447137e-BvRk9kiK.js                0.00 kB │ gzip:   0.02 kB
+dist/assets/routes-C_Pou1MP.js                                          0.08 kB │ gzip:   0.09 kB
+dist/assets/h._runtimeId.s._rootId-C29tdb4-.js                          0.21 kB │ gzip:   0.17 kB
+dist/assets/h._runtimeId.s._rootId-CkK1LAbU.js                          0.27 kB │ gzip:   0.21 kB
+dist/assets/new._draftId-CK4ES2pi.js                                    0.30 kB │ gzip:   0.23 kB
+dist/assets/h._runtimeId.t._terminalId-DIf2MWlB.js                      0.39 kB │ gzip:   0.27 kB
+dist/assets/rolldown-runtime-hePW80VL.js                                0.71 kB │ gzip:   0.42 kB
+dist/assets/empty-workspace-SigRjzio.js                                 2.57 kB │ gzip:   1.35 kB
+dist/assets/error-feedback-zi03s4qR.js                                  6.82 kB │ gzip:   2.85 kB
+dist/assets/lazyRouteComponent-yywRXSVQ.js                             24.35 kB │ gzip:   8.97 kB
+dist/assets/styles-BdHT3V0u.js                                         28.77 kB │ gzip:   9.25 kB
+dist/assets/settings-D7AFfmzq.js                                       34.67 kB │ gzip:  11.61 kB
+dist/assets/code-highlight-COcMIFpe.js                                 48.04 kB │ gzip:  18.10 kB
+dist/assets/model-selection-CUTynPYe.js                               177.50 kB │ gzip:  56.13 kB
+dist/assets/mcp-brands-DnDreFDK.js                                    395.52 kB │ gzip: 238.94 kB
+dist/assets/context-COBHqvsm.js                                       513.89 kB │ gzip: 146.89 kB
+dist/assets/index-RmQ2PAmn.js                                       5,267.71 kB │ gzip: 909.65 kB
+
+✓ built in 2.51s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+Renderer artifact 0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166: 35 files
+Web assets packaged for go:embed: 0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.22s)
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whip-computer: replacing existing signature
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whipcode: replacing existing signature
+Desktop staged: /Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/app
+Renderer: 0d5bddab437a17bbcbe475242525747a6036f306d4fe4cad909ffb7d2fefe166
+Runtime: c6180458814bcb7fa12595f722ab7a880ae5fcddd455079dc6eeea11d1a3b9f3

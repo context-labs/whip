@@ -17,17 +17,76 @@ tasks:
       - go run -ldflags "{{.LDFLAGS}}" ./cmd/whip {{.CLI_ARGS}}
 
   build:
-    desc: Build the whip binary into ./whip
+    desc: Build the whip binary with the web app into ./whip (run npm ci first)
+    deps: [web-assets]
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o whip ./cmd/whip
 
+  build:whipcode:
+    desc: Build whipcode with the web app into ./whipcode (run npm ci first)
+    deps: [web-assets]
+    vars:
+      WHIPCODE_VERSION: '{{default "dev" .WHIPCODE_VERSION}}'
+    cmds:
+      - go build -ldflags "-X main.version={{.WHIPCODE_VERSION}} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" -o whipcode ./cmd/whip
+
+  install:whipcode:
+    desc: Install whipcode with the web app to GOBIN or GOPATH/bin
+    deps: [build:whipcode]
+    cmds:
+      - |
+        dest=$(go env GOBIN)
+        if [ -z "$dest" ]; then dest="$(go env GOPATH)/bin"; fi
+        mkdir -p "$dest"
+        install -m 755 whipcode "$dest/whipcode"
+
+  update:local:
+    desc: Build, sign and install local macOS Desktop + whipcode, then restart the shared daemon
+    cmds:
+      - node scripts/update-local.mjs {{.CLI_ARGS}}
+
+  test:update-local:
+    desc: Test local installation staging and failure recovery with disposable files
+    cmds:
+      - node --test scripts/update-local.test.mjs
+
+  onboarding:docker:
+    desc: Build working files and open a disposable TUI + web app at localhost:4000
+    interactive: true
+    cmds:
+      - node scripts/onboarding-docker.mjs {{.CLI_ARGS}}
+
+  test:onboarding-docker:
+    desc: Test Docker onboarding orchestration and local renderer provenance
+    cmds:
+      - node --test scripts/onboarding-docker.test.mjs scripts/renderer-artifact.test.mjs
+
   install:
-    desc: Install whip to $GOPATH/bin (~/go/bin)
+    desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
+    deps: [web-assets]
     cmds:
       - go install -ldflags "{{.LDFLAGS}}" ./cmd/whip
 
+  web-assets:
+    desc: Build and package the production web app for go:embed
+    cmds:
+      - npm run build:web
+      - node scripts/pack-web.mjs
+
+  web:
+    desc: Check web types, production assets, component tests and theme generation drift
+    cmds:
+      - go run ./cmd/themegen -check
+      - npm run check:web
+      - npm run test:web
+      - npm run check -w @whip/ui
+      - npm run test -w @whip/ui
+      - node --test scripts/pack-web.test.mjs
+      - node --test apps/web/scripts/stylex-dev.test.mjs
+      - node --test apps/web/scripts/dev-proxy.test.mjs
+
   benchmark:
-    desc: "Benchmark startup: binary boot (--version) and full init (-bench: config, routing, key, agent)"
+    desc: "Benchmark startup: binary boot (--version) and configuration/provider resolution (-bench)"
     deps: [build]
     cmds:
       - |
@@ -47,9 +106,40 @@ tasks:
     cmds:
       - go test ./...
 
+  acceptance:
+    desc: "Run the deterministic daemon, recursive-agent, client, and RLM release acceptance suite"
+    cmds:
+      - go test -race -tags=integration ./internal/tui -run '^TestInteractiveSessionOverTrustedProtocol$'
+      - go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
+      - go test -race ./internal/daemon ./internal/session ./internal/protocol -run '^(TestV2|TestV3|TestTrustedClient|TestRuntimeRegistry|TestCommandAcceptance|TestClientAcceptance|TestDeleteAcceptance|TestQuestionSnapshot|TestRootCollection|TestSessionCatalog|TestIncompatible|TestVersionFive|TestVersionSix|TestBounded|TestTranscriptPage)'
+      - go test -race ./internal/mcp ./internal/tools ./internal/session ./internal/daemon ./internal/acp ./internal/tui -run '^(TestMCP|TestExternalPermission|TestCheckedManager|TestConfigTrust|TestConfigDiscoveryReportsWinningProvenance|TestManagerOwnsConfigMapsAndNeverTrustsSourceLabels|TestCapabilityFinishStorageFailureSettlesAndReleasesCapacity|TestCapabilityFinishDeniedSettlesAdmittedOperation|TestBridgeMCP)'
+      - go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState|TestArchitecture.*|TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth|TestRecursiveSpawnQueuesUnderWorkerPressure|TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration|TestRecursiveAgentClientControlsAuthorizeAndPersist|TestRecursiveRuntimeRestoresRetainedAgentAndTranscript|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestConcurrentChildTurnPressureKeepsPromptQueued|TestSuspendedKernelNoticeIsEphemeral|TestSuspendedKernelRestoresScratchWithEphemeralNotice|TestBackgroundShellJobOutlivesTheCellAndTurn|TestToolHostRunsOnlyRestrictedToolCommands|TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes|TestUserAskRoundTripsThroughQuestionEvents|TestUserAskDismissAndCancelClose|TestUserAskIsRootOnlyAndValidatesArguments)$'
+      - go test -race ./internal/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestMailboxMessageIsCanonicalAndBodyStaysBehindRead|TestMailboxTurnDeliversOnCommitAndNewMailStaysPending|TestFailedMailboxTurnRedeliversPendingMail|TestRootMailboxFailureRequiresExplicitInputAcrossRestart|TestRootTurnLifecycleIdentifiesExactTurn|TestMessageDeliveryClassesAndDeferral|TestAgentAdmissionPersistsPromptAtomically|TestRecoveryKeepsQueuedAgentPromptButInterruptsRunningInput|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestDispatcherWorkspaceMutationRunsAlongsidePathMutations|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
+      - go test -race ./internal/tui ./internal/acp ./cmd/whip -run '^(TestClientReconnectReplayAndSnapshotFallback|TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect|TestDaemonBackedModelRendersWithoutAnAgent|TestThinPaletteAndAgentControlsStayDaemonBacked|TestBridgeDaemonCutoverMapsEventsAndContent|TestBridgePermissionAndModesWithoutCredentials|TestBridgeQuestionMapsToPermissionPromptAndAnswerOp|TestBridgeConcurrentSessionsAndCloseDetach|TestRunDaemonAlwaysUsesRLMRuntime|TestRunTextOutput|TestSessionsCLI|TestMCPServeStopsCleanlyOnStdinEOF|TestMCPTestCLIReady|TestACPDaemonBackendAndMCPToolsRoundTrip)$'
+      - go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart|TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns|TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions|TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown|TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning|TestKernelScratchSurvivesSuspensionAndMidTurnRestart)$'
+      - go test -race ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$'
+      - WHIP_SDK_RACE=1 npm run acceptance
+      - npm run test:package
+      - go test -race ./internal/rlm ./internal/session ./internal/daemon -run '^(TestScratch|TestWorkerSnapshot|TestWorkerRestore|TestWorkerCrossChunk|TestStructuredState|TestStatePages|TestChildScratchSurvivesDaemonRestart|TestPhaseFourAndFiveStoresAreRejectedWithoutMutation)'
+
+      - go test -race ./internal/llm ./internal/session ./internal/agent ./internal/daemon ./internal/tui -run '^(TestModel|TestPricing|TestUsage|TestStreamPreserves|TestStreamUnterminated|TestCompletePreserves|TestMalformedUsage)'
+
+  contract:
+    desc: "Validate generated Node 24 contracts and deterministic generation (run npm ci first)"
+    cmds:
+      - npm run check -w @whip/protocol
+
+  sdk:
+    desc: "Build and test the TypeScript SDK, synchronized views, and React example"
+    cmds:
+      - npm run check -w @whip/sdk
+      - npm run build -w @whip/client-example
+      - npm run check -w @whip/agents-example
+
   check:
     desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
     cmds:
+      - task: models:check
       - |
         unformatted=$(gofmt -s -l .)
         if [ -n "$unformatted" ]; then
@@ -58,6 +148,21 @@ tasks:
       - go vet ./...
       - go run ./cmd/whipvet ./...
       - go test ./...
+      - task: contract
+      - task: sdk
+      - task: web
+      - task: test:update-local
+      - task: test:onboarding-docker
+
+  models:update:
+    desc: Update bundled Models.dev metadata and desktop provider key names
+    cmds:
+      - go run ./cmd/modelgen {{.CLI_ARGS}}
+
+  models:check:
+    desc: Validate bundled model metadata and generated provider names offline
+    cmds:
+      - go run ./cmd/modelgen -check
 
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"
@@ -75,8 +180,8 @@ tasks:
       - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   ci:
-    desc: "Run the full local CI gate: check + lint + vuln (what CI runs)"
-    deps: [check, lint, vuln]
+    desc: "Run the full local CI gate: check + lint + vuln + release acceptance"
+    deps: [check, lint, vuln, acceptance]
 
   hooks:
     desc: "Enable the repo's git hooks (sets core.hooksPath to scripts/git-hooks)"

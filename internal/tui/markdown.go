@@ -5,10 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	chromaStyles "github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/glamour"
-	glamouransi "github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/glamour/styles"
+	"charm.land/glamour/v2"
+	glamouransi "charm.land/glamour/v2/ansi"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -21,6 +19,10 @@ import (
 // (never WithEnvironmentConfig: an OSC background query mid-session can hang
 // over mosh/tmux — see detectColorScheme).
 func renderMarkdown(s string, width int) string {
+	return renderMarkdownAt(s, width, "")
+}
+
+func renderMarkdownAt(s string, width int, root string) string {
 	if strings.TrimSpace(s) == "" {
 		return s
 	}
@@ -29,9 +31,15 @@ func renderMarkdown(s string, width int) string {
 	if err != nil {
 		return s
 	}
-	rendered := stripLinePadding(strings.Trim(out, "\n"))
-	linked := hyperlinkGlamourLinks(rendered, realFileExists)
-	linked = linkifyRenderedFilePaths(linked, realFileExists)
+	// Lip Gloss v2 (and glamour on top of it) emit the short reset \x1b[m; the
+	// link and path scanners below key on the canonical \x1b[0m form. glamour
+	// v2 also hyperlinks labels and hrefs itself; whip re-links them its own
+	// way (stripOSC8).
+	rendered := stripOSC8(bareSGR.Replace(stripLinePadding(strings.Trim(out, "\n"))))
+	exists := func(path string) bool { return realFileExistsAt(root, path) }
+	uri := func(path, line string) string { return absFileURIAt(root, path, line) }
+	linked := hyperlinkGlamourLinksWith(rendered, exists, uri)
+	linked = linkifyRenderedFilePathsWith(linked, exists, uri)
 	return wrapWideLines(linked, width)
 }
 
@@ -92,14 +100,12 @@ func selfTerminate(l string) string {
 var (
 	mdMu          sync.Mutex
 	mdAtWidth     int
-	mdAtLight     bool // theme the cached renderer was built for
-	mdAtKnown     bool // whether the cached renderer was built with a known bg
-	mdAtThemeGen  int  // semantic palette generation used by the cached renderer
+	mdAtGen       int // theme generation the cached renderer was built for
 	mdRendererC   *glamour.TermRenderer
 	mdRendererErr bool   // style init failed once: don't retry per message
 	mdLight       bool   // light terminal background detected (set at startup)
 	mdKnown       bool   // background was actually determined; false = no good signal
-	mdScheme      string // explicit scheme ("light"/"dark"); "" = follow detection
+	mdScheme      string // pinned theme name ("light", "dark", or a user theme); "" = follow detection
 )
 
 // applyLight/applyDark/applyUnknown drop the cached renderer so the next
@@ -115,7 +121,16 @@ func SetLightTheme(light bool) {
 	mdLight, mdKnown = light, true
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
-	rebuildTheme()
+	resetLinkSGRs()
+	refreshBaseStyles()
+}
+
+// schemeIsLight reports whether the detected (or chosen) scheme is light. An
+// unknown scheme counts as dark, matching the neutral markdown style's bias.
+func schemeIsLight() bool {
+	mdMu.Lock()
+	defer mdMu.Unlock()
+	return mdKnown && mdLight
 }
 
 // SetUnknownTheme records that the terminal background could NOT be determined
@@ -128,7 +143,8 @@ func SetUnknownTheme() {
 	mdKnown = false
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
-	rebuildTheme()
+	resetLinkSGRs()
+	refreshBaseStyles()
 }
 
 // setSchemeOverride records an explicit scheme pick ("light"/"dark", "" = back
@@ -136,8 +152,10 @@ func SetUnknownTheme() {
 func setSchemeOverride(s string) {
 	mdMu.Lock()
 	mdScheme = s
+	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
-	rebuildTheme()
+	resetLinkSGRs()
+	refreshBaseStyles() // a pinned user theme changes the palette, not just the scheme
 }
 
 // CurrentTheme reports the active scheme ("light"/"dark"/"auto") for the UI.
@@ -159,22 +177,13 @@ func CurrentTheme() string {
 	return "dark"
 }
 
-// unregisterChromaStyle drops glamour's global chroma style ("charm").
-// Glamour registers it once per process, guarded by "if not present" — so
-// the FIRST theme to render a code block wins forever and a later theme
-// switch keeps the wrong syntax colors (a light render poisons every later
-// dark render with color 235). Deleting the entry on theme change lets the
-// next render register the right palette.
-func unregisterChromaStyle() {
-	delete(chromaStyles.Registry, "charm")
-}
-
 // invalidateMDRenderer drops the cached markdown renderer so the next render
 // rebuilds it — used when the UI mode toggles (opencode markdown style differs).
 func invalidateMDRenderer() {
 	mdMu.Lock()
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	resetLinkSGRs() // link SGR prefixes follow the style
 }
 
 // mdStyle picks the glamour style for the detected background. The light
@@ -191,42 +200,7 @@ func invalidateMDRenderer() {
 // glamour's default cell padding wastes ~4 columns per cell, which is the
 // difference between a readable table and wrapped mush at narrow widths.
 func mdStyle() glamouransi.StyleConfig {
-	return currentTheme().Markdown()
-}
-
-// opencodeMDStyle renders assistant markdown in opencode's palette (both
-// theme variants), so the body text and inline styles match opencode
-// pixel-for-pixel. Document.Margin is left at glamour's default 2 because the
-// assistant indent math (indentLines) accounts for it.
-func opencodeMDStyle(light bool) glamouransi.StyleConfig {
-	pick := func(dark, lt string) *string {
-		s := dark
-		if light {
-			s = lt
-		}
-		return &s
-	}
-	st := styles.DarkStyleConfig
-	if light {
-		st = styles.LightStyleConfig
-	}
-	st.Document.Color = pick("#eeeeee", "#1a1a1a") // markdownText (no background: the main area stays terminal-native)
-	st.Heading.Color = pick("#9d7cd8", "#d68c27")  // markdownHeading (accent)
-	st.H1.Color = pick("#9d7cd8", "#d68c27")
-	st.H1.BackgroundColor = nil
-	st.Code.Color = pick("#7fd88f", "#3d9a57") // markdownCode (green)
-	st.Code.BackgroundColor = pick("#1e1e1e", "#f5f5f5")
-	st.Link.Color = pick("#fab283", "#3b7dd8")     // markdownLink
-	st.LinkText.Color = pick("#56b6c2", "#318795") // markdownLinkText (cyan)
-	st.Strong.Color = pick("#f5a742", "#d68c27")   // markdownStrong (orange)
-	st.Emph.Color = pick("#e5c07b", "#b0851f")     // markdownEmph (yellow)
-	st.Item.Color = pick("#fab283", "#3b7dd8")     // markdownListItem
-	st.Table.ColumnSeparator = new("│")
-	st.Table.CenterSeparator = new("┼")
-	st.Table.RowSeparator = new("─")
-	zero := uint(0)
-	st.Table.Margin = &zero
-	return st
+	return currentTheme().Markdown() // neutral (terminal colors only) while the background is unknown
 }
 
 // mdRenderer returns a cached renderer per width (glamour builds a
@@ -243,11 +217,9 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	// other theme. The registry entry is keyed by name, not theme: drop it
 	// whenever the cached renderer's theme isn't the current one, and also
 	// when the entry's origin is unknown (first call after a theme flip).
-	gen := themeGeneration()
-	if mdRendererC != nil && mdAtWidth == width && mdAtLight == mdLight && mdAtKnown == mdKnown && mdAtThemeGen == gen {
+	if mdRendererC != nil && mdAtWidth == width && mdAtGen == themeGeneration() {
 		return mdRendererC
 	}
-	unregisterChromaStyle()
 	st := mdStyle()
 	margin := uint(2)
 	st.Document.Margin = &margin
@@ -260,14 +232,15 @@ func mdRenderer(width int) *glamour.TermRenderer {
 		mdRendererErr = true
 		return nil
 	}
-	mdRendererC, mdAtWidth, mdAtLight, mdAtKnown, mdAtThemeGen = r, width, mdLight, mdKnown, gen
+	mdRendererC, mdAtWidth, mdAtGen = r, width, themeGeneration()
 	return r
 }
 
-// bareSGR is the empty SGR escape (\x1b[m) lipgloss' Width().Render appends
-// before its right-padding; some terminals render the empty parameter list
-// inconsistently, and the styled pad shows up as visual smear. Normalize it
-// to a proper reset.
+// bareSGR normalizes the short reset (\x1b[m), which Lip Gloss v2 emits for
+// every style close, to the canonical \x1b[0m that whip's own scanners
+// (links, self-terminating lines, background re-opening) key on. The frame
+// itself is re-encoded cell by cell by Bubble Tea's renderer, so the form
+// never reaches the terminal verbatim.
 var bareSGR = strings.NewReplacer("\x1b[m", "\x1b[0m")
 
 // sanitizeView cleans one rendered screen: bare SGR escapes become real
@@ -281,28 +254,7 @@ func sanitizeView(s string) string {
 	s = bareSGR.Replace(s)
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		if !ocActive {
-			// opencode mode: styled trailing spaces ARE the panel fills (user
-			// cards) — stripping them collapses a full-width panel to a chip.
-			// Markdown got its own padding stripped at render time either way.
-			l = padStripRE.ReplaceAllString(l, "$1")
-		}
-		lines[i] = selfTerminate(l)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// sanitizeInputView is sanitizeView's conservative cousin for the input box:
-// close each styled line (bubbles' cursor-line rendering splits styled lines
-// into pieces, and an un-closed piece bleeds its style into the status line —
-// seen after pasting a large body, where the ctrl+j SetValue churn can leave
-// the textarea's memoized wrap mid-frame) but never touch trailing padding:
-// the input region relies on styled tails for opencode's prompt-box fill and
-// the drag-selection highlight, and padStripRE would eat both.
-func sanitizeInputView(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		lines[i] = selfTerminate(l)
+		lines[i] = selfTerminate(l) // styled trailing spaces ARE the panel fills: never strip them
 	}
 	return strings.Join(lines, "\n")
 }

@@ -77,10 +77,7 @@ func TestParseArraysAndBools(t *testing.T) {
 // The tool must refuse to run without an installed manager instead of
 // panicking the loop.
 func TestBrowserExecNoManager(t *testing.T) {
-	old := Browser
-	Browser = nil
-	defer func() { Browser = old }()
-	out := Execute(t.Context(), []Tool{BrowserExec()}, "browser_exec", []byte(`{"code":"info()"}`))
+	out := Execute(t.Context(), []Tool{BrowserExec(NewServices())}, "browser_exec", []byte(`{"code":"info()"}`))
 	if out == "" || out[:5] != "Error" {
 		t.Fatalf("want error string, got %q", out)
 	}

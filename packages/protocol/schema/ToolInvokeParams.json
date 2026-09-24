@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "invocation_id": {
+      "type": "string"
+    },
+    "definition": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    },
+    "input": true,
+    "deadline_millis": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/ToolInvokeParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolInvokeParams",
+  "required": [
+    "invocation_id",
+    "definition",
+    "revision",
+    "generation",
+    "root_id",
+    "agent_id",
+    "turn_id",
+    "tool",
+    "input",
+    "deadline_millis"
+  ],
+  "additionalProperties": false
+}

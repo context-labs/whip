@@ -4,10 +4,13 @@ package skills
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Skill is one discovered skill.
@@ -36,12 +39,19 @@ type ScanProblem struct {
 // DefaultDirs returns whip's skill locations: project .agents/skills, then
 // user ~/.whip/skills and ~/.agents/skills.
 func DefaultDirs() []string {
+	wd, _ := os.Getwd()
+	return DirsFor(wd)
+}
+
+// DirsFor returns configured skill roots for a specific daemon session. This
+// avoids resolving project skills against the daemon process's startup cwd.
+func DirsFor(workingDirectory string) []string {
 	var dirs []string
-	if wd, err := os.Getwd(); err == nil {
-		dirs = append(dirs, filepath.Join(wd, ".agents", "skills"))
+	if workingDirectory != "" {
+		dirs = append(dirs, filepath.Join(workingDirectory, ".agents", "skills"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".whip", "skills"))
+		dirs = append(dirs, filepath.Join(buildinfo.Home(home), "skills"))
 		dirs = append(dirs, filepath.Join(home, ".agents", "skills"))
 	}
 	return dirs
@@ -118,7 +128,11 @@ func parse(path string) (Skill, error) {
 		return Skill{}, err
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	return parseMetadata(path, f)
+}
+
+func parseMetadata(path string, reader io.Reader) (Skill, error) {
+	sc := bufio.NewScanner(reader)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
 		return Skill{}, fmt.Errorf("%s: no frontmatter", path)
@@ -338,7 +352,7 @@ func PromptBlock(sk []Skill) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\n<available_skills>\nThese skills hold task-specific instructions. When one is relevant, read its SKILL.md with the read tool and follow it. Relative paths in a skill resolve against the skill's directory (the parent of its SKILL.md).\n")
+	b.WriteString("\n\n<available_skills>\nThese skills hold task-specific instructions. When one is relevant, read its SKILL.md with files.read and follow it. Relative paths in a skill resolve against the skill's directory (the parent of its SKILL.md).\n")
 	for _, s := range visible {
 		b.WriteString("  <skill>\n")
 		fmt.Fprintf(&b, "    <name>%s</name>\n", xmlEscape(s.Name))

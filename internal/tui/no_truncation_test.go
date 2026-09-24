@@ -51,7 +51,7 @@ func TestResumedToolCallNotTruncated(t *testing.T) {
 	var found bool
 	for _, b := range m.blocks {
 		rendered := ansi.Strip(b.render(m.width))
-		if !strings.Contains(rendered, "Bash(") {
+		if !strings.Contains(rendered, "$ Bash ") {
 			continue
 		}
 		found = true

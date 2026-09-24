@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "source": {
+    "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+    "dirty": true
+  },
+  "lockfile": "1995b3103b7dc1c2a97fdf8ecac55e3235b5ffaaba9da40a29def92c53d6cbbd",
+  "csp": "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'none'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http: https: ws: wss:; worker-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'",
+  "files": {
+    "assets/code-highlight-COcMIFpe.js": {
+      "bytes": 48048,
+      "sha256": "8befd350bed206f23268e98e73db608e439f2808674c318c39b8dbb399c0b2a1"
+    },
+    "assets/h._runtimeId.s._rootId-BV2X7Abl.js": {
+      "bytes": 214,
+      "sha256": "403f77ff2e319b14783781db7caa0c2a06981907ed46886b1d9abf5037dd1428"
+    },
+    "assets/h._runtimeId.s._rootId-C5dRbf7p.js": {
+      "bytes": 271,
+      "sha256": "de8c275cbcc32bfe6e2e569449cfe75ca21dfc1fc11fa43bdeecce186c7db9eb"
+    },
+    "assets/index-BGHXyFDo.js": {
+      "bytes": 2673874,
+      "sha256": "45dda9a6e5b250dd02e744adc8bdf09d61a4dec74b177671e2f4d9b8f38a3d91"
+    },
+    "assets/index-D_me_Oh8.css": {
+      "bytes": 83369,
+      "sha256": "e76ec57bf19cc660033445fe1b7bc8f26699684fafc3941f7b17b61f54c29b2b"
+    },
+    "assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2": {
+      "bytes": 25960,
+      "sha256": "ca157063339ac4ad418f214f3abfed119b0798ab4d377386ce5c9e5a7a435ebd"
+    },
+    "assets/inter-cyrillic-wght-normal-DqGufNeO.woff2": {
+      "bytes": 18748,
+      "sha256": "71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075"
+    },
+    "assets/inter-greek-ext-wght-normal-DlzME5K_.woff2": {
+      "bytes": 11232,
+      "sha256": "6e9e020a25f9b56d418f2c085b1d3c09725a4da23fe693a5b463064606732190"
+    },
+    "assets/inter-greek-wght-normal-CkhJZR-_.woff2": {
+      "bytes": 18996,
+      "sha256": "1be3448e292fbf05ffe176fe1e43f135013d50b1e7d324ad1a558f623d3bb6f6"
+    },
+    "assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2": {
+      "bytes": 85068,
+      "sha256": "34b9c504cab7a73e37b746343a449132e56cf7b5481af2cb81dc74dcff25c956"
+    },
+    "assets/inter-latin-wght-normal-Dx4kXJAl.woff2": {
+      "bytes": 48256,
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62"
+    },
+    "assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2": {
+      "bytes": 10252,
+      "sha256": "5c66f9e07e90c6d4ac4922cc68d60de26c17b1858e677fb5e603fce3952b3ff2"
+    },
+    "assets/jetbrains-mono-cyrillic-ext-wght-normal-EocZY2iu.woff2": {
+      "bytes": 2028,
+      "sha256": "593ccd6fe36e299e151aeae4521be9bfe83ac487d96d7cdb44f50be4a04041c7"
+    },
+    "assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2": {
+      "bytes": 12108,
+      "sha256": "d274604c40757f98f07df623a8b8fb5194508a6fa4f5413a7a107f09e3b7452a"
+    },
+    "assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2": {
+      "bytes": 9004,
+      "sha256": "ee863198077f3093ffa81c072581cc4bd608a04e60a8a9c0b846396ce4f14109"
+    },
+    "assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2": {
+      "bytes": 15196,
+      "sha256": "79bfdab9ba467e26eea4122e6f2567e188dd8a09a8c730d501fc487c4ab99c6e"
+    },
+    "assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2": {
+      "bytes": 40404,
+      "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+    },
+    "assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2": {
+      "bytes": 7504,
+      "sha256": "2288795da89dd97e648954b96e22b4501bd85dfc453264460b252f888b582ca2"
+    },
+    "assets/rolldown-runtime-hePW80VL.js": {
+      "bytes": 716,
+      "sha256": "580ad8c58061a4dde99bde0a56905e382f0568516ee2f5b84dbfb52085709021"
+    },
+    "assets/routes-RtzesEmf.js": {
+      "bytes": 6225,
+      "sha256": "3a4736f46b8e7b035c3a673474c32be1193038076e9ba6b301b63a850318666e"
+    },
+    "assets/settings-MBkkSjLg.js": {
+      "bytes": 76454,
+      "sha256": "00d868b49822a8ee065b05fc83d63c721ae548e17e9f7d801b991fbe3c41a96b"
+    },
+    "assets/src-CGBtX3AL.js": {
+      "bytes": 442140,
+      "sha256": "3d0538bf4e299aeeb912dc223e70adb3c456497b6a9774ada25610982206f01c"
+    },
+    "index.html": {
+      "bytes": 622,
+      "sha256": "86cf4ba15803638e0dd0bb0e7da3bc5ef482a138160b961897d93f9ae033c349"
+    }
+  },
+  "digest": "b1edb2b5e8ba2eb7724790dcc78199d5281d671248c871932fe0f39578a1ddad"
+}

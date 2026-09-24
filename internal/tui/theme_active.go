@@ -3,19 +3,29 @@ package tui
 import (
 	"image/color"
 	"slices"
-	"sort"
 	"sync"
 
-	uitheme "github.com/context-labs/whip/internal/tui/theme"
+	"github.com/charmbracelet/colorprofile"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/tui/theme"
 )
 
+// The active theme is process-global like the scheme it follows (mdLight /
+// mdKnown / mdScheme): everything that paints reads currentTheme(), and
+// rebuildTheme() re-resolves it whenever the scheme, the detected background
+// RGB, the color profile, or the pinned theme name changes. themeGen bumps on
+// every rebuild so caches keyed on the look (glamour renderer, block renders)
+// know to drop.
 var (
-	themeMu     sync.Mutex
-	activeTheme = uitheme.Resolve(uitheme.Neutral(), nil)
-	themeGen    int
+	themeMu      sync.Mutex
+	activeTheme  = theme.Resolve(theme.Neutral(), nil, colorprofile.TrueColor)
+	themeGen     int
+	themeProfile = colorprofile.TrueColor
+	userThemes   []theme.Spec
 )
 
-func currentTheme() *uitheme.Theme {
+func currentTheme() *theme.Theme {
 	themeMu.Lock()
 	defer themeMu.Unlock()
 	return activeTheme
@@ -27,66 +37,100 @@ func themeGeneration() int {
 	return themeGen
 }
 
-// rebuildTheme resolves the selected catalog entry against the detected
-// terminal background. It must not be called while mdMu is held.
+// rebuildTheme resolves the spec the scheme state selects: a pinned user
+// theme by name, else the built-in for the detected scheme, else neutral
+// when the background is unknown. Must not be called with mdMu held.
 func rebuildTheme() {
 	mdMu.Lock()
 	light, known, pick := mdLight, mdKnown, mdScheme
 	mdMu.Unlock()
-
 	var bg color.Color
 	if known && bgCache.valid && bgCache.hasRGB {
-		bg = color.RGBA{R: byte(bgCache.r), G: byte(bgCache.g), B: byte(bgCache.b), A: 0xff} //nolint:gosec // OSC RGB components are parsed in the 0..255 range.
+		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff} //nolint:gosec // r/g/b are normalized to 0-255 by parseOSCBgRGB / setBgFromColor
 	}
-	spec := uitheme.Neutral()
+	spec := theme.Neutral()
 	switch {
-	case pick != "":
-		if selected, ok := uitheme.Builtin(pick); ok {
-			spec = selected
-		} else if light {
-			spec = uitheme.Light()
-		} else {
-			spec = uitheme.Dark()
-		}
+	case pinnedSpec(pick) != nil:
+		spec = *pinnedSpec(pick)
 	case !known:
 		bg = nil
 	case light:
-		spec = uitheme.Light()
+		spec = theme.Light()
 	default:
-		spec = uitheme.Dark()
+		spec = theme.Dark()
 	}
-
 	themeMu.Lock()
-	activeTheme = uitheme.Resolve(spec, bg)
+	activeTheme = theme.Resolve(spec, bg, themeProfile)
 	themeGen++
 	themeMu.Unlock()
 }
 
-func themeNames() []string {
-	dark, light := []string{}, []string{}
-	for _, spec := range uitheme.Builtins() {
-		if spec.Dark {
-			dark = append(dark, spec.Name)
-		} else {
-			light = append(light, spec.Name)
-		}
+// setThemeProfile records the terminal's color depth (Bubble Tea's
+// ColorProfileMsg) and re-resolves: under 16 colors the surface fills vanish.
+func setThemeProfile(p colorprofile.Profile) {
+	themeMu.Lock()
+	changed := themeProfile != p
+	themeProfile = p
+	themeMu.Unlock()
+	if changed {
+		refreshBaseStyles()
 	}
-	sort.Strings(dark)
-	sort.Strings(light)
-	return append(append([]string{"auto"}, dark...), light...)
 }
 
-func themeLabel(name string) string {
-	if name == "auto" {
-		return "◐  Auto"
+// loadUserThemes (re)reads <config dir>/themes/*.json. Broken files are
+// returned as errors and skipped so one typo never hides the other themes.
+func loadUserThemes() []error {
+	dir, err := config.Dir()
+	if err != nil {
+		return []error{err}
 	}
-	if spec, ok := uitheme.Builtin(name); ok {
-		if spec.Dark {
-			return "☾  " + spec.Label()
+	specs, errs := theme.Load(dir)
+	themeMu.Lock()
+	userThemes = specs
+	themeMu.Unlock()
+	return errs
+}
+
+// pinnedSpec resolves a theme name the user pinned: whip's built-ins and the
+// embedded catalog first, then the user's own files.
+func pinnedSpec(name string) *theme.Spec {
+	if name == "" {
+		return nil
+	}
+	if s, ok := theme.Builtin(name); ok {
+		return &s
+	}
+	return userThemeSpec(name)
+}
+
+func userThemeSpec(name string) *theme.Spec {
+	if name == "" {
+		return nil
+	}
+	themeMu.Lock()
+	defer themeMu.Unlock()
+	for i := range userThemes {
+		if userThemes[i].Name == name {
+			return &userThemes[i]
 		}
-		return "☀  " + spec.Label()
 	}
-	return name
+	return nil
+}
+
+// themeNames lists what /theme accepts: auto, the built-ins, then user themes.
+func themeNames() []string {
+	builtins := theme.Builtins()
+	themeMu.Lock()
+	defer themeMu.Unlock()
+	names := make([]string, 0, 1+len(builtins)+len(userThemes))
+	names = append(names, "auto")
+	for _, s := range builtins {
+		names = append(names, s.Name)
+	}
+	for _, s := range userThemes {
+		names = append(names, s.Name)
+	}
+	return names
 }
 
 func knownThemeName(name string) bool {

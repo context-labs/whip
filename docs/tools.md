@@ -1,106 +1,271 @@
-# Tools
+# Tools and host modules
 
-The tools are the model's hands. whip keeps the set small and code-shaped:
-each tool is a function with a JSON schema, defined in `internal/tools`, run
-by the agent loop with per-path mutation locks (see
-[agent-loop.md](agent-loop.md#parallel-tool-calls)).
+The model-facing catalog has one entry:
 
-## The set
+| Tool | Purpose |
+| --- | --- |
+| `rlm_exec` | Evaluate one bounded Starlark cell against daemon-hosted modules |
 
-```mermaid
-flowchart TB
-    MODEL["model<br/>(emits tool calls)"] --> LOOP["agent loop<br/>runTools fan-out"]
+This is true for roots and children. MCP discovery does not add tools to a
+model request; configured MCP operations remain under the `mcp` module.
 
-    subgraph core["core — internal/tools"]
-        BASH["bash<br/>shell commands, global lock,<br/>interactive PTY for sudo"]
-        READ["read<br/>file with line numbers"]
-        WRITE["write<br/>create/overwrite"]
-        EDIT["edit<br/>exact-string replacement"]
-        SUGGEST["suggest<br/>file completions"]
-        QUESTION["question<br/>selectable options modal,<br/>main agent only"]
-    end
+The module table below is the coding agent's. Another definition selects a
+subset: its prompt describes only those modules, its kernels install only
+those bindings, and the host refuses a call to any other module.
 
-    subgraph agents["agents & planning — internal/agent"]
-        TASK["task<br/>subagent, background: true<br/>for concurrent work"]
-        TODO["todowrite<br/>conversation-scoped plan,<br/>reinjected each round"]
-    end
+## Modules
 
-    subgraph reach["reach — internal/browser, internal/computer"]
-        BROWSER["browser_exec<br/>drive real Chrome"]
-        COMPUTER["computer_exec<br/>drive the macOS desktop"]
-    end
+Host operations accept keyword arguments. The local `json` module accepts
+positional arguments and does not contact the daemon.
 
-    subgraph ext["external — internal/mcp"]
-        MCPT["mcp__server__tool<br/>any MCP server tool"]
-    end
+| Module | Operations |
+| --- | --- |
+| `context` | `inspect`, `search`, `read` supplied or history handles |
+| `files` | `list`, `search`, `read`, `write`, `patch` |
+| `shell` | `run` (blocking, 120 s cap), `read` handle-backed output, background jobs: `start`, `poll`, `tail`, `wait`, `kill`, `list` |
+| `browser` | `run`; [desktop attachment lifecycle](browser-computer-use.md#desktop-browser-tabs) |
+| `computer` | `run` |
+| `models` | `call`, `batch` for stateless model work |
+| `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
+| `messages` | `send`, `list`, `read`, `complete`, `defer` |
+| `mcp` | `list_servers`, `list_tools`, `search`, `describe`, `instructions`, `call` |
+| `state` | private/blackboard get, set, append, CAS, list/history, subscriptions |
+| `artifacts` | `put`, `inspect`, `read` |
+| `schedules` | `create`, `list`, `cancel` |
+| `permissions` | `request`, `status`; a kernel cannot approve |
+| `user` | `ask`; root agent only |
+| `json` | local `encode`, `decode`, `encode_indent`, `indent` |
 
-    LOOP --> core & agents & reach & ext
+Example:
+
+```python
+matches = files.search(path=".", query="TODO")
+reviewers = models.batch(prompts=[
+    "Identify the risky change",
+    "Identify missing tests",
+], max_tokens=800)
+child = agents.spawn(
+    name="reviewer",
+    prompt="Review the persistence changes and message the parent with findings",
+    capabilities=["read", "shell"],
+)
+{"matches": matches, "reviewers": reviewers, "child": child}
 ```
 
-## Design rules
+Starlark is not Python: there is no `import`, `open`, or `try/except`.
+Supported data and top-level helpers survive worker eviction and restart.
+Unsupported bindings are reported; see the scratch contract in
+`rlm-runtime.md`. A completed cell can still have an unsaved checkpoint:
+check its scratch warning and do not repeat external effects merely to save
+the checkpoint. Use `state`, `artifacts`, messages, and retained children for
+important durable work.
 
-1. **Few, composable tools beat many special cases.** There is no "search
-   the web" tool — there is `bash` and `curl`. There is no "rename symbol"
-   tool — there is `edit` plus LSP diagnostics that catch what the edit
-   broke. The model composes the primitives.
-2. **Reads are free, mutations are locked.** `read` and `suggest` never
-   block. `write`/`edit` serialize per canonical path; `bash` serializes
-   globally because its side effects can't be attributed to one file.
-3. **Failure is data.** Tool errors return as results the model can act on —
-   a failed `bash` includes exit code and stderr tail; a slow MCP server
-   fails fast with an actionable message instead of blocking the loop.
-4. **Schemas teach.** Each tool's JSON schema carries usage guidance (the
-   `bash` schema documents the per-path locking behavior so the model batches
-   independent calls and serializes same-file ones).
+## Desktop Browser helper mode
 
-## bash
+Desktop Browser remains **experimental and release-gated**, enabled by default
+unless launched with `WHIP_DESKTOP_BROWSER_TABS=0`. An exact, unambiguous Desktop
+can service permission-gated `browser.open` (`browser_open` for MCP clients)
+without a manually created or offered tab. `browser.list_tabs`
+(`browser_list_tabs`) discovers only scoped current metadata on demand, without
+creating a page or granting control. No inventory is injected into prompts.
+Opening starts the attachment lifecycle; `browser.run` with `attachment_id`
+uses the existing helper language against that same human-visible page. Do not
+mix an attachment target with a legacy browser session. Missing selection or
+authority fails closed, without launching or falling back to another browser.
 
-Runs through `internal/tools/bashrun` so the agent can:
+Open, attach and preview-port expansion use the existing permission policy
+(Once-only consent in prompt mode, or the current automatic mode);
+attachment control is not implicit in a tab ID or generic browser capability.
+See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
+for the operation inventory, delegation and unsupported helpers, and the
+[SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+for explicit selection/release and transport ownership. Neither API discovery
+nor experimental enablement grants authority.
 
-- **interrupt** — ctrl+c once interrupts the foreground command; twice quits
-  whip and kills agent-spawned child processes (process-group cleanup).
-- **authenticate** — `interactive: true` runs in a PTY so `sudo`/ssh-style
-  password prompts reach the user; whip forwards keystrokes and kills the
-  command after 15s of no input.
-- **suggest next steps** — the schema nudges the model toward batching
-  independent calls in one turn, which the loop then runs in parallel.
+## Structured state
 
-## question
+Private state belongs to one agent. The blackboard is shared within the root
+tree. Both return records with `key`, `version`, `author_agent_id`, and a decoded
+`value` when small:
 
-The model asks the user to pick from 2-6 options when a decision is theirs
-(opencode's `question` tool, one question per call). The TUI shows a modal:
-numbered rows with dim descriptions, a "type your own answer" row, `multiple`
-for checkbox selection. Same hand-off as the permission gate: the tool
-goroutine blocks on `tools.Ask` until the UI answers; esc dismisses and the
-model is told so. Registered for the main agent only — subagents are told not
-to ask, and the MCP server has no user.
+```python
+saved = state.private_set(key="progress", value={"files": ["main.go"], "done": False})
+progress = state.private_get(key="progress")["value"]
+state.private_cas(key="progress", version=saved["version"], value={"files": progress["files"], "done": True})
+state.blackboard_set(key="findings", value=[])
+state.blackboard_append(key="findings", value={"file": "main.go", "issue": "missing check"})
+```
 
-## Subagents (`subagent`)
+Values are JSON-compatible trees: `None`, booleans, strings, arbitrary integers,
+finite floats, lists, and string-keyed dictionaries. Bytes, tuples, functions,
+cycles, and non-finite floats are rejected. Mutation calls require `value`;
+explicit `None` stores JSON null. Append adds one value to a JSON array. CAS
+conflicts require rereading the current record before choosing another update.
 
-A `subagent` call launches a fresh `Agent` with its own context — used for
-context-heavy exploration or self-contained work. With `background: true` it
-runs concurrently with the parent and reports back as a steered message when
-done; `/subagents` shows live status. The parent only ever receives the final
-report, which keeps the main conversation small.
+Large records return `handle`, `size`, and `media_type` instead of `value`.
+Use existing authorized `context.inspect/search/read` operations for bounded
+retrieval. `json.decode(text)` decodes complete JSON retrieved that way; it
+cannot decode a chunk that ends in the middle of a JSON document.
 
-## MCP tools
+`state.private_list(after_key="", limit=20)` and
+`state.blackboard_history(key="findings", after_version=0, limit=20)` return
+`items`, `next` when more remain, and `truncated`. Pass the fields of `next`
+to continue. Pages allow at most 100 entries and 64 KiB of encoded response.
+List pagination is a live view; individual records carry versions for writes.
 
-External MCP servers contribute tools named `mcp__<server>__<tool>`. They
-connect lazily (a broken server never blocks startup) and auto-reconnect
-with backoff. `whip mcp serve` runs whip's own read/bash/edit/write as an
-MCP server for other harnesses — the interop works both ways.
-Config styles and management: README §MCP,
-[features.md](features.md#mcp).
+## user.ask
 
-## LSP diagnostics
+`user.ask(question="...", options=[{"label": "...", "description": "...", "recommended": bool}, ...], multiple=False)`
+shows the user a floating dialog with 2 to 6 options (unique, non-empty
+labels; descriptions optional; at most one option marked `recommended`,
+which the clients badge but do not pre-select) and blocks the cell until
+they pick, dismiss, or the turn is cancelled. The user may also answer with
+free text instead of (or, where allowed, alongside) the option labels. Host
+time is not charged to the cell clock. It returns
+`{"answer": [labels...], "dismissed": bool}`; a dismissed question has an
+empty answer.
 
-After an `edit` or `write`, gopls diagnostics for the touched file are
-attached to the tool result, so the model sees "this edit broke three
-callers" immediately instead of on the next compile. See
-[features.md](features.md#lsp-diagnostics).
+The batch form
+`user.ask(questions=[{"question": "...", "options": [...], "multiple": bool}, ...])`
+asks 1 to 8 questions in one call: the client pages through them
+(Next/Back/Skip; Skip leaves that question unanswered, X dismisses the
+batch) and the call returns
+`{"answers": [{"answer": [labels], "dismissed": bool}, ...], "dismissed": bool}`,
+one entry per question in order; `dismissed` at the top is true only when
+every question was dismissed.
 
-## Read next
+Only the root agent may ask; a descendant gets the error
+`only the root agent can ask the user; send your parent a message instead`,
+and one question per agent is open at a time. Clients hear about it through
+the `question.pending`, `question.answered`, and `question.closed` events and
+answer with the `question.answer` client op (`answer`/`dismissed` for one
+question, `answers` for a batch); a client that connects while a question is
+open finds it in the session snapshot. The blocked cell keeps its
+kernel pool slot while it waits, so a root waiting on the user holds one of
+the pool's `MaxWorkers` slots. Headless `whip run` prints the
+pending question and leaves it open; under ACP the question appears as a
+permission prompt with one option per label plus Dismiss (batched questions
+page through one prompt each), so `multiple=True` collapses to a single
+answer there.
 
-- [browser-computer-use.md](browser-computer-use.md) — `browser_exec` and
-  `computer_exec` in depth
-- [agent-loop.md](agent-loop.md) — how calls are scheduled and locked
+## Choosing between models and agents
+
+Use `models.call` or `models.batch` for independent stateless analysis. Use
+`agents.spawn` when work needs an identity, capabilities, a transcript,
+follow-up turns, messages, or further recursive delegation.
+
+Spawn is asynchronous and returns a compact admission receipt containing `id`,
+`name`, `parent_id`, `status`, and `report`. The `queued` status acknowledges
+admission; `agents.inspect(id=...)` reports current state, capabilities, and
+budgets. When a child turn ends the parent receives an `agent.completed`
+message with a short preview and an evidence handle; a child sends
+`messages.send` for anything more. Mail reaches a turn as a bounded digest of excerpts; the parent loads
+full bodies with `messages.read` and finishes them with `messages.complete`.
+
+Full MCP grants are available explicitly:
+
+```python
+child = agents.spawn(name="review", prompt="Review the changes.")
+info = agents.inspect(id=child["id"], include_grants=True)
+print(info["mcp_grants"])
+```
+
+`mcp_grants` contains either `output` with complete JSON, or `handle`, `size`,
+`source`, and `preview` for bounded `context.inspect/search/read` retrieval.
+The JSON has `all` (whether a root grant covers all tools) and `selectors`
+(exact server, tool, and definition fingerprints). An agent without MCP has
+`all: false` and an empty selector list. Handles belong to the inspecting
+caller. Inspection is restricted to parents, direct children, and siblings;
+grant-chain read failures are reported as errors. Current consent and tool
+availability are still checked when calling a tool.
+
+Scripts that previously read `effective_mcp_tools` from spawn or inspection
+must request `include_grants=True`. Spawn's former `effective_capabilities`
+and `effective_budgets` fields are available through ordinary inspection as
+`effective_capabilities` and `budgets`.
+
+## MCP
+
+The daemon owns MCP connections. Both root and child kernels call:
+
+```python
+mcp.search(query="lease search", limit=5)
+mcp.describe(server="docs", tool="search")
+mcp.list_servers()
+mcp.list_tools(server="docs", offset=0, limit=100)
+mcp.instructions(server="docs")
+mcp.call(server="docs", tool="search", arguments={"query": "leases"})
+```
+
+Discovery reads the daemon's cached catalogs and never touches a server.
+`search` ranks tools across every ready server (or one, with `server=`) by
+name, then title, then description and schema property names; every query
+token must hit; results carry a one-line summary and no schema. `describe`
+returns one tool's full entry including its input schema, and names the
+nearest tools when the name is wrong. `list_tools` windows one server's
+name-sorted catalog (`offset`, `limit`, default 100) without schemas unless
+`schemas=True`; `list_servers` reports each server's total.
+
+Calls use the exact configured server and original tool name. Search results
+and listings mark which definitions the caller is authorized to use. Each call runs through
+the durable capability dispatcher, reserves operation capacity, and rechecks its
+grant and current server definition after permission and the server's call queue.
+Large results become handles through the same bounded-output path as built-in
+operations. A call's text keeps every text part and appends any
+`structuredContent` as JSON; image, audio and binary resource parts are stored
+as content handles owned by the calling agent and named in the text
+(`[image 1: image/png, 48213 bytes; handle …]`), and image parts also reach the
+root's next turn as vision input through the same path browser and computer
+screenshots use. Children receive the handle only.
+
+Servers explicitly configured in native WHIP configuration are trusted.
+Definitions discovered from the project's `.mcp.json`, the Codex file, the
+global Claude file, or the OpenCode files retain their provenance and require
+consent or a saved allow rule; `whip mcp import` and the app's import screen
+materialize them into native configuration, which is how an imported server
+becomes trusted. The project file is an import source of its own and is off
+unless enabled. ACP attachments are
+additive and untrusted for calls: they join the running manager, an
+attachment outside the agent definition's server list or one that names a
+native server is recorded as blocked instead, and re-attaching a
+non-native name replaces that entry. Only the daemon's native configuration establishes native
+trust. A client cannot claim it or replace a native definition by attaching a
+server of the same name.
+Explicit permission denials and revoked grants still win. Headless execution
+uses preauthorization or denies promptly; it never waits for a permission UI.
+
+Children inherit the parent's currently available MCP tools when capabilities
+are omitted. `capabilities=["read"]` has no MCP access. An explicit list can
+include `"mcp"`, optionally narrowed by
+`mcp_tools=[{"server": "docs", "tool": "search"}]`. These exact definitions are
+persisted with the child's issuer grant. New tools or changed endpoints and
+schemas do not expand an existing child's authority; ancestor revocation still
+applies after restart.
+
+`mcp.instructions` returns server usage guidance with its source and connection
+generation. Large guidance returns a handle for bounded `context.read` calls.
+Instructions and tool annotations do not authorize effects. Replacing or
+reconnecting a manager invalidates pending calls; transmitted calls are never
+automatically retried because their external outcome may be uncertain.
+
+`whip mcp serve` is a protocol bridge for external MCP clients. It hosts
+daemon-owned tool services directly and does not create a model agent. It
+cannot obtain new consent: operations covered by saved rules run, everything
+else is denied, and an outer client's approval is never treated as whip
+consent.
+
+## Authorization and output
+
+- File, shell, MCP, and desktop Browser operations use the capability dispatcher
+  with the calling agent’s identity and grants. Browser v1 resource consent is
+  Once-only; the remembered-rule behavior below does not apply to it.
+- Omitted child capabilities inherit the parent set; an explicit list may
+  only narrow it.
+- Permission approval is human/protocol-side and revalidates the exact
+  operation before it resumes. Approving "always" installs a rule (the
+  arity-collapsed command prefix, the canonical path, or the exact MCP server,
+  raw tool name, and definition digest) for the session
+  tree; `permissions.allow` in the config holds the global `operation:rule`
+  allowlist, and `/permissions` lists or forgets tree rules.
+- Inline output is bounded. Larger content is stored immutably and returned
+  with a handle, source, size, and readable spans.

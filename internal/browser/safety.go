@@ -102,17 +102,13 @@ func isPrivate(addr netip.Addr) bool {
 	return cgnat.Contains(addr)
 }
 
-// AllowPrivateURLs, set by config (browser.allowPrivateUrls), permits
-// private/LAN targets on non-live backends. Default false (§2c).
-var AllowPrivateURLs = false
-
 // CheckPrivateURL blocks private/internal targets; used for dedicated and
 // headless backends where the browser's network position is whip's, but
 // the page content then feeds the model — mirror of url_safety.py's
 // is_safe_url for non-local backends. Live mode skips this: the user's own
 // browser on their own network may legitimately browse intranet pages.
-func CheckPrivateURL(ctx context.Context, rawURL string) error {
-	if AllowPrivateURLs {
+func CheckPrivateURL(ctx context.Context, rawURL string, allowPrivateURLs bool) error {
+	if allowPrivateURLs {
 		return nil
 	}
 	u, err := url.Parse(rawURL)

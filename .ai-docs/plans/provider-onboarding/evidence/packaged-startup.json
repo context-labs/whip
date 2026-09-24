@@ -1,0 +1,3550 @@
+{
+  "recordedAt": "2026-09-09T21:54:03.395Z",
+  "purpose": "Signed LaunchServices startup; OS caches warm; first launch with an explicitly installed canonical runtime separate from daemon start and attachment",
+  "clock": "Parent/main Darwin mach_continuous_time via hrtime; renderer mark correlated through native executeJavaScript call/return",
+  "timingSemantics": "shell lower/upper bound the existing renderer mark. connected/usable lower/upper bracket an observation, not the unknown readiness transition. Report only conservative upperMs. Polling is 25 ms; each usable observation waits for fonts and two animation frames (250 ms bound). Probe wall time includes that wait and IPC, not CPU time; initial report write/datasync is additional startup overhead.",
+  "completed": true,
+  "interrupted": false,
+  "archiveSHA256": "317c16983bf2dab7b880495b2f19ce3589553cb015afeb95c83f5948030ba841",
+  "environment": {
+    "cpu": "Apple M4 Max",
+    "totalMemoryBytes": 137438953472,
+    "darwin": "25.3.0",
+    "node": "v24.14.1",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "SHELL": "/bin/zsh",
+    "applicationHOME": "dedicated empty fixture user directory",
+    "applicationTMPDIR": "dedicated fixture directory",
+    "inheritedCredentials": false
+  },
+  "evidence": {
+    "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+    "version": "0.1.0",
+    "distribution": "whipcode",
+    "buildId": "0.1.0",
+    "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+    "nativeFiles": {
+      "whipcode": {
+        "bytes": 42012224,
+        "sha256": "d4a7eaf7d9b0eb37db34d5a2021eb5a90268cd19d955484fe1f2262728860dd2"
+      },
+      "whip-computer": {
+        "bytes": 431648,
+        "sha256": "145b8e8aea975ddb7aeba0c42b5d9e5ea3d63c2597dd5ef094806fdc123d1e0c"
+      }
+    },
+    "source": {
+      "commit": "7058e007fec0a4f2e926f3b26dcb9e06ed75be5b",
+      "dirty": true,
+      "lockfile": "5722628aaf99fb36683aee4faa08af75f1beee9679693a110c64f955f551c2ab"
+    },
+    "compatibility": {
+      "protocolMajor": 5,
+      "protocolMinor": 1,
+      "schemaVersion": 13
+    },
+    "teamId": "JAPWPV5JY2",
+    "fuses": {
+      "0": 48,
+      "1": 49,
+      "2": 48,
+      "3": 48,
+      "4": 49,
+      "5": 49,
+      "6": 48,
+      "7": 48,
+      "8": 49,
+      "version": "1"
+    },
+    "signed": true,
+    "notarized": false
+  },
+  "fixture": {
+    "providerRequests": 2,
+    "retainedAnswer": "Verified Whip desktop startup fixture: 42",
+    "daemonTransport": "private Unix socket",
+    "providerClosedDuringMeasurements": true
+  },
+  "requested": {
+    "samples": 30,
+    "firstSamples": 1
+  },
+  "statistics": {
+    "first-launch": {
+      "attempted": 1,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 1,
+        "medianMs": 691.9735829523163,
+        "minMs": 691.9735829523163,
+        "maxMs": 691.9735829523163
+      },
+      "usableUpperMs": {
+        "count": 1,
+        "medianMs": 982.625208,
+        "minMs": 982.625208,
+        "maxMs": 982.625208
+      },
+      "probeWallMs": {
+        "count": 1,
+        "medianMs": 45.816417,
+        "minMs": 45.816417,
+        "maxMs": 45.816417
+      },
+      "maxProbeBracketMs": {
+        "count": 1,
+        "medianMs": 30.4665,
+        "minMs": 30.4665,
+        "maxMs": 30.4665
+      }
+    },
+    "warm-attach": {
+      "attempted": 30,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 30,
+        "medianMs": 543.4064795119209,
+        "p95Ms": 625.8990410476837,
+        "minMs": 488.806625,
+        "maxMs": 637.3937500476837
+      },
+      "usableUpperMs": {
+        "count": 30,
+        "medianMs": 692.7083124999999,
+        "p95Ms": 767.075708,
+        "minMs": 634.624458,
+        "maxMs": 770.43625
+      },
+      "probeWallMs": {
+        "count": 30,
+        "medianMs": 52.445249,
+        "p95Ms": 107.44729000000001,
+        "minMs": 30.284666,
+        "maxMs": 113.295708
+      },
+      "maxProbeBracketMs": {
+        "count": 30,
+        "medianMs": 27.121187499999998,
+        "p95Ms": 48.255,
+        "minMs": 17.8345,
+        "maxMs": 53.88075
+      }
+    },
+    "retained-start": {
+      "attempted": 30,
+      "failed": 0,
+      "shellUpperMs": {
+        "count": 30,
+        "medianMs": 568.763,
+        "p95Ms": 654.560875,
+        "minMs": 506.133083,
+        "maxMs": 681.4062920238418
+      },
+      "usableUpperMs": {
+        "count": 30,
+        "medianMs": 806.315083,
+        "p95Ms": 918.915041,
+        "minMs": 741.39125,
+        "maxMs": 958.54875
+      },
+      "probeWallMs": {
+        "count": 30,
+        "medianMs": 64.1138115,
+        "p95Ms": 84.892874,
+        "minMs": 42.277164,
+        "maxMs": 86.58791599999999
+      },
+      "maxProbeBracketMs": {
+        "count": 30,
+        "medianMs": 27.2718335,
+        "p95Ms": 35.558,
+        "minMs": 19.846709,
+        "maxMs": 35.56675
+      }
+    }
+  },
+  "results": [
+    {
+      "scenario": "first-launch",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b55d06b3f81ea95e4aaa8c332d0f994b",
+      "pid": 60809,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "home",
+      "windowCreatedMs": 560.781417,
+      "domReadyMs": 654.421708,
+      "shell": {
+        "lowerMs": 690.7208329523163,
+        "upperMs": 691.9735829523163
+      },
+      "connected": {
+        "lowerMs": 952.158708,
+        "upperMs": 982.625208
+      },
+      "usable": {
+        "lowerMs": 952.158708,
+        "upperMs": 982.625208
+      },
+      "finishedMs": 982.719333,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": true,
+        "session": false,
+        "transcript": false,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 10,
+        "wallMs": 45.816417,
+        "maxWallMs": 30.4665
+      },
+      "receivedMs": 990.987083,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "prepare",
+      "warmup": true,
+      "schema": 1,
+      "runId": "2e21778a72f502057c67e1be2633dd34",
+      "pid": 60835,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "home",
+      "windowCreatedMs": 508.924167,
+      "domReadyMs": 598.072917,
+      "shell": {
+        "lowerMs": 597.7335000238419,
+        "upperMs": 826.4827090238418
+      },
+      "connected": {
+        "lowerMs": 1104.187125,
+        "upperMs": 1136.885167
+      },
+      "usable": {
+        "lowerMs": 1104.187125,
+        "upperMs": 1136.885167
+      },
+      "finishedMs": 1136.983459,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": true,
+        "session": false,
+        "transcript": false,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 11,
+        "wallMs": 275.201918,
+        "maxWallMs": 228.749209
+      },
+      "receivedMs": 1138.048959,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "prepare-session",
+      "warmup": true,
+      "schema": 1,
+      "runId": "e52c620e072b6db9f342b156c16c4d2c",
+      "pid": 60882,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 429.533292,
+      "domReadyMs": 517.646292,
+      "shell": {
+        "lowerMs": 532.5844590238419,
+        "upperMs": 533.4009590238419
+      },
+      "connected": {
+        "lowerMs": 677.409667,
+        "upperMs": 700.770917
+      },
+      "usable": {
+        "lowerMs": 677.409667,
+        "upperMs": 700.770917
+      },
+      "finishedMs": 700.868625,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 78.592084,
+        "maxWallMs": 41.536875
+      },
+      "receivedMs": 717.600084,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "08163f573a01737f3ecfe8c0977f17f5",
+      "pid": 60895,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 443.457542,
+      "domReadyMs": 527.202625,
+      "shell": {
+        "lowerMs": 526.770459,
+        "upperMs": 535.616209
+      },
+      "connected": {
+        "lowerMs": 650.997209,
+        "upperMs": 683.936667
+      },
+      "usable": {
+        "lowerMs": 650.997209,
+        "upperMs": 683.936667
+      },
+      "finishedMs": 684.044542,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 62.12062400000001,
+        "maxWallMs": 32.939458
+      },
+      "receivedMs": 695.701459,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "875151f423d7a6951e5d8410c6b650bd",
+      "pid": 60912,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 447.994416,
+      "domReadyMs": 531.046916,
+      "shell": {
+        "lowerMs": 530.615666,
+        "upperMs": 537.7635
+      },
+      "connected": {
+        "lowerMs": 690.976916,
+        "upperMs": 718.301541
+      },
+      "usable": {
+        "lowerMs": 690.976916,
+        "upperMs": 718.301541
+      },
+      "finishedMs": 718.42,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 41.194876,
+        "maxWallMs": 27.324625
+      },
+      "receivedMs": 734.628833,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "d2b731fc9875f8f4d94938e1a1866529",
+      "pid": 60925,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 430.114375,
+      "domReadyMs": 512.132,
+      "shell": {
+        "lowerMs": 511.8021670238419,
+        "upperMs": 521.4241250238418
+      },
+      "connected": {
+        "lowerMs": 620.745834,
+        "upperMs": 652.124334
+      },
+      "usable": {
+        "lowerMs": 620.745834,
+        "upperMs": 652.124334
+      },
+      "finishedMs": 652.228084,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 52.387665999999996,
+        "maxWallMs": 31.3785
+      },
+      "receivedMs": 663.196917,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "4e10052d587c693adb27b46b7c98dd0b",
+      "pid": 60942,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 403.590584,
+      "domReadyMs": 501.033584,
+      "shell": {
+        "lowerMs": 501.33116707152556,
+        "upperMs": 511.10329207152563
+      },
+      "connected": {
+        "lowerMs": 614.420917,
+        "upperMs": 644.931
+      },
+      "usable": {
+        "lowerMs": 614.420917,
+        "upperMs": 644.931
+      },
+      "finishedMs": 645.032792,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 59.600084,
+        "maxWallMs": 30.510083
+      },
+      "receivedMs": 646.1475,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "653713bbc0850894bda2d0133473052f",
+      "pid": 60957,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 397.263666,
+      "domReadyMs": 482.331166,
+      "shell": {
+        "lowerMs": 481.8945,
+        "upperMs": 488.806625
+      },
+      "connected": {
+        "lowerMs": 632.927666,
+        "upperMs": 652.732958
+      },
+      "usable": {
+        "lowerMs": 632.927666,
+        "upperMs": 652.732958
+      },
+      "finishedMs": 652.821333,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 30.284666,
+        "maxWallMs": 19.805292
+      },
+      "receivedMs": 669.29025,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "49a3fc93d69aa3510ca4b62fc69f0954",
+      "pid": 60970,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 478.452917,
+      "domReadyMs": 562.925542,
+      "shell": {
+        "lowerMs": 562.5942920238418,
+        "upperMs": 570.4585000238419
+      },
+      "connected": {
+        "lowerMs": 728.165292,
+        "upperMs": 754.684042
+      },
+      "usable": {
+        "lowerMs": 728.165292,
+        "upperMs": 754.684042
+      },
+      "finishedMs": 754.779833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 113.295708,
+        "maxWallMs": 53.88075
+      },
+      "receivedMs": 771.01175,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "aabb0a3e30d3d2f7a0870c5ae0b67409",
+      "pid": 60983,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 447.29325,
+      "domReadyMs": 530.764792,
+      "shell": {
+        "lowerMs": 530.4335000238418,
+        "upperMs": 538.4787920238418
+      },
+      "connected": {
+        "lowerMs": 678.003584,
+        "upperMs": 702.508709
+      },
+      "usable": {
+        "lowerMs": 678.003584,
+        "upperMs": 702.508709
+      },
+      "finishedMs": 702.614167,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 38.198707999999996,
+        "maxWallMs": 24.505125
+      },
+      "receivedMs": 705.934625,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b8c0030df371cb1aebaf02f2f1a24a0b",
+      "pid": 60996,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 431.527792,
+      "domReadyMs": 512.23575,
+      "shell": {
+        "lowerMs": 511.90520802384185,
+        "upperMs": 520.1179170238419
+      },
+      "connected": {
+        "lowerMs": 608.330083,
+        "upperMs": 634.624458
+      },
+      "usable": {
+        "lowerMs": 608.330083,
+        "upperMs": 634.624458
+      },
+      "finishedMs": 634.729125,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 37.58125,
+        "maxWallMs": 26.294375
+      },
+      "receivedMs": 636.90325,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "0a1d8db062bf587c2174624f8baef09b",
+      "pid": 61011,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 424.982583,
+      "domReadyMs": 508.0555,
+      "shell": {
+        "lowerMs": 507.620917,
+        "upperMs": 523.085083
+      },
+      "connected": {
+        "lowerMs": 631.925375,
+        "upperMs": 659.079792
+      },
+      "usable": {
+        "lowerMs": 631.925375,
+        "upperMs": 659.079792
+      },
+      "finishedMs": 659.19025,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 71.041499,
+        "maxWallMs": 27.154417
+      },
+      "receivedMs": 676.135708,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "199e42fc49614c22c8382e7a9d754f4f",
+      "pid": 61027,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 402.491084,
+      "domReadyMs": 487.091334,
+      "shell": {
+        "lowerMs": 486.75558402384183,
+        "upperMs": 493.80745902384183
+      },
+      "connected": {
+        "lowerMs": 611.831459,
+        "upperMs": 640.415042
+      },
+      "usable": {
+        "lowerMs": 611.831459,
+        "upperMs": 640.415042
+      },
+      "finishedMs": 640.530834,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 41.383708,
+        "maxWallMs": 28.583583
+      },
+      "receivedMs": 666.288542,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "051e21fa60e4c9cc02b790ed3aed525f",
+      "pid": 61040,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 421.119875,
+      "domReadyMs": 503.188583,
+      "shell": {
+        "lowerMs": 502.86579102384184,
+        "upperMs": 511.9111250238418
+      },
+      "connected": {
+        "lowerMs": 615.223625,
+        "upperMs": 642.729041
+      },
+      "usable": {
+        "lowerMs": 615.223625,
+        "upperMs": 642.729041
+      },
+      "finishedMs": 642.828041,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 63.413,
+        "maxWallMs": 27.505416
+      },
+      "receivedMs": 645.72025,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "4daee0880563089b7a583850f3c1cbc2",
+      "pid": 61063,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 439.123708,
+      "domReadyMs": 520.398917,
+      "shell": {
+        "lowerMs": 520.0746250238418,
+        "upperMs": 529.9023750238418
+      },
+      "connected": {
+        "lowerMs": 632.860375,
+        "upperMs": 660.606167
+      },
+      "usable": {
+        "lowerMs": 632.860375,
+        "upperMs": 660.606167
+      },
+      "finishedMs": 660.712917,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 52.505625,
+        "maxWallMs": 27.745792
+      },
+      "receivedMs": 671.097167,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "90ce7ce95c24f5e0ebb9803dcf10f759",
+      "pid": 61078,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 466.707625,
+      "domReadyMs": 548.635709,
+      "shell": {
+        "lowerMs": 554.5902920715256,
+        "upperMs": 555.2636250715256
+      },
+      "connected": {
+        "lowerMs": 685.252625,
+        "upperMs": 705.62125
+      },
+      "usable": {
+        "lowerMs": 685.252625,
+        "upperMs": 705.62125
+      },
+      "finishedMs": 705.7155,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 46.85875,
+        "maxWallMs": 20.368625
+      },
+      "receivedMs": 707.955917,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "a49fe245375de2d6ebae059d44eed9db",
+      "pid": 61091,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 441.660833,
+      "domReadyMs": 526.164208,
+      "shell": {
+        "lowerMs": 525.732041,
+        "upperMs": 532.935291
+      },
+      "connected": {
+        "lowerMs": 645.685583,
+        "upperMs": 678.363541
+      },
+      "usable": {
+        "lowerMs": 645.685583,
+        "upperMs": 678.363541
+      },
+      "finishedMs": 678.466833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 72.973834,
+        "maxWallMs": 32.677958
+      },
+      "receivedMs": 692.35575,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "5cfb6e29e833f50cf9f83a6d7da457fd",
+      "pid": 61104,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 434.640083,
+      "domReadyMs": 519.493625,
+      "shell": {
+        "lowerMs": 519.06225,
+        "upperMs": 534.861416
+      },
+      "connected": {
+        "lowerMs": 644.896333,
+        "upperMs": 671.984291
+      },
+      "usable": {
+        "lowerMs": 644.896333,
+        "upperMs": 671.984291
+      },
+      "finishedMs": 672.085958,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 65.57437300000001,
+        "maxWallMs": 27.087958
+      },
+      "receivedMs": 694.256208,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "692786ccd1c2549b605ac898bf983130",
+      "pid": 61117,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 440.558583,
+      "domReadyMs": 524.792875,
+      "shell": {
+        "lowerMs": 524.362708,
+        "upperMs": 538.12775
+      },
+      "connected": {
+        "lowerMs": 661.057625,
+        "upperMs": 691.562833
+      },
+      "usable": {
+        "lowerMs": 661.057625,
+        "upperMs": 691.562833
+      },
+      "finishedMs": 691.661958,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 52.502832,
+        "maxWallMs": 30.505208
+      },
+      "receivedMs": 699.424667,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "f89eed8bd8d1a0bd0d31d7bc630e4f93",
+      "pid": 61132,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 441.154625,
+      "domReadyMs": 524.559125,
+      "shell": {
+        "lowerMs": 524.140333,
+        "upperMs": 533.060333
+      },
+      "connected": {
+        "lowerMs": 656.588125,
+        "upperMs": 680.002042
+      },
+      "usable": {
+        "lowerMs": 656.588125,
+        "upperMs": 680.002042
+      },
+      "finishedMs": 680.092667,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 40.848166000000006,
+        "maxWallMs": 23.413917
+      },
+      "receivedMs": 681.6415,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b699743ae20390d05376c632268337f0",
+      "pid": 61145,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 443.452292,
+      "domReadyMs": 528.760125,
+      "shell": {
+        "lowerMs": 528.327959,
+        "upperMs": 552.71225
+      },
+      "connected": {
+        "lowerMs": 688.731459,
+        "upperMs": 713.854875
+      },
+      "usable": {
+        "lowerMs": 688.731459,
+        "upperMs": 713.854875
+      },
+      "finishedMs": 713.953209,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 107.44729000000001,
+        "maxWallMs": 48.255
+      },
+      "receivedMs": 725.679375,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "8631e194295b0c0dbe6a2003e830b779",
+      "pid": 61158,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 456.274833,
+      "domReadyMs": 541.485,
+      "shell": {
+        "lowerMs": 541.048917,
+        "upperMs": 548.334167
+      },
+      "connected": {
+        "lowerMs": 663.138458,
+        "upperMs": 693.853792
+      },
+      "usable": {
+        "lowerMs": 663.138458,
+        "upperMs": 693.853792
+      },
+      "finishedMs": 693.968375,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 66.27508399999999,
+        "maxWallMs": 30.715334
+      },
+      "receivedMs": 697.302625,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "005b5e60a423c9b0cca8892a2be68f14",
+      "pid": 61171,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 472.821125,
+      "domReadyMs": 554.739458,
+      "shell": {
+        "lowerMs": 554.2053329761582,
+        "upperMs": 563.3912919761582
+      },
+      "connected": {
+        "lowerMs": 683.61275,
+        "upperMs": 707.850708
+      },
+      "usable": {
+        "lowerMs": 683.61275,
+        "upperMs": 707.850708
+      },
+      "finishedMs": 707.962833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 49.143665999999996,
+        "maxWallMs": 24.237958
+      },
+      "receivedMs": 721.3845,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "640b5de12b05dce4faad18cedff3ae05",
+      "pid": 61209,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 495.673166,
+      "domReadyMs": 601.915416,
+      "shell": {
+        "lowerMs": 601.484375,
+        "upperMs": 614.627583
+      },
+      "connected": {
+        "lowerMs": 742.30525,
+        "upperMs": 767.075708
+      },
+      "usable": {
+        "lowerMs": 742.30525,
+        "upperMs": 767.075708
+      },
+      "finishedMs": 767.163208,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 43.793709,
+        "maxWallMs": 24.770458
+      },
+      "receivedMs": 793.133208,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "5ca79a2849319f2412fb9d7b364d6ae0",
+      "pid": 61226,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 464.871708,
+      "domReadyMs": 548.517917,
+      "shell": {
+        "lowerMs": 548.103542,
+        "upperMs": 562.46325
+      },
+      "connected": {
+        "lowerMs": 683.867917,
+        "upperMs": 717.142542
+      },
+      "usable": {
+        "lowerMs": 683.867917,
+        "upperMs": 717.142542
+      },
+      "finishedMs": 717.234792,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 54.779332999999994,
+        "maxWallMs": 33.274625
+      },
+      "receivedMs": 723.011292,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "932652537eabd87f4a10b4f992918109",
+      "pid": 61256,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 461.599708,
+      "domReadyMs": 552.147917,
+      "shell": {
+        "lowerMs": 551.718042,
+        "upperMs": 566.360375
+      },
+      "connected": {
+        "lowerMs": 672.439292,
+        "upperMs": 700.0745
+      },
+      "usable": {
+        "lowerMs": 672.439292,
+        "upperMs": 700.0745
+      },
+      "finishedMs": 700.178875,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 50.1525,
+        "maxWallMs": 27.635208
+      },
+      "receivedMs": 712.312833,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "13947edc6a64352eb531fb81f69ac87e",
+      "pid": 61272,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 445.820708,
+      "domReadyMs": 541.413875,
+      "shell": {
+        "lowerMs": 540.8862499761582,
+        "upperMs": 549.7769999761581
+      },
+      "connected": {
+        "lowerMs": 677.068166,
+        "upperMs": 694.902666
+      },
+      "usable": {
+        "lowerMs": 677.068166,
+        "upperMs": 694.902666
+      },
+      "finishedMs": 695.018125,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 35.530626,
+        "maxWallMs": 17.8345
+      },
+      "receivedMs": 701.7825,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "c06e74b513bb9bc71da498b0c6af90fe",
+      "pid": 61292,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 499.348625,
+      "domReadyMs": 588.173375,
+      "shell": {
+        "lowerMs": 625.4820830476837,
+        "upperMs": 625.8990410476837
+      },
+      "connected": {
+        "lowerMs": 719.158916,
+        "upperMs": 737.72425
+      },
+      "usable": {
+        "lowerMs": 719.158916,
+        "upperMs": 737.72425
+      },
+      "finishedMs": 737.836583,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 44.533416,
+        "maxWallMs": 19.604875
+      },
+      "receivedMs": 740.645916,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "ebf746685490d3cd2d70a94dd0868c88",
+      "pid": 61309,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 467.577458,
+      "domReadyMs": 553.11475,
+      "shell": {
+        "lowerMs": 552.691333,
+        "upperMs": 563.711875
+      },
+      "connected": {
+        "lowerMs": 669.703875,
+        "upperMs": 694.762417
+      },
+      "usable": {
+        "lowerMs": 669.703875,
+        "upperMs": 694.762417
+      },
+      "finishedMs": 694.862083,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 62.675168,
+        "maxWallMs": 25.058542
+      },
+      "receivedMs": 699.9995,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "595f1a979c5d06cbb66e9fb173a4aa91",
+      "pid": 61322,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 484.84325,
+      "domReadyMs": 566.194083,
+      "shell": {
+        "lowerMs": 565.8742499046326,
+        "upperMs": 585.5870409046325
+      },
+      "connected": {
+        "lowerMs": 697.162125,
+        "upperMs": 719.871833
+      },
+      "usable": {
+        "lowerMs": 697.162125,
+        "upperMs": 719.871833
+      },
+      "finishedMs": 719.97275,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 71.53308200000001,
+        "maxWallMs": 22.871333
+      },
+      "receivedMs": 732.496041,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "babdea9892ead5859995799be1bd4eed",
+      "pid": 61338,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 447.137167,
+      "domReadyMs": 541.4465,
+      "shell": {
+        "lowerMs": 540.9173749761582,
+        "upperMs": 551.2691669761581
+      },
+      "connected": {
+        "lowerMs": 661.874917,
+        "upperMs": 681.565959
+      },
+      "usable": {
+        "lowerMs": 661.874917,
+        "upperMs": 681.565959
+      },
+      "finishedMs": 681.678834,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 39.93075,
+        "maxWallMs": 19.691042
+      },
+      "receivedMs": 700.771417,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "3c03c8732467b17b20c608e668f98401",
+      "pid": 61355,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 503.780417,
+      "domReadyMs": 600.953167,
+      "shell": {
+        "lowerMs": 636.6507920476837,
+        "upperMs": 637.3937500476837
+      },
+      "connected": {
+        "lowerMs": 750.564167,
+        "upperMs": 770.43625
+      },
+      "usable": {
+        "lowerMs": 750.564167,
+        "upperMs": 770.43625
+      },
+      "finishedMs": 770.535833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 5,
+        "wallMs": 44.984916,
+        "maxWallMs": 19.872083
+      },
+      "receivedMs": 776.469,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "warm-attach",
+      "warmup": false,
+      "schema": 1,
+      "runId": "21fb548ea1005df318f647137f1299d3",
+      "pid": 61374,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 461.5715,
+      "domReadyMs": 544.745,
+      "shell": {
+        "lowerMs": 544.318459,
+        "upperMs": 552.131084
+      },
+      "connected": {
+        "lowerMs": 657.487542,
+        "upperMs": 682.699167
+      },
+      "usable": {
+        "lowerMs": 657.487542,
+        "upperMs": 682.699167
+      },
+      "finishedMs": 682.788709,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 4,
+        "wallMs": 60.815791000000004,
+        "maxWallMs": 25.211625
+      },
+      "receivedMs": 687.235459,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "11880d6e0518759fcc260f7f8a19113f",
+      "pid": 61389,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 475.477292,
+      "domReadyMs": 558.781167,
+      "shell": {
+        "lowerMs": 558.2452079761581,
+        "upperMs": 566.1251669761582
+      },
+      "connected": {
+        "lowerMs": 796.668208,
+        "upperMs": 829.299042
+      },
+      "usable": {
+        "lowerMs": 796.668208,
+        "upperMs": 829.299042
+      },
+      "finishedMs": 829.384875,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 9,
+        "wallMs": 61.648294,
+        "maxWallMs": 32.630834
+      },
+      "receivedMs": 856.274167,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "3db6d7a2bdf9fb6073ab4c2cc484fa70",
+      "pid": 61408,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 452.768542,
+      "domReadyMs": 536.227875,
+      "shell": {
+        "lowerMs": 535.7022919761581,
+        "upperMs": 543.3088749761581
+      },
+      "connected": {
+        "lowerMs": 747.11675,
+        "upperMs": 771.985625
+      },
+      "usable": {
+        "lowerMs": 747.11675,
+        "upperMs": 771.985625
+      },
+      "finishedMs": 772.079584,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 76.622541,
+        "maxWallMs": 24.868875
+      },
+      "receivedMs": 773.007125,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "d09b517aec4c628cf983b13914370b68",
+      "pid": 61432,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 455.337084,
+      "domReadyMs": 545.851917,
+      "shell": {
+        "lowerMs": 557.847042,
+        "upperMs": 558.202375
+      },
+      "connected": {
+        "lowerMs": 754.288709,
+        "upperMs": 775.226917
+      },
+      "usable": {
+        "lowerMs": 754.288709,
+        "upperMs": 775.226917
+      },
+      "finishedMs": 775.317959,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 57.606042,
+        "maxWallMs": 20.938208
+      },
+      "receivedMs": 778.142667,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b9fb2f958d9de309a372720d57adde41",
+      "pid": 61450,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 485.249709,
+      "domReadyMs": 567.798625,
+      "shell": {
+        "lowerMs": 567.4678750238419,
+        "upperMs": 575.5261250238418
+      },
+      "connected": {
+        "lowerMs": 792.701209,
+        "upperMs": 823.262167
+      },
+      "usable": {
+        "lowerMs": 792.701209,
+        "upperMs": 823.262167
+      },
+      "finishedMs": 823.351917,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 65.814665,
+        "maxWallMs": 30.560958
+      },
+      "receivedMs": 846.277334,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "3a76ff44fdb51e80fed288277e0046a6",
+      "pid": 61468,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 457.441208,
+      "domReadyMs": 543.731042,
+      "shell": {
+        "lowerMs": 581.2904579523163,
+        "upperMs": 581.7377919523162
+      },
+      "connected": {
+        "lowerMs": 776.947208,
+        "upperMs": 810.788375
+      },
+      "usable": {
+        "lowerMs": 776.947208,
+        "upperMs": 810.788375
+      },
+      "finishedMs": 810.889875,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 6,
+        "wallMs": 69.86625000000001,
+        "maxWallMs": 33.841167
+      },
+      "receivedMs": 816.094292,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "6ac45f0b376b1d48e8b62477e5b74600",
+      "pid": 61486,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 446.196584,
+      "domReadyMs": 530.01375,
+      "shell": {
+        "lowerMs": 529.4781249761581,
+        "upperMs": 536.8358749761582
+      },
+      "connected": {
+        "lowerMs": 761.250709,
+        "upperMs": 783.490792
+      },
+      "usable": {
+        "lowerMs": 761.250709,
+        "upperMs": 783.490792
+      },
+      "finishedMs": 783.580584,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 62.07654,
+        "maxWallMs": 22.240083
+      },
+      "receivedMs": 802.19125,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "ad992cb5a7a759bb92a64ea983f165e5",
+      "pid": 61505,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 492.983083,
+      "domReadyMs": 588.480167,
+      "shell": {
+        "lowerMs": 587.9457079761581,
+        "upperMs": 597.7302079761581
+      },
+      "connected": {
+        "lowerMs": 803.710458,
+        "upperMs": 827.83075
+      },
+      "usable": {
+        "lowerMs": 803.710458,
+        "upperMs": 827.83075
+      },
+      "finishedMs": 827.9175,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 84.892874,
+        "maxWallMs": 32.224333
+      },
+      "receivedMs": 851.001458,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "39beaa2d039a96922e8335d9230dc18e",
+      "pid": 61526,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 484.657458,
+      "domReadyMs": 569.077208,
+      "shell": {
+        "lowerMs": 568.64425,
+        "upperMs": 576.106833
+      },
+      "connected": {
+        "lowerMs": 775.608416,
+        "upperMs": 806.37175
+      },
+      "usable": {
+        "lowerMs": 775.608416,
+        "upperMs": 806.37175
+      },
+      "finishedMs": 806.458541,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 55.290292,
+        "maxWallMs": 30.763334
+      },
+      "receivedMs": 833.653166,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "6f83d492ef2a26739219810566ed95b5",
+      "pid": 61545,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 421.285792,
+      "domReadyMs": 510.572709,
+      "shell": {
+        "lowerMs": 510.2446670238419,
+        "upperMs": 525.2092500238418
+      },
+      "connected": {
+        "lowerMs": 732.171417,
+        "upperMs": 759.620125
+      },
+      "usable": {
+        "lowerMs": 732.171417,
+        "upperMs": 759.620125
+      },
+      "finishedMs": 759.706875,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 57.059122,
+        "maxWallMs": 27.448708
+      },
+      "receivedMs": 771.562959,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "c1d34dbbd637ba31018020e2fd8b8234",
+      "pid": 61563,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 455.533875,
+      "domReadyMs": 551.178084,
+      "shell": {
+        "lowerMs": 550.6465419761581,
+        "upperMs": 574.1304999761581
+      },
+      "connected": {
+        "lowerMs": 806.067084,
+        "upperMs": 840.455042
+      },
+      "usable": {
+        "lowerMs": 806.067084,
+        "upperMs": 840.455042
+      },
+      "finishedMs": 840.569584,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 9,
+        "wallMs": 73.91341800000001,
+        "maxWallMs": 34.387958
+      },
+      "receivedMs": 864.859084,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "a875ef60840870bd0c79b7ec3173b121",
+      "pid": 61592,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 538.853042,
+      "domReadyMs": 646.155459,
+      "shell": {
+        "lowerMs": 645.8395420238419,
+        "upperMs": 681.4062920238418
+      },
+      "connected": {
+        "lowerMs": 932.439875,
+        "upperMs": 958.54875
+      },
+      "usable": {
+        "lowerMs": 932.439875,
+        "upperMs": 958.54875
+      },
+      "finishedMs": 958.650917,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 10,
+        "wallMs": 80.639999,
+        "maxWallMs": 35.56675
+      },
+      "receivedMs": 984.8835,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "ec6514d8ce9795447029cbe6498b4618",
+      "pid": 61614,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 503.352792,
+      "domReadyMs": 596.945708,
+      "shell": {
+        "lowerMs": 640.911917,
+        "upperMs": 654.560875
+      },
+      "connected": {
+        "lowerMs": 843.461667,
+        "upperMs": 865.021917
+      },
+      "usable": {
+        "lowerMs": 843.461667,
+        "upperMs": 865.021917
+      },
+      "finishedMs": 865.108708,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 64.573249,
+        "maxWallMs": 21.56025
+      },
+      "receivedMs": 884.011875,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "3da6ac8bfcb2232b7e5fd6a00e779ba2",
+      "pid": 61636,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 463.551166,
+      "domReadyMs": 555.998166,
+      "shell": {
+        "lowerMs": 555.4732079761582,
+        "upperMs": 576.1322909761582
+      },
+      "connected": {
+        "lowerMs": 817.176416,
+        "upperMs": 844.5195
+      },
+      "usable": {
+        "lowerMs": 817.176416,
+        "upperMs": 844.5195
+      },
+      "finishedMs": 844.602541,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 9,
+        "wallMs": 63.047625999999994,
+        "maxWallMs": 27.343084
+      },
+      "receivedMs": 868.456458,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "ac3aa1269f3d97977d74742574ea6dd6",
+      "pid": 61654,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 435.727709,
+      "domReadyMs": 521.30475,
+      "shell": {
+        "lowerMs": 520.9818340238419,
+        "upperMs": 535.0211670238418
+      },
+      "connected": {
+        "lowerMs": 756.972709,
+        "upperMs": 789.055625
+      },
+      "usable": {
+        "lowerMs": 756.972709,
+        "upperMs": 789.055625
+      },
+      "finishedMs": 789.155375,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 64.38595799999999,
+        "maxWallMs": 32.082916
+      },
+      "receivedMs": 798.138834,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "204fdac914ebd3881f186d33a6f71c24",
+      "pid": 61675,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 523.554916,
+      "domReadyMs": 617.597916,
+      "shell": {
+        "lowerMs": 617.172625,
+        "upperMs": 636.441333
+      },
+      "connected": {
+        "lowerMs": 884.765666,
+        "upperMs": 918.915041
+      },
+      "usable": {
+        "lowerMs": 884.765666,
+        "upperMs": 918.915041
+      },
+      "finishedMs": 919.001333,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 9,
+        "wallMs": 84.218084,
+        "maxWallMs": 34.149375
+      },
+      "receivedMs": 941.07625,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "c19421c0da0e8086c5d6a54cd9945d95",
+      "pid": 61716,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 491.341916,
+      "domReadyMs": 588.592791,
+      "shell": {
+        "lowerMs": 602.3452079523163,
+        "upperMs": 603.7476659523163
+      },
+      "connected": {
+        "lowerMs": 815.234333,
+        "upperMs": 838.61275
+      },
+      "usable": {
+        "lowerMs": 815.234333,
+        "upperMs": 838.61275
+      },
+      "finishedMs": 838.699833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 58.430333999999995,
+        "maxWallMs": 23.378417
+      },
+      "receivedMs": 865.122875,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b892b872d1291b3a8a4b303340fd5eab",
+      "pid": 61734,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 518.154541,
+      "domReadyMs": 614.422166,
+      "shell": {
+        "lowerMs": 609.6719999761582,
+        "upperMs": 624.3261659761581
+      },
+      "connected": {
+        "lowerMs": 813.397375,
+        "upperMs": 838.761416
+      },
+      "usable": {
+        "lowerMs": 813.397375,
+        "upperMs": 838.761416
+      },
+      "finishedMs": 838.84675,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 67.600998,
+        "maxWallMs": 25.364041
+      },
+      "receivedMs": 850.733666,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "b2acf5937188aa725a7c4d34d370011c",
+      "pid": 61757,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 477.937334,
+      "domReadyMs": 576.655959,
+      "shell": {
+        "lowerMs": 576.1259169761581,
+        "upperMs": 596.0297919761581
+      },
+      "connected": {
+        "lowerMs": 819.974834,
+        "upperMs": 845.870584
+      },
+      "usable": {
+        "lowerMs": 819.974834,
+        "upperMs": 845.870584
+      },
+      "finishedMs": 845.950084,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 58.498459,
+        "maxWallMs": 25.89575
+      },
+      "receivedMs": 868.635875,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "ef1cda5d9378c3fafbd7bd307262e322",
+      "pid": 61775,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 431.485625,
+      "domReadyMs": 516.348667,
+      "shell": {
+        "lowerMs": 515.917,
+        "upperMs": 540.124792
+      },
+      "connected": {
+        "lowerMs": 730.828292,
+        "upperMs": 752.311417
+      },
+      "usable": {
+        "lowerMs": 730.828292,
+        "upperMs": 752.311417
+      },
+      "finishedMs": 752.396042,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 76.289751,
+        "maxWallMs": 24.207792
+      },
+      "receivedMs": 764.509209,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "a691d321cd6bf70d06c0fe55356e2145",
+      "pid": 61794,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 415.100167,
+      "domReadyMs": 499.756375,
+      "shell": {
+        "lowerMs": 499.3285,
+        "upperMs": 506.133083
+      },
+      "connected": {
+        "lowerMs": 723.908375,
+        "upperMs": 751.108958
+      },
+      "usable": {
+        "lowerMs": 723.908375,
+        "upperMs": 751.108958
+      },
+      "finishedMs": 751.203375,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 66.769082,
+        "maxWallMs": 27.200583
+      },
+      "receivedMs": 772.221292,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "76474b2b91b6a37f018356bd9f04fce6",
+      "pid": 61812,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 503.213875,
+      "domReadyMs": 613.81225,
+      "shell": {
+        "lowerMs": 650.4825420476838,
+        "upperMs": 652.7117090476837
+      },
+      "connected": {
+        "lowerMs": 873.787625,
+        "upperMs": 898.122667
+      },
+      "usable": {
+        "lowerMs": 873.787625,
+        "upperMs": 898.122667
+      },
+      "finishedMs": 898.206167,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 9,
+        "wallMs": 58.413584,
+        "maxWallMs": 24.335042
+      },
+      "receivedMs": 924.596917,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "8a34c2ab05ed87e6b53b66ad40dfcd58",
+      "pid": 61833,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 457.328916,
+      "domReadyMs": 542.172083,
+      "shell": {
+        "lowerMs": 541.740916,
+        "upperMs": 554.332958
+      },
+      "connected": {
+        "lowerMs": 762.529666,
+        "upperMs": 794.176458
+      },
+      "usable": {
+        "lowerMs": 762.529666,
+        "upperMs": 794.176458
+      },
+      "finishedMs": 794.261791,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 69.72512499999999,
+        "maxWallMs": 31.646792
+      },
+      "receivedMs": 811.517083,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "1ffa3e97d970d728db919e448dba54db",
+      "pid": 61851,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 467.70175,
+      "domReadyMs": 551.834208,
+      "shell": {
+        "lowerMs": 551.5082499046325,
+        "upperMs": 559.9170409046326
+      },
+      "connected": {
+        "lowerMs": 768.332416,
+        "upperMs": 788.179125
+      },
+      "usable": {
+        "lowerMs": 768.332416,
+        "upperMs": 788.179125
+      },
+      "finishedMs": 788.270583,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 42.964543000000006,
+        "maxWallMs": 19.846709
+      },
+      "receivedMs": 808.969833,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "58d9e490a3d250b7dbd0d5132c9e68d1",
+      "pid": 61883,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 431.268667,
+      "domReadyMs": 514.676625,
+      "shell": {
+        "lowerMs": 514.2515,
+        "upperMs": 522.344792
+      },
+      "connected": {
+        "lowerMs": 749.259,
+        "upperMs": 769.28475
+      },
+      "usable": {
+        "lowerMs": 749.259,
+        "upperMs": 769.28475
+      },
+      "finishedMs": 769.381917,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 43.687583000000004,
+        "maxWallMs": 20.02575
+      },
+      "receivedMs": 790.617458,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "a4ced0d309e774fd7534e483cd5e0f84",
+      "pid": 61901,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 462.622084,
+      "domReadyMs": 545.037667,
+      "shell": {
+        "lowerMs": 544.602084,
+        "upperMs": 552.464292
+      },
+      "connected": {
+        "lowerMs": 770.182459,
+        "upperMs": 800.43025
+      },
+      "usable": {
+        "lowerMs": 770.182459,
+        "upperMs": 800.43025
+      },
+      "finishedMs": 800.514875,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 55.286584000000005,
+        "maxWallMs": 30.247791
+      },
+      "receivedMs": 803.437209,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "d763e52b30d51547bc4a5f6fdfabb83a",
+      "pid": 61919,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 434.774292,
+      "domReadyMs": 529.265667,
+      "shell": {
+        "lowerMs": 528.9347920238419,
+        "upperMs": 546.0444580238419
+      },
+      "connected": {
+        "lowerMs": 747.228625,
+        "upperMs": 767.336917
+      },
+      "usable": {
+        "lowerMs": 747.228625,
+        "upperMs": 767.336917
+      },
+      "finishedMs": 767.439833,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 42.277164,
+        "maxWallMs": 20.108292
+      },
+      "receivedMs": 775.89925,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "7d520e6068539e95a1c36572f5c3e36b",
+      "pid": 61940,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 419.731208,
+      "domReadyMs": 503.294125,
+      "shell": {
+        "lowerMs": 502.96120802384183,
+        "upperMs": 510.37395802384185
+      },
+      "connected": {
+        "lowerMs": 716.969,
+        "upperMs": 741.39125
+      },
+      "usable": {
+        "lowerMs": 716.969,
+        "upperMs": 741.39125
+      },
+      "finishedMs": 741.477167,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 7,
+        "wallMs": 52.00020799999999,
+        "maxWallMs": 24.42225
+      },
+      "receivedMs": 743.099625,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "df2879c40e3307ff77c8171939440e8c",
+      "pid": 61965,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 419.637208,
+      "domReadyMs": 502.50975,
+      "shell": {
+        "lowerMs": 502.082125,
+        "upperMs": 509.263875
+      },
+      "connected": {
+        "lowerMs": 724.426916,
+        "upperMs": 757.083875
+      },
+      "usable": {
+        "lowerMs": 724.426916,
+        "upperMs": 757.083875
+      },
+      "finishedMs": 757.167458,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 64.430541,
+        "maxWallMs": 32.656959
+      },
+      "receivedMs": 773.522666,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "f982b43bc53cee872d0dc496b6bbbba4",
+      "pid": 61994,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 509.786166,
+      "domReadyMs": 608.977583,
+      "shell": {
+        "lowerMs": 647.1678330238418,
+        "upperMs": 647.5124580238419
+      },
+      "connected": {
+        "lowerMs": 836.74325,
+        "upperMs": 859.555916
+      },
+      "usable": {
+        "lowerMs": 836.74325,
+        "upperMs": 859.555916
+      },
+      "finishedMs": 859.652208,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 63.841665,
+        "maxWallMs": 22.812666
+      },
+      "receivedMs": 886.981833,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "scenario": "retained-start",
+      "warmup": false,
+      "schema": 1,
+      "runId": "14725076354658d3f7c636c782cc754f",
+      "pid": 62019,
+      "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+      "versions": {
+        "node": "24.20.0",
+        "electron": "44.2.0",
+        "uv": "1.52.1"
+      },
+      "state": "complete",
+      "target": "retained-session",
+      "windowCreatedMs": 450.237,
+      "domReadyMs": 536.157291,
+      "shell": {
+        "lowerMs": 535.8428330238419,
+        "upperMs": 571.4008330238419
+      },
+      "connected": {
+        "lowerMs": 784.340458,
+        "upperMs": 806.258416
+      },
+      "usable": {
+        "lowerMs": 784.340458,
+        "upperMs": 806.258416
+      },
+      "finishedMs": 806.345083,
+      "checks": {
+        "host": true,
+        "noNotice": true,
+        "home": false,
+        "session": true,
+        "transcript": true,
+        "visible": true,
+        "fonts": true,
+        "painted": true
+      },
+      "instrumentation": {
+        "pollIntervalMs": 25,
+        "paintWaitBoundMs": 250,
+        "probes": 8,
+        "wallMs": 86.58791599999999,
+        "maxWallMs": 35.558
+      },
+      "receivedMs": 825.061875,
+      "launchServicesExit": {
+        "code": 0,
+        "signal": null
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "scenario": "retained",
+      "state": "stopped"
+    }
+  ],
+  "ownedGuiPids": [
+    60809,
+    60835,
+    60882,
+    60895,
+    60912,
+    60925,
+    60942,
+    60957,
+    60970,
+    60983,
+    60996,
+    61011,
+    61027,
+    61040,
+    61063,
+    61078,
+    61091,
+    61104,
+    61117,
+    61132,
+    61145,
+    61158,
+    61171,
+    61209,
+    61226,
+    61256,
+    61272,
+    61292,
+    61309,
+    61322,
+    61338,
+    61355,
+    61374,
+    61389,
+    61408,
+    61432,
+    61450,
+    61468,
+    61486,
+    61505,
+    61526,
+    61545,
+    61563,
+    61592,
+    61614,
+    61636,
+    61654,
+    61675,
+    61716,
+    61734,
+    61757,
+    61775,
+    61794,
+    61812,
+    61833,
+    61851,
+    61883,
+    61901,
+    61919,
+    61940,
+    61965,
+    61994,
+    62019
+  ],
+  "ownedDaemonPids": [
+    60821,
+    60858,
+    60874,
+    61400,
+    61420,
+    61442,
+    61460,
+    61478,
+    61497,
+    61518,
+    61536,
+    61555,
+    61575,
+    61602,
+    61625,
+    61646,
+    61664,
+    61708,
+    61726,
+    61749,
+    61767,
+    61785,
+    61804,
+    61822,
+    61843,
+    61863,
+    61893,
+    61911,
+    61929,
+    61950,
+    61975,
+    62008,
+    62033
+  ]
+}

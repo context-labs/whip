@@ -1,0 +1,12 @@
+version = "1.0"
+[metadata]
+name = "whip-live-terminal-pilot"
+[agent]
+timeout_sec = 300
+[verifier]
+timeout_sec = 30
+[environment]
+build_timeout_sec = 300
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240

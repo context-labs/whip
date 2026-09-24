@@ -2,6 +2,10 @@ package bashrun
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -73,16 +77,36 @@ func TestNonInteractiveTimeout(t *testing.T) {
 	}
 }
 
+func TestNonInteractiveTimeoutKillsDescendants(t *testing.T) {
+	marker := t.TempDir() + "/survived"
+	res := Run(context.Background(), Options{
+		Command: `(sleep 0.4; touch ` + strconv.Quote(marker) + `) & wait`,
+		Timeout: 100 * time.Millisecond,
+	})
+	if !res.TimedOut || !res.Killed {
+		t.Fatalf("expected Killed+TimedOut: %+v", res)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("descendant survived timeout: %v", err)
+	}
+}
+
 // TestNonInteractiveCancellation exercises the ctx-cancel path.
 func TestNonInteractiveCancellation(t *testing.T) {
+	marker := t.TempDir() + "/survived"
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(80 * time.Millisecond)
 		cancel()
 	}()
-	res := Run(ctx, Options{Command: `sleep 5`, Timeout: 10 * time.Second})
+	res := Run(ctx, Options{Command: `(sleep 0.4; touch ` + strconv.Quote(marker) + `) & wait`, Timeout: 10 * time.Second})
 	if !res.Killed {
 		t.Fatalf("cancellation should kill: %+v", res)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("descendant survived cancellation: %v", err)
 	}
 }
 
@@ -211,5 +235,24 @@ func TestKeyBytes(t *testing.T) {
 		if got := KeyBytes(name); got != want {
 			t.Errorf("KeyBytes(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestOpenDevNullIsReadOnlyStdin(t *testing.T) {
+	f := openDevNull()
+	if f == nil {
+		t.Fatal("openDevNull failed")
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var b [1]byte
+	if n, err := f.Read(b[:]); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("stdin read = %d, %v; want EOF", n, err)
+	}
+	if _, err := f.WriteString("not writable"); err == nil {
+		t.Fatal("stdin descriptor is writable")
 	}
 }

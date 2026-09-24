@@ -1,0 +1,179 @@
+{
+  "type": [
+    "null",
+    "array"
+  ],
+  "items": {
+    "type": "object",
+    "properties": {
+      "execution_engine": {
+        "type": "string"
+      },
+      "last_turn": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "turn_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string"
+          },
+          "event_seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "error": {
+            "type": "string"
+          },
+          "error_truncated": {
+            "type": "boolean"
+          },
+          "error_details": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "inline": true,
+              "text": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "contentEncoding": "base64"
+              },
+              "reference_id": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference_id",
+              "digest",
+              "size",
+              "media_type",
+              "source"
+            ],
+            "additionalProperties": false
+          },
+          "model_calls": {
+            "type": "integer"
+          },
+          "compactions": {
+            "type": "integer"
+          },
+          "last_activity_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "event_seq"
+        ],
+        "additionalProperties": false
+      },
+      "id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "parent_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "report": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "pending_mail": {
+        "type": "integer"
+      },
+      "lifecycle_phase": {
+        "type": "string"
+      },
+      "blocking_reason": {
+        "type": "string"
+      },
+      "terminal_cause": {
+        "type": "string"
+      },
+      "allowed_controls": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "execution_engine",
+      "id",
+      "root_id",
+      "parent_id",
+      "name",
+      "model",
+      "provider",
+      "effort",
+      "cwd",
+      "report",
+      "status",
+      "pending_mail",
+      "lifecycle_phase",
+      "blocking_reason",
+      "terminal_cause",
+      "allowed_controls"
+    ],
+    "additionalProperties": false
+  },
+  "$id": "https://whip.dev/protocol/v6/AgentListResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentListResult"
+}

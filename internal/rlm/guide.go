@@ -1,0 +1,277 @@
+package rlm
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+	"unicode/utf8"
+)
+
+// CustomTool describes one definition-declared tool for the runtime guide. The
+// schema supplies the keyword names; the description is bounded when rendered.
+type CustomTool struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
+	// OutputSchema, when set, is rendered as the tool's return shape.
+	OutputSchema json.RawMessage
+}
+
+// maxOutputContractBytes bounds the output schema shown in the guide.
+const maxOutputContractBytes = 2 << 10
+
+// maxToolDescriptionBytes bounds one catalog line so a definition with many
+// tools cannot crowd out the runtime guide.
+const maxToolDescriptionBytes = 240
+
+// ModuleNames returns every host module in the order the runtime guide
+// describes them.
+func ModuleNames() []string {
+	names := make([]string, 0, len(moduleRegistry))
+	for _, line := range guideCatalog {
+		for _, module := range line.modules {
+			if !slices.Contains(names, module) {
+				names = append(names, module)
+			}
+		}
+		for _, part := range line.parts {
+			if !slices.Contains(names, part.module) {
+				names = append(names, part.module)
+			}
+		}
+	}
+	return names
+}
+
+// SystemPrompt is a definition's standalone system prompt for one engine: the
+// persona followed by the runtime guide. ComposePrompt adds identity, rules,
+// environment, and discovered instructions around it.
+func SystemPrompt(engine, persona string, modules []string, tools []CustomTool, output json.RawMessage, workingDirectory string, history *ContextHandle) (string, error) {
+	guide, err := RuntimeGuide(engine, modules, tools, output, workingDirectory, history)
+	if err != nil || persona == "" {
+		return guide, err
+	}
+	return persona + " " + guide, nil
+}
+
+// RuntimeGuide renders the execution engine's guidance for the selected host
+// modules and custom tools: the rlm_exec introduction, the module catalog, the
+// tools catalog, the rules, the messaging section, then the working directory
+// and any context handle. It is the runtime-owned part of a system prompt and
+// never names an agent.
+func RuntimeGuide(engine string, modules []string, tools []CustomTool, output json.RawMessage, workingDirectory string, history *ContextHandle) (string, error) {
+	// Engine descriptors hash this guide, so resolve the id directly.
+	if engine == "" {
+		engine = EngineStarlark
+	}
+	if engine != EngineStarlark && engine != EngineQuickJS {
+		return "", fmt.Errorf("unsupported execution engine %q", engine)
+	}
+	for _, module := range modules {
+		if _, ok := moduleRegistry[module]; !ok {
+			return "", fmt.Errorf("unknown RLM module %q", module)
+		}
+	}
+	javascript := engine == EngineQuickJS
+	var b strings.Builder
+	b.WriteString(guideIntro.text(javascript))
+	b.WriteString("\n\n")
+	b.WriteString(guideCatalogHeader.text(javascript))
+	writeGuideLines(&b, guideCatalog, modules, javascript)
+	if len(tools) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(guideToolsHeader.text(javascript))
+		for _, tool := range tools {
+			b.WriteString("\n")
+			b.WriteString(tool.catalogLine(javascript))
+		}
+	}
+	b.WriteString("\n\nRules:")
+	writeGuideLines(&b, guideRules, modules, javascript)
+	if len(tools) > 0 {
+		b.WriteString("\n")
+		b.WriteString(guideToolsRule.text(javascript))
+	}
+	if contract := compactBounded(output, maxOutputContractBytes); contract != "" {
+		b.WriteString("\n- Output contract: your final assistant message for this turn must be exactly one JSON value matching this schema, with no surrounding prose or code fence: ")
+		b.WriteString(contract)
+		b.WriteString(". A message that does not match is returned to you once for correction; a second mismatch fails the turn.")
+	}
+	if slices.ContainsFunc(guideMessaging, func(line guideLine) bool { return line.selected(modules) }) {
+		b.WriteString("\n\nMessaging and delegation (runtime behavior):")
+		writeGuideLines(&b, guideMessaging, modules, javascript)
+	}
+	if workingDirectory != "" {
+		b.WriteString("\n\nWorking directory: " + workingDirectory)
+	}
+	if history != nil && history.ReferenceID != "" {
+		fmt.Fprintf(&b, "\nAvailable context: handle=%s size=%d source=%s", history.ReferenceID, history.Size, history.Source)
+	}
+	guide := b.String()
+	if javascript {
+		guide = strings.ReplaceAll(javascriptExamples(guide), "include_grants=True", "include_grants: true")
+	}
+	return guide, nil
+}
+
+func writeGuideLines(b *strings.Builder, lines []guideLine, modules []string, javascript bool) {
+	for _, line := range lines {
+		if !line.selected(modules) {
+			continue
+		}
+		b.WriteString("\n")
+		if line.parts != nil {
+			b.WriteString(line.joined(modules))
+			continue
+		}
+		b.WriteString(line.text(javascript))
+	}
+}
+
+func (line guideLine) text(javascript bool) string {
+	if javascript && line.javascript != "" {
+		return line.javascript
+	}
+	return line.starlark
+}
+
+// selected reports whether a line applies: core lines always do, and a line
+// with modules or parts applies when any of them was selected.
+func (line guideLine) selected(modules []string) bool {
+	if len(line.modules) == 0 && len(line.parts) == 0 {
+		return true
+	}
+	for _, module := range line.modules {
+		if slices.Contains(modules, module) {
+			return true
+		}
+	}
+	for _, part := range line.parts {
+		if slices.Contains(modules, part.module) {
+			return true
+		}
+	}
+	return false
+}
+
+func (line guideLine) joined(modules []string) string {
+	texts := make([]string, 0, len(line.parts))
+	for _, part := range line.parts {
+		if slices.Contains(modules, part.module) {
+			texts = append(texts, part.text)
+		}
+	}
+	return "- " + strings.Join(texts, ", ")
+}
+
+// catalogLine renders one tool: its call shape from the schema's properties
+// (required first, then the rest alphabetically) and a bounded description.
+func (tool CustomTool) catalogLine(javascript bool) string {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	_ = json.Unmarshal(tool.InputSchema, &schema)
+	names := make([]string, 0, len(schema.Properties))
+	for _, name := range schema.Required {
+		if _, ok := schema.Properties[name]; ok && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	rest := make([]string, 0, len(schema.Properties))
+	for name := range schema.Properties {
+		if !slices.Contains(names, name) {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	names = append(names, rest...)
+	var call string
+	if javascript {
+		call = fmt.Sprintf("tools.%s({%s})", tool.Name, strings.Join(names, ", "))
+	} else {
+		args := make([]string, len(names))
+		for i, name := range names {
+			args[i] = name + "=..."
+		}
+		call = fmt.Sprintf("tools.%s(%s)", tool.Name, strings.Join(args, ", "))
+	}
+	if returns := returnShape(tool.OutputSchema); returns != "" {
+		call += " -> " + returns
+	}
+	description := strings.Join(strings.Fields(tool.Description), " ")
+	if len(description) > maxToolDescriptionBytes {
+		cut := maxToolDescriptionBytes
+		for cut > 0 && !utf8.RuneStart(description[cut]) {
+			cut--
+		}
+		description = description[:cut] + "..."
+	}
+	if description == "" {
+		return "- " + call
+	}
+	return "- " + call + ": " + description
+}
+
+// returnShape summarizes an output schema for the catalog: the property names
+// of an object, otherwise its type. Empty when there is no schema.
+func returnShape(schema json.RawMessage) string {
+	if len(schema) == 0 || string(schema) == "null" {
+		return ""
+	}
+	var shape struct {
+		Type       any                        `json:"type"`
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &shape); err != nil {
+		return "JSON"
+	}
+	if len(shape.Properties) > 0 {
+		names := make([]string, 0, len(shape.Properties))
+		for name := range shape.Properties {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return "{" + strings.Join(names, ", ") + "}"
+	}
+	switch value := shape.Type.(type) {
+	case string:
+		return value
+	case []any:
+		parts := make([]string, 0, len(value))
+		for _, item := range value {
+			parts = append(parts, fmt.Sprint(item))
+		}
+		return strings.Join(parts, "|")
+	}
+	return "JSON"
+}
+
+// compactBounded compacts a schema for the guide and bounds its length. Empty
+// for a missing or null schema.
+func compactBounded(schema json.RawMessage, limit int) string {
+	if len(schema) == 0 || string(schema) == "null" {
+		return ""
+	}
+	var compact strings.Builder
+	var value any
+	if err := json.Unmarshal(schema, &value); err != nil {
+		return ""
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	compact.Write(encoded)
+	text := compact.String()
+	if len(text) > limit {
+		cut := limit
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + "..."
+	}
+	return text
+}

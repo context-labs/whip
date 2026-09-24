@@ -1,0 +1,320 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
+	"github.com/context-labs/whip/internal/skills"
+)
+
+const (
+	maxMentionImageBytes = 20 << 20
+	maxInvokedSkillBytes = 256 << 10
+	// A macOS screenshot name is 6 words ("Screenshot 2026-09-04 at 10.00.00 AM.png"
+	// once "at" splits); 8 leaves headroom without scanning whole sentences.
+	maxMentionWords = 8
+)
+
+var (
+	mentionRange = regexp.MustCompile(`#(\d+)(?:-(\d+))?$`)
+	imageExt     = map[string]string{
+		".png": "png", ".jpg": "jpg", ".jpeg": "jpg", ".gif": "gif",
+		".webp": "webp", ".bmp": "bmp",
+	}
+)
+
+// prepareAuthoredInput is the shared root/descendant expansion boundary. The
+// terminal only offers completions; the daemon resolves paths and skills
+// against the effective session before anything reaches model context.
+func (session *AgentSession) prepareAuthoredInput(ctx context.Context, input string, parts []llm.ContentPart) (string, []llm.ContentPart, error) {
+	if err := session.validateImageInput(parts); err != nil {
+		return "", nil, err
+	}
+	input, parts, err := session.expandMentionedFiles(ctx, input, parts)
+	if err != nil {
+		return "", nil, err
+	}
+	input, err = session.expandInvokedSkills(ctx, input)
+	return input, parts, err
+}
+
+func (session *AgentSession) expandInvokedSkills(ctx context.Context, input string) (string, error) {
+	invoked := false
+	for token := range strings.FieldsSeq(input) {
+		if strings.HasPrefix(token, "$") {
+			invoked = true
+			break
+		}
+	}
+	if !invoked {
+		return input, nil
+	}
+	options, err := session.promptOptions(ctx)
+	if err != nil {
+		return "", err
+	}
+	session.mu.Lock()
+	available, applied := session.prompt.Skills, session.prompt.AppliedAt
+	overridden := len(session.prompt.Sources) == 1 && session.prompt.Sources[0].Kind == "system_override"
+	session.mu.Unlock()
+	if applied.IsZero() || overridden {
+		// Detached test sessions and explicit root overrides have no composed
+		// catalog. Preserve explicit invocation without installing a prompt.
+		available, err = rlm.LoadPromptSkills(options)
+		if err != nil {
+			return "", err
+		}
+	}
+	byName := make(map[string]skills.Skill, len(available))
+	for _, skill := range available {
+		byName[skill.Name] = skill
+	}
+	var sections []string
+	seen := map[string]bool{}
+	for token := range strings.FieldsSeq(input) {
+		name := strings.TrimRight(strings.TrimPrefix(token, "$"), ".,;:!?)\"'")
+		skill, ok := byName[name]
+		if !strings.HasPrefix(token, "$") || !ok || seen[name] {
+			continue
+		}
+		seen[name] = true
+		path, allowed, err := rlm.ResolvePromptSkill(skill.Path, options.ProjectDirectoryAllowed)
+		if err != nil {
+			return "", fmt.Errorf("resolve invoked skill %s: %w", name, err)
+		}
+		if !allowed {
+			return "", fmt.Errorf("invoked skill %s is outside this agent's allowed filesystem scope: %w", name, capability.ErrDenied)
+		}
+		body, err := readInvokedSkill(path)
+		if err != nil {
+			return "", fmt.Errorf("read invoked skill %s: %w", name, err)
+		}
+		if len(body) > maxInvokedSkillBytes {
+			return "", fmt.Errorf("invoked skill %s exceeds the %d-byte limit", name, maxInvokedSkillBytes)
+		}
+		sections = append(sections, fmt.Sprintf("<invoked_skill name=%q location=%q>\n%s\n</invoked_skill>", name, skill.Path, body))
+	}
+	if len(sections) > 0 {
+		input += "\n\n" + strings.Join(sections, "\n\n")
+	}
+	return input, nil
+}
+
+func readInvokedSkill(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("expected a regular skill file")
+	}
+	file, err := os.Open(path) //nolint:gosec // G304: path comes from the local skill catalog; invoking that skill explicitly authorizes its bounded read
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, maxInvokedSkillBytes+1))
+}
+
+func (session *AgentSession) expandMentionedFiles(ctx context.Context, input string, parts []llm.ContentPart) (string, []llm.ContentPart, error) {
+	var notes []string
+	seen := map[string]bool{}
+	imageBytes := 0
+	fields := strings.Fields(input)
+	for i := 0; i < len(fields); i++ {
+		if !strings.HasPrefix(fields[i], "@") || len(fields[i]) < 2 {
+			continue
+		}
+		path, lineRange, pasted, end := session.resolveMentionWords(fields, i)
+		if end < 0 {
+			continue
+		}
+		i = end // the words a mention consumed are not rescanned as tokens
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		scope := path
+		if pasted {
+			scope = "" // outside every workspace grant; the read grant itself still applies
+		}
+		if err := session.authorizeMention(ctx, scope); err != nil {
+			return "", nil, fmt.Errorf("this agent's file capability does not allow mentioned file %q: %w", path, err)
+		}
+		format, image := imageExt[strings.ToLower(filepath.Ext(path))]
+		if image && session.agent.Vision {
+			data, err := os.ReadFile(path) //nolint:gosec // canonical regular file authorized above
+			if err != nil {
+				return "", nil, fmt.Errorf("read mentioned image: %w", err)
+			}
+			imageBytes += len(data)
+			if imageBytes > maxMentionImageBytes {
+				return "", nil, fmt.Errorf("mentioned images exceed the %d-byte limit", maxMentionImageBytes)
+			}
+			format, data = llm.NormalizeImage(format, data)
+			parts = append(parts, llm.ImagePart(format, data))
+			notes = append(notes, path+" (attached image)")
+			continue
+		}
+		notes = append(notes, path+lineRange)
+	}
+	if len(notes) > 0 {
+		input += "\n\n[note: the user tagged " + strings.Join(notes, "; ") + " — inspect regular files with the files module as needed]"
+	}
+	return input, parts, nil
+}
+
+// resolveMentionWords resolves the @token at fields[i]. When the bare token
+// resolves nothing it is extended with the following words (space-joined, up
+// to maxMentionWords) until one resolves: macOS screenshot names contain
+// spaces, and a Finder drag escapes them as "\ ". The shortest match wins so
+// a token that already resolves never swallows unrelated words after it.
+// end is the index of the last word consumed, or -1 when nothing resolves.
+func (session *AgentSession) resolveMentionWords(fields []string, i int) (string, string, bool, int) {
+	// Only the bare token (j == i) may fuzzy-walk the workspace; the
+	// space-joined extensions resolve as exact paths only, so an unresolved
+	// @word still costs one walk (see resolveSessionMention).
+	for j := i; j < len(fields) && j <= i+maxMentionWords; j++ {
+		value := strings.Join(fields[i:j+1], " ")[1:] // drop the @
+		value = strings.ReplaceAll(strings.TrimRight(value, ".,;:!?)\"'"), `\ `, " ")
+		lineRange := ""
+		if match := mentionRange.FindStringSubmatch(value); match != nil {
+			value = strings.TrimSuffix(value, match[0])
+			lineRange = " (lines " + match[1]
+			if match[2] != "" {
+				lineRange += "-" + match[2]
+			}
+			lineRange += ")"
+		}
+		if path, ok := pastedImageFile(value); ok {
+			return path, lineRange, true, j
+		}
+		if path, ok := resolveSessionMention(session.agent.WorkingDir, value); ok {
+			return path, lineRange, false, j
+		}
+	}
+	return "", "", false, -1
+}
+
+func (session *AgentSession) authorizeMention(ctx context.Context, path string) error {
+	if session.root != nil {
+		return session.root.store.AuthorizeCapability(ctx, session.root.ID(), session.id, session.authority.Files, "read", path)
+	}
+	// Detached sessions are focused fixtures, not evidence of Full Access.
+	// Keep them project-scoped and require a child's semantic read capability.
+	if session.parentID != "" && !slices.Contains(session.capabilities, "read") {
+		return errors.New("read capability is unavailable")
+	}
+	if path != "" {
+		if _, ok := canonicalWorkspaceFile(session.agent.WorkingDir, path); !ok {
+			return errors.New("mentioned path is outside the detached session's project")
+		}
+	}
+	return nil
+}
+
+func resolveSessionMention(root, value string) (string, bool) {
+	if root == "" || value == "" {
+		return "", false
+	}
+	path := value
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		path = home + path[1:]
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	if resolved, ok := canonicalMentionFile(path); ok {
+		return resolved, true
+	}
+	// A value with a space is a resolveMentionWords extension, which only
+	// ever names a full path; fuzzy-walking for each of them would multiply
+	// the cost of every unresolved @word by maxMentionWords.
+	if strings.ContainsAny(value, "/\\ ") {
+		return "", false
+	}
+	var matches []string
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || len(matches) > 1 {
+			return nil //nolint:nilerr // skip unreadable entries and keep walking
+		}
+		if path != root && entry.IsDir() && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "vendor" || entry.Name() == "node_modules") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || !strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(value)) {
+			return nil
+		}
+		if resolved, ok := canonicalWorkspaceFile(root, path); ok {
+			matches = append(matches, resolved)
+		}
+		return nil
+	})
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	return "", false
+}
+
+func canonicalWorkspaceFile(root, path string) (string, bool) {
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false
+	}
+	canonical, ok := canonicalMentionFile(path)
+	if !ok {
+		return "", false
+	}
+	relative, err := filepath.Rel(canonicalRoot, canonical)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return canonical, true
+}
+
+// canonicalMentionFile resolves exact targets without granting access. The
+// persisted file capability is checked before a note or image is attached.
+func canonicalMentionFile(path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	canonical, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", false
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return canonical, true
+}
+
+// pastedImageFile accepts the one out-of-workspace mention the TUI itself
+// authors: a clipboard image saved under <config dir>/pastes
+// (internal/tui/paste.go saveClipboardImage) and tagged by absolute path.
+func pastedImageFile(value string) (string, bool) {
+	if _, image := imageExt[strings.ToLower(filepath.Ext(value))]; !image || !filepath.IsAbs(value) {
+		return "", false
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		return "", false
+	}
+	return canonicalWorkspaceFile(filepath.Join(dir, "pastes"), value)
+}

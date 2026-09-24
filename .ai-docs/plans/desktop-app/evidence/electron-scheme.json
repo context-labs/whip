@@ -1,0 +1,39 @@
+{
+  "recordedAt": "2026-09-09T05:23:38.286Z",
+  "purpose": "Scheme/CSP/storage/renderer feasibility, not a release startup benchmark",
+  "electron": "44.2.0",
+  "os": "25.3.0",
+  "cpu": "Apple M4 Max",
+  "rendererDigest": "cc61011f5e221de52e5de370df082857405f84c5db1d537c7616e9b3d64d7158",
+  "observedLaunchToHeadingMs": 862.4078340000001,
+  "browser": {
+    "origin": "whip-app://bundle",
+    "secure": true,
+    "lockWorks": true,
+    "nodeAvailable": false,
+    "directOrigin": "whip-app://bundle",
+    "fonts": "loaded",
+    "stylesheets": 1,
+    "background": "rgba(0, 0, 0, 0)",
+    "readyMark": 272.5
+  },
+  "observations": [
+    {
+      "method": "OPTIONS",
+      "path": "/content",
+      "origin": "whip-app://bundle"
+    },
+    {
+      "method": "POST",
+      "path": "/content",
+      "origin": "whip-app://bundle"
+    },
+    {
+      "method": "WS",
+      "path": "/socket",
+      "origin": "whip-app://bundle"
+    }
+  ],
+  "routeReload": true,
+  "errors": []
+}

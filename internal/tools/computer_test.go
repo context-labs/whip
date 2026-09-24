@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,43 +15,53 @@ import (
 // computer_exec refuses cleanly when no policy is installed (never drives
 // an app ungated), and refuses unknown helpers with guidance.
 func TestComputerExecGates(t *testing.T) {
-	oldP, oldA := ComputerPolicy, ComputerApprover
-	defer func() { ComputerPolicy, ComputerApprover = oldP, oldA }()
-	ComputerPolicy, ComputerApprover = nil, nil
-
 	// On Linux the platform check fires first.
-	out := Execute(t.Context(), []Tool{ComputerExec()}, "computer_exec", []byte(`{"code":"print(chrome_state())"}`))
+	out := Execute(t.Context(), []Tool{ComputerExec(NewServices())}, "computer_exec", []byte(`{"code":"print(chrome_state())"}`))
 	if !strings.HasPrefix(out, "Error") {
 		t.Fatalf("want error, got %q", out[:80])
+	}
+}
+
+func TestComputerExecDirect(t *testing.T) {
+	tool := computerExec(NewServices())
+	if !computer.Available() {
+		if _, err := tool.Run(t.Context(), []byte(`{"code":"print(1)"}`)); err == nil || !strings.Contains(err.Error(), "macOS-only") {
+			t.Fatalf("direct computerExec error = %v", err)
+		}
+		return
+	}
+	for _, args := range []string{`{bad`, `{}`, `{"code":"   "}`} {
+		if _, err := tool.Run(t.Context(), []byte(args)); err == nil {
+			t.Fatalf("computerExec accepted %q", args)
+		}
+	}
+	if out, err := tool.Run(t.Context(), []byte(`{"code":"print(1)"}`)); err != nil || out != "1\n" {
+		t.Fatalf("computerExec print = %q, %v", out, err)
 	}
 }
 
 // The policy gate blocks denied apps and surfaces ApprovalNeeded for
 // unlisted ones; an approver granting consent unblocks.
 func TestGateApp(t *testing.T) {
-	oldP, oldA := ComputerPolicy, ComputerApprover
-	defer func() { ComputerPolicy, ComputerApprover = oldP, oldA }()
+	ctx, services := withComputerPolicy(t, computer.NewPolicy([]string{"Google Chrome"}, []string{"Finder"}, true))
 
-	ComputerPolicy = computer.NewPolicy([]string{"Google Chrome"}, []string{"Finder"}, true)
-	ComputerApprover = nil
-
-	if err := gateApp("Google Chrome"); err != nil {
+	if err := gateApp(ctx, "Google Chrome"); err != nil {
 		t.Errorf("allowed app blocked: %v", err)
 	}
-	if err := gateApp("Finder"); err == nil || !strings.Contains(err.Error(), "policy") {
+	if err := gateApp(ctx, "Finder"); err == nil || !strings.Contains(err.Error(), "policy") {
 		t.Errorf("denied app must fail: %v", err)
 	}
-	err := gateApp("Safari")
+	err := gateApp(ctx, "Safari")
 	if err == nil {
 		t.Fatal("unlisted app must need approval")
 	}
-	ComputerApprover = func(app string) bool { return app == "Safari" }
-	if err := gateApp("Safari"); err != nil {
+	services.SetComputerApprover(func(app string) bool { return app == "Safari" })
+	if err := gateApp(ctx, "Safari"); err != nil {
 		t.Errorf("approver-consent must unblock: %v", err)
 	}
 	// persisted for the session
-	ComputerApprover = nil
-	if err := gateApp("Safari"); err != nil {
+	services.SetComputerApprover(nil)
+	if err := gateApp(ctx, "Safari"); err != nil {
 		t.Errorf("approval must persist for the session: %v", err)
 	}
 }
@@ -74,15 +85,16 @@ func TestShorten(t *testing.T) {
 }
 
 func TestGenerations(t *testing.T) {
-	noteGeneration("GenApp", &computer.AppState{Generation: 7})
-	if got := genFor("genapp"); got != 7 { // case-insensitive
+	ctx := WithServices(t.Context(), NewServices())
+	noteGeneration(ctx, "GenApp", &computer.AppState{Generation: 7})
+	if got := genFor(ctx, "genapp"); got != 7 { // case-insensitive
 		t.Errorf("genFor: %d", got)
 	}
-	noteGeneration("GenApp", nil) // nil state is a no-op
-	if got := genFor("GenApp"); got != 7 {
+	noteGeneration(ctx, "GenApp", nil) // nil state is a no-op
+	if got := genFor(ctx, "GenApp"); got != 7 {
 		t.Errorf("genFor after nil note: %d", got)
 	}
-	if got := genFor("NeverSeen"); got != 0 {
+	if got := genFor(ctx, "NeverSeen"); got != 0 {
 		t.Errorf("unknown app gen: %d", got)
 	}
 }
@@ -113,19 +125,17 @@ func TestSummarize(t *testing.T) {
 	}
 }
 
-// withComputerPolicy swaps in a policy for the test.
-func withComputerPolicy(t *testing.T, p *computer.Policy) {
+func withComputerPolicy(t *testing.T, policy *computer.Policy) (context.Context, *Services) {
 	t.Helper()
-	oldP, oldA := ComputerPolicy, ComputerApprover
-	t.Cleanup(func() { ComputerPolicy, ComputerApprover = oldP, oldA })
-	ComputerPolicy, ComputerApprover = p, nil
+	services := NewServices()
+	services.SetComputerPolicy(policy)
+	return WithServices(t.Context(), services), services
 }
 
 // runComputerCode error and gate paths that are portable (no osascript, no
 // helper needed — they fail before touching the platform).
 func TestRunComputerCodePortablePaths(t *testing.T) {
-	withComputerPolicy(t, computer.NewPolicy([]string{"Google Chrome"}, []string{"Finder"}, true))
-	ctx := t.Context()
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"Google Chrome"}, []string{"Finder"}, true))
 
 	if out, err := runComputerCode(ctx, "# label\nprint(\"hi\")"); err != nil || out != "hi\n" {
 		t.Errorf("print: %q %v", out, err)
@@ -164,8 +174,7 @@ func TestRunComputerCodeOsascriptTierUnsupported(t *testing.T) {
 	if computer.Available() {
 		t.Skip("darwin: would drive the real Chrome")
 	}
-	withComputerPolicy(t, computer.NewPolicy([]string{"Google Chrome"}, nil, true))
-	ctx := t.Context()
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"Google Chrome"}, nil, true))
 	for _, code := range []string{
 		`chrome_state()`, `chrome_tabs()`, `chrome_back()`, `chrome_reload()`,
 		`chrome_js("1+1")`, `chrome_find("example")`,
@@ -179,6 +188,48 @@ func TestRunComputerCodeOsascriptTierUnsupported(t *testing.T) {
 	}
 }
 
+func TestRunComputerCodeWithFakeOSAScript(t *testing.T) {
+	if !computer.Available() {
+		t.Skip("darwin-only AppleScript entry points")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "osascript")
+	script := `#!/bin/sh
+case "$2" in
+  *"set theUrl to URL of active tab"*) printf 'https://active.example\nActive title\n' ;;
+  *"set wCount to count windows"*) printf '1￨2￨https://two.example￨Two\n' ;;
+  *"execute javascript"*) printf 'js-result\n' ;;
+  *) printf 'ok\n' ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"Finder", "Google Chrome"}, nil, true))
+
+	out, err := runComputerCode(ctx, `tell("Finder", "activate")
+chrome_state()
+chrome_tabs()
+chrome_goto("https://93.184.216.34/")
+chrome_new_tab("https://93.184.216.34/")
+chrome_activate(1, 2)
+chrome_close(1, 2)
+chrome_back()
+chrome_reload()
+chrome_js("1+1")
+chrome_find("two.example")
+chrome_find("missing")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ok", "active.example", "two.example", "js-result", "null"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // Without a helper binary, native helpers fail with enable-the-driver guidance.
 func TestHelperUnavailable(t *testing.T) {
 	if computer.Available() {
@@ -187,11 +238,11 @@ func TestHelperUnavailable(t *testing.T) {
 	t.Setenv("WHIP_COMPUTER_BIN", "")
 	computer.ResetShared()
 	t.Cleanup(computer.ResetShared)
-	if _, err := helper(); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
+	if _, err := helper(context.Background()); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
 		t.Errorf("helper: %v", err)
 	}
-	withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
-	if _, err := runComputerCode(t.Context(), `apps()`); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
+	if _, err := runComputerCode(ctx, `apps()`); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
 		t.Errorf("apps without helper: %v", err)
 	}
 }
@@ -312,12 +363,9 @@ func fileExists(p string) bool {
 // path, screenshots reaching the sink, and the stale-generation error.
 func TestNativeTierWithFakeHelper(t *testing.T) {
 	fakeNativeHelper(t)
-	withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
+	ctx, services := withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
 	var sunk [][]byte
-	oldSink := ScreenshotSink
-	ScreenshotSink = func(jpegs [][]byte) { sunk = jpegs }
-	t.Cleanup(func() { ScreenshotSink = oldSink })
-	ctx := t.Context()
+	services.SetScreenshotSink(func(jpegs [][]byte) { sunk = jpegs })
 
 	out, err := runComputerCode(ctx, `print(apps())`)
 	if err != nil || !strings.Contains(out, "com.apple.finder") {
@@ -330,7 +378,6 @@ func TestNativeTierWithFakeHelper(t *testing.T) {
 
 	// A mutation before any state() read has no generation: the fake rejects
 	// it as stale, and the error surfaces as a StaleError.
-	delete(appGenerations, "testapp")
 	if _, err := runComputerCode(ctx, `click("TestApp", 0)`); !IsStale(err) {
 		t.Fatalf("pre-state click: want stale error, got %v", err)
 	}
@@ -347,7 +394,7 @@ func TestNativeTierWithFakeHelper(t *testing.T) {
 	if !strings.Contains(out, "2 screenshot(s) attached") || len(sunk) != 2 || string(sunk[0]) != "hello" {
 		t.Errorf("screenshot sink: %q, %d shots", out, len(sunk))
 	}
-	if g := genFor("TestApp"); g != 3 {
+	if g := genFor(ctx, "TestApp"); g != 3 {
 		t.Errorf("generation after mutation: %d", g)
 	}
 
@@ -362,14 +409,22 @@ func TestNativeTierWithFakeHelper(t *testing.T) {
 	if err != nil || !strings.Contains(out, "screenshot captured: 5 bytes") {
 		t.Fatalf("screenshot: %q %v", out, err)
 	}
+	h, err := computer.Shared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.computerHelper = h
+	if cached, err := services.nativeComputerHelper(); err != nil || cached != h {
+		t.Fatalf("cached helper = %p, %v", cached, err)
+	}
+	services.Close()
 }
 
 // Every remaining native mutation forwards its arguments to the helper under
 // the app + generation the tool tracks (the fake echoes the params back).
 func TestNativeMutationParams(t *testing.T) {
 	fakeNativeHelper(t)
-	withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
-	ctx := t.Context()
+	ctx, services := withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
 
 	// state() first so the generation guard has something to send.
 	if _, err := runComputerCode(ctx, `state("TestApp")`); err != nil {
@@ -427,7 +482,7 @@ func TestNativeMutationParams(t *testing.T) {
 	}
 
 	// A denied app never reaches the helper.
-	withComputerPolicy(t, computer.NewPolicy(nil, []string{"TestApp"}, true))
+	services.SetComputerPolicy(computer.NewPolicy(nil, []string{"TestApp"}, true))
 	if _, err := runComputerCode(ctx, `press("TestApp", "Return")`); err == nil || !strings.Contains(err.Error(), "policy") {
 		t.Errorf("denied mutation: %v", err)
 	}
@@ -436,8 +491,7 @@ func TestNativeMutationParams(t *testing.T) {
 // Argument validation and the policy gate fire before any platform call, for
 // every helper that takes arguments.
 func TestComputerArgAndGateErrors(t *testing.T) {
-	withComputerPolicy(t, computer.NewPolicy(nil, []string{"Google Chrome", "Denied"}, true))
-	ctx := t.Context()
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy(nil, []string{"Google Chrome", "Denied"}, true))
 	for _, tc := range []struct{ code, want string }{
 		// missing/ill-typed args
 		{`state()`, "missing arg 1"},
@@ -499,8 +553,8 @@ func TestComputerArgAndGateErrors(t *testing.T) {
 // With no policy installed at all the tool refuses rather than defaulting to
 // allow.
 func TestGateAppNoPolicy(t *testing.T) {
-	withComputerPolicy(t, nil)
-	if err := gateApp("Anything"); err == nil || !strings.Contains(err.Error(), "no policy installed") {
+	ctx, _ := withComputerPolicy(t, nil)
+	if err := gateApp(ctx, "Anything"); err == nil || !strings.Contains(err.Error(), "no policy installed") {
 		t.Errorf("nil policy: %v", err)
 	}
 }
@@ -514,12 +568,12 @@ func TestNativeHelpersWithoutDriver(t *testing.T) {
 	t.Setenv("WHIP_COMPUTER_BIN", "")
 	computer.ResetShared()
 	t.Cleanup(computer.ResetShared)
-	withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"TestApp"}, nil, true))
 	for _, code := range []string{
 		`permissions()`, `state("TestApp")`, `ax("TestApp")`, `screenshot("TestApp")`,
 		`click("TestApp", 0)`,
 	} {
-		if _, err := runComputerCode(t.Context(), code); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
+		if _, err := runComputerCode(ctx, code); err == nil || !strings.Contains(err.Error(), "whip-computer driver") {
 			t.Errorf("%s: %v", code, err)
 		}
 	}

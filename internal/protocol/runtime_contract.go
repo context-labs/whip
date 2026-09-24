@@ -1,0 +1,160 @@
+package protocol
+
+import (
+	"encoding/json"
+
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/session"
+)
+
+type CreateSessionParams struct {
+	ExecutionEngine string `json:"execution_engine,omitempty"`
+	// Definition selects the agent definition; empty means the coding agent.
+	Definition     string              `json:"definition,omitempty"`
+	Kind           session.SessionKind `json:"kind"`
+	CWD            string              `json:"cwd"`
+	Model          string              `json:"model"`
+	Provider       string              `json:"provider"`
+	PermissionMode string              `json:"permission_mode,omitempty"`
+}
+type RootParams struct {
+	RootID string `json:"root_id"`
+}
+type ListParams struct {
+	Limit int `json:"limit,omitempty"`
+}
+type CheckpointParams struct {
+	Reason string `json:"reason,omitempty"`
+}
+type CancelParams struct {
+	TurnID          string `json:"turn_id,omitempty"`
+	TargetCommandID string `json:"target_command_id,omitempty"`
+}
+type InboxRemoveParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+}
+type InboxSteerParams struct {
+	ID       string `json:"id"`
+	InboxSeq int64  `json:"inbox_seq,string"`
+	TurnID   string `json:"turn_id"`
+}
+type AgentCancelParams struct {
+	ID     string `json:"id"`
+	TurnID string `json:"turn_id"`
+}
+type AgentInputParams struct {
+	DesignContext *llm.DesignContextInput `json:"design_context,omitempty"`
+	ID            string                  `json:"id"`
+	Text          string                  `json:"text"`
+	Delivery      string                  `json:"delivery,omitempty"`
+	Parts         []llm.ContentPart       `json:"parts,omitempty"`
+	Attachments   []InputAttachment       `json:"attachments,omitempty"`
+}
+type QuestionAnswerParams struct {
+	ID string `json:"id"`
+	// Answer and Dismissed answer a single-question ask; Answers answers a
+	// batch, one entry per asked question. A null or dismissed entry is a
+	// skipped question.
+	Answer    []string              `json:"answer"`
+	Dismissed bool                  `json:"dismissed"`
+	Answers   []QuestionAnswerEntry `json:"answers,omitempty"`
+}
+
+// QuestionAnswerEntry is the per-question outcome of a batched user.ask.
+type QuestionAnswerEntry struct {
+	Answer    []string `json:"answer,omitempty"`
+	Dismissed bool     `json:"dismissed,omitempty"`
+}
+type TerminalInputParams struct {
+	ID    string `json:"id"`
+	Bytes []byte `json:"bytes"`
+}
+type ShellParams struct {
+	Command string `json:"command"`
+}
+type ToolCallParams struct {
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+type ToolConfigureParams struct {
+	DenyPermissions bool `json:"deny_permissions"`
+}
+type RunConfigureParams struct {
+	System   string `json:"system,omitempty"`
+	MaxTurns int    `json:"max_turns,omitempty"`
+	Headless bool   `json:"headless,omitempty"`
+	CacheKey string `json:"cache_key,omitempty"`
+}
+type PermissionConfigureParams struct {
+	ExternalPermissions bool `json:"external_permissions"`
+}
+type MCPAttachParams struct {
+	Servers map[string]mcp.ServerConfig `json:"servers"`
+}
+
+type RootIDResult struct {
+	RootID string `json:"root_id"`
+}
+type PathResult struct {
+	Path string `json:"path"`
+}
+type TitleResult struct {
+	Title string `json:"title"`
+}
+type ArchiveResult struct {
+	Archived bool `json:"archived"`
+}
+type GoalResult struct {
+	Goal string `json:"goal"`
+}
+type TextResult struct {
+	Text string `json:"text"`
+	// Output is the final message validated against the definition's output
+	// contract, when the definition declares one.
+	Output json.RawMessage `json:"output,omitempty"`
+}
+type EffortResult struct {
+	Effort string `json:"effort"`
+}
+type ModelResult struct {
+	ReloadPending bool   `json:"reload_pending,omitempty"`
+	Model         string `json:"model"`
+	Provider      string `json:"provider"`
+}
+type ScheduleResult struct {
+	ScheduleID int `json:"schedule_id"`
+}
+type BrowserStatusResult struct {
+	Enabled bool   `json:"enabled"`
+	Driver  string `json:"driver,omitempty"`
+}
+type MCPImportStatusResult struct {
+	Claude   bool `json:"claude"`
+	Codex    bool `json:"codex"`
+	Project  bool `json:"project"`
+	Opencode bool `json:"opencode"`
+}
+type ComputerStatusResult struct {
+	Enabled        bool     `json:"enabled"`
+	DefaultDeny    bool     `json:"default_deny"`
+	Allowed        []string `json:"allowed"`
+	Denied         []string `json:"denied"`
+	SessionAllowed []string `json:"session_allowed"`
+	SessionDenied  []string `json:"session_denied"`
+}
+type PermissionRulesResult struct {
+	Rules  []session.PermissionRule `json:"rules"`
+	Global []string                 `json:"global"`
+}
+type (
+	SessionListResult    []session.Meta
+	UserHistoryResult    []string
+	CompactionListResult []session.Compaction
+	AgentListResult      []session.RuntimeAgent
+	ScheduleListResult   []session.Schedule
+	ToolSchemaResult     []llm.Tool
+	MCPListResult        []MCPStatusResult
+	LSPListResult        []LSPStatusResult
+)

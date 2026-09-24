@@ -209,11 +209,11 @@ func parseValue(s string) (any, error) {
 
 // exec runs one statement, returning printed output and an optional
 // screenshot JPEG.
-func (s helperStmt) exec(ctx context.Context, b browser.Backend) (out string, shot []byte, err error) {
+func (s helperStmt) exec(ctx context.Context, b browser.Backend, allowPrivateURLs bool) (out string, shot []byte, err error) {
 	if s.name == "print" {
 		switch a := s.args[0].(type) {
 		case helperStmt:
-			sub, shot, err := a.exec(ctx, b)
+			sub, shot, err := a.exec(ctx, b, allowPrivateURLs)
 			return sub, shot, err
 		case string:
 			return a, nil, nil
@@ -264,7 +264,7 @@ func (s helperStmt) exec(ctx context.Context, b browser.Backend) (out string, sh
 			return "", nil, err
 		}
 		if b.Mode() != browser.ModeLive {
-			if err := browser.CheckPrivateURL(ctx, url); err != nil {
+			if err := browser.CheckPrivateURL(ctx, url, allowPrivateURLs); err != nil {
 				return "", nil, err
 			}
 		}

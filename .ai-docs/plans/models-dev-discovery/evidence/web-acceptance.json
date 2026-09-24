@@ -1,0 +1,17 @@
+{
+  "errors": [],
+  "requests": [
+    "initialize",
+    "sessions.list",
+    "config.get",
+    "host.attention",
+    "sessions.revision",
+    "config.get",
+    "provider.list",
+    "provider.login.list",
+    "query",
+    "provider.discover",
+    "provider.list",
+    "config.get"
+  ]
+}

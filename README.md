@@ -1,103 +1,93 @@
-```
-              █   ▀    
-        █ ▄ █ █▀█ █ █▀█
-        ▀▄▀▄▀ █ █ █ █▄█
-         ▀ ▀  ▀ ▀ ▀ █  
-        whip — a fast coding-agent harness in Go
-```
+<h1 align="center">
+  <br>
+  <a href="https://github.com/context-labs/whip"><img src="./apps/desktop/resources/Whip.png" alt="WhipCode logo" width="150"></a>
+   <br>
+  WhipCode
+  <br>
+</h1>
 
-An LLM tool-use loop (bash / read / write / edit / subagent), an interactive
-bubbletea session, and provider-routable models. One binary, no runtime,
-config you can read.
+<p align="center"><strong>A coding agent built for work that doesn’t fit in one context window.</strong></p>
 
-## Why whip
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 license"></a>
+  <a href="https://github.com/context-labs/whip/releases/tag/desktop-v0.2.0-beta.6"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
+</p>
 
-- **Agent harnesses should be FAST** — literally as fast as possible. whip is
-  built in Go around that constraint: parallel tool calls, streaming
-  everything, nothing between you and the model but a loop.
-- **Defaults across other harnesses suck.** They all have awesome patterns,
-  but none of them bring them all together. whip cherry-picks the best ideas
-  from pi, opencode, codex, and exo into one opinionated harness
-  (see [docs/roadmap.md](docs/roadmap.md) — every feature cites its source).
-- **Go is great for networking-heavy applications**, and harnesses do a whole
-  lot of networking. whip leans on channels where the TypeScript reference
-  designs hand-roll promises — per-path file locks and background subagents
-  collapse into primitives the compiler checks
-  ([docs/concurrency.md](docs/concurrency.md)).
-- **whip is focused on a future where open-source models are the preferred
-  models.** Keeping up with those models is hard — whip brings you an
-  opinion on what model you should be using: live discovery from every
-  provider's catalog, new models surfaced in the picker, a fast default that
-  tracks the frontier.
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#what-is-this">What is this?</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#benchmarks">Benchmarks</a> ·
+  <a href="#development">Development</a>
+</p>
 
-## Install
+[![WhipCode Desktop with a conversation, three working subagents, and an execution trace timeline side by side](docs/assets/whipcode-desktop.png)](docs/assets/whipcode-desktop.png)
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh
-```
+## Quickstart
 
-Checksum-verified prebuilt binaries (Linux/macOS, x64/arm64). Or from source
-(Go ≥ 1.27):
+**[Download Desktop Beta](https://github.com/context-labs/whip/releases/tag/desktop-v0.2.0-beta.6)** — Apple Silicon · macOS 14 or newer.
+
+1. Open the DMG and drag **Whip Beta** into Applications.
+2. Launch it and choose **Set up this Mac** if prompted. The app includes its matching backend; no separate CLI installation is needed.
+3. Connect a model provider, open your project, and describe what you want to do.
+
+Bring an API key or use a supported subscription login. Provider access is separate from installing WhipCode. See [providers and authentication](docs/models-providers.md).
+
+Prefer the terminal? Install the standalone CLI on macOS or Linux:
 
 ```sh
-go install github.com/context-labs/whip/cmd/whip@latest
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh | sh
+whipcode
 ```
 
-Then `whip` and you're in. Defaults to inference.net models — any
-OpenAI-compatible endpoint works as a provider. One command wires up
-OpenRouter's whole catalog (`/model` lists every model, no per-model
-config):
+Desktop-managed installations update through Desktop; standalone CLI installations use `whipcode update`. [Setup and upgrades →](docs/setup.md#desktop-installation-and-upgrades)
+
+For the web client, start the daemon with `whipcode daemon start`, then run
+`whipcode web`. It opens your browser and stays running as a separate gateway;
+Ctrl+C stops web access, not daemon work. Ordinary daemon and Desktop startup
+open no web listener. See [web access](docs/web-app.md#run-the-packaged-application-locally)
+for `--no-open`, managed startup, and trusted-network configuration.
+
+## What is this?
+
+WhipCode is an open-source coding agent with a Desktop app, terminal UI, and web client. A shared daemon owns the work, so closing a window doesn’t end the session.
+
+- **Delegate recursively.** Agents split work into focused tasks, launch their own agents, and coordinate through messages.
+- **Keep context within reach.** Search and read history, files, and large tool outputs in bounded slices instead of cramming everything into a prompt.
+- **See what’s happening.** Follow conversations, inspect the execution tree and timeline, and track model usage and cost.
+- **Stay in control.** Choose models, set tool permissions, and connect local or remote execution hosts. Extend agents with skills and MCP servers.
+
+## How it works
+
+1. **Describe the task.** Give an agent a goal and the context it needs.
+2. **Let it work.** A recursive language model (RLM) loop uses short Starlark or JavaScript programs to inspect context, call tools, and delegate—not just a growing chat transcript.
+3. **Inspect and steer.** Follow the trace, send another instruction, or reconnect later. The daemon keeps session state independent of the UI.
+
+[Explore the runtime →](docs/rlm-runtime.md)
+
+## Benchmarks
+
+WhipCode solved **20 of 30 tasks (66.7%)** in a retained Frontier evaluation: 21 Terminal-Bench tasks and nine code-repository tasks.
+
+[![Supplied Frontier comparison plotting pass rate against reported cost, including WhipCode, Codex, Claude Code, and other harnesses; methodology and cost limitations below](docs/assets/whipcode-benchmarks.png)](docs/assets/whipcode-benchmarks.png)
+
+**Read the comparison with context:** providers and execution environments differ. The supplied chart’s $2.60 WhipCode point and cost-axis definition are not yet reconciled with the retained reports; this is not a matched cost comparison or an official leaderboard ranking. [Results, sources, and limitations →](docs/benchmarks.md)
+
+## Development
+
+Requires **Go 1.27+, Node.js 24, and [Task](https://taskfile.dev/)**.
 
 ```sh
-whip auth openrouter   # masked key prompt — or /auth openrouter in-session
+git clone --branch whip-rlm https://github.com/context-labs/whip.git
+cd whip
+npm ci
+task build:whipcode
 ```
 
-To update to the latest release later, run `whip update` — it re-runs the
-install script above.
+This builds locally without replacing an installed app or restarting its daemon. See the [development and setup guide](docs/setup.md), [Desktop guide](docs/desktop.md), and [contributor checks](CONTRIBUTING.md).
 
-## Codex subscription
+[Documentation](docs/README.md) · [Architecture](docs/architecture.md) · [Frontend](docs/frontend.md) · [Evaluations](evals/README.md)
 
-Whip can use an existing ChatGPT/Codex subscription instead of an API key.
-Run `whip auth codex` and follow the displayed URL and one-time code. On
-approval, Whip saves the login and adds
-the account's available Codex models to `/model` immediately. The same flow is
-available from an active session with `/auth codex`. `/usage` shows the
-subscription's rate-limit windows; `whip auth codex logout` removes the
-provider from Whip again.
+## License & contributing
 
-Whip saves the login in `~/.codex/auth.json`. Expiring tokens refresh locally
-and are never printed or added to conversations. Whip fetches the signed-in
-account's `https://chatgpt.com/backend-api/codex/models` catalog and refreshes
-it every 24 hours (or with `/model refresh`), so plan and rollout availability
-come from the backend rather than a hard-coded list. `gpt-5.5 @ codex-subscription` remains
-as a compatible fallback route. OAuth credentials are only sent to
-`https://chatgpt.com/backend-api`.
-
-## First things to try
-
-```
-/context-doctor     audit what a fresh session injects, in tokens
-/goal <text>        work until done
-/model              pick a model — type to filter (new) entries come from the
-                    provider catalog, no config needed
-/theme              preview and select from the built-in terminal themes
-```
-
-Drop a `.mcp.json` in your repo and MCP servers just appear (`/mcp` to see
-them). ctrl+c once interrupts; twice quits.
-
-## Docs
-
-The full setup, config reference, MCP, browser/computer-use, and how
-everything works: **[docs/README.md](docs/README.md)**.
-
-Highlights:
-
-- [docs/architecture.md](docs/architecture.md) — the moving parts, keystroke
-  to tool call
-- [docs/agent-loop.md](docs/agent-loop.md) — one loop, one function
-- [docs/concurrency.md](docs/concurrency.md) — channels where others use
-  promises
-- [docs/features.md](docs/features.md) — full feature map, linked to code
-  and tests
-- [docs/roadmap.md](docs/roadmap.md) — shipped vs. next, sources cited
+[Apache-2.0](LICENSE). Issues and pull requests are welcome—start with [CONTRIBUTING.md](CONTRIBUTING.md).

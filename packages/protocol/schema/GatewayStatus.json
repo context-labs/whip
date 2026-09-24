@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "state": {
+      "type": "string"
+    },
+    "endpoint": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/GatewayStatus",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GatewayStatus",
+  "required": [
+    "state"
+  ],
+  "additionalProperties": false
+}

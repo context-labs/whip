@@ -1,0 +1,68 @@
+{
+  "status": "passed",
+  "fixture_directory": "/private/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-fs-tui-77olrc5n",
+  "binary": "/private/tmp/whip-filesystem-access-tui",
+  "schema_version": 14,
+  "session_id": "7rxneb4u3zrnhqvx6bya",
+  "permission_mode": "automatic",
+  "runs": [
+    {
+      "phase": "FIRST_PASS",
+      "sibling_file": "first_pass.txt",
+      "file_content": "FIRST_PASS",
+      "completion_rendered": true,
+      "full_access_rendered": true,
+      "terminal_bytes": 4558
+    },
+    {
+      "phase": "RESUME_PASS",
+      "sibling_file": "resume_pass.txt",
+      "file_content": "RESUME_PASS",
+      "completion_rendered": true,
+      "full_access_rendered": true,
+      "terminal_bytes": 7425
+    }
+  ],
+  "provider_requests": [
+    {
+      "method": "GET",
+      "path": "/v1/models"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "fixture-model"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "fixture-model"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "fixture-model"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "fixture-model"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "fixture-model"
+    }
+  ],
+  "tool_results": [
+    {
+      "phase": "FIRST_PASS",
+      "output": "True"
+    },
+    {
+      "phase": "RESUME_PASS",
+      "output": "True"
+    }
+  ],
+  "cleanup": "both TUI processes exited; isolated daemon stopped; loopback provider stopped"
+}

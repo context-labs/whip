@@ -2,12 +2,18 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 // TestServeInProcess drives Serve without a subprocess: Serve's
@@ -16,6 +22,29 @@ import (
 // WHIP_TEST_SELFHOST-gated tests cover the real-subprocess path; this one
 // keeps Serve covered in plain CI.
 func TestServeInProcess(t *testing.T) {
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, err := store.Create(session.SessionKindAgent, cwd, "mcp-test", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := tools.NewServices()
+	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(services.Close)
+
 	inR, inW, err := os.Pipe() // server stdin
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +58,7 @@ func TestServeInProcess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, "test") }()
+	go func() { done <- Serve(ctx, "test", services) }()
 
 	// Restore stdio only after Serve has returned, so the swap can't race
 	// the server's reads under -race.
@@ -59,8 +88,37 @@ func TestServeInProcess(t *testing.T) {
 	for _, tool := range list.Tools {
 		names[tool.Name] = true
 	}
-	if len(list.Tools) != 4 || !names["read"] || names["task"] {
-		t.Fatalf("served tools = %v (want whip's 4, task excluded)", names)
+	wantNames := []string{"bash", "read", "write", "edit", "browser_list_tabs", "browser_open", "browser_attach", "browser_run", "browser_detach", "browser_allow_preview_port"}
+	if len(list.Tools) != len(wantNames) || names["rlm_exec"] {
+		t.Fatalf("served tools = %v (want exactly %v)", names, wantNames)
+	}
+	for _, name := range wantNames {
+		if !names[name] {
+			t.Fatalf("missing restricted tool %s: %v", name, names)
+		}
+	}
+
+	// Lifecycle is discoverable while unpaired, but cannot acquire a legacy
+	// browser or authority without an explicitly selected desktop provider.
+	unpaired, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "browser_open", Arguments: map[string]any{"url": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unpaired browser call should return a routine value: %v", err)
+	}
+	if unpaired.IsError || len(unpaired.Content) != 1 {
+		t.Fatalf("unpaired browser result: %#v", unpaired)
+	}
+	browserText, ok := unpaired.Content[0].(*sdkmcp.TextContent)
+	if !ok {
+		t.Fatalf("unpaired browser content: %#v", unpaired.Content)
+	}
+	var unavailable browser.DesktopResult
+	if err := json.Unmarshal([]byte(browserText.Text), &unavailable); err != nil {
+		t.Fatal(err)
+	}
+	if unavailable.Error == nil || unavailable.Error.Kind != "desktop_unavailable" || unavailable.AttachmentID != "" {
+		t.Fatalf("unpaired browser did not fail closed: %+v", unavailable)
 	}
 
 	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -74,6 +132,9 @@ func TestServeInProcess(t *testing.T) {
 	if !ok || !strings.Contains(txt.Text, "package mcp") {
 		t.Fatalf("read via MCP = %#v", res.Content)
 	}
+	if res.IsError {
+		t.Fatal("successful tool result marked as an error")
+	}
 
 	// Tool errors must come back as tool output, not protocol failures.
 	res, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -86,5 +147,8 @@ func TestServeInProcess(t *testing.T) {
 	txt, ok = res.Content[0].(*sdkmcp.TextContent)
 	if !ok || !strings.HasPrefix(txt.Text, "Error: ") {
 		t.Fatalf("tool error surfaced as %#v", res.Content)
+	}
+	if !res.IsError {
+		t.Fatal("failed tool result was not marked as an error")
 	}
 }
