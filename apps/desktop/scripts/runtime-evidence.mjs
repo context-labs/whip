@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { validateRuntimeSigning } from './runtime-signing.mjs';
 
+export const runtimeIdentityFields = Object.freeze(['version', 'buildId', 'channel', 'updateOwner', 'source', 'nativeFiles', 'teamId', 'runtimeSigning']);
+
 export function validateRuntimeEvidence(value, evidence) {
   assert(value?.schema === 1 && value.completed === true, 'Signed runtime acceptance did not complete');
   assert(evidence.signed && evidence.notarized, 'Runtime acceptance requires a signed, notarized package');
   validateRuntimeSigning(evidence.runtimeSigning, evidence.teamId);
-  for (const key of ['version', 'buildId', 'source', 'nativeFiles', 'teamId', 'runtimeSigning'])
+  for (const key of runtimeIdentityFields)
     assert.deepEqual(value.package?.[key], evidence[key], `Runtime acceptance tested a different package: ${key}`);
   const expected = evidence.nativeFiles?.whipcode?.sha256;
   assert.match(expected ?? '', /^[a-f0-9]{64}$/);

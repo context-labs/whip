@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -31,7 +32,9 @@ try {
     assert.equal(createHash('sha256').update(bytes).digest('hex'), renderer.files[name].sha256, `Served renderer differs: ${name}`);
   }
   assert.equal(status.daemon_build, info.buildId);
-  await writeFile(path.join(path.dirname(binary), 'linux-runtime.json'), JSON.stringify({ ...info,
+  const hash = createHash('sha256');
+  for await (const bytes of createReadStream(binary)) hash.update(bytes);
+  await writeFile(path.join(path.dirname(binary), 'linux-runtime.json'), JSON.stringify({ ...info, sha256: hash.digest('hex'),
     source: renderer.source, rendererDigest: renderer.digest, smoke: { embeddedRenderer: true, daemonReady: true } }, null, 2) + '\n');
   console.log(`Verified Linux ${info.buildId} and shared renderer ${renderer.digest}`);
 } finally {

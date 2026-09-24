@@ -29,6 +29,8 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
     await verifyRenderer(path.join(directory, 'renderer'), renderer);
     await verifyRenderer(path.join(repositoryRoot, 'internal/webassets/dist'), renderer);
     const runtime = await readRuntimeManifest(path.join(directory, 'runtime-manifest.json'));
+    const config = JSON.parse(await readFile(path.join(directory, 'desktop-config.json'), 'utf8'));
+    assert.equal(config.channel, runtime.version.includes('-') ? 'beta' : 'stable', 'App channel differs from version');
     assert.equal(runtime.rendererDigest, renderer.digest);
     assert.deepEqual(runtime.source, { ...renderer.source, lockfile: renderer.lockfile });
     for (const [name, source] of Object.entries({ 'Whip.txt': path.join(repositoryRoot, 'LICENSE'),
@@ -77,7 +79,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
       await exec('/usr/bin/xcrun', ['stapler', 'validate', bundle]);
       await exec('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', bundle]);
     }
-    return { bundle, version: runtime.version, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
+    return { bundle, version: runtime.version, channel: config.channel, updateOwner: metadata.updateOwner, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
       source: runtime.source, compatibility: runtime.compatibility, teamId: runtime.teamId, runtimeSigning, fuses, signed, notarized };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

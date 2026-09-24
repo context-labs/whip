@@ -200,6 +200,6 @@ export async function prepareDistribution(artifacts, directory, packageEvidence)
   if (process.env.WHIP_DESKTOP_RELEASE === '1') assert(files['RELEASES.json'] && dmgNotary, 'A release requires its feed and notarized DMG');
   const evidence = { recordedAt: new Date().toISOString(), ...packageEvidence, ...(dmgNotary ? { dmgNotary } : {}), applications, files };
   await writeFile(path.join(directory, 'evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
-  await writeFile(path.join(directory, 'SHA256SUMS'), Object.entries(files).map(([name, file]) => `${file.sha256}  ${name}`).join('\n') + '\n');
+  // Final union checksums are assembled once by release-candidate.mjs; this evidence covers only signed Desktop payloads.
   return evidence;
 }

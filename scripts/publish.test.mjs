@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -182,4 +182,29 @@ test('R2 rejects foreign endpoints and requires explicit scoped credentials befo
   await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: 'https://example.com' }), /Invalid R2 account endpoint/);
   await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: `https://${'a'.repeat(32)}.r2.cloudflarestorage.com` }), /Configure scoped R2 credentials/);
   assert.equal((await f.state()).calls.length, 0);
+});
+
+test('R2 stage and feed retry leave the unified candidate unchanged after feed failure', async t => {
+  const f = await fixture(t, { race: 'promote' });
+  const original = (await readdir(f.directory)).sort();
+  // Unified CLI/evidence files are not Desktop CDN payloads.
+  await writeFile(path.join(f.directory, 'whipcode-linux-x64'), 'standalone');
+  await writeFile(path.join(f.directory, 'artifact-manifest.json'), '{}');
+  const expected = [...original, 'whipcode-linux-x64', 'artifact-manifest.json'].sort();
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'stage' });
+  await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' }), /PreconditionFailed/);
+  assert.deepEqual((await readdir(f.directory)).sort(), expected);
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+  assert.deepEqual((await readdir(f.directory)).sort(), expected);
+  const objects = Object.keys((await f.state()).objects);
+  assert(!objects.some(name => name.includes('whipcode') || name.includes('artifact-manifest')));
+});
+
+test('public alpha versions use the beta feed without changing semantic identity', () => {
+  const url = updateURL.replace('/stable/', '/beta/');
+  const make = version => ({ currentRelease: version, releases: [{ version, updateTo: { version,
+    url: new URL(`Whip-Beta-${version}.zip`, url).href } }] });
+  const result = mergeReleaseFeed(make('1.0.0-alpha.9'), make('1.0.0-alpha.10'), '1.0.0-alpha.10', url);
+  assert.equal(result.currentRelease, '1.0.0-alpha.10');
+  assert.throws(() => mergeReleaseFeed(make('1.0.0'), make('1.0.0-alpha.10'), '1.0.0-alpha.10', url), /channel differs/);
 });

@@ -1,10 +1,13 @@
 name: desktop-release
 
-# Called only by the serialized tag-release graph. This workflow never builds
+# Called only by the serialized unified release graph. This workflow never builds
 # renderer assets and never publishes a feed independently of the CLI gate.
 on:
   workflow_call:
     inputs:
+      source:
+        required: true
+        type: string
       renderer-artifact:
         required: true
         type: string
@@ -36,6 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.source }}
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
