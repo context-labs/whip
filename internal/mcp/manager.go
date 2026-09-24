@@ -261,6 +261,7 @@ func NewManager(cfgs map[string]ServerConfig) *Manager {
 }
 
 // SetLauncher routes MCP lifecycle goroutines through a daemon supervisor.
+// A launcher returning false must not run the supplied work.
 func (m *Manager) SetLauncher(launcher func(string, func()) bool) {
 	m.mu.Lock()
 	m.launcher = launcher
@@ -382,7 +383,7 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 	}
 	m.mu.Unlock()
 	for _, s := range fresh {
-		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
+		s.launch(m)
 	}
 	slices.Sort(result.Added)
 	slices.Sort(result.Existing)
@@ -446,7 +447,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	m.mu.Unlock()
 	for _, s := range servers {
-		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
+		s.launch(m)
 	}
 }
 
@@ -526,6 +527,31 @@ func (w *managedInput) Close() error {
 		}
 	})
 	return w.err
+}
+
+// launch starts the reserved lifecycle without holding either state lock across
+// the launcher. The caller has set running under the state locks, so no other
+// caller can replace runCtx until this launch rejects and releases that reservation.
+func (s *server) launch(m *Manager) bool {
+	s.mu.Lock()
+	ctx := s.runCtx
+	s.mu.Unlock()
+	if m.launch("MCP server "+s.name, func() { s.run(ctx, m) }) {
+		return true
+	}
+	m.mu.Lock()
+	s.mu.Lock()
+	if s.runCtx == ctx {
+		s.stop()
+		s.runCtx, s.stop, s.running = nil, nil, false
+		// Close, removal, or disable may have settled the server meanwhile.
+		if !m.closed && m.servers[s.name] == s && !s.cfg.Disabled() {
+			s.setStateLocked(StatusFailed, "MCP lifecycle launcher rejected server start")
+		}
+	}
+	s.mu.Unlock()
+	m.mu.Unlock()
+	return false
 }
 
 // run is the per-server lifecycle goroutine: one connect attempt, then it
@@ -1028,7 +1054,7 @@ func (m *Manager) Enable(name string) bool {
 	s.mu.Unlock()
 	m.mu.Unlock()
 	if start {
-		return m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
+		return s.launch(m)
 	}
 	return m.Reconnect(name)
 }
@@ -1165,7 +1191,8 @@ func (m *Manager) Statuses() []Server {
 }
 
 // Reconnect requests a fresh connect for a server (drops a live session
-// first). Returns false for unknown, disabled, invalid, or closed servers.
+// first). Returns false for unknown, disabled, invalid, or closed servers, or
+// when the lifecycle launcher rejects a new runner.
 func (m *Manager) Reconnect(name string) bool {
 	m.mu.Lock()
 	s, ok := m.servers[name]
@@ -1194,7 +1221,7 @@ func (m *Manager) Reconnect(name string) bool {
 		_ = old.Close()
 	}
 	if start {
-		return m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
+		return s.launch(m)
 	}
 	select {
 	case s.reconnect <- struct{}{}:

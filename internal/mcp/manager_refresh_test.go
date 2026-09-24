@@ -114,3 +114,203 @@ func TestReconnectRefusesDisabledInvalidAndClosed(t *testing.T) {
 		t.Fatal("closed manager reconnected")
 	}
 }
+
+func TestServerLaunchRejectionCanRetry(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"start", "add", "enable", "reconnect"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			cfg := testCfg("docs")
+			if operation == "enable" {
+				cfg.Enabled = new(false)
+			}
+			cfgs := map[string]ServerConfig{"docs": cfg}
+			if operation == "add" {
+				cfgs = nil
+			}
+			m := newTestManager(t, cfgs)
+			reserved := make(chan context.Context, 1)
+			m.SetLauncher(func(string, func()) bool {
+				// A launcher may inspect its manager; no manager lock may be held.
+				_ = m.Statuses()
+				m.mu.Lock()
+				s := m.servers["docs"]
+				s.mu.Lock()
+				reserved <- s.runCtx
+				s.mu.Unlock()
+				m.mu.Unlock()
+				return false
+			})
+			switch operation {
+			case "start":
+				m.Start(t.Context())
+			case "add":
+				result, err := m.AddServers(t.Context(), map[string]ServerConfig{"docs": cfg})
+				if err != nil || !reflect.DeepEqual(result.Added, []string{"docs"}) {
+					t.Fatalf("add = %+v, %v", result, err)
+				}
+			case "enable":
+				if m.Enable("docs") {
+					t.Error("rejected enable reported success")
+				}
+			case "reconnect":
+				if m.Reconnect("docs") {
+					t.Error("rejected reconnect reported success")
+				}
+			}
+			rejectedCtx := <-reserved
+			s := m.servers["docs"]
+			select {
+			case <-s.ready:
+			default:
+				t.Error("rejected launch did not settle readiness")
+			}
+			s.mu.Lock()
+			if s.running || s.runCtx != nil || s.stop != nil || s.status != StatusFailed || s.err == "" {
+				t.Errorf("rejection left running=%v context=%v stop=%v status=%s error=%q", s.running, s.runCtx != nil, s.stop != nil, s.status, s.err)
+			}
+			s.mu.Unlock()
+			if rejectedCtx == nil || !errors.Is(rejectedCtx.Err(), context.Canceled) {
+				t.Error("rejected launch context was not canceled")
+			}
+			if m.Reconnect("docs") {
+				t.Error("retry queued reconnect to a nonexistent runner")
+			}
+			if t.Failed() {
+				return
+			}
+			m.SetLauncher(nil)
+			if !m.Reconnect("docs") {
+				t.Fatal("retry with an accepting launcher was rejected")
+			}
+			waitStatus(t, m, "docs", StatusReady)
+			if _, err := m.ResolveTool("docs", "greet"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestServerLaunchRejectionPreservesConcurrentState(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"close", "remove", "disable", "replace", "reenable"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
+			s := m.servers["docs"]
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(unblock)
+			m.SetLauncher(func(string, func()) bool {
+				close(entered)
+				<-release
+				return false
+			})
+			result := make(chan bool, 1)
+			go func() { result <- m.Reconnect("docs") }()
+			<-entered
+			s.mu.Lock()
+			rejectedCtx := s.runCtx
+			s.mu.Unlock()
+			var closed chan struct{}
+			switch operation {
+			case "close":
+				closed = make(chan struct{})
+				go func() { m.Close(); close(closed) }()
+				waitStatus(t, m, "docs", StatusFailed)
+			case "disable", "reenable":
+				if !m.Disable("docs") {
+					t.Fatal("disable failed")
+				}
+				if operation == "reenable" && !m.Enable("docs") {
+					t.Fatal("enable failed while launch was pending")
+				}
+			case "remove", "replace":
+				m.RemoveServers("docs")
+				if operation == "replace" {
+					m.SetLauncher(nil)
+					if _, err := m.AddServers(t.Context(), map[string]ServerConfig{"docs": testCfg("docs")}); err != nil {
+						t.Fatal(err)
+					}
+					waitStatus(t, m, "docs", StatusReady)
+				}
+			}
+			unblock()
+			if <-result {
+				t.Fatal("rejected launch reported success")
+			}
+			if closed != nil {
+				<-closed
+			}
+			s.mu.Lock()
+			want := StatusDisabled
+			if operation == "close" {
+				want = StatusFailed
+				if s.err != "manager closed" {
+					t.Errorf("close error overwritten: %q", s.err)
+				}
+			}
+			if operation == "reenable" {
+				want = StatusFailed
+			}
+			if s.status != want || s.running || s.runCtx != nil || s.stop != nil {
+				t.Errorf("terminal state = %s, running=%v context=%v stop=%v", s.status, s.running, s.runCtx != nil, s.stop != nil)
+			}
+			s.mu.Unlock()
+			if !errors.Is(rejectedCtx.Err(), context.Canceled) {
+				t.Error("rejected context survived")
+			}
+			select {
+			case <-s.ready:
+			default:
+				t.Error("terminal state did not settle readiness")
+			}
+			if operation == "reenable" {
+				m.SetLauncher(nil)
+				if !m.Reconnect("docs") {
+					t.Fatal("reenabled server could not retry")
+				}
+				waitStatus(t, m, "docs", StatusReady)
+			}
+			if operation == "replace" || operation == "reenable" {
+				if _, err := m.ResolveTool("docs", "greet"); err != nil {
+					t.Fatalf("old rejection damaged replacement: %v", err)
+				}
+			} else if m.Reconnect("docs") {
+				t.Fatal("terminal server accepted reconnect")
+			}
+		})
+	}
+}
+
+func TestServerLaunchRejectionAfterClose(t *testing.T) {
+	t.Parallel()
+	m := newTestManager(t, map[string]ServerConfig{"first": testCfg("first"), "second": testCfg("second")})
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unblock)
+	m.SetLauncher(func(string, func()) bool {
+		close(entered) // Only the first reserved server may reach the launcher.
+		<-release
+		return false
+	})
+	started := make(chan struct{})
+	go func() { m.Start(t.Context()); close(started) }()
+	<-entered
+	closed := make(chan struct{})
+	go func() { m.Close(); close(closed) }()
+	waitStatus(t, m, "first", StatusFailed)
+	waitStatus(t, m, "second", StatusFailed)
+	unblock()
+	<-started // The second reserved launch now rejects inside m.launch itself.
+	<-closed
+	for _, s := range m.servers {
+		s.mu.Lock()
+		if s.running || s.runCtx != nil || s.stop != nil || s.status != StatusFailed || s.err != "manager closed" {
+			t.Errorf("%s: running=%v context=%v stop=%v status=%s error=%q", s.name, s.running, s.runCtx != nil, s.stop != nil, s.status, s.err)
+		}
+		s.mu.Unlock()
+	}
+}
