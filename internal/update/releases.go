@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,9 @@ import (
 )
 
 var releasesURL = "https://api.github.com/repos/context-labs/whip/releases"
+
+// Match the publisher's bounded, flat ASCII filenames, including Desktop assets.
+var releaseAssetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$`)
 
 // validRelease excludes historical products and shorthand semver tags.
 func validRelease(tag string) bool {
@@ -55,10 +59,7 @@ type githubRelease struct {
 }
 
 func (r githubRelease) complete(channel string) bool {
-	if r.Draft == nil || *r.Draft || r.Prerelease == nil || !validRelease(r.TagName) || *r.Prerelease != (semver.Prerelease(r.TagName) != "") {
-		return false
-	}
-	if channel == "stable" && *r.Prerelease {
+	if r.Draft == nil || *r.Draft || r.Prerelease == nil || !inChannel(r.TagName, channel) || *r.Prerelease != (semver.Prerelease(r.TagName) != "") {
 		return false
 	}
 	required := map[string]bool{
@@ -66,15 +67,18 @@ func (r githubRelease) complete(channel string) bool {
 		"whipcode-darwin-x64": false, "whipcode-darwin-arm64": false,
 		"SHA256SUMS": false, "install.sh": false,
 	}
-	if len(r.Assets) != len(required) {
-		return false
-	}
+	// Discovery requires the CLI subset; the publisher owns the full inventory.
+	seenNames := make(map[string]bool, len(r.Assets))
+	seenIDs := make(map[int64]bool, len(r.Assets))
 	for _, asset := range r.Assets {
-		present, known := required[asset.Name]
-		if !known || present || asset.Size <= 0 || asset.ID <= 0 {
+		if !releaseAssetName.MatchString(asset.Name) || seenNames[asset.Name] || seenIDs[asset.ID] || asset.Size <= 0 || asset.ID <= 0 {
 			return false
 		}
-		required[asset.Name] = true
+		seenNames[asset.Name] = true
+		seenIDs[asset.ID] = true
+		if _, known := required[asset.Name]; known {
+			required[asset.Name] = true
+		}
 	}
 	for _, present := range required {
 		if !present {
