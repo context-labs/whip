@@ -63,7 +63,7 @@ func TestChunkedUploadPreservesMetadataAndBounds(t *testing.T) {
 		return nil
 	}
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost:8080/api/v3/content/upload?root_id=root&agent_id=agent", bytes.NewReader(data))
-	request.Header.Set("X-Content-SHA256", digest(data))
+	request.Header.Set("X-Content-Sha256", digest(data))
 	request.Header.Set("Content-Type", "text/html")
 	response := httptest.NewRecorder()
 	contentServer(client).handler().ServeHTTP(response, request)
@@ -110,7 +110,7 @@ func TestInvalidUploadsNeverCommitAndCloseClient(t *testing.T) {
 			}
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost:8080/api/v3/content/upload?root_id=root", tc.body)
 			request.ContentLength = tc.length
-			request.Header.Set("X-Content-SHA256", tc.hash)
+			request.Header.Set("X-Content-Sha256", tc.hash)
 			response := httptest.NewRecorder()
 			contentServer(client).handler().ServeHTTP(response, request)
 			if response.Code != tc.status {
@@ -286,7 +286,7 @@ func TestServerDeadlineClosesStalledLiveTransfers(t *testing.T) {
 				request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:8080/api/v3/content/ref?root_id=root", nil)
 				if method == "upload.begin" {
 					request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost:8080/api/v3/content/upload?root_id=root", strings.NewReader("body"))
-					request.Header.Set("X-Content-SHA256", digest([]byte("body")))
+					request.Header.Set("X-Content-Sha256", digest([]byte("body")))
 				}
 				s := contentServer(client)
 				started := time.Now()
