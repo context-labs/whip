@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/mod/semver"
 )
 
-func releaseFixture(tag string) githubRelease {
+func releaseFixture(tag string, extras ...string) githubRelease {
 	draft, prerelease := false, semver.Prerelease(tag) != ""
 	r := githubRelease{TagName: tag, Draft: &draft, Prerelease: &prerelease}
-	for _, name := range []string{"whipcode-linux-x64", "whipcode-linux-arm64", "whipcode-darwin-x64", "whipcode-darwin-arm64", "SHA256SUMS", "install.sh"} {
+	names := []string{"whipcode-linux-x64", "whipcode-linux-arm64", "whipcode-darwin-x64", "whipcode-darwin-arm64", "SHA256SUMS", "install.sh"}
+	for _, name := range append(names, extras...) {
 		r.Assets = append(r.Assets, struct {
 			ID   int64  `json:"id"`
 			Name string `json:"name"`
@@ -49,7 +51,7 @@ func TestReleaseVersionComparison(t *testing.T) {
 func TestFetchReleasePages(t *testing.T) {
 	previous := releasesURL
 	t.Cleanup(func() { releasesURL = previous })
-	for _, mode := range []string{"ok", "unauthorized", "malformed", "missing", "timeout", "page limit"} {
+	for _, mode := range []string{"ok", "unauthorized", "malformed", "malformed asset", "missing", "timeout", "page limit"} {
 		t.Run(mode, func(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,12 +78,14 @@ func TestFetchReleasePages(t *testing.T) {
 					w.WriteHeader(http.StatusUnauthorized)
 				case "malformed":
 					_, _ = w.Write([]byte("invalid json"))
+				case "malformed asset":
+					_, _ = w.Write([]byte(`[{"tag_name":"v1.0.0","assets":[{"name":"WHIP.dmg","id":true,"size":1}]}]`))
 				case "timeout":
 					<-r.Context().Done()
 				case "missing":
 					_ = json.NewEncoder(w).Encode([]githubRelease{})
 				default:
-					_ = json.NewEncoder(w).Encode([]githubRelease{releaseFixture("v1.0.0-alpha.10")})
+					_ = json.NewEncoder(w).Encode([]githubRelease{releaseFixture("v1.0.0-alpha.10", "WHIP-arm64.dmg", "RELEASES.json")})
 				}
 			}))
 			defer server.Close()
@@ -130,11 +134,11 @@ func TestWhipcodeIncompleteRelease(t *testing.T) {
 	}
 }
 
-func TestReleaseRequiresExactAssets(t *testing.T) {
+func TestReleaseRejectsDuplicateAssets(t *testing.T) {
 	r := releaseFixture("v1.0.0")
 	r.Assets = append(r.Assets, r.Assets[0])
 	if r.complete("stable") {
-		t.Fatal("extra asset accepted")
+		t.Fatal("duplicate extra asset accepted")
 	}
 	r = releaseFixture("v1.0.0")
 	r.Assets[1] = r.Assets[0]
@@ -145,6 +149,70 @@ func TestReleaseRequiresExactAssets(t *testing.T) {
 	r.Assets[0].ID = 0
 	if r.complete("stable") {
 		t.Fatal("invalid asset ID accepted")
+	}
+	r = releaseFixture("v1.0.0")
+	r.Assets[1].ID = r.Assets[0].ID
+	if r.complete("stable") {
+		t.Fatal("duplicate required asset ID accepted")
+	}
+}
+
+func TestReleaseAcceptsUnifiedAssets(t *testing.T) {
+	extras := []string{"WHIP-1.0.0-arm64.dmg", "WHIP-1.0.0-arm64.zip", "RELEASES.json", "artifact-manifest.json", "artifact-manifest.json.intoto.jsonl"}
+	for _, test := range []struct{ tag, channel string }{
+		{"v1.0.0", "stable"}, {"v1.0.0", "prerelease"}, {"v1.0.0-alpha.10", "prerelease"},
+	} {
+		t.Run(test.tag+"/"+test.channel, func(t *testing.T) {
+			r := releaseFixture(test.tag, extras...)
+			if !r.complete(test.channel) {
+				t.Fatal("well-formed unified release rejected")
+			}
+			for missing := range 6 {
+				r = releaseFixture(test.tag, extras...)
+				r.Assets = append(r.Assets[:missing], r.Assets[missing+1:]...)
+				if r.complete(test.channel) {
+					t.Fatalf("missing CLI asset %d accepted", missing)
+				}
+			}
+		})
+	}
+}
+
+func TestUnifiedReleaseRejectsInvalidExtras(t *testing.T) {
+	for _, name := range []string{"", "../escape", "/absolute", "sub/file", "sub\\file", ".hidden", "bad name", "bad\tname", "bad\nname", "bad\x00name", "évidence", strings.Repeat("a", 201)} {
+		t.Run(name, func(t *testing.T) {
+			if releaseFixture("v1.0.0", name).complete("stable") {
+				t.Fatalf("unsafe name %q accepted", name)
+			}
+		})
+	}
+	for _, mutate := range []struct {
+		name  string
+		apply func(*githubRelease)
+	}{
+		{"duplicate name", func(r *githubRelease) { r.Assets[6].Name = r.Assets[0].Name }},
+		{"duplicate ID", func(r *githubRelease) { r.Assets[6].ID = r.Assets[0].ID }},
+		{"zero ID", func(r *githubRelease) { r.Assets[6].ID = 0 }},
+		{"negative ID", func(r *githubRelease) { r.Assets[6].ID = -1 }},
+		{"zero size", func(r *githubRelease) { r.Assets[6].Size = 0 }},
+		{"negative size", func(r *githubRelease) { r.Assets[6].Size = -1 }},
+		{"draft", func(r *githubRelease) { *r.Draft = true }},
+		{"wrong channel flag", func(r *githubRelease) { *r.Prerelease = true }},
+		{"historical tag", func(r *githubRelease) { r.TagName = "desktop-v1.0.0" }},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			r := releaseFixture("v1.0.0", "WHIP.dmg")
+			mutate.apply(&r)
+			if r.complete("stable") {
+				t.Fatal("invalid unified release accepted")
+			}
+		})
+	}
+	if releaseFixture("v1.0.0", "WHIP.dmg").complete("nightly") {
+		t.Fatal("invalid channel accepted")
+	}
+	if releaseFixture("v1.0.0-alpha.10", "WHIP.dmg").complete("stable") {
+		t.Fatal("prerelease accepted on stable channel")
 	}
 }
 

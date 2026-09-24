@@ -87,10 +87,27 @@ def version(tag):
     return (*map(int, match.group(1, 2, 3)), pre is None, tuple(identifiers))
 
 
+# Match the existing publisher's bounded, flat ASCII asset names.
+asset_name = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+required = {"whipcode-linux-x64", "whipcode-linux-arm64", "whipcode-darwin-x64",
+            "whipcode-darwin-arm64", "SHA256SUMS", "install.sh"}
+
 mode, *args = sys.argv[1:]
 if mode == "pin":
     if args[0] and version(args[0]) is None:
         sys.exit("WHIPCODE_VERSION must be an exact v1+ SemVer tag (for example v1.0.0-alpha.1)")
+elif mode == "checksum":
+    source, asset = args
+    checksums = {}
+    with open(source, encoding="ascii", newline="") as f:
+        for line in f:
+            match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *]([^\r\n]+)\n?", line)
+            if not match or not asset_name.fullmatch(match[2]) or match[2] in checksums:
+                sys.exit("invalid or duplicate SHA256SUMS entry")
+            checksums[match[2]] = match[1].lower()
+    if not (required - {"SHA256SUMS"}) <= checksums.keys():
+        sys.exit("missing required CLI checksum in SHA256SUMS")
+    print(checksums[asset])
 elif mode == "newer":
     current = args[0].strip()
     if current.startswith("whipcode "):
@@ -106,8 +123,6 @@ else:
         sys.exit("invalid release list")
     with open(selection) as f:
         best = json.load(f)
-    required = {"whipcode-linux-x64", "whipcode-linux-arm64", "whipcode-darwin-x64",
-                "whipcode-darwin-arm64", "SHA256SUMS", "install.sh"}
     for release in releases:
         if not isinstance(release, dict):
             continue
@@ -126,9 +141,13 @@ else:
         if not isinstance(raw_assets, list):
             continue
         assets = {a["name"]: a["id"] for a in raw_assets if isinstance(a, dict)
-                  and isinstance(a.get("name"), str) and type(a.get("id")) is int
-                  and a["id"] > 0 and type(a.get("size")) is int and a["size"] > 0}
-        if set(assets) != required or len(raw_assets) != len(required):
+                  and isinstance(a.get("name"), str) and asset_name.fullmatch(a["name"])
+                  and type(a.get("id")) is int and a["id"] > 0
+                  and type(a.get("size")) is int and a["size"] > 0}
+        # CLI consumers require their subset; the publisher validates the full
+        # CLI/Desktop/evidence union. Still reject malformed or duplicate extras.
+        if (not required <= assets.keys() or len(assets) != len(raw_assets)
+                or len(set(assets.values())) != len(assets)):
             continue
         if best is None or parsed > version(best["tag"]):
             best = {"tag": tag, "binary": assets[asset], "sums": assets["SHA256SUMS"]}
@@ -165,8 +184,8 @@ say "Downloading $ASSET..."
 api_asset "$BIN_ID" "$tmp/$ASSET" || die "download failed"
 say "Downloading SHA256SUMS..."
 api_asset "$SUMS_ID" "$tmp/SHA256SUMS" || die "checksum list download failed"
-expected=$(grep " $ASSET\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
-[ -n "$expected" ] || die "no checksum for $ASSET in SHA256SUMS"
+expected=$(python3 "$tmp/releases.py" checksum "$tmp/SHA256SUMS" "$ASSET") \
+  || die "invalid SHA256SUMS; refusing to install"
 actual=$(SHA "$tmp/$ASSET")
 say "expected sha256: $expected"
 say "actual   sha256: $actual"

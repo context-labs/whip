@@ -72,7 +72,7 @@ else:
     def release(self, tag, prerelease=None):
         body = f'#!/bin/sh\nprintf "whipcode {tag}\\n"\n'
         digest = hashlib.sha256(body.encode()).hexdigest()
-        sums = ''.join(f'{digest}  {name}\n' for name in NAMES[:4])
+        sums = ''.join(f'{digest}  {name}\n' for name in [*NAMES[:4], 'install.sh'])
         release = {'tag_name': tag, 'draft': False,
                    'prerelease': '-' in tag if prerelease is None else prerelease, 'assets': []}
         for name in NAMES:
@@ -191,7 +191,9 @@ else:
         self.install()
         body = '#!/bin/sh\necho "whipcode v1.0.0-alpha.1"\n'
         self.data['assets'][self.asset_id(NAMES[0])] = body
-        self.data['assets'][self.asset_id('SHA256SUMS')] = hashlib.sha256(body.encode()).hexdigest() + '  ' + NAMES[0] + '\n'
+        self.data['assets'][self.asset_id('SHA256SUMS')] = ''.join(
+            hashlib.sha256(body.encode()).hexdigest() + '  ' + name + '\n'
+            for name in [*NAMES[:4], 'install.sh'])
         self.assertIn('binary version', self.install(False).stderr)
         self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.10')
 
@@ -213,21 +215,105 @@ else:
         self.install(False)
         self.assertFalse((self.dest / 'whipcode').exists())
 
-    def test_requires_exact_complete_asset_set(self):
-        for mutation in ['zero', 'missing', 'extra', 'duplicate']:
+    def test_requires_complete_cli_subset(self):
+        for mutation in ['zero', 'missing', 'duplicate']:
             with self.subTest(mutation=mutation):
                 release = self.release('v1.0.0-alpha.11')
                 if mutation == 'zero':
                     release['assets'][0]['size'] = 0
                 elif mutation == 'missing':
                     release['assets'].pop()
-                elif mutation == 'extra':
-                    release['assets'].append({'name': 'old-product', 'id': 999, 'size': 1})
                 else:
                     release['assets'].append(release['assets'][0])
                 self.data['pages']['1'] = [release]
                 self.install(False)
                 self.assertFalse((self.dest / 'whipcode').exists())
+
+    def add_union_assets(self, release):
+        for name in ['WHIP-1.0.0-arm64.dmg', 'WHIP-1.0.0-arm64.zip', 'RELEASES.json',
+                     'artifact-manifest.json', 'artifact-manifest.json.intoto.jsonl']:
+            ident = len(self.data['assets']) + 1
+            payload = 'desktop or evidence fixture'
+            self.data['assets'][str(ident)] = payload
+            release['assets'].append({'name': name, 'id': ident, 'size': len(payload)})
+            self.data['assets'][self.asset_id('SHA256SUMS', release['tag_name'])] += (
+                hashlib.sha256(payload.encode()).hexdigest() + '  ' + name + '\n')
+
+    def test_cli_and_desktop_union_installs_by_channel_and_pin(self):
+        for tag, channel, pinned in [('v1.0.0-alpha.10', 'prerelease', False),
+                                     ('v1.0.0', 'stable', False), ('v1.0.0', 'stable', True)]:
+            with self.subTest(tag=tag, channel=channel, pinned=pinned):
+                release = self.release(tag)
+                self.add_union_assets(release)
+                self.data['pages']['1'] = [release]
+                self.env['WHIPCODE_CHANNEL'] = channel
+                self.env['WHIPCODE_VERSION'] = tag if pinned else ''
+                self.install()
+                self.assertEqual(self.installed_version(), 'whipcode ' + tag)
+
+    def test_union_does_not_hide_malformed_or_duplicate_assets(self):
+        for mutation in ['name-empty', 'name-path', 'name-control', 'name-long', 'name-type',
+                         'id-zero', 'id-negative', 'id-bool', 'id-string', 'size-zero',
+                         'size-negative', 'size-bool', 'size-string', 'duplicate-name',
+                         'duplicate-id', 'malformed', 'missing-cli', 'channel-mismatch']:
+            with self.subTest(mutation=mutation):
+                release = self.release('v1.0.0-alpha.11')
+                self.add_union_assets(release)
+                asset = release['assets'][-1]
+                values = {'name-empty': ('name', ''), 'name-path': ('name', '../other'),
+                          'name-control': ('name', 'asset\nname'), 'name-long': ('name', 'a' * 201),
+                          'name-type': ('name', 1), 'id-zero': ('id', 0), 'id-negative': ('id', -1),
+                          'id-bool': ('id', True), 'id-string': ('id', '100'), 'size-zero': ('size', 0),
+                          'size-negative': ('size', -1), 'size-bool': ('size', True),
+                          'size-string': ('size', '10'), 'duplicate-name': ('name', NAMES[0]),
+                          'duplicate-id': ('id', release['assets'][0]['id'])}
+                if mutation in values:
+                    key, value = values[mutation]
+                    asset[key] = value
+                elif mutation == 'malformed':
+                    release['assets'].append(None)
+                elif mutation == 'missing-cli':
+                    release['assets'].pop(1)
+                else:
+                    release['prerelease'] = False
+                self.data['pages']['1'] = [release]
+                self.install(False)
+                self.assertFalse((self.dest / 'whipcode').exists())
+
+    def test_common_checksums_reject_unsafe_or_malformed_extra_entries(self):
+        self.install()
+        ident = self.asset_id('SHA256SUMS')
+        original = self.data['assets'][ident]
+        digest = '0' * 64
+        invalid = [digest + '  ../escape', digest + '  /absolute', digest + '  sub/file',
+                   digest + '  sub\\file', digest + '  .hidden', digest + '  bad name',
+                   digest + '  bad	name', digest + '  bad\rname', digest + '  bad\ngarbage',
+                   digest + '  bad\x00name', digest + '  ' + 'a' * 201, 'z' * 64 + '  other',
+                   digest[:-1] + '  other', digest + ' other', 'unstructured garbage',
+                   digest + '  install.sh', digest + '  other\n' + digest + '  other']
+        for entry in invalid:
+            with self.subTest(entry=entry):
+                self.data['assets'][ident] = original + entry + '\n'
+                self.assertIn('invalid SHA256SUMS', self.install(False).stderr)
+                self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.10')
+
+    def test_common_checksums_require_every_cli_entry(self):
+        self.install()
+        ident = self.asset_id('SHA256SUMS')
+        original = self.data['assets'][ident]
+        for name in [*NAMES[:4], 'install.sh']:
+            with self.subTest(name=name):
+                self.data['assets'][ident] = ''.join(line + '\n' for line in original.splitlines()
+                                                    if not line.endswith('  ' + name))
+                self.assertIn('missing required CLI checksum', self.install(False).stderr)
+                self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.10')
+
+    def test_binary_checksum_marker_and_uppercase_hash(self):
+        ident = self.asset_id('SHA256SUMS')
+        self.data['assets'][ident] = ''.join(line[:64].upper() + ' *' + line[66:] + '\n'
+                                            for line in self.data['assets'][ident].splitlines())
+        self.install()
+        self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.10')
 
     def test_directory_destination_is_never_treated_as_success(self):
         (self.dest / 'whipcode').mkdir()
