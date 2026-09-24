@@ -160,8 +160,8 @@ it('preloads globals before choosing a project and inserts without creating a se
   f.runtime.tabs.updateNew(f.tab.id, { cwd: '' });
   f.render();
   const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
-  expect(document.activeElement).toBe(input);
   act(() => input.focus());
+  expect(document.activeElement).toBe(input);
   await waitFor(() => expect(f.call).toHaveBeenCalledWith('host.skills.complete', {
     scope: 'global', definition: 'coding', permission_mode: 'prompt', prefix: '', limit: 1024,
   }, { signal: expect.any(AbortSignal) }));

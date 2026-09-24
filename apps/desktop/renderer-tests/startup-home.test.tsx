@@ -28,10 +28,10 @@ async function home(ready = false) {
 }
 const usable = { host: true, noNotice: true, home: true, visible: true, fonts: true, painted: true, pathname: '/' };
 
-it('accepts actionable fresh provider setup alongside drafting with send disabled', async () => {
+it('accepts actionable fresh provider setup without the first-message composer', async () => {
   const f = await home();
-  expect((screen.getByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement).disabled).toBe(false);
-  expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
   expect(f.raw.sessions.create).not.toHaveBeenCalled();
   expect(await observe()).toMatchObject(usable);
 });
