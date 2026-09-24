@@ -1,0 +1,95 @@
+---
+title: Installation
+description: Install Desktop Beta or the packaged CLI, and update the installation you actually use.
+section: start
+order: 2
+---
+
+## Supported installations
+
+| Package | Platform | Distribution |
+| --- | --- | --- |
+| Desktop Beta | macOS 14 or newer, Apple Silicon | GitHub Desktop releases |
+| Standalone CLI | macOS and Linux, x64 and arm64 | Packaged `whipcode` installer |
+
+Windows and Intel Mac Desktop packages are not part of the initial Desktop release. An Intel Mac can use the standalone CLI.
+
+## Install Desktop Beta
+
+1. Open the [Desktop Beta releases](https://github.com/context-labs/whip/releases?q=desktop-v) and read the selected release's notes.
+2. Download its DMG, open it, and drag **Whip Beta** into Applications.
+3. Launch the app and choose **Set up this Mac** when prompted.
+
+Desktop installs its verified bundled backend and opens provider setup. It can reuse an existing compatible installation instead. Copying the app into Applications alone does not replace an existing CLI binary.
+
+## Install the standalone CLI
+
+You need `curl`, Python 3, and either `sha256sum` or `shasum`. The installer selects your platform and verifies SHA-256 checksums before replacing the executable.
+
+The CLI's new release track begins with `v1.0.0-alpha.N`. Use the explicit prerelease channel:
+
+<CodeTabs>
+<CodeTab label="Install directly">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
+```
+
+</CodeTab>
+<CodeTab label="Inspect first">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh -o install-whipcode.sh
+less install-whipcode.sh
+WHIPCODE_CHANNEL=prerelease sh install-whipcode.sh
+```
+
+</CodeTab>
+</CodeTabs>
+
+The default destination is `~/.local/bin`. If your shell cannot find `whipcode`, add that directory to your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+whipcode
+```
+
+Save the `PATH` change in your shell's startup file to keep it across new terminals. Set `WHIPCODE_BIN_DIR` when running the installer if you need a different destination.
+
+<Callout type="info" title="Release channels are explicit">
+
+Without `WHIPCODE_CHANNEL=prerelease`, the installer requests stable. Until a new-project stable release exists, that request fails rather than selecting an old release. These instructions are for fresh installations, not migration from pre-reset internal builds.
+
+</Callout>
+
+## Update the right installation
+
+| Installation | Update through |
+| --- | --- |
+| Backend installed and managed by Desktop | Desktop updates |
+| Standalone CLI | `whipcode update` |
+| Existing executable selected manually in Desktop | Its standalone or source-build workflow |
+| Remote execution host | An explicit update on that remote machine |
+
+An alpha CLI follows the prerelease channel; a stable CLI follows stable. Desktop-managed backends refuse independent CLI updates.
+
+<Callout type="warning" title="A backend restart affects shared work">
+
+Updating a backend can restart its daemon and interrupt work from other connected clients. Desktop's **Restart and update** approves that restart too. Plan updates around active sessions; saved sessions and configuration remain on disk.
+
+</Callout>
+
+## Build from source
+
+Source builds require Go 1.27 or newer, Node.js 24, and [Task](https://taskfile.dev/). On macOS, install Xcode command-line tools for the native helper.
+
+```bash
+git clone --branch main https://github.com/context-labs/whip.git
+cd whip
+npm ci
+task build
+```
+
+This creates `./whipcode` with the packaged assets without replacing an installed app. `task install` installs it into `GOBIN` or `GOPATH/bin`. A bare `go install` of the command package is not the supported product build because it omits required assets.
+
+Once installed, [connect a provider and start a session](/docs/getting-started).

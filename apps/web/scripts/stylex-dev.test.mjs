@@ -9,6 +9,8 @@ const indicator = fileURLToPath(new URL('../../../packages/ui/src/activity-indic
 test('cold dev CSS resolves shared constants before their browser import arrives', async () => {
   const server = await createServer({
     root, configFile: `${root}/vite.config.ts`, logLevel: 'silent',
+    // Keep the cache cold without waiting for a browser to finish this partial import graph.
+    optimizeDeps: { force: true, holdUntilCrawlEnd: false },
     // Reproduce a slow token import deterministically instead of racing the browser.
     server: { host: '127.0.0.1', port: 0, preTransformRequests: false },
   });

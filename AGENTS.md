@@ -1,6 +1,6 @@
 # Frontend work
 
-For changes to `apps/web`, `packages/app`, `packages/ui`, or the frontend-facing
+For changes to `apps/docs`, `apps/web`, `packages/app`, `packages/ui`, or the frontend-facing
 parts of `packages/sdk` and `packages/protocol`, read
 [docs/frontend.md](docs/frontend.md) first. It is the canonical guide to package
 boundaries, design philosophy, state ownership, data fetching, styling, theming,

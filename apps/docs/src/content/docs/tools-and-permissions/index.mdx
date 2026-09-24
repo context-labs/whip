@@ -1,0 +1,71 @@
+---
+title: Tools and permissions
+description: Understand what agents can do, review approvals and connect external tools deliberately.
+section: reference
+order: 2
+---
+
+whipcode can inspect and change files, run commands, delegate work, and use browser or connected tools. These actions run on the selected execution host with the authority available to its operating-system user.
+
+## What an agent can use
+
+Available tools depend on the agent definition and the permissions granted to it.
+
+| Capability | Typical work |
+| --- | --- |
+| Files | List, search, read, write and patch project files |
+| Shell | Run commands and manage longer-running jobs |
+| Context | Search conversation history and read large outputs in bounded pieces |
+| Agents and messages | Delegate focused tasks and exchange results |
+| Browser | Inspect and interact with an authorized browser session or Desktop tab |
+| Computer | Interact with macOS apps, subject to app and operating-system permissions |
+| MCP | Discover and call tools from connected MCP servers |
+
+The coding agent uses short programs to call these capabilities. Starlark is the default execution language; JavaScript through QuickJS is also available. You do not need to write those programs to ask for ordinary coding work.
+
+## Choose a permission level
+
+| Level | Behavior |
+| --- | --- |
+| **Ask for approval** | Actions that need permission are sent to connected clients for review. Direct file access retains the project's boundary unless separately authorized. |
+| **Full Access** | Approves actions automatically and permits file access outside the project under the execution host's OS user. Explicit capability limits still apply. |
+
+A fresh setup defaults to Ask. The selected mode is saved per session and inherited by its child agents. You can change it while the session is idle; reconnecting does not reset it. Changing the host's default affects new sessions, not the saved choices in existing ones.
+
+<Callout type="warning" title="Ask is not a sandbox">
+
+Approving a shell command lets it run with ordinary operating-system authority. A command can affect files or network resources beyond its working directory. Review what the command does, not just where it starts. Use a separate, appropriately isolated environment for untrusted code.
+
+</Callout>
+
+## Review an approval
+
+Check the requested operation and its target before allowing it: the path for a file change, the command for shell work, or the server and tool for MCP. An approval is checked again against the operation before it runs; the agent cannot approve itself.
+
+Where offered, an **always** choice remembers a matching rule for the session tree. In the terminal, `/permissions` lists remembered rules and `/permissions forget` takes a rule ID to remove one. Remembered rules are separate from the session's overall permission level.
+
+Desktop Browser resource approvals are **Once**-only in Ask mode. Do not assume that an approval for one tab also authorizes another tab or another agent.
+
+For noninteractive scripts, approval-dependent actions need existing authorization or are denied. See [headless CLI usage](/docs/using-whipcode/cli#run-one-task) before enabling automatic permissions for a script.
+
+## Connect MCP tools carefully
+
+MCP servers extend the available tool set. You can review and import connections in **Settings → Agents & execution → MCP servers**, and inspect connection status with `/mcp` in the terminal.
+
+A project's `.mcp.json` is off until you explicitly enable that source. Fresh installations also leave Claude and Codex imports off. Review the server's command, arguments, environment and destination before enabling or importing it.
+
+<Callout type="alert" title="Enabling a server can execute its program">
+
+MCP tool consent does not sandbox the server process. Enabling a source can start its configured programs. Servers in whipcode's native `mcp` configuration are trusted and do not require per-call consent; importing a server into that configuration is a trust decision.
+
+</Callout>
+
+Adding a server does not mean every child agent can use it. Child capabilities can narrow the parent's access, and later discoveries do not silently expand an existing child's grant.
+
+## Grant browser and computer access deliberately
+
+Desktop's experimental Browser tabs have isolated profiles. An agent can open or attach to an authorized tab, but listing tabs alone gives it no control. Sharing control with a child agent requires explicit delegation.
+
+A browser tab can still contain signed-in accounts or sensitive content. Computer tools act on real macOS apps and depend on permissions such as Accessibility and Screen Recording. Grant only the access needed for the task, and do not treat text on a web page as instructions from you.
+
+Review the agent's results before applying them elsewhere. Permissions control access; they do not prove that a command, edit or recommendation is correct.

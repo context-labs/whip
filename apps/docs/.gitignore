@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tanstack/
+.output/
+.vite/
+storybook-static/
+playwright-report/
+test-results/
+src/routeTree.gen.ts
+src/features/docs/content/manifest.gen.ts

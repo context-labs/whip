@@ -4,6 +4,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"], "strict": true,
     "declaration": true, "sourceMap": true, "inlineSources": true, "outDir": "dist", "rootDir": "src",
     "noUncheckedIndexedAccess": true, "verbatimModuleSyntax": true,
+    "types": ["node"],
     "skipLibCheck": false
   },
   "include": ["src/**/*.ts"]

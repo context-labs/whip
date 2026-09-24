@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict'
+import { readFile, writeFile, readdir } from 'node:fs/promises'
+import path from 'node:path'
+import { JSDOM } from 'jsdom'
+import { appRoot, loadDocuments } from './content.mjs'
+import { siteUrl } from './site-url.mjs'
+import { robotsText, runtimeHighlighter } from './static-policy.mjs'
+
+const root = path.join(appRoot, 'dist/client')
+const docs = await loadDocuments()
+const urls = ['/docs', ...docs.map((doc) => `/docs/${doc.path}`), '/404']
+// Plain static hosts still redirect without JavaScript or an application server.
+const rootRedirect = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redirecting — whipcode</title><meta name="robots" content="noindex,nofollow">
+<meta http-equiv="refresh" content="0; url=/docs/getting-started"></head>
+<body><main><a href="/docs/getting-started">Continue to getting started</a></main></body></html>
+`
+await writeFile(path.join(root, 'index.html'), rootRedirect)
+const rendered = new Map([['/', new JSDOM(rootRedirect).window.document]])
+async function htmlFor(url) {
+  const relative = url === '/' ? 'index.html' : `${url.slice(1)}/index.html`
+  return readFile(path.join(root, relative), 'utf8').catch(() => readFile(path.join(root, `${url.slice(1)}.html`), 'utf8'))
+}
+const html404 = await htmlFor('/404')
+await writeFile(path.join(root, '404.html'), html404)
+const origin = siteUrl(process.env.DOCS_SITE_URL)
+await writeFile(path.join(root, 'robots.txt'), robotsText(origin))
+for (const url of urls) {
+  const html = await htmlFor(url)
+  const document = new JSDOM(html).window.document
+  rendered.set(url, document)
+  assert.equal(document.querySelectorAll('main').length, 1, `${url}: expected one main landmark`)
+  assert.equal(document.querySelectorAll('h1').length, 1, `${url}: expected one H1`)
+  assert(document.title.includes('whipcode'), `${url}: missing title`)
+  assert(document.querySelector('meta[name="description"]'), `${url}: missing description`)
+  const indexable = Boolean(origin) && url !== '/404'
+  assert.equal(document.querySelector('meta[name="robots"]')?.getAttribute('content'), indexable ? 'index,follow' : 'noindex,nofollow', `${url}: wrong indexing policy`)
+  assert.equal(document.querySelector('link[rel="canonical"]')?.getAttribute('href'), indexable ? `${origin}${url}` : undefined, `${url}: wrong canonical URL`)
+
+  const doc = docs.find((entry) => url === `/docs/${entry.path}`)
+  if (doc) {
+    assert.equal(document.querySelector('h1')?.textContent, doc.title)
+    for (const heading of doc.headings) assert.equal(document.getElementById(heading.id)?.textContent, heading.text, `${url}: missing heading ${heading.id}`)
+  }
+  for (const element of document.querySelectorAll('script[src],link[href]')) {
+    const value = element.getAttribute('src') ?? element.getAttribute('href')
+    if (element.getAttribute('rel') === 'canonical') continue
+    assert(value.startsWith('/'), `${url}: asset must be local and root-relative: ${value}`)
+    assert(!value.startsWith('//'), `${url}: remote asset ${value}`)
+    const asset = path.resolve(root, value.slice(1).split('?')[0])
+    assert(asset.startsWith(root + path.sep), `${url}: asset outside public output`)
+    await readFile(asset)
+
+  }
+}
+for (const [url, document] of rendered) {
+  for (const link of document.querySelectorAll('a[href]')) {
+    const href = link.getAttribute('href')
+    if (/^(https?:|mailto:)/.test(href)) continue
+    const target = new URL(href, `https://docs.invalid${url}`)
+    assert.equal(target.origin, 'https://docs.invalid', `${url}: unsupported link ${href}`)
+    const page = rendered.get(target.pathname)
+    assert(page, `${url}: broken internal link ${href}`)
+    if (target.hash) assert(page.getElementById(decodeURIComponent(target.hash.slice(1))), `${url}: missing fragment ${href}`)
+  }
+}
+async function files(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  return (await Promise.all(entries.map((entry) => entry.isDirectory() ? files(path.join(directory, entry.name)) : [path.join(directory, entry.name)]))).flat()
+}
+const emitted = await files(root)
+assert.equal(await readFile(path.join(root, 'robots.txt'), 'utf8'), robotsText(origin))
+if (origin) {
+  const sitemap = new JSDOM(await readFile(path.join(root, 'sitemap.xml'), 'utf8'), { contentType: 'text/xml' }).window.document
+  assert.deepEqual([...sitemap.querySelectorAll('loc')].map((node) => node.textContent).sort(), urls.filter((url) => url !== '/404').map((url) => `${origin}${url}`).sort())
+} else assert(!emitted.some((file) => file.endsWith('/sitemap.xml')), 'Preview build must not emit a sitemap')
+
+for (const filename of emitted.filter((name) => name.endsWith('.js'))) {
+  const source = await readFile(filename, 'utf8')
+  assert(!runtimeHighlighter.test(source), `${filename}: browser runtime grammar/highlighter leaked`)
+}
+assert((await Promise.all(docs.map((doc) => htmlFor(`/docs/${doc.path}`)))).some((html) => html.includes('token keyword') || html.includes('token string')), 'No compile-time syntax tokens in article HTML')
+console.log(`Verified ${urls.length} prerendered documents and ${emitted.length} public files; deploy only dist/client.`)

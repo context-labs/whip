@@ -1,0 +1,95 @@
+---
+title: Use the CLI
+description: Work interactively in the terminal, run a single task or reconnect to a saved session.
+section: usage
+order: 2
+---
+
+The `whipcode` command opens the terminal interface. `whipcode run` is the noninteractive client for a single turn. Both use the daemon for tools, model requests and saved sessions.
+
+## Open the terminal interface
+
+Run this from your project folder:
+
+```bash
+whipcode
+```
+
+The interface opens directly. If you need a provider, use `/connect`; press **Esc** to leave the connection dialog and keep drafting. Connecting a provider does not send your draft automatically.
+
+These commands cover the everyday workflow:
+
+| Command | Use it to |
+| --- | --- |
+| `/connect` | Connect a provider or choose a model |
+| `/model refresh` | Refresh available model catalogs |
+| `/agents` | Inspect recursive agents |
+| `/permissions` | List remembered permission rules |
+| `/resume` | Choose a previous session |
+| `/help` | See commands and keybindings |
+| `/quit` | Exit the terminal interface |
+
+## Run one task
+
+After configuring a provider, you can send a prompt directly from the shell. This example explicitly keeps approval mode rather than enabling Full Access:
+
+```bash
+whipcode run --permission-mode prompt "Read this repository and explain its main entry points. Do not change files."
+```
+
+`run` streams the response as text by default. Add `--format json` before the prompt for a newline-delimited event stream—not a single JSON document.
+
+<Callout type="warning" title="Headless runs cannot ask for approval">
+
+A noninteractive run cannot wait for you to answer a tool permission dialog. Actions that require approval need existing authorization or are denied. `--permission-mode automatic` selects **Full Access** for a new session; use it only when you intentionally authorize the task and its tools. It is not a sandbox.
+
+</Callout>
+
+Useful options go before the prompt:
+
+| Option | Meaning |
+| --- | --- |
+| `-m` | Exact model name from your configuration or provider catalog |
+| `-p` | Provider route, useful when more than one provider serves the model |
+| `--max-cost` | Whole-session model cost limit in USD; `0` means unlimited |
+| `--max-tokens` | Whole-session model token limit; `0` means unlimited |
+| `--format json` | Newline-delimited events for scripts |
+| `--rlm-engine quickjs` | Use JavaScript instead of the default Starlark execution engine |
+
+Cost and token limits include descendant agents. A finite cost limit needs usable pricing before a call can start. Provider-reported charges can still exceed a reservation; whipcode retains that response and stops further work rather than discarding the charge.
+
+The execution engine controls the agent's tool programs, not the programming languages in your project. JavaScript uses bundled QuickJS/WASM and does not require a separate Node.js installation to run. A session's engine cannot be changed when resuming it.
+
+## Return to a session
+
+List recent saved sessions from the shell:
+
+```bash
+whipcode sessions
+```
+
+In the terminal interface, use `/resume` to choose one. You can also pass its ID with `whipcode --resume` to reopen it interactively, or with `whipcode run --resume` before a new prompt for another noninteractive turn.
+
+Resuming preserves the session's saved permission mode. `--permission-mode` selects the policy for a new `run` session and cannot be combined with `--resume`.
+
+## Inspect the daemon
+
+```bash
+whipcode daemon status
+whipcode daemon logs -n 60
+```
+
+`whipcode daemon restart` replaces the running daemon with the invoked executable. Restarting can interrupt work in other clients, so check active sessions first.
+
+## Open the web client
+
+Start the daemon, then run the web gateway:
+
+```bash
+whipcode daemon start
+whipcode web
+```
+
+The gateway opens your browser and stays in the foreground. **Ctrl+C** stops web access without stopping daemon work. `whipcode web --no-open` runs the gateway without opening a browser.
+
+Ordinary Desktop and daemon startup do not open a web listener. The default web gateway binds to loopback; keep it local unless you have deliberately configured secure network access.

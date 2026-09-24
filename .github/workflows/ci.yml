@@ -230,6 +230,31 @@ jobs:
             /tmp/whip-web-snapshot-refresh
             packages/ui/ui-test-results
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run check:docs
+      - run: npm run test:docs
+      - run: npm run test:docs:dev
+      - run: npm run build:docs
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:docs:browser
+      - run: npm run build:storybook:docs
+      - name: Static docs artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: docs-static
+          if-no-files-found: error
+          path: apps/docs/dist/client
+
   desktop:
     needs: sdk
     uses: ./.github/workflows/desktop-check.yml
@@ -241,7 +266,7 @@ jobs:
 
   # Required aggregate: failed or skipped dependencies must fail, never go green.
   go:
-    needs: [lint, test, build, runtime, driver, sdk, distribution, desktop, mobile]
+    needs: [lint, test, build, runtime, driver, sdk, docs, distribution, desktop, mobile]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -253,6 +278,7 @@ jobs:
           echo "runtime=${{ needs.runtime.result }}"
           echo "driver=${{ needs.driver.result }}"
           echo "sdk=${{ needs.sdk.result }}"
+          echo "docs=${{ needs.docs.result }}"
           echo "distribution=${{ needs.distribution.result }}"
           echo "desktop=${{ needs.desktop.result }}"
           echo "mobile=${{ needs.mobile.result }}"
@@ -262,6 +288,7 @@ jobs:
           [ "${{ needs.runtime.result }}" = success ] || exit 1
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.docs.result }}" = success ] || exit 1
           [ "${{ needs.distribution.result }}" = success ] || exit 1
           [ "${{ needs.desktop.result }}" = success ] || exit 1
           [ "${{ needs.mobile.result }}" = success ] || exit 1

@@ -1,0 +1,110 @@
+---
+title: Getting started
+navTitle: Get started
+description: Install whipcode, connect a model, and run your first coding session.
+section: start
+order: 1
+---
+
+whipcode is an open-source coding agent that works across your project. Give it a task in Desktop or the terminal, follow the agents doing the work, and review the result. Both interfaces connect to a daemon that runs tools and keeps your sessions on the execution host.
+
+<Callout type="info" title="Before you start">
+
+You need a project folder and a supported model connection. Desktop Beta requires an Apple Silicon Mac with macOS 14 or newer; the standalone CLI supports macOS and Linux on x64 and arm64. Model access and provider billing are separate from installing whipcode.
+
+</Callout>
+
+## Start your first session
+
+### 1. Install whipcode
+
+[Download Desktop Beta](https://github.com/context-labs/whip/releases) or follow the [CLI installation instructions](/docs/installation). Desktop includes its matching backend—you do not need to install the CLI separately. Open **Whip Beta** and choose **Set up this Mac** if prompted.
+
+### 2. Connect a model provider
+
+Use **Settings → Providers & models** in Desktop or `/connect` in the terminal. Choose a supported provider and follow its account-login or API-key flow, then select a model. A credential marked available does not guarantee that your provider can complete a request.
+
+<Callout type="warning" title="Keep credentials private">
+
+Enter keys in the provider dialog, not in a conversation or a source file. Keep any separately managed keys in your password manager or secret store. Never commit credentials to your repository.
+
+</Callout>
+
+### 3. Open your project
+
+Choose your project folder in Desktop. For the CLI, open a terminal in that folder and run:
+
+```bash
+whipcode
+```
+
+The terminal opens the provider dialog if no usable model connection is selected. Finish setup, or press **Esc** to return to your draft. Connecting a provider does not send the draft automatically.
+
+### 4. Send a focused task
+
+Start with an explanation before asking for changes. Check the selected model and keep **Ask for approval** enabled while you learn the tools.
+
+<CodeTabs label="First task examples">
+<CodeTab label="Prompt">
+
+```text
+Read this repository and explain how it is organized.
+Identify the main entry points and how to run the tests.
+Do not change files yet.
+```
+
+</CodeTab>
+<CodeTab label="CLI">
+
+```bash
+whipcode run --permission-mode prompt "Read this repository and explain its main entry points. Do not change files."
+```
+
+</CodeTab>
+</CodeTabs>
+
+In Desktop or the interactive terminal, send the prompt when you are ready. A headless `whipcode run` cannot display approval dialogs: actions without existing authorization are denied. Use the interactive interface when you need to review tool requests.
+
+### 5. Review the result
+
+Read the response and inspect the tool activity. For a code change, review the diff and test results before accepting the work. Send a follow-up with a specific goal and a way to verify it; keep your own review even when the agent reports success.
+
+## Continue from the terminal
+
+After configuring a provider, use the CLI for a one-off task or a newline-delimited event stream. Both examples keep approval mode rather than granting Full Access.
+
+<CodeTabs label="Terminal output formats">
+<CodeTab label="Text">
+
+```bash
+whipcode run --permission-mode prompt "Explain the test setup. Do not change files."
+```
+
+</CodeTab>
+<CodeTab label="JSON events">
+
+```bash
+whipcode run --permission-mode prompt --format json "Explain the test setup. Do not change files."
+```
+
+</CodeTab>
+</CodeTabs>
+
+The JSON format emits one event per line, not a single JSON document. See [CLI usage](/docs/using-whipcode/cli) for session IDs, resuming work, model selection and output options.
+
+## Understand workspace scope
+
+Your project folder supplies the working directory; the execution host owns configuration, credentials and accepted work. If Desktop connects to another machine, configure the provider on that host. Changing credentials on your Mac does not configure a remote daemon.
+
+Ask mode is an approval policy, not an operating-system sandbox. Approved tools can access resources allowed by the host and tool rules. Closing an interface does not cancel accepted work: reopen the session to inspect progress or explicitly stop the task. Read [Tools and permissions](/docs/tools-and-permissions) before choosing Full Access.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| No model connection | Open `/connect` or **Providers & models**, choose a provider, and finish its login or key flow. |
+| Provider request fails | Check the selected provider, model availability, credential and account billing. An available key alone does not prove a request will succeed. |
+| Tool action is denied | Review the requested action and permission level. A headless run cannot ask for new approvals; use an interactive session. |
+| A new key is not detected | Refresh provider settings. A running daemon retains its launch environment; restarting it can interrupt active work. See [configuration](/docs/configuration#reuse-credentials-without-copying-them). |
+
+Next, learn the [CLI workflow](/docs/using-whipcode/cli) or keep working in [Desktop](/docs/using-whipcode/desktop).
