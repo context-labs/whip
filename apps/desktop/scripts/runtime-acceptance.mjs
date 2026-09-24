@@ -9,7 +9,7 @@ import { LocalRuntime, fileDigest } from '../src/runtime.ts';
 import { extractApplicationZip } from './distribution.mjs';
 import { verifyDesktop } from './verify.mjs';
 import { verifyRuntimeSigning } from './runtime-signing.mjs';
-import { validateRuntimeEvidence } from './runtime-evidence.mjs';
+import { runtimeIdentityFields, validateRuntimeEvidence } from './runtime-evidence.mjs';
 
 const exec = promisify(execFile);
 export async function acceptRuntime(directory) {
@@ -27,7 +27,7 @@ export async function acceptRuntime(directory) {
     const name = evidence.version.includes('-') ? 'Whip Beta.app' : 'Whip.app';
     const bundle = await extractApplicationZip(path.join(directory, archive), path.join(fixture, 'expanded'), name);
     const verified = await verifyDesktop(bundle, { signed: true, notarized: true });
-    const identity = Object.fromEntries(['version', 'buildId', 'source', 'nativeFiles', 'teamId', 'runtimeSigning'].map(key => [key, verified[key]]));
+    const identity = Object.fromEntries(runtimeIdentityFields.map(key => [key, verified[key]]));
     for (const [key, value] of Object.entries(identity)) assert.deepEqual(value, evidence[key], `Extracted package differs: ${key}`);
     const native = path.join(bundle, 'Contents/Helpers');
     const run = async (executable, name) => {

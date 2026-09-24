@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 license"></a>
-  <a href="https://github.com/context-labs/whip/releases?q=desktop-v"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
+  <a href="https://github.com/context-labs/whip/releases"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 
 ## Quickstart
 
-**[Download Desktop Beta](https://github.com/context-labs/whip/releases?q=desktop-v)** — Apple Silicon · macOS 14 or newer.
+**[Download Desktop Beta](https://github.com/context-labs/whip/releases)** — Apple Silicon · macOS 14 or newer.
 
 Use a release built after the clean-project reset; old Desktop releases are not an upgrade path.
 

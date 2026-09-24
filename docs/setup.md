@@ -190,7 +190,8 @@ before atomic replacement. Old CLI tags and Desktop tags are not candidates.
 
 Every macOS desktop release, including betas, bundles its matching **whipcode**
 backend. It uses that bundled build for installation and managed upgrades;
-it does not fetch the latest independently published standalone CLI release.
+it does not fetch an independently updated standalone CLI binary. Desktop and CLI
+artifacts share a release version, but the app owns its bundled backend updates.
 Copying the app into Applications alone does not replace an existing binary.
 
 On a clean Mac, choose **Set up this Mac** on the welcome screen. It installs the

@@ -20,7 +20,7 @@ if (args[0] === 'api') {
     if (mode === 'repo-auth') fail('gh: Bad credentials (HTTP 401)');
     json({ full_name: 'context-labs/whip' });
   } else if (endpoint.includes('/commits/')) {
-    json({ sha: process.env.SOURCE_SHA });
+    json({ sha: mode === 'wrong-source' ? 'b'.repeat(40) : process.env.SOURCE_SHA });
   } else if (endpoint.includes('/releases/tags/')) {
     if (mode === 'release-auth') fail('gh: Forbidden (HTTP 403)');
     if (mode === 'release-network') fail('gh: Service unavailable (HTTP 503)');
@@ -28,10 +28,11 @@ if (args[0] === 'api') {
     json(state.release);
   } else if (endpoint.includes('/releases?per_page=')) {
     if (mode === 'create-delayed' && state.release && state.hiddenListings-- > 0) json([]);
-    else json(state.release ? [state.release] : []);
+    else json([...(state.release ? [state.release] : []), ...(state.history || [])]);
   } else if (/\\/releases\\/\\d+\\/assets\\?/.test(endpoint)) {
     if (mode === 'list-auth') fail('gh: Forbidden (HTTP 403)');
     const assets = state.assets.map(({ body, ...metadata }) => metadata);
+    if (mode === 'duplicate-remote') assets.push(assets[0]);
     json([assets.slice(0, 1), assets.slice(1)]);
   } else if (/\\/releases\\/assets\\/\\d+$/.test(endpoint)) {
     if (mode === 'download-auth') fail('gh: Forbidden (HTTP 403)');
@@ -63,30 +64,30 @@ if (args[0] === 'api') {
 } else fail('Unexpected mutation or gh command');
 `;
 
-async function fixture(t, { existing = {}, release = true, mode = '' } = {}) {
+async function fixture(t, { existing = {}, release = true, mode = '', history = [] } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'whip-github-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, 'bin'); await mkdir(bin);
   await writeFile(path.join(bin, 'gh'), ghFixture, { mode: 0o700 });
-  const metadata = { id: 10, tag_name: 'desktop-v1.2.3-beta.1', name: 'Hand-written release title', body: 'Keep curated notes', draft: true, prerelease: true };
+  const metadata = { id: 10, tag_name: 'v1.2.3-alpha.1', name: 'Hand-written release title', body: 'Keep curated notes', draft: true, prerelease: true };
   let nextId = 100;
   const assets = Object.entries(existing).map(([name, body]) => ({ id: nextId++, name, size: Buffer.byteLength(body), state: 'uploaded', body: Buffer.from(body).toString('base64') }));
   const stateFile = path.join(root, 'state.json');
-  await writeFile(stateFile, JSON.stringify({ release: release ? metadata : null, assets, nextId, mode, calls: [] }));
+  await writeFile(stateFile, JSON.stringify({ release: release ? metadata : null, assets, nextId, mode, history, calls: [] }));
   const env = { PATH: `${bin}${path.delimiter}${path.dirname(process.execPath)}`, HOME: root, WHIP_GITHUB_TEST_ROOT: root,
-    RELEASE_TAG: 'desktop-v1.2.3-beta.1', SOURCE_SHA: 'a'.repeat(40), GITHUB_REPOSITORY: 'context-labs/whip', GH_TOKEN: 'local-fixture-token', WHIP_DESKTOP_PUBLISH_MODE: 'stage' };
+    RELEASE_TAG: 'v1.2.3-alpha.1', SOURCE_SHA: 'a'.repeat(40), GITHUB_REPOSITORY: 'context-labs/whip', GH_TOKEN: 'local-fixture-token', WHIP_DESKTOP_PUBLISH_MODE: 'stage' };
   const local = async (name, bytes = name) => { const file = path.join(root, name); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, bytes); return file; };
   return { root, env, metadata, local, state: async () => JSON.parse(await readFile(stateFile, 'utf8')) };
 }
 const writes = state => state.calls.filter(args => args[0] === 'release');
 
 test('identical GitHub reruns verify every asset and preserve all existing release metadata', async t => {
-  const f = await fixture(t, { existing: { 'whipcode-linux-x64': 'CLI', 'Whip-Beta.zip': 'desktop', 'unrelated.txt': 'keep' } });
-  const files = [await f.local('whipcode-linux-x64', 'CLI'), await f.local('Whip-Beta.zip', 'desktop')];
+  const f = await fixture(t, { existing: { 'whipcode-linux-x64': 'CLI', 'Whip-Beta.zip': 'desktop', 'evidence.json': 'keep' } });
+  const files = [await f.local('whipcode-linux-x64', 'CLI'), await f.local('Whip-Beta.zip', 'desktop'), await f.local('evidence.json', 'keep')];
   await publishGitHubAssets(files, f.env); await publishGitHubAssets(files, f.env);
   const state = await f.state(); assert.deepEqual(state.release, f.metadata); assert.deepEqual(writes(state), []);
-  assert.equal(state.calls.filter(args => args[0] === 'api' && /\/releases\/assets\/\d+$/.test(args[1])).length, 4);
-  assert(state.assets.some(asset => asset.name === 'unrelated.txt'));
+  assert.equal(state.calls.filter(args => args[0] === 'api' && /\/releases\/assets\/\d+$/.test(args[1])).length, 6);
+  assert(state.assets.some(asset => asset.name === 'evidence.json'));
 });
 
 test('uploads only missing artifacts and a retry verifies the previously uploaded bytes', async t => {
@@ -113,7 +114,7 @@ test('creates an absent release with the existing notes behavior and safely acce
     await publishGitHubAssets([await f.local('Whip.zip')], f.env);
     const state = await f.state(); const create = writes(state).find(args => args[1] === 'create');
     assert(create.includes('--generate-notes') && create.includes('--verify-tag'));
-    assert.equal(state.release.name, mode === 'create-race' ? 'Human title' : 'desktop-v1.2.3-beta.1');
+    assert.equal(state.release.name, mode === 'create-race' ? 'Human title' : 'v1.2.3-alpha.1');
     assert.equal(writes(state).filter(args => args[1] === 'create').length, 1);
     assert(!state.calls.some(args => args[1] === 'edit'));
   });
@@ -162,7 +163,7 @@ test('invalid names, duplicate names, symlinks and oversized local assets fail b
 
 test('desktop release stages privately, then promotes the verified draft without rebuilding or uploading', async t => {
   const f = await fixture(t, { release: false });
-  const env = { ...f.env, RELEASE_TAG: 'desktop-v1.2.3-beta.1', SOURCE_SHA: 'a'.repeat(40) };
+  const env = { ...f.env, RELEASE_TAG: 'v1.2.3-alpha.1', SOURCE_SHA: 'a'.repeat(40) };
   const files = [await f.local('Whip.zip'), await f.local('Whip.dmg')];
   await publishGitHubAssets(files, env);
   const staged = await f.state();
@@ -191,13 +192,39 @@ test('promotion refuses missing assets and failed promotion leaves a complete re
 });
 
 
-test('desktop stable promotion never claims CLI latest and rejects CLI tags', async t => {
+test('unified stable promotion claims latest and rejects retired Desktop tags', async t => {
   const f = await fixture(t, { release: false });
   const file = await f.local('Whip.zip');
-  await assert.rejects(publishGitHubAssets([file], { ...f.env, RELEASE_TAG: 'v1.0.0' }), /Invalid release tag/);
+  await assert.rejects(publishGitHubAssets([file], { ...f.env, RELEASE_TAG: 'desktop-v1.0.0' }), /Invalid release tag/);
   assert.equal((await f.state()).calls.length, 0);
-  await publishGitHubAssets([file], { ...f.env, RELEASE_TAG: 'desktop-v1.2.3', WHIP_DESKTOP_PUBLISH_MODE: 'publish' });
+  await publishGitHubAssets([file], { ...f.env, RELEASE_TAG: 'v1.2.3', WHIP_DESKTOP_PUBLISH_MODE: 'publish' });
   const edited = (await f.state()).calls.find(args => args[0] === 'release' && args[1] === 'edit');
-  assert(edited.includes('--latest=false'));
+  assert(edited.includes('--latest=true'));
   assert(edited.includes('--prerelease=false'));
+});
+
+test('unexpected or duplicate remote assets and source conflicts fail before any write', async t => {
+  for (const options of [{ existing: { 'unexpected.txt': 'extra' } },
+    { existing: { 'Whip.zip': 'zip' }, mode: 'duplicate-remote' }, { mode: 'wrong-source' }]) {
+    const f = await fixture(t, options);
+    await assert.rejects(publishGitHubAssets([await f.local('Whip.zip', 'zip')], f.env));
+    assert.deepEqual(writes(await f.state()), []);
+  }
+});
+
+test('stable latest is monotonic and an already published recovery never edits it', async t => {
+  for (const [latest, advance] of [['v1.2.2', true], ['v1.2.4', false], ['v9.0.0', false]]) {
+    const f = await fixture(t, { release: false, history: [{ id: 20, tag_name: latest, draft: false, prerelease: false }] });
+    const env = { ...f.env, RELEASE_TAG: 'v1.2.3' };
+    const files = [await f.local('Whip.zip')];
+    await publishGitHubAssets(files, env);
+    const create = writes(await f.state()).find(args => args[1] === 'create');
+    assert(create.includes('--latest=false'));
+    assert(create[create.indexOf('--notes') + 1].includes('WHIPCODE_VERSION=v1.2.3'));
+    await publishGitHubAssets(files, { ...env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+    const edit = writes(await f.state()).find(args => args[1] === 'edit');
+    assert(edit.includes(`--latest=${advance}`));
+    await publishGitHubAssets(files, { ...env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+    assert.equal(writes(await f.state()).filter(args => args[1] === 'edit').length, 1);
+  }
 });

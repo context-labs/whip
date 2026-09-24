@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import semver from 'semver';
+import { candidate } from './release-candidate.mjs';
 
 const exec = promisify(execFile);
 const limit = 2 ** 30;
@@ -30,7 +32,8 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   const tag = env.RELEASE_TAG; const repository = env.GITHUB_REPOSITORY;
   const mode = env.WHIP_DESKTOP_PUBLISH_MODE || 'publish';
   assert(['stage', 'promote', 'publish'].includes(mode), 'Invalid publication mode');
-  assert(/^desktop-v\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(tag ?? '') && tag.length <= 128, 'Invalid release tag');
+  assert(/^v[1-9]\d*\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(tag ?? '') &&
+    semver.valid(tag) === tag.slice(1) && tag.length <= 128, 'Invalid release tag');
   assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ''), 'Configure GITHUB_REPOSITORY');
   assert(env.GH_TOKEN?.trim(), 'Configure GH_TOKEN');
   assert(Array.isArray(filenames) && filenames.length > 0 && filenames.length <= 32, 'Invalid GitHub asset count');
@@ -43,8 +46,21 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   const run = (args, timeout = 60_000) => exec('gh', args, { env: childEnv, timeout, killSignal: 'SIGKILL', maxBuffer: 2 << 20 });
   const api = async endpoint => JSON.parse((await run(['api', endpoint, '--hostname', 'github.com'])).stdout);
   const base = `repos/${repository}`;
-  const prerelease = tag.replace(/^desktop-/, '').includes('-');
-  const latest = false;
+  const prerelease = semver.prerelease(tag) !== null;
+  // Scan bounded published history, not just /latest (which may itself be stale).
+  const newestStable = async () => {
+    let latest;
+    for (let page = 1; page <= 100; page++) {
+      const releases = await api(`${base}/releases?per_page=100&page=${page}`);
+      assert(Array.isArray(releases), 'Invalid GitHub release listing');
+      for (const release of releases) if (release.draft === false && release.prerelease === false &&
+        /^v[1-9]\d*\.\d+\.\d+$/.test(release.tag_name ?? '') && semver.valid(release.tag_name)) {
+        if (!latest || semver.gt(release.tag_name, latest)) latest = release.tag_name;
+      }
+      if (releases.length < 100) return latest;
+    }
+    throw new Error('Stable release listing exceeds the lookup limit');
+  };
   // A repository/auth failure must not be mistaken for an absent release.
   await api(base);
   const verifySource = async () => {
@@ -76,7 +92,11 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   let release = await getRelease();
   if (!release) {
     assert(mode !== 'promote', 'Stage the complete release before promotion');
-    try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--draft', `--latest=${latest}`,
+    const download = `https://github.com/${repository}/releases/download/${tag}`;
+    const rows = assets.filter(asset => !/\.(json|txt)$/.test(asset.name) && asset.name !== 'SHA256SUMS')
+      .map(asset => `| ${asset.name} | [Download](${download}/${asset.name}) |`).join('\n');
+    const notes = `## Downloads\n\n| Artifact | Link |\n| --- | --- |\n${rows}\n\nVerify downloads with [SHA256SUMS](${download}/SHA256SUMS).\n\nPinned CLI install:\n\n\`\`\`sh\ncurl -fsSL ${download}/install.sh | WHIPCODE_VERSION=${tag} sh\n\`\`\`\n` ;
+    try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--notes', notes, '--draft', '--latest=false',
       ...(prerelease ? ['--prerelease'] : [])]); }
     catch (error) { if (!conflict(error)) throw error; }
     // GitHub may acknowledge creation before the draft appears in its listing.
@@ -88,6 +108,7 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     }
     assert(release, 'The created GitHub release is not readable');
   }
+  assert.equal(release.prerelease, prerelease, 'Release channel differs from candidate');
   const releaseId = release.id;
   const listAssets = async () => {
     const pages = JSON.parse((await run(['api', `${base}/releases/${releaseId}/assets?per_page=100`, '--hostname', 'github.com', '--paginate', '--slurp'])).stdout);
@@ -96,6 +117,7 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     const result = new Map();
     for (const asset of listed) {
       assert(Number.isSafeInteger(asset.id) && asset.id > 0 && typeof asset.name === 'string' && !result.has(asset.name), 'Invalid or duplicate GitHub asset identity');
+      assert(names.has(asset.name), `Unexpected GitHub release asset: ${asset.name}`);
       result.set(asset.name, asset);
     }
     return result;
@@ -137,11 +159,16 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     const remote = (await listAssets()).get(asset.name);
     await verify(remote, asset); verified.set(asset.name, remote.id);
   }
-  assert.equal((await getRelease())?.id, releaseId, 'GitHub release changed during publication');
+  const reread = await getRelease();
+  assert.equal(reread?.id, releaseId, 'GitHub release changed during publication');
+  assert.equal(reread.prerelease, prerelease, 'Release channel changed during publication');
+  release = reread;
   const final = await listAssets();
   for (const asset of assets) assert.equal(final.get(asset.name)?.id, verified.get(asset.name), `GitHub asset changed during publication: ${asset.name}`);
   await verifySource();
   if (mode !== 'stage' && release.draft) {
+    const newest = prerelease ? undefined : await newestStable();
+    const latest = !prerelease && (!newest || semver.gt(tag, newest));
     await run(['release', 'edit', tag, '--repo', `github.com/${repository}`, '--draft=false', `--latest=${latest}`, `--prerelease=${prerelease}`]);
     const published = await getRelease();
     assert(published?.id === releaseId && published.draft === false, 'GitHub release promotion was not confirmed');
@@ -149,5 +176,11 @@ export async function publishGitHubAssets(filenames, env = process.env) {
   console.log(`GitHub release ${tag}: verified ${assets.length} immutable assets.`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  await publishGitHubAssets(process.argv.slice(2));
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const files = process.argv.slice(2);
+  assert(files.length && files.every(file => path.dirname(path.resolve(file)) === path.dirname(path.resolve(files[0]))), 'Use one complete candidate directory');
+  const directory = path.dirname(path.resolve(files[0]));
+  await candidate('verify', directory);
+  assert.deepEqual(files.map(file => path.basename(file)).sort(), (await readdir(directory)).sort(), 'Publish the entire candidate');
+  await publishGitHubAssets(files);
+}
