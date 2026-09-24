@@ -60,14 +60,26 @@ test('dev API proxy admits same-origin HTTP/WS and rejects cross-origin relay re
     assert.equal(await call(endpoint, { websocket: true }), 404);
     assert.equal(await call(endpoint, { method: 'POST' }), 404);
     assert.equal(await call(endpoint, { headers: { 'Sec-Fetch-Site': 'same-site' } }), 404);
-    assert.equal(received.length, 4, 'Rejected requests must never reach the daemon');
+    assert.equal(received.length, 4, 'Rejected requests must never reach the gateway');
   } finally {
     await vite.close(); upstream.closeAllConnections();
     await new Promise(resolve => upstream.close(resolve));
   }
 });
 
-test('daemon target is an explicit HTTP(S) origin', () => {
+test('dev proxy defaults to the foreground gateway and preserves explicit overrides', t => {
+  const previous = process.env.WHIP_WEB_DAEMON;
+  t.after(() => {
+    if (previous === undefined) delete process.env.WHIP_WEB_DAEMON;
+    else process.env.WHIP_WEB_DAEMON = previous;
+  });
+  delete process.env.WHIP_WEB_DAEMON;
+  assert.equal(daemonProxy().target, 'http://127.0.0.1:4444');
+  process.env.WHIP_WEB_DAEMON = 'http://127.0.0.1:9123';
+  assert.equal(daemonProxy().target, 'http://127.0.0.1:9123');
+});
+
+test('gateway target is an explicit HTTP(S) origin', () => {
   assert.equal(daemonProxy('http://127.0.0.1:9000').target, 'http://127.0.0.1:9000');
   assert.equal(daemonProxy('https://daemon.example').target, 'https://daemon.example');
   for (const target of ['file:///tmp/daemon', 'ws://localhost:8080', 'http://user:pass@localhost:8080',

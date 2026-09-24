@@ -54,6 +54,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "_web-gateway" {
+		if err := gatewayChildCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip gateway:"), err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
 		if err := daemonCLI(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, buildinfo.Text("whip daemon:"), err)
@@ -90,7 +97,7 @@ func main() {
 		return
 	}
 
-	// `whip web` opens the application served by the existing network-enabled daemon.
+	// `whip web` serves the foreground gateway above an existing socket daemon.
 	if flag.NArg() > 0 && flag.Arg(0) == "web" {
 		if err := webCLI(flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)

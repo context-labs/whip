@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
 import { AppRuntime } from '../src/runtime';
@@ -59,9 +60,9 @@ function fixture(initial: Partial<SessionViewSnapshot>, summaryCwd?: string) {
     refresh: vi.fn(async () => {}), loadOlder: vi.fn(async () => {}),
     session: { rootId: 'root', client: { subscribe: () => () => {}, getSnapshot: () => connection, supports: () => false }, history: {}, fork: vi.fn() },
   } as unknown as SessionView;
-  render(<RuntimeContext.Provider value={runtime}><ThemeProvider><UIProvider>
+  render(<RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.queries}><ThemeProvider><UIProvider>
     <SessionContent kind="chat" view={view} expectedRuntimeId="host" agentId="root" summaryCwd={summaryCwd} />
-  </UIProvider></ThemeProvider></RuntimeContext.Provider>);
+  </UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider>);
   return { update: (next: Partial<SessionViewSnapshot>) => act(() => { current = { ...current, ...next } as SessionViewSnapshot; listeners.forEach(listener => listener()); }) };
 }
 

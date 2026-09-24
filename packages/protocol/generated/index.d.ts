@@ -971,6 +971,7 @@ export interface ConfigurationUpdate {
   default_model?: null | string;
   default_provider?: null | string;
   default_effort?: null | string;
+  default_permission_mode?: null | string;
   compact_model?: null | string;
   compact_provider?: null | string;
   compact_percent?: null | number;
@@ -1389,6 +1390,12 @@ export interface ForkParams {
   cut?: number;
 }
 
+export interface GatewayStatus {
+  state: string;
+  endpoint?: string;
+  error?: string;
+}
+
 export interface GoalContextParams {
   window?: number;
 }
@@ -1623,6 +1630,26 @@ export interface HostDirectoryResult {
   has_more: boolean;
   truncated: boolean;
 }
+
+export type HostSkillCompletionParams = {
+  scope?: string;
+  cwd?: string;
+  definition?: string;
+  permission_mode?: string;
+  prefix: string;
+  limit: number;
+} & (
+  | {
+      cwd: string;
+      scope?: "";
+      [k: string]: unknown;
+    }
+  | {
+      cwd?: "";
+      scope: "global";
+      [k: string]: unknown;
+    }
+);
 
 export interface HostThemeResolveParams {
   name?: string;
@@ -1903,6 +1930,42 @@ export type MCPListResult =
       tools?: number;
       source?: string;
     }[];
+
+export interface MCPRefreshResult {
+  added: null | string[];
+  existing: null | string[];
+  changed: null | string[];
+  servers:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+  blocked:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+  source_errors:
+    | null
+    | {
+        name: string;
+        status: string;
+        note?: string;
+        error?: string;
+        tools?: number;
+        source?: string;
+      }[];
+}
 
 export interface MCPServerParams {
   name: string;
@@ -3483,6 +3546,7 @@ export interface RuntimeConfiguration {
   default_model: string;
   default_provider: string;
   default_effort: string;
+  default_permission_mode?: string;
   compact_model: string;
   compact_provider: string;
   compact_percent: number;
@@ -4041,6 +4105,7 @@ export interface ContractTypes {
   ExecutorPendingParams: ExecutorPendingParams;
   ExecutorPendingResult: ExecutorPendingResult;
   ForkParams: ForkParams;
+  GatewayStatus: GatewayStatus;
   GoalContextParams: GoalContextParams;
   GoalResult: GoalResult;
   HistoryPageParams: HistoryPageParams;
@@ -4052,6 +4117,7 @@ export interface ContractTypes {
   HostDirectoryPickParams: HostDirectoryPickParams;
   HostDirectoryPickResult: HostDirectoryPickResult;
   HostDirectoryResult: HostDirectoryResult;
+  HostSkillCompletionParams: HostSkillCompletionParams;
   HostThemeResolveParams: HostThemeResolveParams;
   IDParams: IDParams;
   InboxControlResult: InboxControlResult;
@@ -4072,6 +4138,7 @@ export interface ContractTypes {
   MCPImportParams: MCPImportParams;
   MCPImportStatusResult: MCPImportStatusResult;
   MCPListResult: MCPListResult;
+  MCPRefreshResult: MCPRefreshResult;
   MCPServerParams: MCPServerParams;
   MailboxInspection: MailboxInspection;
   MailboxPage: MailboxPage;
@@ -4290,11 +4357,13 @@ export interface RpcMethods {
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
   "executor.bind": { params: ExecutorBindParams; result: ExecutorBindResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
   "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult; execution: "query"; permission: "executor-lease"; sensitive: false };
+  "gateway.status": { params: Empty; result: GatewayStatus; execution: "query"; permission: "none"; sensitive: false };
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "hook.result": { params: HookResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.skills.complete": { params: HostSkillCompletionParams; result: CompletionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.themes.list": { params: EmptyParams; result: CatalogResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.themes.resolve": { params: HostThemeResolveParams; result: Resolved; execution: "query"; permission: "host-runtime"; sensitive: false };
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
@@ -4381,6 +4450,7 @@ export interface RuntimeOperations {
   "mcp.import.configure": { params: MCPImportParams; result: MCPImportStatusResult; execution: "command"; permission: "host-configuration"; sensitive: false };
   "mcp.import.status": { params: EmptyParams; result: MCPImportStatusResult; execution: "query"; permission: "host-configuration"; sensitive: false };
   "mcp.reconnect": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.refresh": { params: EmptyParams; result: MCPRefreshResult; execution: "command"; permission: "root-association"; sensitive: false };
   "mcp.status": { params: EmptyParams; result: MCPListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "permission.forget": { params: IDParams; result: Empty; execution: "command"; permission: "rule-authority"; sensitive: false };
   "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "trusted-client-mode"; sensitive: false };

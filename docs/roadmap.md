@@ -78,6 +78,10 @@ direct-tool and RLM agents.
   `mcp.describe` for one schema, windowed schema-free `list_tools`, all over
   the daemon's cached catalogs
   ([MCP discovery plan](../.ai-docs/plans/mcp-discovery/PLAN.md)).
+- [x] Session-scoped additive MCP refresh and root-agent reconnect helpers,
+  with automatic current-session refresh after Settings import and a manual
+  Integrations refresh control
+  ([Live MCP refresh plan](../.ai-docs/plans/mcp-live-refresh/README.md)).
 - [ ] MCP tool browser in the web and TUI over the same daemon search.
 
 The original runtime plan and implementation learnings live in
@@ -109,7 +113,7 @@ in
   [TUI integration](../.ai-docs/plans/provider-onboarding/TUI-INTEGRATION.md).
 - [x] Disposable Docker onboarding workflow: build dirty working files, open a
   clean TUI and shared web app at localhost:4000, and remove test state on exit.
-  See [the Docker workflow](../README.md#test-fresh-onboarding-in-docker).
+  See [the Docker workflow](setup.md#test-fresh-onboarding-in-docker).
 - [x] File-backed custom provider configuration in the TUI: endpoint/key/environment/
   no-auth forms, discovery and manual models, revision-safe management, explicit
   session reload, and reusable host/SDK APIs. See
@@ -138,15 +142,30 @@ in
   reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
-- [x] Packaged browser assets and explicit `whip web` attachment/launch command.
-- [x] Default loopback HTTP/WebSocket listener with `WHIP_NETWORK=0` opt-out;
-  exact Host/Origin checks retained. See [web access](web-app.md#run-the-packaged-application-locally).
+- [x] Packaged browser assets in the executable; no production Node server.
+- [ ] Single out-of-process web gateway: socket-only daemon by default, foreground
+  `whip web`, and optional owned child via `WHIP_NETWORK=1`. This supersedes the
+  prior default-on in-daemon listener; exact Host/Origin checks and protocol paths
+  remain unchanged. Migration validation is tracked in the
+  [gateway acceptance plan](../.ai-docs/plans/web-gateway/README.md); see
+  [web access](web-app.md#run-the-packaged-application-locally) for the new contract.
 - [x] Session tabs with window-local restoration, preserved drafts/reading position,
   bounded background activity, and responsive themed navigation. See the
   [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).
+- [x] Desktop/web slash skill suggestions in existing and first-message composers:
+  prefix filtering, keyboard insertion of `$name`, and read-only pre-session
+  discovery, including negotiated user-global skills before selecting a project.
+  Implementation/validation in [slash skill suggestions](../.ai-docs/plans/desktop-slash-skills/README.md)
+  and [global discovery](../.ai-docs/plans/global-skill-discovery/README.md).
 - [x] Independent New Chat workspace tabs, durable first-message recovery and
   in-place session promotion. Implementation and feature acceptance recorded in
   [New Chat tabs](../.ai-docs/plans/new-chat-tabs/README.md).
+- [x] Desktop Command+T / File > New session reuses New Chat creation, including
+  embedded website focus; no new web shortcut. See the
+  [implementation and checks](../.ai-docs/plans/new-session-shortcut/README.md).
+- [x] Desktop Reopen closed tab shortcut: Shift+Cmd+T uses existing bounded tab
+  history, including from Settings and a hidden window; no web shortcut. See the
+  [implementation and checks](../.ai-docs/plans/reopen-tab-shortcut/README.md).
 - [x] Nested in-window split panes with movable tabs, duplicate chat views, independent
   reading/agent selection and bounded observation. See the
   [split-view implementation](../.ai-docs/plans/split-views/README.md).

@@ -50,6 +50,10 @@ export class Session {
   /** externalPermissions = prompt connected clients; false = approve automatically. */
   setPermissionMode(externalPermissions: boolean) { return this.command('permission.mode', { external_permissions: externalPermissions }); }
   cancelTurn(turnId: string) { return this.command('cancel', { turn_id: turnId }); }
+  /** Reload this session's MCP configuration from its execution host. */
+  readonly mcp = {
+    refresh: (options: Omit<CommandOptions, 'rootId'> = {}) => this.command('mcp.refresh', {}, options),
+  };
   readonly history = {
     page: (params: Partial<Omit<HistoryPageParams, 'root_id'>> = {}, options: CallOptions = {}) => this.client.call('history.page', {
       root_id: this.rootId, agent_id: this.rootId, through_seq: -1, limit: 128, max_bytes: 512 << 10, recent: true, ...params,

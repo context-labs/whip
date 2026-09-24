@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
@@ -40,7 +40,7 @@ function fixture(messages: NonNullable<SessionViewSnapshot['history'][string]>['
   } as unknown as SessionView;
   const copy = vi.fn(async () => {});
   const runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
-  const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider initialTheme="claude-code">
+  const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider copy={copy}><ThemeProvider initialTheme="claude-code">
     <ReplView view={view} state={state} agentId="root" runtimeId="host" viewId="view" connected={connected} />
   </ThemeProvider></UIProvider></RuntimeContext.Provider>;
   return { app, state, view, copy };
@@ -63,6 +63,17 @@ it('renders a read-only cell, expands output, copies exact text and does not inv
   expect(screen.getByRole('article', { name: 'Execution 1' })).toBeDefined();
   expect(screen.getByText('Completed')).toBeDefined();
   expect(screen.getByRole('region', { name: 'Output' }).textContent).not.toContain('line 9');
+  const blocks = document.querySelectorAll('figure');
+  expect(blocks).toHaveLength(3);
+  for (const block of blocks) expect(within(block).getAllByRole('button')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', {name: 'Copy Starlark code'}));
+  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('print(42)'));
+  fireEvent.click(screen.getByRole('button', {name: 'Copy Return value'}));
+  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('42'));
+  const outputButton = screen.getByRole('button', {name: 'Copy output'});
+  fireEvent.click(outputButton);
+  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith(output));
+  fireEvent.blur(outputButton);
   fireEvent.click(screen.getByRole('button', { name: 'Show 3 more lines' }));
   expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe(output);
   fireEvent.click(screen.getByRole('button', { name: 'Copy output' }));
@@ -76,6 +87,18 @@ it('renders a read-only cell, expands output, copies exact text and does not inv
   expect(f.view.loadOlder).not.toHaveBeenCalled();
   expect(f.view.loadCollection).not.toHaveBeenCalled();
 });
+it('copies raw JSON output rather than its formatted preview', async () => {
+  const raw = '{"greeting":"🌍","items":[1,2]}';
+  const f = fixture([
+    {seq: 1, message: {role: 'assistant', content: '', tool_calls: [{id: 'call', type: 'function', function: {name: 'rlm_exec', arguments: '{"code":"read()"}'}}]}},
+    {seq: 2, message: {role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({output: raw, value: null, steps: 1})}},
+  ]);
+  render(f.app());
+  expect(screen.getByRole('region', {name: 'Output'}).textContent).not.toBe(raw);
+  fireEvent.click(screen.getByRole('button', {name: 'Copy output'}));
+  await waitFor(() => expect(f.copy).toHaveBeenCalledExactlyOnceWith(raw));
+});
+
 it('distinguishes empty, loading and unavailable agent history, and keeps stale evidence explicit', () => {
   const f = fixture();
   const mounted = render(f.app());

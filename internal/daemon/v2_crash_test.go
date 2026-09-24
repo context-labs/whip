@@ -13,6 +13,7 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 const (
@@ -158,7 +159,7 @@ func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID s
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(owner, ServerOptions{RuntimeDir: paths.Runtime, Network: NetworkOptions{Enabled: true}})
+	server, err := NewServer(owner, ServerOptions{RuntimeDir: paths.Runtime})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,13 +177,14 @@ func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID s
 			t.Error(err)
 		}
 	})
+	gateway := startTestGateway(t, paths, webgateway.Options{})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	initial, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "probe", ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := "ws" + strings.TrimPrefix(initial.InitializeResult().NetworkEndpoint, "http") + "/api/v3/ws"
+	endpoint := "ws" + strings.TrimPrefix(gateway.Endpoint(), "http") + "/api/v3/ws"
 	_ = initial.Close()
 	return v2Fixture{store: store, rootID: rootID, endpoint: endpoint, dial: func(transport, clientID string) *Client {
 		t.Helper()

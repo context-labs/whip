@@ -411,12 +411,12 @@ export class BrowserManager {
       if (contents.isFocused() && this.designShortcut(identity(), input)) { event.preventDefault(); return; }
       const modifier = process.platform === 'darwin' ? input.meta : input.control;
       let shortcut: BrowserShortcut | undefined;
-      if (modifier && !input.alt) shortcut = ({ l: 'address', f: 'find', r: 'reload', w: 'close', k: 'commands', t: 'new-browser', '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset' } as Record<string, BrowserShortcut>)[input.key.toLowerCase()];
+      if (modifier && !input.alt) shortcut = ({ l: 'address', f: 'find', r: 'reload', w: 'close', k: 'commands', '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset' } as Record<string, BrowserShortcut>)[input.key.toLowerCase()];
       if (input.control && !input.meta && !input.alt && input.key === 'Tab') shortcut = input.shift ? 'tab-previous' : 'tab-next';
       if (input.alt && !modifier) shortcut = input.key === 'ArrowLeft' ? 'back' : input.key === 'ArrowRight' ? 'forward' : undefined;
       if (shortcut) {
         event.preventDefault();
-        if (['address', 'find', 'commands', 'new-browser', 'tab-next', 'tab-previous', 'close'].includes(shortcut)) this.window.webContents.focus();
+        if (['address', 'find', 'commands', 'tab-next', 'tab-previous', 'close'].includes(shortcut)) this.window.webContents.focus();
         this.emit({ kind: 'shortcut', ...identity(), shortcut });
       }
     });

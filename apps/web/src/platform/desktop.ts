@@ -236,6 +236,14 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
       if (disposed) return () => {};
       return bridge.onEvent(event => { if (!disposed && event.kind === 'close-tab') listener(); });
     },
+    onNewSession(listener) {
+      if (disposed) return () => {};
+      return bridge.onEvent(event => { if (!disposed && event.kind === 'new-session') listener(); });
+    },
+    onReopenClosedTab(listener) {
+      if (disposed) return () => {};
+      return bridge.onEvent(event => { if (!disposed && event.kind === 'reopen-closed-tab') listener(); });
+    },
     hideWindow() { if (!disposed) bridge.hideWindow(); },
     updates: {
       currentVersion: bridge.appVersion,

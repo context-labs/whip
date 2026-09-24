@@ -138,8 +138,7 @@ export async function main(args = process.argv.slice(2)) {
     WHIPCODE_VERSION: buildId, WHIP_DESKTOP_SIGN_IDENTITY: identity, WHIP_DESKTOP_TEAM_ID: team };
   delete env.WHIP_DESKTOP_RELEASE;
   delete env.WHIP_DESKTOP_UPDATE_URL;
-  // Match Desktop's normal local endpoint; explicit runtime environment wins.
-  env.WHIPCODE_LISTEN ??= '127.0.0.1:8080';
+  // Desktop uses the private socket. Only explicit gateway settings pass through.
   const lock = path.join(repositoryRoot, 'apps/desktop/.update-local.lock');
   await mkdir(lock).catch(error => {
     if (error.code === 'EEXIST') throw new Error(`Another local update owns ${lock}. If it was interrupted, remove that directory after confirming its process has exited.`);

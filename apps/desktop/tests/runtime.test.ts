@@ -10,7 +10,7 @@ import { LocalRuntime, fileDigest, parseDaemonStatus, readRuntimeManifest, run, 
 const signal = () => new AbortController().signal;
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-async function fixture(t: TestContext, options: { distribution?: string; initial?: object; startError?: string } = {}) {
+async function fixture(t: TestContext, options: { distribution?: string; initial?: object; startError?: string; runningAfterStartError?: boolean } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'whip-runtime-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = path.join(directory, 'payload');
@@ -44,6 +44,7 @@ case "$1 $2" in
   'daemon start'|'daemon restart')
     while [ -f ${quote(path.join(directory, 'hold-start'))} ]; do sleep 0.02; done
     printf 'start:%s:%s:%s\\n' "$0" "$WHIPCODE_HOME" "$WHIPCODE_LISTEN" >> ${quote(log)}
+    ${options.runningAfterStartError ? `mkdir -p ${quote(home)}; : > ${quote(state)}` : ''}
     ${options.startError ? `printf '%s\\n' ${quote(options.startError)} >&2; exit 1` : `mkdir -p ${quote(home)}; : > ${quote(state)}`} ;;
   *) exit 2 ;;
 esac
@@ -66,7 +67,10 @@ const absent = async (filename: string) => assert.rejects(lstat(filename), { cod
 test('test is read-only for missing installations and does not silently use packaged bytes', async t => {
   const f = await fixture(t);
   const before = await readdir(f.directory);
-  assert.equal((await f.runtime.test(signal())).state, 'missing');
+  const status = await f.runtime.test(signal());
+  assert.equal(status.state, 'missing');
+  assert.equal(status.executable, f.executable);
+  assert.equal(status.repairRequired, false);
   assert.deepEqual(await readdir(f.directory), before);
   await assert.rejects(f.runtime.prepare(signal(), () => {}), /not installed/);
   await absent(f.home); await absent(f.settingsFile); await absent(path.dirname(f.executable));
@@ -151,9 +155,18 @@ test('desktop connects through the installed binary and reuses its running daemo
   assert.equal(await other.prepare(signal(), () => {}), f.socket);
   const commands = await readFile(f.log, 'utf8');
   assert.equal(commands.split('\n').filter(line => line.startsWith('start:')).length, 1);
-  assert.match(commands, new RegExp(`start:${f.executable}:${f.home}:127.0.0.1:8080`));
+  assert.ok(commands.split('\n').includes(`start:${f.executable}:${f.home}:`));
   await absent(path.join(f.directory, '.whip'));
   await absent(path.join(path.dirname(f.settingsFile), 'runtimes'));
+});
+
+test('desktop preserves an explicitly configured network listener', async t => {
+  const f = await fixture(t);
+  const runtime = new LocalRuntime({ ...f.opts, env: { ...f.opts.env, WHIPCODE_LISTEN: '127.0.0.1:9090' } });
+  await runtime.install(f.executable, signal());
+  assert.equal(await runtime.prepare(signal(), () => {}), f.socket);
+  const commands = await readFile(f.log, 'utf8');
+  assert.ok(commands.split('\n').includes(`start:${f.executable}:${f.home}:127.0.0.1:9090`));
 });
 
 test('saved selection wins over PATH changes and missing saved binaries do not fall back', async t => {
@@ -162,7 +175,10 @@ test('saved selection wins over PATH changes and missing saved binaries do not f
   const changed = new LocalRuntime({ ...f.opts, defaultExecutable: path.join(f.source, 'whipcode'), env: { ...f.opts.env, PATH: f.source } });
   assert.equal(await changed.executable(signal()), f.executable);
   await rm(f.executable);
-  assert.equal((await changed.test(signal())).state, 'missing');
+  const status = await changed.test(signal());
+  assert.equal(status.state, 'missing');
+  assert.equal(status.executable, f.executable);
+  assert.equal(status.repairRequired, true);
   await assert.rejects(changed.prepare(signal(), () => {}), /not installed/);
 });
 
@@ -266,6 +282,18 @@ test('existing unhealthy owners require explicit restart; stale unowned sockets 
   const stale = await fixture(t, { initial: { state: 'unhealthy', stale_socket: true } });
   await stale.runtime.install(stale.executable, signal());
   assert.equal(await stale.runtime.prepare(signal(), () => {}), stale.socket);
+});
+
+test('managed gateway startup failure still attaches to the healthy local daemon', async t => {
+  const f = await fixture(t, {
+    startError: 'daemon is running; web gateway failed: address already in use',
+    runningAfterStartError: true,
+  });
+  const runtime = new LocalRuntime({ ...f.opts, env: { ...f.opts.env, WHIPCODE_NETWORK: '1' } });
+  await runtime.install(f.executable, signal());
+  assert.equal(await runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal(await runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal((await readFile(f.log, 'utf8')).split('\n').filter(line => line.startsWith('start:')).length, 1);
 });
 
 test('startup port conflicts are actionable and do not expose raw subprocess output', async t => {

@@ -133,6 +133,19 @@ async function run() {
   await call('act', { ...target(), action: { kind: 'focus' } });
   guest.sendInputEvent({ type: 'keyDown', keyCode: 'r', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] }); await sleep(30);
   assert.ok(guest.isFocused());
+  // Native tab shortcuts belong to the application menu even with guest input
+  // focused. Preventing these events would suppress the accelerators as well.
+  for (const shift of [false, true]) {
+    const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(shift ? ['shift'] : [])];
+    const shortcutsBefore = events.filter(event => (event as { kind?: string }).kind === 'shortcut').length;
+    const nextInput = once(guest, 'before-input-event');
+    guest.sendInputEvent({ type: 'keyDown', keyCode: 't', modifiers });
+    const [input] = await nextInput;
+    assert.equal(input.defaultPrevented, false, 'guest must leave Cmd/Ctrl+[Shift+]T to the application menu');
+    assert.equal(events.filter(event => (event as { kind?: string }).kind === 'shortcut').length, shortcutsBefore);
+    guest.sendInputEvent({ type: 'keyUp', keyCode: 't', modifiers });
+  }
+  pass('guest Cmd/Ctrl+T and Cmd/Ctrl+Shift+T do not intercept native tab accelerators');
   pass('production present ACK hides all; stale layout rejected; app zoom and native focus work');
 
   let controlLive = true;

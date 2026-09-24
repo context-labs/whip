@@ -17,6 +17,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -37,20 +38,22 @@ var (
 )
 
 type daemonStatus struct {
-	State           string `json:"state"`
-	NetworkEndpoint string `json:"network_endpoint,omitempty"`
-	PID             int    `json:"pid,omitempty"`
-	Generation      int64  `json:"generation,omitempty"`
-	DaemonBuild     string `json:"daemon_build,omitempty"`
-	ClientBuild     string `json:"client_build"`
-	BuildMatch      bool   `json:"build_match"`
-	StartedAt       string `json:"started_at,omitempty"`
-	UptimeSeconds   int64  `json:"uptime_seconds,omitempty"`
-	Socket          string `json:"socket"`
-	Database        string `json:"database"`
-	Log             string `json:"log"`
-	Error           string `json:"error,omitempty"`
-	StaleSocket     bool   `json:"stale_socket,omitempty"`
+	Gateway         protocol.GatewayStatus `json:"gateway"`
+	GatewayLog      string                 `json:"gateway_log"`
+	State           string                 `json:"state"`
+	NetworkEndpoint string                 `json:"network_endpoint,omitempty"`
+	PID             int                    `json:"pid,omitempty"`
+	Generation      int64                  `json:"generation,omitempty"`
+	DaemonBuild     string                 `json:"daemon_build,omitempty"`
+	ClientBuild     string                 `json:"client_build"`
+	BuildMatch      bool                   `json:"build_match"`
+	StartedAt       string                 `json:"started_at,omitempty"`
+	UptimeSeconds   int64                  `json:"uptime_seconds,omitempty"`
+	Socket          string                 `json:"socket"`
+	Database        string                 `json:"database"`
+	Log             string                 `json:"log"`
+	Error           string                 `json:"error,omitempty"`
+	StaleSocket     bool                   `json:"stale_socket,omitempty"`
 }
 
 func daemonManageCLI(args []string) error {
@@ -140,8 +143,8 @@ func daemonStatusCLI(args []string) error {
 
 func daemonStartCLI(args []string) error {
 	if len(args) != 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon start (loopback listener enabled by default; " +
-			"WHIP_NETWORK=0 disables it, WHIP_LISTEN selects a trusted bind, " +
+		return errors.New(buildinfo.Text("usage: whip daemon start (web gateway disabled by default; " +
+			"WHIP_NETWORK=1 starts a managed gateway, WHIP_LISTEN selects a trusted bind, " +
 			"WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS set exact allowlists)"))
 	}
 	paths, err := daemonRuntimePaths()
@@ -224,18 +227,22 @@ func daemonLifecycleFlags(name string, args []string) (time.Duration, bool, erro
 func daemonLogsCLI(args []string) error {
 	flags := flag.NewFlagSet(buildinfo.Text("whip daemon logs"), flag.ContinueOnError)
 	follow := flags.Bool("f", false, "follow appended log output")
+	web := flags.Bool("web", false, "read the managed gateway log instead of the daemon log")
 	lines := flags.Int("n", 200, "number of lines to print")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *lines <= 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon logs [-f] [-n 200]"))
+		return errors.New(buildinfo.Text("usage: whip daemon logs [--web] [-f] [-n 200]"))
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {
 		return err
 	}
 	path := filepath.Join(paths.Home, "daemon.log")
+	if *web {
+		path = filepath.Join(paths.Home, "web.log")
+	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("daemon log does not exist yet: %s", path)
@@ -248,6 +255,7 @@ func daemonLogsCLI(args []string) error {
 func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus, *daemon.Client) {
 	status := daemonStatus{
 		State: "stopped", ClientBuild: version, Socket: paths.Socket,
+		Gateway: protocol.GatewayStatus{State: "stopped"}, GatewayLog: filepath.Join(paths.Home, "web.log"),
 		Database: filepath.Join(paths.Home, "sessions.db"), Log: filepath.Join(paths.Home, "daemon.log"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -280,6 +288,17 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 	status.BuildMatch = initialized.BuildID == version
 	status.StartedAt = initialized.StartedAt
 	status.NetworkEndpoint = initialized.NetworkEndpoint
+	status.Gateway = protocol.GatewayStatus{State: "unknown"}
+	var gateway protocol.GatewayStatus
+	if queryErr := client.Call(ctx, "gateway.status", protocol.Empty{}, &gateway); queryErr == nil {
+		status.Gateway = gateway
+		// Query is newer than initialize; don't advertise an endpoint that died
+		// between those snapshots.
+		status.NetworkEndpoint = ""
+		if status.Gateway.State == "ready" {
+			status.NetworkEndpoint = status.Gateway.Endpoint
+		}
+	}
 	if started, parseErr := time.Parse(time.RFC3339Nano, initialized.StartedAt); parseErr == nil {
 		status.UptimeSeconds = max(0, int64(time.Since(started).Seconds()))
 	}
@@ -287,22 +306,40 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 }
 
 func startManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus, error) {
+	// A ready socket means an owned daemon even if its optional gateway failed.
+	// Repeated starts must never reconfigure it or spawn duplicate daemons.
+	if status, client := probeDaemon(paths, min(time.Second, timeout)); client != nil {
+		_ = client.Close()
+		return status, nil
+	}
 	if err := launchManagedDaemon(paths); err != nil && !errors.Is(err, daemon.ErrDaemonOwned) {
 		return daemonStatus{}, err
 	}
 	deadline := time.Now().Add(timeout)
+	var latest daemonStatus
 	for time.Now().Before(deadline) {
 		status, client := probeDaemon(paths, min(250*time.Millisecond, time.Until(deadline)))
+		latest = status
 		if client != nil {
 			_ = client.Close()
 			if !status.BuildMatch {
 				return daemonStatus{}, fmt.Errorf("daemon started with build %q instead of current build %q", status.DaemonBuild, version)
 			}
+			switch status.Gateway.State {
+			case "starting", "unknown", "":
+				time.Sleep(25 * time.Millisecond)
+				continue
+			case "failed":
+				return status, fmt.Errorf("daemon is running (pid %s), but managed gateway failed: %s; inspect %s; run `%s web` for foreground recovery", printablePID(status.PID), status.Gateway.Error, status.GatewayLog, buildinfo.Name)
+			}
 			return status, nil
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	return daemonStatus{}, fmt.Errorf("daemon did not become ready within %s; inspect %s", timeout, filepath.Join(paths.Home, "daemon.log"))
+	if latest.State == "running" {
+		return latest, fmt.Errorf("daemon is running (pid %s), but managed gateway readiness was not confirmed within %s; inspect %s and `%s daemon status`", printablePID(latest.PID), timeout, latest.GatewayLog, buildinfo.Name)
+	}
+	return latest, fmt.Errorf("daemon did not become ready within %s; inspect %s", timeout, filepath.Join(paths.Home, "daemon.log"))
 }
 
 func stopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration, force bool) (bool, error) {
@@ -409,6 +446,11 @@ func printDaemonStatus(status daemonStatus) {
 	if status.NetworkEndpoint != "" {
 		fmt.Printf("network:       %s\n", status.NetworkEndpoint)
 	}
+	fmt.Printf("gateway:       %s\n", status.Gateway.State)
+	if status.Gateway.Error != "" {
+		fmt.Printf("gateway error: %s\n", status.Gateway.Error)
+	}
+	fmt.Printf("gateway log:   %s\n", status.GatewayLog)
 	fmt.Printf("socket:        %s\n", status.Socket)
 	fmt.Printf("database:      %s\n", status.Database)
 	fmt.Printf("log:           %s\n", status.Log)

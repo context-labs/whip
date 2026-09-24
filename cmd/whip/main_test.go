@@ -22,6 +22,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// Gateway process fixtures inherit the already isolated parent home. A
+	// SIGKILL fixture cannot run deferred cleanup of a second temporary home.
+	if os.Getenv("WHIP_TEST_GATEWAY_HELPER") != "" {
+		os.Exit(m.Run())
+	}
 	code := func() int {
 		home, err := os.MkdirTemp("", "whip-cli-test-home-")
 		if err != nil {

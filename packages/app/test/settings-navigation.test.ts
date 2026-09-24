@@ -78,3 +78,8 @@ describe('Settings navigation', () => {
     dispose(); expect(off).toHaveBeenCalledOnce();
   });
 });
+
+it.each(['permission', 'approval', 'Ask', 'Full Access'])('finds Default permission level by %s', query => {
+  expect(searchSettings(query, false, false)).toContainEqual(expect.objectContaining({ id: 'default_permission_mode', section: 'providers', label: 'Default permission level' }));
+  expect(validateSettingsSearch({ section: 'providers', setting: 'default_permission_mode' })).toEqual({ section: 'providers', setting: 'default_permission_mode' });
+});

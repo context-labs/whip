@@ -3,6 +3,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { validate, assertValid, manifest } from '../generated/index.js';
 
+test('host skill completion validates explicit global and legacy project scopes', () => {
+  const base = { prefix: '', limit: 1024 };
+  for (const fields of [{ cwd: '/project' }, { scope: '', cwd: '/project' }, { scope: 'global' }, { scope: 'global', cwd: '' }]) {
+    assertValid('HostSkillCompletionParams', { ...base, ...fields });
+    assert.equal(validate('HostSkillCompletionParams', { ...base, ...fields }), true);
+  }
+  for (const fields of [{}, { scope: '' }, { cwd: '' }, { scope: 'global', cwd: '/project' },
+    { scope: 'global', cwd: ' ' }, { scope: 'project', cwd: '/project' }, { scope: 'other' },
+    { scope: null, cwd: '/project' }, { scope: 'global', cwd: null }, { scope: 'global', cwd: 42 },
+    { scope: 'global', extra: true }]) {
+    assert.equal(validate('HostSkillCompletionParams', { ...base, ...fields }), false, JSON.stringify(fields));
+  }
+  for (const value of [{}, { scope: 'global', limit: 1 }, { scope: 'global', prefix: '' }]) {
+    assert.equal(validate('HostSkillCompletionParams', value), false);
+  }
+});
+
 test('bounded navigation summaries validate without coercing counters or requiring a known root', () => {
   assertValid('SessionSummariesParams', { root_ids: [] });
   assertValid('SessionSummariesParams', { root_ids: ['root', 'missing'] });
@@ -14,6 +31,19 @@ test('bounded navigation summaries validate without coercing counters or requiri
   assertValid('SessionSummariesResult', { items: [{ ...item, root_id: 'missing', missing: true, running_agents: '0', pending_permissions: '0', pending_questions: '0' }] });
   assert.equal(validate('SessionSummariesResult', { items: null }), false);
   assert.equal(validate('SessionSummariesResult', { items: [{ ...item, running_agents: 9007199254740992 }] }), false);
+});
+
+test('permission defaults remain compatible with legacy hosts and typed updates', async () => {
+  const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
+  const configuration = { ...fixtures.find(fixture => fixture.type === 'RuntimeConfiguration').value };
+  delete configuration.default_permission_mode;
+  assertValid('RuntimeConfiguration', configuration);
+  for (const mode of ['prompt', 'automatic']) {
+    assertValid('RuntimeConfiguration', { ...configuration, default_permission_mode: mode });
+    assertValid('ConfigurationUpdate', { revision: 'current', default_permission_mode: mode });
+  }
+  assert.equal(validate('RuntimeConfiguration', { ...configuration, default_permission_mode: true }), false);
+  assert.equal(validate('ConfigurationUpdate', { revision: 'current', default_permission_mode: true }), false);
 });
 
 test('Go-produced fixtures validate without numeric coercion', async () => {

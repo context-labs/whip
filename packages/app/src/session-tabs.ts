@@ -35,7 +35,7 @@ export interface NewChatTab {
   readonly hostProfileId?: string;
   readonly runtimeId?: string;
   readonly cwd: string;
-  readonly permissionMode: PermissionMode;
+  readonly permissionMode?: PermissionMode;
   readonly executionEngine?: 'starlark' | 'quickjs';
   readonly model?: string;
   readonly provider?: string;
@@ -192,7 +192,7 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       ((value.model === undefined) !== (value.provider === undefined)) ||
       (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||
       (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
-      (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
+      (value.permissionMode !== undefined && value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
       ...(value.model === undefined ? {} : { model: value.model as string, provider: value.provider as string }),
       ...(value.effort === undefined ? {} : { effort: value.effort as string }),
@@ -408,7 +408,7 @@ export class SessionTabs {
   }
   openNew(options: NewChatOptions = {}): NewChatTab {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
-    const tab = parseTab({ ...options, id: newId(), kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
+    const tab = parseTab({ ...options, id: newId(), kind: 'new', cwd: options.cwd ?? '' });
     if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
     const workspace = this.workspace();
     this.write({ ...workspace, restoreSelection: true, layout: mapPanes(workspace.layout, pane => {

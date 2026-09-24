@@ -614,3 +614,49 @@ test('pausing from a connection subscriber cannot leave a heartbeat scheduled', 
   assert.equal(client.getSnapshot().state, 'paused');
   assert.equal(server.connections.length, 1);
 });
+
+test('initialization requests host and catalog skill capabilities and preserves negotiated support', async t => {
+  const skills = ['workspace_completion', 'host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion'];
+  const server = harness((request, connection) => {
+    assert.equal(request.method, 'initialize');
+    const requested = request.params.capabilities as string[];
+    for (const capability of skills) assert.ok(requested.includes(capability), `missing ${capability}`);
+    connection.reply(request, { ...initialize(), capabilities: skills, negotiated_capabilities: skills.filter(value => requested.includes(value)) });
+  });
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'skill-catalog-test' });
+  t.after(() => client.close());
+  await client.connect();
+  assert.deepEqual(client.getSnapshot().info?.negotiated_capabilities, skills);
+  client.close();
+});
+
+test('session MCP refresh is a root-bound durable command and respects capability negotiation', async t => {
+  for (const supported of [true, false]) await t.test(String(supported), async t => {
+    const server = harness((request, connection) => {
+      if (request.method === 'initialize') {
+        const info = initialize();
+        if (!supported) info.operations = info.operations!.filter(operation => operation.name !== 'mcp.refresh');
+        connection.reply(request, info);
+      }
+      if (request.method === 'command.submit') connection.reply(request, {
+        command_id: request.params.command_id, operation: request.params.operation, ingress_seq: '1', status: 'queued',
+      });
+    });
+    const client = new WhipClient({ endpoint: server.factory, clientId: 'client', reconnect: false });
+    t.after(() => client.close());
+    await client.connect();
+    assert.equal(client.supports('runtime', 'mcp.refresh'), supported);
+    if (supported) {
+      const refresh = client.session('current-root').mcp.refresh({ commandId: 'refresh-id' });
+      await refresh.accepted();
+      const request = server.current.requests.find(request => request.method === 'command.submit')!;
+      assert.equal(request.params.operation, 'mcp.refresh');
+      assert.equal(request.params.root_id, 'current-root');
+      assert.equal(request.params.command_id, 'refresh-id');
+      assert.deepEqual(request.params.payload, {});
+    } else {
+      assert.throws(() => client.session('current-root').mcp.refresh(), /support/i);
+      assert.equal(server.current.requests.filter(request => request.method === 'command.submit').length, 0);
+    }
+  });
+});

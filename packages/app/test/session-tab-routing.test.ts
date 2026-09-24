@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../src/runtime';
-import { bindSessionTabs, openNewChat, openSessionView, openChatView, openChildChat, canSplitSessionPane } from '../src/session-tab-routing';
+import { bindSessionTabs, openNewChat, openSessionView, openChatView, openChildChat, canSplitSessionPane, reopenClosedTab, tabDestination } from '../src/session-tab-routing';
 import { SessionTabs, selectedSessionTab, sessionViewPane } from '../src/session-tabs';
 import { newSessionSearch } from '../src/sidebar-state';
 import type { AppStorage } from '../src/platform';
@@ -25,6 +25,40 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
     route(pathname: string, search: Record<string, unknown> = {}, whipViewId?: string) { router.state.location = { pathname, href: pathname, search, state: { __TSR_key: crypto.randomUUID(), whipViewId } }; routeEvents.forEach(fn => fn()); },
   };
 }
+describe('reopen closed tab routing', () => {
+  it.each(['chat', 'new', 'terminal', 'browser'] as const)('uses existing restoration semantics for %s from Settings', kind => {
+    const f = fixture('/settings'); f.connect();
+    f.tabs.open('mac', 'background');
+    const id = kind === 'chat' ? f.tabs.openChatView('mac', 'root').id
+      : kind === 'new' ? f.tabs.openNew({ runtimeId: 'mac', cwd: '/work' }).id
+      : kind === 'terminal' ? f.tabs.openTerminal('mac', 'shell', '/work')
+      : f.tabs.openBrowser({ id: 'page', url: 'https://example.com' }).id;
+    f.tabs.closeViews([id]);
+    const dispose = f.start();
+    f.router.navigate.mockClear();
+    reopenClosedTab(f.runtime, f.router.navigate);
+    if (kind === 'terminal') {
+      // Closing a terminal ends its shell; existing history deliberately excludes it.
+      expect(f.router.navigate).not.toHaveBeenCalled();
+      expect(f.tabs.workspace().closed).toHaveLength(0);
+      expect(f.tabs.workspace().tabs.some(tab => tab.id === id)).toBe(false);
+      dispose(); return;
+    }
+    const restored = f.tabs.workspace().tabs.find(tab => tab.kind === kind && tab.id !== 'background')!;
+    expect(restored).toBeDefined();
+    expect(restored.id === id).toBe(kind !== 'browser');
+    const target = tabDestination(restored);
+    expect(f.router.navigate).toHaveBeenCalledExactlyOnceWith(target);
+    const path = kind === 'chat' ? '/h/mac/s/root' : kind === 'new' ? `/new/${restored.id}`
+      : `/browser/${restored.id}`;
+    f.route(path, target.search, restored.id);
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(restored.id);
+    expect(f.tabs.workspace().closed).toHaveLength(0);
+    expect(f.runtime.reportWorkspace).not.toHaveBeenCalled();
+    dispose();
+  });
+});
+
 describe('child chat routing and shared split geometry', () => {
   function frame(paneId: string, width = 641, height = 481, compact = false) {
     const layout = document.createElement('div');

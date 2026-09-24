@@ -5,6 +5,53 @@ import { welcomeDraftKey } from '../src/session-tabs';
 import { fakeMCPImport, supportsImport, twoServers } from './mcp-import-fake';
 import { fixture } from './welcome-fixture';
 
+it.each([
+  { desktop: true, focused: true, overlay: false, shouldFocus: true },
+  { desktop: false, focused: true, overlay: false, shouldFocus: false },
+  { desktop: true, focused: false, overlay: false, shouldFocus: false },
+  { desktop: true, focused: true, overlay: true, shouldFocus: false },
+])('focuses a new draft only in an active desktop pane without an overlay: %j', async ({ desktop, focused, overlay, shouldFocus }) => {
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: desktop && query === '(min-width: 768px)', addEventListener() {}, removeEventListener() {} }));
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  const button = document.createElement('button');
+  dialog.append(button);
+  if (overlay) { document.body.append(dialog); button.focus(); }
+  const f = fixture(false, true, focused); f.render();
+  try {
+    const input = await screen.findByRole('textbox', { name: 'Your first message' });
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    expect(document.activeElement === input).toBe(shouldFocus);
+    if (overlay) expect(document.activeElement).toBe(button);
+    if (shouldFocus) {
+      const project = screen.getByRole('button', { name: 'Project folder' });
+      project.focus();
+      await act(async () => { await f.runtime.queries.invalidateQueries({ queryKey: ['provider-list'] }); });
+      expect(document.activeElement).toBe(project);
+    }
+  } finally { dialog.remove(); }
+});
+
+it('shows local setup without the execution host picker in a new draft', async () => {
+  const f = fixture();
+  const status = { state: 'missing' as const, home: '/tmp/whip-test', message: 'No installation.', canInstall: true };
+  f.runtime.platform.localRuntime = {
+    test: vi.fn(async () => status), choose: vi.fn(async () => status),
+    install: vi.fn(async () => status), restart: vi.fn(async () => status),
+  };
+  const snapshot = f.runtime.getSnapshot();
+  vi.mocked(f.runtime.getSnapshot).mockReturnValue({ ...snapshot, hosts: snapshot.hosts.map(host =>
+    host.id === 'local' ? { ...host, state: 'closed', client: undefined, localRuntime: status } : host) });
+  f.render();
+  await screen.findByRole('heading', { name: 'Welcome to WhipCode' });
+  expect(screen.getByRole('button', { name: 'Get Started' })).toBeTruthy();
+  const openExternal = vi.spyOn(f.runtime.platform, 'openExternal');
+  fireEvent.click(screen.getByRole('button', { name: 'View GitHub' }));
+  expect(openExternal).toHaveBeenCalledWith('https://github.com/context-labs/whip');
+  expect(screen.getByRole('button', { name: 'Advanced' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Execution host' })).toBeNull();
+});
+
 it('replaces the send icon with one spinner while creating a session', async () => {
   const f = fixture();
   let reject!: (error: Error) => void;
@@ -112,6 +159,24 @@ it('keeps an unsupported saved effort visible and requires an explicit replaceme
   await waitFor(() => expect(f.raw.session.mock.results[0]!.value.command).toHaveBeenCalledWith('session.effort', { effort: 'off', persist_default: false }));
 });
 
+it('preserves the collapsed provider top spacing while expanded and restores centering on collapse', async () => {
+  const f = fixture(false, false); f.render();
+  const heading = await screen.findByRole('heading', { name: 'Connect a provider to get started' });
+  const column = heading.parentElement!;
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(element => {
+    const style = computedStyle(element);
+    if (element === column) Object.defineProperty(style, 'marginTop', { value: '180px' });
+    return style;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
+  expect(column.style.marginTop).toBe('180px');
+  expect(column.style.marginBottom).toBe('0px');
+  fireEvent.click(screen.getByRole('button', { name: 'Show fewer providers' }));
+  expect(column.style.marginTop).toBe('');
+  expect(column.style.marginBottom).toBe('');
+});
+
 it('shows standalone provider setup, reuses the connection dialog and restores the draft after explicit model confirmation', async () => {
   const f = fixture(false, false);
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep my task'); f.render();
@@ -119,6 +184,7 @@ it('shows standalone provider setup, reuses the connection dialog and restores t
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Project folder' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Connect Remote' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
   f.raw.providers.setKey.mockImplementation(async () => {
     f.raw.providers.list.mockResolvedValue({ ...f.inventory, providers: [{ ...f.inventory.providers[0], status: { available: true, key_source: 'literal' } }] });
     return {};
@@ -133,6 +199,7 @@ it('shows standalone provider setup, reuses the connection dialog and restores t
   expect(f.raw.configuration.update).not.toHaveBeenCalled(); expect(f.raw.sessions.create).not.toHaveBeenCalled();
   fireEvent.click(confirm);
   const input = await screen.findByRole('textbox', { name: 'Your first message' });
+  expect(screen.getByRole('heading', { name: 'What do you want to work on?' }).parentElement!.style.marginTop).toBe('');
   expect((input as HTMLTextAreaElement).value).toBe('Keep my task');
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
   expect(f.raw.providers.setKey).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'openai', key: 'fixture-api-key' }), expect.anything());
@@ -332,16 +399,16 @@ it('offers the MCP import once a provider is ready and returns the composer afte
 });
 
 it('does not offer the import before a provider is ready, after it was answered, or on a daemon without it', async () => {
-  const notReady = fixture(false, false); const pending = withMCPImport(notReady); notReady.render();
+  const notReady = fixture(false, false); const pending = withMCPImport(notReady); const pendingView = notReady.render();
   await screen.findByRole('region', { name: 'Provider setup' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
   expect(pending.candidates).not.toHaveBeenCalled();
-  notReady.runtime.dispose();
-  const answered = fixture(); const done = withMCPImport(answered, true); answered.render();
+  pendingView.unmount(); notReady.runtime.dispose();
+  const answered = fixture(); const done = withMCPImport(answered, true); const answeredView = answered.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
   expect(done.candidates).not.toHaveBeenCalled();
-  answered.runtime.dispose();
+  answeredView.unmount(); answered.runtime.dispose();
   const older = fixture(); const unsupported = withMCPImport(older); Object.assign(older.raw, { supports: () => false }); older.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(unsupported.candidates).not.toHaveBeenCalled();

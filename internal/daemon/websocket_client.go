@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocoltransport"
 	"github.com/gobwas/ws"
 )
 
@@ -18,10 +19,7 @@ func DialWebSocketClient(ctx context.Context, endpoint string, initialize Initia
 	if buffered != nil {
 		source = buffered
 	}
-	transport := newWebsocketMessageTransport(conn, source)
-	transport.clientSide = true
-	transport.reader.State = ws.StateClientSide
-	transport.reader.OnIntermediate = transport.control
+	transport := protocoltransport.NewWebSocketClient(conn, source)
 	client, err := newTransportClient(ctx, transport, initialize)
 	if err != nil {
 		_ = transport.Close()

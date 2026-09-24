@@ -7,7 +7,7 @@ import {promisify} from 'node:util';
 import {build} from 'vite';
 import react from '@vitejs/plugin-react';
 import stylex from '@stylexjs/unplugin';
-import {chromium, firefox} from '@playwright/test';
+import {chromium, firefox, expect} from '@playwright/test';
 import {contrastRatio} from '../src/theme-contrast.ts';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -35,14 +35,47 @@ try {
   for (const [name, engine] of Object.entries({chromium, firefox})) {
     const browser = await engine.launch();
     try {
-      const page = await browser.newPage(); const errors = [];
+      const page = await browser.newPage({hasTouch: true}); const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.addInitScript(() => {window.__cspErrors = []; document.addEventListener('securitypolicyviolation', event => window.__cspErrors.push(`${event.violatedDirective}: ${event.blockedURI}`));});
+      await page.addInitScript(() => {
+        window.__copied = [];
+        Object.defineProperty(navigator, 'clipboard', {value: {writeText: async text => {
+          if (window.__copyFails) throw new Error('Clipboard denied');
+          window.__copied.push(text);
+        }}});
+      });
       await page.goto(origin);
       const code = page.getByLabel('Starlark example', {exact: true});
       await page.locator('figure').filter({has: code}).and(page.locator('[data-highlighted="true"]')).waitFor();
       const text = await code.textContent();
       if (!text.includes('return agents.get')) throw new Error('Missing highlighted text');
+      for (const block of await page.locator('figure').all()) {
+        await expect(block.getByRole('button', {name: /^Copy /})).toHaveCount(1);
+      }
+      const copy = page.getByRole('button', {name: 'Copy Starlark example'});
+      await copy.focus(); await page.keyboard.press('Enter');
+      await expect(page.getByRole('button', {name: 'Copied', exact: true})).toBeVisible();
+      expect(await page.evaluate(() => window.__copied)).toEqual([text]);
+      await page.getByRole('button', {name: 'Switch theme', exact: true}).focus();
+      const large = page.locator('figure').filter({has: page.getByRole('button', {name: 'Read full output'})});
+      await large.getByRole('button', {name: 'Copy code'}).tap();
+      await expect.poll(() => page.evaluate(() => window.__copied.at(-1))).toBe('# Large bounded output\n'.repeat(2000));
+      await page.setViewportSize({width: 320, height: 720});
+      await copy.scrollIntoViewIfNeeded();
+      const header = page.locator('figure').filter({has: code}).locator('figcaption');
+      const headerBox = await header.boundingBox(), copyBox = await copy.boundingBox();
+      if (!headerBox || !copyBox || Math.abs(headerBox.x + headerBox.width - copyBox.x - copyBox.width - 12) > 2) throw new Error(`${name}: copy is not at the top right`);
+      if (await header.evaluate(el => el.scrollWidth > el.clientWidth)) throw new Error(`${name}: narrow header overflows`);
+      await page.evaluate(() => {window.__copyFails = true;});
+      await copy.tap();
+      await expect(header.getByRole('alert')).toContainText('Clipboard denied');
+      if (await header.evaluate(el => el.scrollWidth > el.clientWidth)) throw new Error(`${name}: narrow copy error overflows`);
+      await page.screenshot({path: resolve(packageRoot, `ui-test-results/code-copy-narrow-${name}.png`)});
+      await page.evaluate(() => {window.__copyFails = false;});
+      await header.getByRole('button', {name: 'Could not copy. Try again.'}).tap();
+      await expect(header.getByRole('alert')).toHaveCount(0);
+      await page.setViewportSize({width: 1280, height: 720});
       await code.evaluate(el => {const node = el.querySelector('[data-token="keyword"]').firstChild; window.__codeNode = node; const range = document.createRange(); range.selectNodeContents(node); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); window.__codeSelection = selection.toString();});
       await page.getByRole('button', {name: 'Switch theme', exact: true}).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');

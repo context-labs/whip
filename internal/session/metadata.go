@@ -8,6 +8,15 @@ import (
 	"fmt"
 )
 
+// SessionDefinitionMeta reads only the persisted identity needed for prompt catalog discovery.
+// It neither loads a transcript nor bootstraps runtime authority.
+func (s *Store) SessionDefinitionMeta(ctx context.Context, rootID string) (Meta, error) {
+	var meta Meta
+	err := s.db.QueryRowContext(ctx, `SELECT id,kind,cwd,definition,definition_revision FROM sessions WHERE id=?`, rootID).Scan(
+		&meta.ID, &meta.Kind, &meta.CWD, &meta.Definition, &meta.DefinitionRevision)
+	return meta, err
+}
+
 const MaxSessionMetadataBytes = 64 << 10
 
 var ErrSessionMetadataTooLarge = errors.New("session title and working directory exceed the 65536-byte metadata limit")

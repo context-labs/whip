@@ -37,6 +37,8 @@ export interface AppNotification {
 export interface LocalRuntimeStatus {
   state: 'missing' | 'stopped' | 'running' | 'unhealthy' | 'incompatible';
   executable?: string;
+  /** A saved installation is missing; an unused default destination is not a repair. */
+  repairRequired?: boolean;
   home: string;
   clientBuild?: string;
   daemonBuild?: string;
@@ -105,6 +107,8 @@ export interface AppPlatform {
   notify?(notification: AppNotification): Promise<void>;
   setNotificationsEnabled?(enabled: boolean): void;
   onCloseTab?(listener: () => void): () => void;
+  onNewSession?(listener: () => void): () => void;
+  onReopenClosedTab?(listener: () => void): () => void;
   hideWindow?(): void;
   /** Release shell-owned observations after the shared application unmounts. */
   dispose?(): void;

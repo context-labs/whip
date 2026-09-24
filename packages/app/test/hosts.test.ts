@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { HostConnections, daemonEndpoint, type HostProfile } from '../src/hosts';
+import { HostConnections, LocalRuntimeSetupRequiredError, daemonEndpoint, type HostProfile } from '../src/hosts';
 import { localProfile, urlProfile, type ConnectionProfile, type ConnectionOptions, type ResolvedConnection } from '../src/connections';
-import type { AppPlatform } from '../src/platform';
+import type { AppPlatform, LocalRuntimeStatus } from '../src/platform';
 
 const mocks = vi.hoisted(() => {
   const configurations = { revision: '1', remote_hosts: [] as HostProfile[] };
@@ -326,7 +326,7 @@ it('normalizes supported endpoints and refuses credentials and path prefixes', (
     expect(() => daemonEndpoint(value)).toThrow();
 });
 
-function nativeFixture(profiles = [remote('a')], saved: ConnectionProfile[] = []) {
+function nativeFixture(profiles = [remote('a')], saved: ConnectionProfile[] = [], platform: Partial<AppPlatform> = {}) {
   const values = new Map<string, string>();
   if (saved.length) { values.set('whip.hosts.v2', JSON.stringify(saved)); values.set('whip.selectedHost.v2', JSON.stringify(saved.at(-1)!.id)); }
   const disposals = new Map<string, ReturnType<typeof vi.fn>>();
@@ -334,8 +334,141 @@ function nativeFixture(profiles = [remote('a')], saved: ConnectionProfile[] = []
     const dispose = vi.fn(); disposals.set(profile.id, dispose);
     return { endpoint: profile.target.kind === 'local' ? 'http://local.test' : profile.target.kind === 'url' ? profile.target.endpoint : `http://${profile.target.host}.test`, dispose };
   });
-  return { ...fixture(profiles, { defaultConnection: localProfile, connectionKinds: ['local', 'url', 'ssh'], resolveConnection }, values), resolveConnection, disposals };
+  return { ...fixture(profiles, { defaultConnection: localProfile, connectionKinds: ['local', 'url', 'ssh'], resolveConnection, ...platform }, values), resolveConnection, disposals };
 }
+const missingRuntime: LocalRuntimeStatus = { state: 'missing', home: '/home/test/.whipcode', message: 'Set up this Mac', canInstall: true };
+function localRuntimeFixture(status: LocalRuntimeStatus = missingRuntime, saved: ConnectionProfile[] = []) {
+  const localRuntime = {
+    test: vi.fn(async () => status), choose: vi.fn(async () => status),
+    install: vi.fn(async () => status), installDefault: vi.fn(async () => status), restart: vi.fn(async () => status),
+  };
+  return { ...nativeFixture([], saved, { localRuntime }), localRuntime };
+}
+
+it('inspects native Local once before transport setup and rejects missing without a host error', async () => {
+  const f = localRuntimeFixture();
+  const probe = deferred<LocalRuntimeStatus>();
+  f.localRuntime.test.mockReturnValueOnce(probe.promise);
+  const connection = f.hosts.connect();
+  expect(f.hosts.connect()).toBe(connection);
+  expect(f.hosts.home()).toMatchObject({ state: 'connecting' });
+  expect(f.hosts.home().localRuntime).toBeUndefined();
+  expect(f.hosts.home().error).toBeUndefined();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+  probe.resolve(missingRuntime);
+  await expect(connection).rejects.toBeInstanceOf(LocalRuntimeSetupRequiredError);
+  expect(f.hosts.home()).toMatchObject({ state: 'closed', localRuntime: missingRuntime });
+  expect(f.hosts.home().error).toBeUndefined();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+  expect(mocks.clients).toHaveLength(0);
+  expect(f.localRuntime.test).toHaveBeenCalledOnce();
+  for (const mutation of [f.localRuntime.install, f.localRuntime.installDefault, f.localRuntime.choose, f.localRuntime.restart]) expect(mutation).not.toHaveBeenCalled();
+});
+
+it('preserves a missing selected executable instead of falling back or preparing it', async () => {
+  const status = { ...missingRuntime, executable: '/chosen/whipcode', message: 'Selected executable is missing' };
+  const f = localRuntimeFixture(status);
+  await expect(f.hosts.connect()).rejects.toBeInstanceOf(LocalRuntimeSetupRequiredError);
+  expect(f.hosts.home().localRuntime).toEqual(status);
+  expect(f.hosts.home().error).toBeUndefined();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+});
+
+it('does not inspect a browser Local connection even when the optional capability exists', async () => {
+  const test = vi.fn(async () => missingRuntime);
+  const { hosts } = fixture([], { localRuntime: { test, choose: test, install: test, restart: test } });
+  await hosts.connect();
+  expect(test).not.toHaveBeenCalled();
+  expect(hosts.home().state).toBe('connected');
+  expect(hosts.home().localRuntime).toBeUndefined();
+});
+
+it('retains a real retry failure alongside the last successful missing inspection', async () => {
+  const f = localRuntimeFixture();
+  await expect(f.hosts.connect()).rejects.toBeInstanceOf(LocalRuntimeSetupRequiredError);
+  f.localRuntime.test.mockRejectedValueOnce(new Error('Inspection denied'));
+  await expect(f.hosts.connect()).rejects.toThrow('Inspection denied');
+  expect(f.hosts.home().localRuntime).toEqual(missingRuntime);
+  expect(f.hosts.home().error).toBe('Inspection denied');
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+});
+
+it('keeps actual native inspection failures as host errors', async () => {
+  const f = localRuntimeFixture();
+  const error = new Error('Inspection denied');
+  f.localRuntime.test.mockRejectedValueOnce(error);
+  await expect(f.hosts.connect()).rejects.toBe(error);
+  expect(f.hosts.home().error).toBe('Inspection denied');
+  expect(f.hosts.home().localRuntime).toBeUndefined();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+});
+
+it.each(['stopped', 'running'] as const)('connects a %s native runtime and re-inspects on retry', async state => {
+  const f = localRuntimeFixture();
+  await expect(f.hosts.connect()).rejects.toBeInstanceOf(LocalRuntimeSetupRequiredError);
+  const status = { ...missingRuntime, state, executable: '/chosen/whipcode' };
+  f.localRuntime.test.mockResolvedValue(status);
+  await f.hosts.connect();
+  expect(f.localRuntime.test).toHaveBeenCalledTimes(2);
+  expect(f.resolveConnection).toHaveBeenCalledOnce();
+  expect(f.hosts.home()).toMatchObject({ state: 'connected', localRuntime: status });
+  expect(f.hosts.home().error).toBeUndefined();
+  f.hosts.disconnect('local');
+  await f.hosts.connect();
+  expect(f.localRuntime.test).toHaveBeenCalledTimes(3);
+});
+
+it.each(['unhealthy', 'incompatible'] as const)('retains real preparation failures for a %s native runtime', async state => {
+  const status = { ...missingRuntime, state, executable: '/chosen/whipcode' };
+  const f = localRuntimeFixture(status);
+  f.resolveConnection.mockRejectedValueOnce(new Error('Cannot prepare runtime'));
+  await expect(f.hosts.connect()).rejects.toThrow('Cannot prepare runtime');
+  expect(f.hosts.home().localRuntime).toEqual(status);
+  expect(f.hosts.home().error).toBe('Cannot prepare runtime');
+});
+
+it.each(['result', 'failure'])('does not let an aborted inspection %s overwrite a newer connection', async outcome => {
+  const f = localRuntimeFixture();
+  const probe = deferred<LocalRuntimeStatus>();
+  f.localRuntime.test.mockReturnValueOnce(probe.promise);
+  const retired = f.hosts.connect();
+  f.hosts.disconnect('local');
+  const status = { ...missingRuntime, state: 'running' as const, executable: '/new/whipcode' };
+  f.localRuntime.test.mockResolvedValueOnce(status);
+  await f.hosts.connect();
+  const client = f.hosts.home().client;
+  if (outcome === 'result') probe.resolve(missingRuntime);
+  else probe.reject(new Error('Retired inspection failed'));
+  await expect(retired).rejects.toThrow();
+  expect(f.hosts.home()).toMatchObject({ state: 'connected', localRuntime: status });
+  expect(f.hosts.home().client).toBe(client);
+  expect(f.hosts.home().error).toBeUndefined();
+  expect(f.resolveConnection).toHaveBeenCalledOnce();
+});
+
+it('retires native inspection when disposed without preparing a transport', async () => {
+  const f = localRuntimeFixture();
+  const probe = deferred<LocalRuntimeStatus>();
+  f.localRuntime.test.mockReturnValueOnce(probe.promise);
+  const connection = f.hosts.connect();
+  f.hosts.dispose();
+  probe.resolve({ ...missingRuntime, state: 'stopped' });
+  await expect(connection).rejects.toThrow();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+  expect(f.hosts.home().localRuntime).toBeUndefined();
+});
+
+it('keeps saved SSH startup independent of missing Local', async () => {
+  const f = localRuntimeFixture(missingRuntime, [localProfile, sshProfile()]);
+  await f.hosts.connectOnLaunch();
+  await vi.waitFor(() => expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.state).toBe('connected'));
+  expect(f.hosts.home().localRuntime).toEqual(missingRuntime);
+  expect(f.hosts.home().error).toBeUndefined();
+  expect(f.localRuntime.test).toHaveBeenCalledOnce();
+  expect(f.resolveConnection).toHaveBeenCalledOnce();
+  expect(f.resolveConnection.mock.calls[0]![0].target.kind).toBe('ssh');
+});
+
 const sshProfile = (id = 'server'): ConnectionProfile => ({ id: `ssh:${id}`, label: id, target: { kind: 'ssh', host: id } });
 
 it('releases startup after Local connects while selected SSH continues in the background', async () => {

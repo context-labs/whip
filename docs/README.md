@@ -1,5 +1,9 @@
 # whip manual
 
+Start with [installation and local development](setup.md) for Desktop, WhipCode,
+and the older `whip` distribution. [Benchmark notes](benchmarks.md) explain the
+README comparison and its limits.
+
 Everything that used to crowd the top-level README: full setup, config
 reference, MCP, browser/computer-use, and the map of how whip works.
 

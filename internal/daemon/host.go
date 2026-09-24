@@ -25,6 +25,12 @@ func (s *Server) handleHost(ctx context.Context, request rpcMessage) (any, *RPCE
 	var result any
 	var err error
 	switch request.Method {
+	case "host.skills.complete":
+		var p protocol.HostSkillCompletionParams
+		if err := decodeProviderParams(request.Params, &p); err != nil {
+			return nil, rpcFailure(-32602, err.Error()), true
+		}
+		result, err = s.completeHostSkills(ctx, p)
 	case "host.directories.list":
 		var p protocol.HostDirectoryParams
 		if err := decodeProviderParams(request.Params, &p); err != nil {

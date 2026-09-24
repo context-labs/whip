@@ -34,9 +34,9 @@ composer that sent them. Stored identities contain no prompts and are bounded to
 
 ## Multiple execution hosts
 
-Open `whipcode web` on your computer. **Local** is the daemon that launched the
-app. Use **Execution hosts** in the sidebar footer to add an existing daemon by
-its LAN or Tailscale URL, give it a name, and choose whether it connects when the
+Run `whipcode web` on your computer. **Local** is the daemon behind that gateway.
+Use **Execution hosts** in the sidebar footer to add an existing daemon by
+its gateway's LAN or Tailscale URL, give it a name, and choose whether it connects when the
 app opens. **Save and connect** verifies its runtime identity. The app connects
 directly from the browser; it does not install a daemon, open SSH tunnels, or
 change listeners.
@@ -78,7 +78,7 @@ own filter and pages. Its badge counts sessions needing a response on loaded
 pages, not a guaranteed total; opening a result directs the response to its
 owning session.
 
-Every remote listener must permit its actual Host and the **exact Origin of the
+Every remote gateway must permit its actual Host and the **exact Origin of the
 locally opened browser app**, as described under
 [trusted-network access](#trusted-network-and-phone-access). Saving a URL does not
 change either allowlist. A stable local browser Origin and automatic handling of
@@ -172,37 +172,76 @@ catalog abbreviates them. Reproduce the browser acceptance checks with
 
 ## Run the packaged application locally
 
-Release binaries contain the web application. The daemon enables its localhost
-HTTP/WebSocket listener by default. Start it, then open the discovered endpoint:
+Release binaries contain the web application. The daemon is socket-only;
+ordinary daemon, CLI and Desktop startup open no web listener. Start the daemon,
+then run the separate foreground gateway:
 
 ```sh
 whip daemon start
 whip web
 ```
 
-The listener defaults to an ephemeral loopback port. `whip web` discovers it,
-checks the packaged application and opens your default browser. To print the URL:
+`whip web` checks the running daemon's compatibility and the packaged assets,
+prints its ready URL, opens your default browser, and **stays running**. Ctrl+C
+stops this gateway, not the daemon or accepted runtime work. Browser-open failure
+leaves a usable gateway running with its URL printed. To skip opening a browser:
 
 ```sh
 whip web --no-open
 ```
 
-Set `WHIP_NETWORK=0` to disable the listener, even when `WHIP_LISTEN` is set.
-The `whipcode` distribution uses `WHIPCODE_NETWORK` and `WHIPCODE_LISTEN` instead.
-To choose a fixed port, set `WHIP_LISTEN=127.0.0.1:9876` when starting the daemon.
-Without an explicit address, only loopback is exposed; enabling the listener
-does not expose a LAN interface or configure Tailscale.
+**Migration:** `--no-open` no longer prints an existing URL and exits; it owns the
+same foreground lifecycle. To check/open an already running gateway without
+starting any server, use `whip web --url <origin>` (add `--no-open` to only check
+and print). This explicit URL mode needs no local daemon. A foreground command
+never silently attaches to a managed gateway;
+it owns an independent instance. Use `--url` when you want the existing one.
 
-`whip web` never starts, replaces or reconfigures a daemon. If one is already
-running without networking, enable it with an explicit restart:
+With no explicit address, the gateway tries `127.0.0.1:4444`. Only an
+address-in-use error falls back to `127.0.0.1:0`; the actual bound URL is reported.
+For a fixed port, run `WHIP_LISTEN=127.0.0.1:9876 whip web`. Explicit addresses,
+including port `0`, bind exactly as requested; failed fixed binds never silently
+move. The default does not expose a LAN interface or configure Tailscale.
+
+Without `--url`, `whip web` requires an already running compatible daemon. It never starts,
+replaces, restarts or reconfigures one. A gateway needs the daemon's negotiated
+`network-client-v1` capability; an older daemon fails closed with upgrade guidance,
+not a fallback to trusted local privileges. Upgrade an incompatible daemon
+explicitly when interrupting its work is acceptable. Merely enabling web access
+to a compatible daemon never requires a restart.
+
+### Optional managed startup
 
 ```sh
-WHIP_NETWORK=1 whip daemon restart
-whip web
+WHIP_NETWORK=1 whip daemon start
+whip daemon status --json
 ```
 
-Restarting interrupts active runtime work. Building a newer client alone does
-not replace an existing daemon or its embedded application.
+`WHIP_NETWORK=1` opts daemon launch paths into starting the **same gateway** as
+an owned child after the socket is ready, without opening a browser. With
+`WHIP_NETWORK` unset or `0`, no gateway is auto-started; explicit `whip web` still
+works. `WHIP_LISTEN` configures the gateway bind but is not itself an opt-in.
+The whipcode distribution uses the equivalent `WHIPCODE_*` settings.
+
+The `gateway.status` protocol query separates managed web state from daemon
+health. `init.network_endpoint` and daemon status's `network_endpoint` report
+only a ready managed endpoint, not foreground instances; foreground commands
+print their own URL. A managed failure clears the advertised endpoint, reports
+the web error, and leaves the daemon available. CLI JSON status includes
+`gateway: {state, endpoint?, error?}` and `gateway_log`;
+`whip daemon logs --web` reads the managed gateway's `runtime-v2/web.log` under
+the selected distribution home, alongside `daemon.log` (use `gateway_log` for
+the exact path). A managed-start failure reports an unsuccessful web startup
+without making a healthy daemon unavailable. There is no automatic child
+restart loop: run a foreground `whip web` for non-disruptive recovery. The parent
+reaps its child on orderly exit; lifetime-pipe EOF also stops the child after
+abrupt parent loss. A gateway never follows a replacement daemon.
+
+Starting an already running daemon retains its original launch configuration.
+An explicit daemon restart can apply changed managed-start settings, but it
+interrupts active work. Building a newer executable alone does not replace a
+running daemon. Foreground gateways serve the assets packaged in their own
+executable, without a Node runtime.
 
 Host and Origin checks remain exact. With no configured allowlists, requests
 must use the listener's address as their Host, and browser requests must be
@@ -242,7 +281,7 @@ go build -o whip ./cmd/whip
 When replacing a running source-built daemon, use your rebuilt binary explicitly:
 
 ```sh
-WHIP_NETWORK=1 ./whip daemon restart
+./whip daemon restart
 ./whip web
 ```
 
@@ -254,62 +293,62 @@ For UI iteration, run `npm run dev:web` from the repository root and open
 desktop app. Run `npm run build` after changing SDK source, since the renderer
 consumes its built output. Backend changes require a matching rebuilt daemon.
 
-`task run -- web` runs the source **whip** CLI and opens daemon-served production
-assets; it does not start Vite. By default, whip uses `~/.whip` and `WHIP_*`, while
-the installed **whipcode** uses `~/.whipcode` and `WHIPCODE_*`. Restarting one does
-not replace the other's daemon. An `unsupported protocol major` error can mean
-the source CLI is attaching to an older daemon in that other runtime directory.
+`task run -- web` runs the source **whip** foreground gateway and serves packaged
+production assets; it does not start Vite or a daemon. Whip uses `~/.whip` and
+`WHIP_*`, while the installed **whipcode** uses `~/.whipcode` and `WHIPCODE_*`.
+Use the intended executable and home; restarting one distribution does not
+replace the other's daemon.
 
-Vite proxies `/api`, including WebSockets, to `http://127.0.0.1:8080` by default,
-matching the desktop-managed local whipcode endpoint. Set `WHIP_WEB_DAEMON` to
-override that address. The browser still connects to port 3000; Vite forwards
-those API requests to the daemon. Starting Vite does not start or restart a daemon.
+Vite is only a development asset server. Its API proxy defaults to
+`http://127.0.0.1:4444` and needs a running gateway, not the daemon's Unix socket. To develop against the installed whipcode runtime:
+
+```sh
+# Start only if the intended daemon is stopped.
+whipcode daemon start
+# Keep this foreground gateway running in a separate terminal.
+WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open
+```
+
+Then start Vite, explicitly pointing it at that gateway:
+
+```sh
+WHIP_WEB_DAEMON=http://127.0.0.1:4444 npm run dev:web
+```
+
+For another endpoint, use the foreground gateway's printed HTTP(S) origin, or a
+ready managed `network_endpoint` from `whipcode daemon status --json`. If the
+implicit-4444 bind fell back, override Vite's target with that printed origin. The
+`WHIP_WEB_DAEMON` name is retained for compatibility, but its target is the
+**gateway**. Starting Vite does not start or restart either process. A daemon
+launched with `WHIPCODE_NETWORK=0` needs no restart to use a foreground gateway.
+The source-built `whip` uses `WHIP_*` instead of `WHIPCODE_*` for gateway setup.
 
 The development proxy accepts only loopback clients using its exact browser
-origin, then forwards HTTP and WebSocket requests with the daemon's origin.
-This lets a running daemon keep its existing allowlist. It does not expose an
-open relay: foreign origins, missing origins on writes/upgrades and non-local
-Host headers are rejected before forwarding. Vite's API proxy is local-only,
-even if Vite is separately configured to serve assets on a network interface.
-
-For the installed `whipcode` CLI, check `whipcode daemon status --json` for its
-`network_endpoint`. If it is already running at the default endpoint, just run:
-
-```sh
-npm run dev:web
-```
-
-For another endpoint, use the exact HTTP(S) origin reported by daemon status:
-
-```sh
-WHIP_WEB_DAEMON=http://127.0.0.1:YOUR_PORT npm run dev:web
-```
+origin, then forwards HTTP and WebSocket requests with the gateway's origin.
+This lets the gateway keep its existing allowlist. It does not expose an open
+relay: foreign origins, missing origins on writes/upgrades and non-local Host
+headers are rejected before forwarding. Vite's API proxy is local-only, even
+if Vite is separately configured to serve assets on a network interface.
 
 Open `http://127.0.0.1:3000` (or `http://localhost:3000`) and save changes to see
 React Fast Refresh. No daemon restart or frontend production build is required
-for app/UI source edits. A stopped daemon can be started separately with
-`WHIPCODE_LISTEN=127.0.0.1:8080 whipcode daemon start`. A daemon with networking
-disabled requires explicit listener configuration and a restart, or use the
-[desktop attach workflow](desktop.md#build-and-develop) through its Unix socket.
-The source-built `whip` uses `WHIP_*` rather than `WHIPCODE_*` for that setup.
-
-Production attachment and additional remote hosts connected directly from the
-browser keep their existing exact Origin rules. The development proxy only
-handles Local's `/api/` requests; it does not modify daemon configuration.
+for app/UI source edits. Production attachment and additional remote hosts
+connected directly from the browser retain their exact Origin rules. The dev
+proxy handles only Local's `/api/` requests; it changes no gateway or daemon
+configuration.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
-check the configured endpoint and daemon protocol. A running older daemon is not
-upgraded by starting Vite: the daemon must match the protocol major in
-`internal/protocol/types.go` and the generated SDK contract. Update that daemon
-separately, using its original distribution and home to retain the same runtime.
-Stopping a daemon interrupts active work. Do not reset a compatible
-database to resolve a protocol or origin mismatch.
+check that the gateway is running and the daemon is compatible. The daemon must
+match the protocol major in `internal/protocol/types.go` and support the gateway's
+`network-client-v1` handshake. An incompatible daemon requires an intentional
+upgrade using its original distribution and home. Stopping it interrupts active
+work; do not reset a compatible database for a protocol or origin mismatch.
 
-`GET /api/v3/web` on the configured daemon reports its protocol and web paths.
-A 404 on the daemon indicates that web discovery is unavailable. A proxy rejection
-can also return 404 for an invalid dev Host/Origin. A direct-daemon 403 with
-`origin is not allowed` means that direct browser origin needs to be allowed at
-daemon startup; local requests through the development proxy need no new entry.
+`GET /api/v3/web` on the gateway reports its protocol, asset availability and web
+paths. A 404 can indicate unavailable discovery or a development proxy rejecting
+Host/Origin. A direct-gateway 403 with `origin is not allowed` means that exact
+browser origin must be allowed at gateway startup; requests through the local
+development proxy need no new entry.
 
 `node --test apps/web/scripts/dev-proxy.test.mjs` checks HTTP content forwarding,
 WebSocket upgrades and rejection before forwarding for invalid origins/hosts.
@@ -326,7 +365,7 @@ recovery writes use an origin-scoped lock so concurrent tabs cannot drop one
 another's accepted command identities. Missing or denied locks produce an
 actionable error before command delivery. Supply TLS through your
 trusted local reverse proxy, forwarding `/`, assets and `/api` (including WebSocket
-upgrades) to the daemon. The certificate must be trusted by the phone. Example
+upgrades) to the gateway. The certificate must be trusted by the phone. Example
 configuration when the proxy forwards the original Host:
 
 ```sh
@@ -340,8 +379,10 @@ whip web --url https://whip.example
 Replace the example host with your configured origin. Open that HTTPS URL on the
 phone. A proxy that rewrites Host must forward a value in `WHIP_ALLOWED_HOSTS`;
 its browser's HTTPS Origin still needs an exact `WHIP_ALLOWED_ORIGINS` entry.
-Wildcard binds do not identify a usable browser URL: pass the explicit origin
-with `--url`, or bind the intended host address directly.
+Wildcard binds do not identify a usable browser URL. Run the gateway with
+`--no-open`, then use a separate `whip web --url https://whip.example` command
+to check/open the external origin, or bind the intended host address directly.
+`--url` itself never starts a listener.
 
 ## Appearance
 
@@ -377,6 +418,11 @@ Go tests cover route fallback, missing assets, HTTP boundaries and the explicit
 runtime-management behavior of `whip web`.
 
 ## Validation and measured behavior
+
+The dated records below describe their original frontend builds; they are not
+acceptance evidence for the gateway migration. Current migration checks and any
+unperformed device/manual acceptance are tracked separately in the
+[gateway acceptance plan](../.ai-docs/plans/web-gateway/README.md).
 
 ### Multiple execution hosts — September 8, 2026
 
@@ -422,10 +468,11 @@ explicit Host/Origin allowlists. The exact-Origin/stable-port follow-up remains
 deferred. Safari's recorded coverage remains the single-host smoke above.
 
 Run the application gates against the actual production bundle and a temporary
-fake-provider daemon. The fixture owns its home, sessions, listener and process;
-it does not connect to a developer's running daemon or use provider credentials.
-Build and package before starting browser fixtures, because the test daemon
-embeds those assets when it is compiled.
+fake-provider daemon plus an explicitly started gateway. The fixture owns its
+home, sessions, gateway listener and both process lifetimes; it must not connect
+to a developer's running daemon or use provider credentials. Build and package
+once before compiling the fixture executable so the gateway has the production
+assets. Starting a plain daemon alone no longer provides a TCP test endpoint.
 
 ```sh
 npm run check:web
@@ -627,8 +674,8 @@ physical touch remain separate release checks.
 ## Whipcode branch distribution
 
 The branch distribution embeds the same web app, with an independent config
-and daemon under `~/.whipcode` (or `WHIPCODE_HOME`). Its loopback listener is also
-enabled by default:
+and daemon under `~/.whipcode` (or `WHIPCODE_HOME`). It uses the same socket-only
+daemon and opt-in gateway contract:
 
 ```sh
 whipcode daemon start
@@ -636,8 +683,9 @@ whipcode web
 ```
 
 Use `WHIPCODE_LISTEN`, `WHIPCODE_ALLOWED_ORIGINS`, and `WHIPCODE_ALLOWED_HOSTS`
-for the corresponding trusted-network settings above. The whipcode daemon
-ignores whip's four networking environment variables. When both daemons use
-the default ephemeral loopback listener, they get independent endpoints.
-Use `whipcode daemon status --json` to inspect its endpoint. Existing WHIP web
+for the corresponding trusted-network settings above, and `WHIPCODE_NETWORK=1`
+for managed gateway startup. Whipcode does not consume whip's `WHIP_*` network
+settings. Each foreground command reports its own endpoint; if 4444 is already
+occupied, an implicit bind falls back to an ephemeral loopback port.
+Use `whipcode daemon status --json` to inspect a ready managed endpoint. Existing WHIP web
 branding and protocol/package names are shared across distributions.

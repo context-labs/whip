@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RootSnapshot } from '@whip/protocol';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, CopyButton } from '@whip/ui';
+import { Badge, Button, CodeBlock } from '@whip/ui';
 import { Code2, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
 import { historyGapRows, type TimelineRow } from './conversation-rows';
 import { HistoryGapControl } from './history-gap';
@@ -95,9 +94,7 @@ export function formatJsonOutput(output: string): string {
 function Cell({ row, number, view, connected, expanded, onToggle }: {
   row: ExecutionCell; number: number; view: SessionView; connected: boolean; expanded: boolean; onToggle(): void;
 }) {
-  const runtime = useRuntime();
   const languageLabel = executionLabel(row.executionEngine);
-  const [copyError, setCopyError] = useState<unknown>();
   const running = row.status === 'running' || row.status === 'writing';
   const interrupted = row.status === 'interrupted' || row.status === 'cancelled';
   const isJson = !running && formatJsonOutput(row.output) !== row.output;
@@ -111,10 +108,9 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
       {row.steps !== undefined && <span {...stylex.props(styles.meta)}>{row.steps.toLocaleString()} steps</span>}
       {row.quickjsJobs !== undefined && <span {...stylex.props(styles.meta)}>{row.quickjsJobs.toLocaleString()} jobs</span>}
       <span {...stylex.props(styles.grow)} />
-      {row.code && <CopyButton label={`Copy ${languageLabel} code`} text={row.code} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />}
     </header>
     {row.historyUnmatched && <p {...stylex.props(styles.meta)}>Observed execution · historical match unavailable</p>}
-    {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
+    {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} copyLabel={`Copy ${languageLabel} code`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
         <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : formatHostDuration(host.duration)}</span></div>
@@ -123,13 +119,12 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     </div>}
     {row.output && <div {...stylex.props(styles.section)}>
       <CodeBlock code={output.text} language={isJson ? 'json' : undefined} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : 'Output'} xstyle={styles.code}
-        downloadAction={<CopyButton label="Copy output" text={row.output} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />} />
+        copyText={row.output} copyLabel="Copy output" />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
     {row.hasValue && row.value !== undefined && <div {...stylex.props(styles.result)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div>}
     {row.scratch && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{row.scratch}</p>}
     {row.error && <ErrorNotice type="execution" owner={row.id} error={row.error} />}
-    <ErrorNotice type="action" owner={`${row.id}:copy`} title="Could not copy" error={copyError} />
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}
     {row.codeBody && <ContentRead key={row.codeBody.reference_id} view={view} agentId={row.agentId} value={row.codeBody} label="Execution code" />}

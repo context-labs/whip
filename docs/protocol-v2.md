@@ -1,8 +1,9 @@
 # WHIP protocol v6
 
 The Go daemon owns execution, admission, provider credentials, model context,
-configuration and SQLite persistence. Unix sockets and WebSockets use the same
-JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
+configuration and SQLite persistence. The daemon's Unix socket and the separate
+web gateway's WebSockets use the same JSON-RPC 2.0 methods, typed payloads,
+validation and daemon handlers. WHIP's protocol
 major is `6` (minor `8`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
@@ -83,9 +84,11 @@ five are connection-scoped ephemeral RPCs, never durable commands. Output travel
 as `terminal.output` notifications (absolute `cursor` plus base64 `bytes`, at most
 32 KiB), followed by `terminal.exited` after the last byte of an exited shell, and
 `terminal.detached` when another connection attaches. Closing the tab closes the
-shell; a dropped connection only detaches it. Network listeners refuse the family
-with `-32012` unless the daemon started with `WHIPCODE_NETWORK_TERMINALS=1`;
-Unix-socket clients, including SSH-forwarded ones, are always allowed. The
+shell; a dropped connection only detaches it. The daemon refuses the family
+with `-32012` for network-origin connections unless it started with
+`WHIPCODE_NETWORK_TERMINALS=1` (`WHIP_NETWORK_TERMINALS=1` for whip). Ordinary
+local/SSH socket clients remain allowed; gateway-marked Unix connections retain
+network restrictions. The
 `terminals` capability advertises support. All additions are additive.
 
 Protocol **6.6** adds output contracts. `Definition.output` and
@@ -193,46 +196,77 @@ not accepted. Responses contain exactly one of `result` and `error`, including
 
 ## Local and trusted-network setup
 
-Network serving is enabled on loopback by default. Unix clients continue using
-the daemon socket. To allow a separate browser app on localhost:3000:
+The daemon always serves only its Unix socket. Browser/mobile/remote SDK traffic
+reaches a separate gateway, which relays the same protocol to that socket.
+Ordinary daemon startup opens no HTTP listener. To allow a separate browser app
+on localhost:3000, start a compatible daemon and a foreground gateway:
 
 ```sh
-WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip daemon start
-whip daemon status --json
+whip daemon start
+WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip web --no-open
 ```
 
-The reported `network_endpoint` is an HTTP base URL. Connect a browser
-WebSocket to `/api/v3/ws` on that endpoint, replacing `http:` with `ws:`.
-An existing daemon must be explicitly stopped/restarted for a changed network
-configuration to take effect. Environment options are inherited by automatic
-starts and daemon binary replacement.
+The gateway prints its HTTP base URL and stays running. Connect a browser
+WebSocket to `/api/v3/ws` on that origin, replacing `http:` with `ws:` (or
+`https:` with `wss:`). Static assets, `/api/v3/web` discovery and
+`/api/v3/content/` retain their paths. `whip web --url <origin>` checks/opens an
+existing gateway and starts no server. Neither mode starts or restarts a daemon.
 
-For an explicitly trusted network, configure a bind address and exact hosts:
+For automatic managed startup, set `WHIP_NETWORK=1` at daemon launch. The
+`gateway.status` query reports managed startup/ready/failure state independently
+of daemon health. `init.network_endpoint` and CLI daemon status advertise only
+a ready managed endpoint and clear it when that child exits. Foreground
+gateways print their own endpoints and never overwrite managed discovery.
+Managed failure does not stop the daemon or trigger an automatic restart loop.
+Changing the environment does not reconfigure an already running daemon; a
+foreground gateway is the non-disruptive way to add or recover web access.
+
+For an explicitly trusted network, configure the gateway bind and exact hosts:
 
 ```sh
 WHIP_LISTEN=192.168.1.10:8080 \
 WHIP_ALLOWED_HOSTS=192.168.1.10:8080,whip.local:8080 \
 WHIP_ALLOWED_ORIGINS=http://localhost:3000,http://whip.local:3000 \
-whip daemon start
+whip web --no-open
 ```
 
-`WHIP_NETWORK=0` (or `false`) explicitly disables serving even when `WHIP_LISTEN`
-is set. When network serving is enabled without a bind address, the default is
-`127.0.0.1:0`. With no explicit accepted hosts, only the listener's actual
-address is accepted. Hosts include the port; origins include the scheme and
-port and have no trailing slash. Wildcards and origin suffix matches are not
-supported. Requests without an Origin header are permitted for native clients.
-A supplied browser Origin must match the configured list, including for HTTP
-content transfers. The `null` browser origin is not accepted.
+`WHIP_NETWORK` unset or `0` means no automatic gateway, not a prohibition on
+explicit `whip web`. `WHIP_LISTEN` alone does not opt daemon startup into web
+serving. With no explicit bind, the gateway tries `127.0.0.1:4444` and falls back
+to `127.0.0.1:0` only on address-in-use. Explicit addresses never silently fall
+back. The whipcode distribution uses the equivalent `WHIPCODE_*` variables.
 
-Clients run locally or on an explicitly trusted network. There is no connection
-authentication, device pairing or hosted relay. Client IDs are command namespaces,
-not authenticated user identities; client kind does not restrict permission
-decisions. Every connected client is trusted to approve or deny requests.
-Permission prompts, remembered rules, content grants, budgets and internal agent
-and delegated MCP authority checks still apply. A reverse proxy may terminate
-TLS when desired; configure its externally visible Host and browser Origin
-explicitly.
+With no explicit accepted hosts, only the listener's actual address is accepted.
+Hosts include the port; origins include scheme and port and have no trailing
+slash. Wildcards and origin suffix matches are not supported. Native clients
+may omit Origin. A supplied browser Origin must match the configured list,
+including for HTTP content transfers; the `null` browser origin is rejected.
+
+These Host/Origin checks are not authentication. Clients must run locally or on
+an explicitly trusted network, or behind an authenticated proxy. There is no
+connection authentication, device pairing or hosted relay. Client IDs are command
+namespaces, not authenticated user identities; client kind does not restrict
+permission decisions. Every connected client is trusted to approve or deny
+requests. Permission prompts, remembered rules, content grants, budgets and
+internal agent and delegated MCP authority checks still apply. A reverse proxy
+may terminate TLS; configure its visible Host and browser Origin explicitly.
+
+### Restrict-only network connections
+
+A gateway must request `network-client-v1` during initialization of every
+upstream socket, including gateway-owned HTTP content RPC clients. The daemon
+negotiates this capability and classifies that connection as network-origin;
+the gateway requires the acknowledgement before forwarding later traffic.
+Omitting or tampering with the browser's marker cannot grant local privileges.
+An unsupported old daemon fails closed with upgrade guidance; the gateway must
+never retry as an ordinary trusted socket client.
+
+This classification narrows privileges, is immutable after initialization, and
+is independent of `client_kind` and client ID. Ordinary local socket clients
+continue initializing unchanged. `WHIP_NETWORK_TERMINALS` (or
+`WHIPCODE_NETWORK_TERMINALS`) remains daemon-owned terminal authorization,
+independent of managed gateway startup. The marker does not authenticate a user
+or broaden the local socket's existing trust boundary.
 
 ## Envelopes and initialization
 
@@ -371,7 +405,7 @@ Download with `GET /api/v3/content/REFERENCE?root_id=ROOT&agent_id=AGENT`.
 The reference/root/agent association must satisfy the existing content grant.
 The agent may be omitted for a root grant. Reads are bounded and recheck the
 grant between chunks. Content is served as an attachment with an inert media
-type so uploaded HTML cannot execute on the daemon's origin. No tickets are
+type so uploaded HTML cannot execute on the gateway's origin. No tickets are
 issued. Transfers have a separate limit of 16 concurrent HTTP requests.
 
 The `input_attachments` capability accepts optional `attachments` on `submit`,

@@ -28,9 +28,11 @@ async function home(ready = false) {
 }
 const usable = { host: true, noNotice: true, home: true, visible: true, fonts: true, painted: true, pathname: '/' };
 
-it('accepts actionable fresh provider setup without a first-message composer', async () => {
-  await home();
+it('accepts actionable fresh provider setup without the first-message composer', async () => {
+  const f = await home();
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
+  expect(f.raw.sessions.create).not.toHaveBeenCalled();
   expect(await observe()).toMatchObject(usable);
 });
 it('accepts the configured first-message composer with its Model control', async () => {

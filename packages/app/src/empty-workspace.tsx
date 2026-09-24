@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { formatForDisplay } from '@tanstack/react-hotkeys';
 import { Kbd } from '@whip/ui';
@@ -7,6 +7,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs, useShellCommands } from './context';
 import { openNewChat } from './session-tab-routing';
+import { LocalRuntimeSetup } from './host-dialog';
 import { layout } from './styles';
 
 /**
@@ -20,11 +21,21 @@ export function EmptyWorkspace({ missing = false, subject = 'draft' }: { missing
   const { hosts, preferences } = useAppState();
   useSessionTabs();
   const commands = useShellCommands();
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const closed = runtime.tabs.workspace().closed.length > 0;
   // First run: every host that has answered holds an empty catalog. Status is ignored; polls flip it to stale and back.
   const lists = useMemo(() => hosts.flatMap(host => host.list ? [host.list] : []), [hosts]);
   const subscribe = useCallback((listener: () => void) => { const offs = lists.map(list => list.subscribe(listener)); return () => { for (const off of offs) off(); }; }, [lists]);
   const firstRun = useSyncExternalStore(subscribe, () => !missing && lists.length > 0 && lists.every(list => { const page = list.getSnapshot().page; return !!page && !page.items?.length; }));
+  const local = hosts.find(host => host.local);
+  if (!missing && local?.profile.target.kind === 'local' && runtime.platform.localRuntime && local.state !== 'connected' && !hosts.some(host => !host.local && host.client)) {
+    return <div data-empty-workspace="setup" {...stylex.props(layout.setupPage)}><div {...stylex.props(layout.setupColumn)}>
+      <LocalRuntimeSetup host={local} onConnected={() => {
+        if (mounted.current) openNewChat(runtime, navigate, { hostProfileId: local.id });
+      }} />
+    </div></div>;
+  }
   const run = (action: string) => { if (commands) commands(action); else openNewChat(runtime, navigate); };
   const rows = [
     { action: 'new', label: 'New session', primary: true },

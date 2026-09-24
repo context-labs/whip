@@ -186,7 +186,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');

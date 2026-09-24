@@ -26,7 +26,7 @@ export function createWhipApplication(platform: AppPlatform, history?: RouterHis
     const systemContrast = useSyncExternalStore(subscribeContrast, readContrast, readContrast);
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} systemContrast={systemContrast} onNotice={message => runtime.report(message)}>
-        <NativeSurfaceProvider acquire={platform.browser ? runtime.browser.acquireOverlay : undefined}><UIProvider><QueryClientProvider client={runtime.queries}>
+        <NativeSurfaceProvider acquire={platform.browser ? runtime.browser.acquireOverlay : undefined}><UIProvider copy={text => platform.copy(text)}><QueryClientProvider client={runtime.queries}>
           <FileDropNavigationGuard />
           {startup ? <StartupScreen startup={startup}><RouterProvider router={router} /></StartupScreen> : <RouterProvider router={router} />}
           {children}

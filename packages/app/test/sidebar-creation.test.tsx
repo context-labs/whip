@@ -153,10 +153,16 @@ it('connects a key during setup, masks it, and preserves the draft until model c
   fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   await screen.findByRole('button', { name: 'Use coding-model' });
   expect(f.client.configuration.update).not.toHaveBeenCalled();
-  expect(screen.queryByLabelText('Your first message')).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
   expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep me while signing in');
   expect(JSON.stringify([...f.drafts])).not.toContain('secret-key');
   expect(JSON.stringify(f.query.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
+  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use coding-model' }));
+  const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
+  expect(input.value).toBe('Keep me while signing in');
+  expect(input.disabled).toBe(false);
   expect(f.client.sessions.create).not.toHaveBeenCalled();
 });
 it('replaces an unavailable draft route after explicit provider setup confirmation', async () => {
@@ -188,8 +194,8 @@ it('retains the draft and explains a compatible old host needs updating instead 
   act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep this task'); });
   await screen.findByText('Update Whip on Local to use provider setup. Your draft is preserved.');
   expect(screen.queryByRole('button', { name: 'Use Inference.net' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
-  expect(screen.queryByLabelText('Your first message')).toBeNull();
   expect(f.client.sessions.create).not.toHaveBeenCalled(); expect(f.client.configuration.update).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep this task');
 });

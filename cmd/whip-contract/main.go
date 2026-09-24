@@ -89,6 +89,7 @@ func generate(dir string, check bool) error {
 		Value any    `json:"value"`
 	}{
 		{Type: "InitializeParams", Value: protocol.InitializeParams{ProtocolMajor: protocol.Major, BuildID: "fixture", ClientID: "browser-fixture", ClientKind: "human"}},
+		{Type: "HostSkillCompletionParams", Value: protocol.HostSkillCompletionParams{Scope: "global", Limit: 1024}},
 		{Type: "SubscribeParams", Value: protocol.SubscribeParams{RootID: "root-fixture", SubscriptionID: "view-fixture", Cursor: 9007199254740993}},
 		{Type: "ContentHandle", Value: protocol.ContentHandle{ReferenceID: "ref-fixture", Digest: strings.Repeat("0", 64), Size: 9007199254740993}},
 	}

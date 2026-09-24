@@ -20,7 +20,7 @@ const maxTerminalCwdBytes = 4096
 // handleTerminal serves workspace terminal tabs. Every operation is scoped to
 // the calling connection: output goes to whichever connection attached last,
 // and a connection that drops is detached without ending its shell. Network
-// clients are refused unless the operator enabled terminals for the listener.
+// clients are refused unless the operator enabled the daemon network-terminal policy.
 func (s *Server) handleTerminal(connection *serverConn, request rpcMessage) (any, *RPCError, bool) {
 	if !strings.HasPrefix(request.Method, "terminal.") {
 		return nil, nil, false
@@ -29,7 +29,7 @@ func (s *Server) handleTerminal(connection *serverConn, request rpcMessage) (any
 	if manager == nil {
 		return nil, rpcFailure(-32003, "terminals are unavailable on this daemon"), true
 	}
-	if connection.network && !s.options.Network.Terminals {
+	if connection.network && !s.options.NetworkTerminals {
 		return nil, rpcFailure(-32012, "terminals are disabled for network clients; start the daemon with "+buildinfo.Env("NETWORK_TERMINALS")+"=1 to allow them"), true
 	}
 	switch request.Method {

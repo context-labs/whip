@@ -105,7 +105,9 @@ flowchart LR
   App --> SDK["SDK and synchronized views"]
   App -. "wire types" .-> Protocol["generated protocol"]
   SDK --> Protocol
-  SDK <-->|"WebSocket / scoped HTTP content"| Daemon["Go daemon"]
+  SDK <-->|"WebSocket / scoped HTTP content"| Gateway["web gateway process"]
+  Gateway <-->|"Unix-socket protocol"| Daemon["Go daemon"]
+  Native["desktop / local CLI"] <-->|"Unix socket"| Daemon
   Scripts["Node scripts"] --> SDK
 ```
 
@@ -485,7 +487,30 @@ not enter the renderer. The panel owns its temporary busy/error/confirmation
 state and retires late results on close; it is not another SDK connection owner.
 
 **Choose executable** uses a native picker and validates the selected distribution.
-The welcome screen's **Set up this Mac** uses the optional
+The empty workspace and New Chat reuse `LocalRuntimeSetup` for a native local host
+that is not connected. `HostConnections` first inspects `localRuntime.test()` before
+creating a transport. Its optional `HostConnection.localRuntime` is the latest
+successful read-only snapshot, not a second configuration store. Missing runtime
+is an expected setup requirement (`LocalRuntimeSetupRequiredError`), not `host.error`;
+real inspection and connection failures still belong to the host error surface.
+An actual error takes precedence over a previously cached missing snapshot.
+
+First launch shows **Welcome to WhipCode**, a primary **Get Started** action, a
+secondary **View GitHub** button, and one **Advanced** disclosure, collapsed by
+default. The shared setup view is vertically centered when it fits and scrolls
+when it does not. New Chat omits its host picker during local setup; the sidebar
+does not duplicate the setup/repair action. Native `repairRequired` identifies a
+missing saved installation; an unused default executable destination still shows
+setup, not repair. Advanced reuses the native picker,
+custom install action and read-only check, showing the install/data paths and local
+service state without another nested diagnostics disclosure. Settings retains its
+independent diagnostics panel. Setup observes shared readiness rather than starting
+a duplicate probe; its action results and busy/error state are local while mounted.
+After installation or selection, the normal connection owner re-inspects and connects.
+Successful setup from the empty workspace opens the existing New Chat/provider flow;
+installed Macs keep the normal front door. Remote hosts and stale-tab pages are unchanged.
+
+**Get Started** uses the optional
 `localRuntime.installDefault` capability, then connects through `HostConnections`.
 The native runtime probes first: a compatible executable is reused, and only a
 missing installation is filled with verified bundled bytes at the saved missing
@@ -698,6 +723,7 @@ update their source, boundary tests, and this table together.
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
 | SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
+| New Chat host metadata | Provider inventory, runtime configuration, model catalogs, and definitions retained for five minutes after the last observer leaves; 10-second freshness unchanged; detach clears that host’s entries | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
 | Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
 | Sidebar layout preferences | 4 hosts, 64 collapsed directories per host, 64 KiB metadata; this does not limit connected hosts | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
@@ -729,14 +755,18 @@ mount and from its last cursor on reconnect, redraws on a cursor gap, forwards t
 composer and terminal shortcuts to the app, and offers Restart (a new shell behind the same
 tab) or Reattach when the daemon reports exit or a takeover. Session-backed descriptors store runtime/root identity;
 New Chat descriptors store an independent draft ID, optional host profile/runtime,
-working directory, permission mode and optional execution engine, agent definition,
-model/provider pair and reasoning effort selections. Prompt text and recovery payloads never enter
-the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
+working directory and optional permission mode, execution engine, agent definition,
+model/provider pair and reasoning effort selections. An omitted permission mode
+inherits the selected host's default; an explicit choice survives restoration.
+Prompt text and recovery payloads never enter the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
 leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
 The global session view ID identifies one presentation of that host’s session. Duplicates share
 SDK data and recipient drafts/files/locks, but retain independent mode, agent, inspector,
 scroll and caret state. When a chat view becomes active on desktop, its composer
 receives focus without scrolling; compact layouts and open overlays retain their focus.
+New Chat uses the same post-layout focus timing: its first panel is hidden until
+measured, so mount-time `autoFocus` is too early. Metadata refreshes do not refocus
+an already visible composer.
 Only the focused view is reflected in the URL. Native
 links carry a validated `whipViewId` history hint so Back/Forward can distinguish
 two views with identical URLs. Sidebar/search reuse the selected matching view,
@@ -1184,6 +1214,10 @@ because a configured environment variable does not mean a key is present.
 Rows use shared Dialog primitives. `ProviderConnectionList` owns the same compact
 connection-choice list for Settings and onboarding: Inference.net, OpenRouter,
 OpenAI, and ChatGPT subscription by default, with Show all/fewer providers.
+New Chat measures its centered column's top margin before expansion and retains
+that spacing while the additional providers flow downward; collapse or leaving
+provider setup restores normal centering. This inline style is measured geometry,
+not authored spacing. The expanded list's Refresh action stays below the rows.
 Settings keeps connected, disabled, and attention groups visible independently
 of this expansion; onboarding also keeps custom and attention/disabled choices
 accessible. A configured environment reference alone does not expand the list.
@@ -1339,21 +1373,28 @@ The behavior is covered by `remote-directory-dialog.test.tsx`,
 The host menu shows names, endpoints and connection status,
 plus **Manage servers**. Switching hosts preserves the prompt and clears the
 host-specific folder, model/provider and effort choices. A folder, explicit send and a
-usable route are required before execution. The shared permission control starts
-at Ask; `session.create.permission_mode` saves that mode atomically with creation
-and command acceptance. Retrying creation never resets a later session choice.
-Model and effort choices belong to the draft and never write host defaults.
+usable route are required before execution. The shared permission control uses
+the draft's explicit choice, otherwise the selected host's default permission
+mode, with Ask as the fallback for older hosts. An untouched draft cannot send
+until its host configuration is known; loading must not show Ask while silently
+creating a Full Access session. `session.create.permission_mode` saves the visible
+mode atomically with creation and command acceptance. Retrying creation never
+resets a later session choice. Model, effort and permission choices belong to
+the draft and never write host defaults.
 An unavailable saved effort remains visible and requires an explicit replacement.
-When no ready route exists, provider setup replaces the composer with the Paper
-ELF-0 layout in the same centered column: the 24px heading, 16px heading gap,
+When no ready route exists, automatic provider setup appears below the draft
+composer so typing, project selection and slash skill discovery remain available;
+Send stays disabled until a route is ready. The explicit Connect a provider action
+switches to setup without the composer. Setup uses the Paper ELF-0 layout in the
+same centered column: the 24px heading, 16px heading gap,
 12px panel inset, rows at least 64px tall, 8px row/footer gaps and shared buttons.
 The initial list shows common providers (including OpenRouter) plus configured connections needing
 attention, preserving host inventory order. **Show all providers** reveals the
 remaining inventory and Refresh. **Connect Remote** opens the shared Add server
 dialog for local setup; remote setup retains its execution-host selector.
 Provider rows grow for wrapped labels and mobile touch targets. Connection and
-model confirmation reuse the existing flows; completing setup restores the draft
-composer without sending it.
+model confirmation reuse the existing flows; completing setup returns focus to
+the preserved draft composer without sending it.
 
 Sending the first message is three commands through the runtime's command
 runner: `sessions.create`, an optional `session.effort` with `persist_default:
@@ -1401,7 +1442,12 @@ Settings is open; daemon work continues.
 `settings/navigation.ts` owns the seven-category registry, bounded local search
 index and validated `section`, `host`, and `setting` search parameters. Search
 navigates to and focuses the actual control, opening any enclosing disclosure.
-Native-only controls are absent from browser search. Below 768px, navigation uses
+Native-only controls are absent from browser search. Providers & models includes
+Default permission level alongside model and effort under Defaults for new work.
+It reuses `PermissionModeControl` and the existing guarded, revision-checked host
+configuration form; selecting a mode edits the draft, and Save host defaults
+persists it. Older hosts without the field cannot save an unsupported permission
+default. Below 768px, navigation uses
 a Sheet; desktop retains its inset traffic-light and draggable regions.
 
 On entry, `bindSettingsNavigation` records the exact runtime, root, duplicate view,
@@ -1598,6 +1644,86 @@ Markdown blocks preserve their DOM until selection ends, then display the latest
 source; other blocks continue streaming. Code decoration receives original token
 offsets and never changes its source or copy semantics.
 
+### Mermaid diagrams
+
+Web and desktop Markdown fences marked `mermaid` use the shared
+`MermaidBlock` (`packages/ui/src/mermaid-block.tsx`), backed by the exact reviewed
+`beautiful-mermaid` release. This is a **conservative Mermaid subset**, not full
+mermaid.js compatibility. Unknown types, unsupported statements, incomplete or
+truncated source, and render/size failures remain source with an explanation;
+never silently display a partial parse as a complete diagram. The supported
+statement policy and limits live in `mermaid-data.ts` with real-library fixtures.
+Basic flowchart, state, sequence, class, ER, and single-series XY diagrams are
+supported. Styling/configuration directives, HTML, external resources, actions,
+and unsupported advanced syntax are intentionally source-only.
+
+`packages/app/src/markdown-code-block.tsx` is the Markdown-only dispatch shared by
+`timeline.tsx`'s `Prose` path and `streaming-markdown.tsx`'s virtualized walker.
+Generic tool/REPL `CodeBlock` instances never opt into rendering. Message readiness
+is explicit: live responses remain source until settlement, even if the parser
+synthetically closes a fence. Truncated retained text never renders a diagram.
+Diagram/Source preferences are presentation state owned by each mounted Timeline,
+bounded to 128 choices / 512 KiB of keys and discarded with the conversation view.
+Static Markdown annotates TanStack's rendered tree with owner+structural-path
+identity, so identical nested fences retain independent preferences on remount. Original Markdown remains
+the response-copy/history authority. No SDK, protocol, or host state is added.
+
+The shared component uses resolved theme colors, accessible text/connector roles,
+and the UI font/size preference. Chrome uses StyleX tokens and existing controls.
+Source uses `CodeBlock` with its header hidden only because the enclosing diagram
+header supplies the same original-source copy action. The expanded Dialog offers
+Fit/100% and scrolling; focus returns to Expand. Source focus/selection prevents
+an automatic image swap. Theme replacement keeps the old image until its
+replacement decodes; row-size changes use existing reading-anchor measurement.
+
+The library and bundled fonts live in one lazy module worker, never React render.
+The scheduler bounds source (32 KiB), statements (250), queued work (16 / 512 KiB),
+SVG output (1 MiB including fonts), dimensions/pixels, and cache (32 / 8 MiB).
+Active layout has a two-second termination deadline, separate from a 15-second
+cold-worker startup deadline. Stale/abandoned requests are cancelled and URLs are
+revoked after replacement/unmount; cache entries are strings, not live URLs.
+
+Generated SVG is a **Blob-backed image only**, never injected markup, an object,
+iframe, or navigable document. The output adapter strips library remote font
+imports, embeds existing local Inter subsets when selected, and rejects active
+markup/external references. Source cannot supply theme CSS or URLs. SVG image
+isolation means page CSS/fonts are not implicitly inherited; the image is
+self-contained. A release-specific worker bootstrap selects ELK's FakeWorker
+export and warms it once before restoring worker globals; it never alters the
+window. This compatibility shim is covered by real production and development
+worker tests and must be revisited on dependency upgrades. Vite consumers include
+`beautiful-mermaid` in `optimizeDeps.include`: the engine remains lazy, but its
+transitive CommonJS dependency must be transformed even inside an installed UI
+package's worker. See `packages/ui/README.md` and the packed-consumer probe. The public
+`mermaid-NOTICE.txt` includes licenses and ELK source availability; desktop's
+existing dependency-notice/SBOM pipeline also includes the transitive packages.
+Production CSP is unchanged. Raw SVG export and interactive links
+are deliberately absent because they need a different security design.
+
+Coverage: `packages/app/test/mermaid-markdown.test.tsx`, shared renderer tests,
+`npm run test:mermaid -w @whip/ui`, and the packed-app
+`apps/web/scripts/mermaid-diagrams.mjs` probe (after `npm run pack:web`; use
+`WHIP_WEB_BROWSERS=electron` after desktop staging for the packaged custom-protocol
+check). Use actual production CSP, real
+library output, offline/local assets, theme changes, and reading-position checks;
+mocked component tests alone do not validate this rendering boundary.
+
+Every standalone shared `CodeBlock` owns one always-visible copy button in its top-right
+header, including chat, REPL source/output/return values, traces and detail views.
+`UIProvider copy` receives `text => platform.copy(text)` at application bootstrap;
+UI imports no app runtime or Electron APIs. `CopyButton` resolves an explicit
+callback before the provider and uses browser clipboard only as the standalone
+fallback. Nested UI providers retain the inherited clipboard adapter.
+
+Copy uses `copyText ?? code`, before visual byte limits or text decoration. REPL
+output supplies raw `row.output` while displaying its collapsed/formatted preview;
+there are no separate REPL copy controls. Copy does not fetch offloaded bodies or
+claim that unavailable text is present. Additional authorized actions use
+`headerActions`. Clipboard failures have one accessible local display at the
+copy control, cleared on successful retry or source change; stale asynchronous
+results cannot mark newer streaming text as copied. See the shared code-block,
+clipboard-provider and REPL tests, plus the UI CSP browser probe.
+
 `transcript-motion.tsx` adapts Zeron's MIT-licensed motion with native Web Animations
 and static StyleX styles. Text fades are opacity-only, use the 160ms gap seed,
 70/30 moving average and 120–400ms clamp, with acceleration for concurrent chunks.
@@ -1665,7 +1791,9 @@ require an idle session, including options in an already-open popover; child com
 model without changing the root. `permission-mode.tsx` toggles the root
 session's access mode (`permission.mode` with `external_permissions`) from a
 composer popover. The mode belongs to the root session and is saved in SQLite;
-new sessions default to Ask for approval and upgrades preserve saved choices.
+fresh sessions inherit the host's default permission level (Ask for approval
+unless explicitly changed). Forks retain their separate Ask default; upgrades
+and changes to host defaults preserve saved session choices.
 Full Access allows paths outside the project on the execution host and approves
 actions automatically. Explicit delegated path/operation limits remain enforced.
 Ask keeps the original project file boundary; it does not sandbox shell commands.
@@ -1854,6 +1982,23 @@ searchable sheet. Preserve browser Back/Forward, modified link clicks, keyboard
 activation, and explicit touch/menu alternatives to dragging. Do not hijack the
 browser's new-tab or close-tab shortcuts.
 
+Desktop alone maps File > New session (`CmdOrCtrl+T`) through the typed native
+`new-session` event and `AppPlatform.onNewSession` to `openNewChat`. The menu
+reveals the window and focuses the shared renderer, including when an embedded
+website has focus; guest
+content must not intercept T and suppress the menu accelerator. This creates a
+fresh draft in the focused pane, not a Browser tab or an immediate daemon session.
+Open dialogs block the action. Web has no dedicated New session shortcut; its
+sidebar and command palette actions remain unchanged.
+
+Desktop File > Reopen closed tab (`CmdOrCtrl+Shift+T`) follows the same native menu
+path via `reopen-closed-tab` / `AppPlatform.onReopenClosedTab`. It reuses
+`reopenClosedTab` in `session-tab-routing.ts`, shared with the tab strip's Reopen
+action, so Settings can restore tabs even while the strip is unmounted. Existing
+bounded closed history, pane placement, tab limits and error reporting remain
+owned by the workspace; no history or session state is duplicated. The menu
+reveals/focuses the window, dialogs guard the action, and no web hotkey is installed.
+
 ### Saved-session navigation
 
 [`session-sidebar.tsx`](../packages/app/src/session-sidebar.tsx) projects the SDK's
@@ -2001,6 +2146,86 @@ preference; native SSH hosts can reuse a simple alias. Finder is local-only.
 The browser offers Copy directory. Shared UI never imports Electron or launches
 arbitrary commands, and generic `openExternal` remains restricted to web/mail URLs.
 
+### Slash skill suggestions
+
+The existing and first-message composers share
+[`use-skill-completion.tsx`](../packages/app/src/use-skill-completion.tsx), with
+pure token-range/replacement helpers in
+[`skill-completion.ts`](../packages/app/src/skill-completion.ts). Draft text and
+selection remain with their existing composer owners. Menu visibility, active
+item, dismissal and the current caret token are ephemeral, not persisted state.
+Selecting `/name` inserts the canonical `$name` reference; it does not submit.
+Completion handles Enter before the normal send handler and preserves IME,
+multiline input, attachments and the existing Add context dialog.
+
+Existing conversations use `workspace.complete` with `kind: 'skill'`; New Chat
+uses `host.skills.complete`, negotiated independently through
+`host_skill_completion`. New Chat with no CWD additionally requires
+`host_global_skill_completion` and sends `scope: 'global'` without cwd. That
+variant reads only the execution host's existing user-global roots, never the
+renderer filesystem or an implicit project. With a chosen CWD, keep the legacy
+cwd request shape (omit scope) for project-plus-global discovery, including on
+older hosts. Global support and `skill_catalog_completion` are independent
+capabilities. Unsupported global discovery shows a choose-folder/update-host
+status without making a request or guessing a folder.
+
+Both New Chat scopes require a connection and resolved effective permission
+mode, but the metadata API does not require model/provider readiness. The New
+Chat UI still shows provider setup before exposing the composer and skill picker.
+Preserve the explicit tab override or
+await the runtime configuration default; do not guess a permission mode while
+configuration is pending. The selected definition remains authoritative. Queries
+preview metadata without creating a session, calling a model, or granting access.
+Send still requires a project and the normal first-message readiness checks.
+
+With `skill_catalog_completion` and the applicable endpoint capability, focus
+preloads one scope-keyed Query using `prefix: ''`, `limit: 1024`. Readiness arriving
+while physically focused starts that same read; a merely selected pane or hidden
+mounted composer does not eagerly warm. The key includes runtime/client lifetime,
+composer owner, root/agent or planned global/project scope with
+CWD/definition/effective permission mode, and limit—not the typed prefix. Never
+reuse previous project rows across a scope change or merge global/project
+catalogs in the renderer. Keep the catalog observed for the mounted context
+across blur/Escape, with the runtime's
+10-second freshness and zero inactive retention. No disk cache, polling, or
+browser filesystem scan is involved. A new focus/picker-open boundary refreshes
+stale metadata in the background; typing never refreshes, even after freshness
+expires. Runtime reconnect invalidation uses the existing host-scoped lifecycle.
+Scope/client changes and disposal abort obsolete reads and release unobserved
+entries; disconnected or unresolved-authority contexts cannot offer candidates.
+Escape blocks late results from opening a panel but permits an in-scope preload
+to finish.
+
+Filter the full metadata collection synchronously with case-sensitive name
+`startsWith(prefix)` before rendering at most 32 rows, preserving host order and
+Unicode without normalization. Successful results omit count/insertion and
+narrowing helper text; loading, empty, error, and host warnings remain. Warm edits
+have no debounce, loading flash, or per-key RPC. Cold reads reserve an empty status line and delay only the loading
+label by 150 ms. Background refresh preserves the same-scope list; failures keep
+cached matches visible with an explicit stale/failed status and Retry.
+
+Older hosts without the catalog capability retain the debounced 32-result
+server-prefix path. A catalog response marked `truncated` (including warning
+overflow) switches that context to the same fallback and preserves its warnings;
+never infer a definitive local no-match from incomplete metadata. Arbitrary RPC
+errors are not compatibility signals. Host count/byte bounds remain authoritative
+(1,024 skill results and a 1 MiB serialized response). Inserted references remain
+ordinary draft text when setup changes; actual invocation re-resolves and
+authorizes them when the user sends. Lifecycle/filtering tests live in
+`packages/app/test/skill-catalog.test.tsx`, with both composer integrations covered
+by their existing component suites.
+
+[`useTextareaSuggestions`](../packages/ui/src/textarea-suggestions.tsx) owns the
+generic attached listbox and keyboard/active-descendant adapter. Base UI's
+single-line Autocomplete input is not used as a substitute for a multiline
+textarea. The native textbox retains focus and native editing semantics; Base UI
+owns non-modal popup positioning/dismissal, and `useNativeOverlay` coordinates
+native Browser surface hiding. Styling uses existing StyleX tokens. The popup
+must not resize the transcript or steal focus on dismissal. Browser interaction
+coverage lives in `packages/ui/tests/textarea-suggestions.mjs`; automated Axe
+coverage excludes only Base UI's generated focus-guard sentinels, not authored
+controls, and is not a substitute for manual screen-reader verification.
+
 ## Component and styling contract
 
 Start with the [UI inventory](../packages/ui/README.md#component-inventory) and
@@ -2068,8 +2293,11 @@ Empty states everywhere ask "What do you want to work on?"; failure copy is
 reserved for stale URLs and real errors.
 
 A fresh bare `/` with empty device **and** window stores stays here without opening
-or seeding a tab. New session is a separate user action that creates its real
-`/new/$draftId` route and mounts provider setup or the configured composer.
+or seeding a tab. An unconfigured native Mac shows local setup here instead of an
+error or the action list; completing explicit setup opens New Chat. New session is a separate user action that creates its real
+`/new/$draftId` route. When no provider is ready, provider setup replaces the
+composer and project controls; completing setup reveals the preserved draft.
+Explicit provider setup also temporarily replaces the composer.
 Desktop startup acceptance preserves this UX: the zero-interaction measurement
 requires the scoped frontdoor action, current verified local SDK connectivity,
 and the actual `StartupScreen` visible phase, not just layout rectangles or a
@@ -2103,13 +2331,20 @@ Keep the interface still while a host answers. Four rules, in priority order
 
 Spinners may be delayed to avoid flashing on fast reads (the directory dialog
 waits 180 ms); footprint reservation is never delayed, because a slot that
-appears late is itself a flash. When two layouts are mutually exclusive and the
-choice needs a host round trip (New Chat's composer versus provider setup), the
-answer is fetched ahead of time: `AppRuntime.primeProviders` warms the provider
-inventory when a host connects (the splash waits for Local's), and the last
-answer is remembered per host in device storage (`provider-readiness.ts`) so the
-first paint after a reload is already right. Route bodies for tabs the workspace already
-owns render nothing, so a route commit never paints their "missing" copy.
+appears late is itself a flash. New Chat's heading and automatic provider setup
+need host readiness. `AppRuntime.primeProviders` warms the provider inventory
+using the connection callback’s verified client, before the host snapshot is
+published (the splash also awaits Local’s warm-up). Host configuration and model
+catalogs warm alongside it without blocking the splash. Query owns deduplication and
+freshness, so failed or expired prefetches can be retried. The last readiness
+answer is remembered per host in device storage (`provider-readiness.ts`).
+Provider inventory, runtime configuration, model catalogs, and definitions have
+five-minute inactive retention in the runtime's query defaults: closing the last
+tab must not discard the metadata needed to paint the next New Chat. Freshness
+stays at ten seconds; existing data remains visible while stale reads refresh.
+Login flows and other queries retain the zero-GC default. Host detach clears its
+retained queries, and no query cache is persisted to disk. Route bodies for tabs
+the workspace already owns render nothing, so a route commit never paints their "missing" copy.
 
 ### Themes are foundational
 
@@ -2226,13 +2461,26 @@ must not pass through JavaScript Number; use BigInt-aware helpers. Never invent
 a parallel DTO/operation registry in the app. A new host capability starts in the
 Go protocol/handler and SDK, then the UI consumes it.
 
+MCP import persists host configuration first. Settings then uses the advertised
+`mcp.refresh` session command only for the focused session on that same host,
+captured when import starts. Welcome and imports targeting another host do not
+create or choose a session. Saved imports and live-refresh failures have separate
+outcomes; an older daemon keeps the saved configuration without an unsupported
+command. Integrations offers the same explicit refresh for external additions.
+Refresh is additive, not a restart: existing connections and session-disabled
+servers stay intact, changed existing configurations require a runtime reload,
+and accepted new connections may still be starting. SDK command recovery and
+the existing MCP status query own delivery and live status respectively.
+
 Protocol validators are generated ahead of time; do not compile Ajv schemas at
 runtime or require `unsafe-eval`. The SDK validates outgoing requests strictly,
 accepts additive incoming fields, and surfaces unknown event kinds explicitly.
 Malformed known messages are protocol errors. Feature components must not create
 their own WebSocket clients or handwritten JSON-RPC envelopes.
 
-The browser uses the daemon's WebSocket API and scoped HTTP content transfers.
+The browser uses the gateway's WebSocket API and scoped HTTP content transfers.
+The gateway relays the existing protocol to the socket-only daemon; it owns no
+execution engine, store, or independent HTTP business API.
 Content references remain references until a bounded consumer reads them. Visible
 user/assistant chat rows automatically read their stored message bodies through
 the SDK; tool output, reasoning and inspector content still require disclosure.
@@ -2255,23 +2503,59 @@ the token module. Use Vite's transform cache so token edits still invalidate nor
 runs in `task web`; production extraction remains unchanged.
 
 Both `whip` and the `whipcode` branch distribution embed this same application.
-`whipcode` owns `~/.whipcode` and uses `WHIPCODE_NETWORK`, `WHIPCODE_LISTEN`,
-`WHIPCODE_ALLOWED_ORIGINS`, and `WHIPCODE_ALLOWED_HOSTS` for its daemon. Build
-with `task build:whipcode`; launch with `whipcode web`. Package names and wire
-identifiers stay shared. See [branch installation](../README.md#whipcode-branch-builds).
+The renderer is built once and packaged in the executable; serving it requires
+no Node runtime or production Vite server. `whipcode` owns `~/.whipcode` and uses
+the equivalent `WHIPCODE_*` settings. Build with `task build:whipcode`; start the
+daemon explicitly, then run `whipcode web`. Package names and wire identifiers
+stay shared. See [branch installation](setup.md#whipcode-branch-builds).
 
-Release builds pack Vite assets for the Go daemon; there is no production Vite
-server. The launch endpoint defines Local; saved profiles attach directly to
-additional existing daemons over separate browser connections. The shell does not start,
-restart, or reconfigure their listeners. Exact browser Origin configuration and
-a stable local Origin remain separate work; this feature does not relax allowlists.
-The local Vite development proxy validates loopback clients and exact dev
-Host/Origin before forwarding Local's HTTP/WebSocket API requests with the daemon
-origin. This is confined to development tooling; production and direct remote
-connections retain the daemon's normal checks. `apps/web/dev-proxy.ts` owns that
-boundary, with HTTP and upgrade regression coverage in `dev-proxy.test.mjs`.
-See [web setup](web-app.md#develop-against-an-existing-daemon) for exact origin and
-listener setup; building frontend assets alone cannot upgrade a running daemon.
+### Gateway and daemon ownership
+
+The daemon always serves only its Unix-socket protocol. Desktop and local CLI
+connections do not need a gateway; ordinary startup opens no TCP listener.
+[`internal/webgateway`](../internal/webgateway) is the single HTTP/WebSocket
+implementation: static assets, `/api/v3/web`, `/api/v3/ws`, and
+`/api/v3/content/`, with the existing exact Host/Origin checks. These are not
+authentication; remote clients require a trusted network or authenticated proxy.
+
+[`whip web`](../cmd/whip/web.go) owns a foreground gateway, opens the browser by
+default, and waits until stopped. `--no-open` skips the browser but still waits;
+`--url <origin>` is check/open-existing mode and needs no local daemon or new
+server. Foreground serving requires a running compatible daemon and never
+starts or restarts it. It tries
+`127.0.0.1:4444`, falling back to an ephemeral loopback port only on
+address-in-use; an explicit `WHIP_LISTEN` never silently falls back.
+
+`WHIP_NETWORK=1` opts daemon launch paths into the same gateway as an owned child,
+after socket readiness. Unset or `0` means no automatic web startup, not a ban
+on explicit `whip web`; `WHIP_LISTEN` alone does not opt in. Managed status lives
+in the daemon generation: `gateway.status` reports its state and
+`init.network_endpoint` advertises only a ready managed endpoint. Foreground
+instances report their own URLs and never overwrite it. Gateway failure does
+not cancel daemon work and has no automatic restart loop. Daemon loss stops
+the gateway rather than reconnecting it to a replacement runtime.
+
+Each browser WebSocket has its own upstream socket connection. The gateway
+forces the restrict-only `network-client-v1` initialization capability and
+requires the daemon's negotiated acknowledgement before forwarding further
+traffic; old daemons fail closed. Network-terminal policy stays in
+[`terminal_rpc.go`](../internal/daemon/terminal_rpc.go), not in the gateway.
+The socket hop must never turn a browser into a trusted local terminal client.
+HTTP content uses the existing bounded upload/read RPCs and daemon-owned grants,
+not direct store access. Disconnecting clients or stopping a gateway detaches
+observation without cancelling accepted execution.
+
+The launch gateway defines Local's daemon; saved profiles attach to additional
+existing gateways over independent browser connections. The app does not start,
+restart, or reconfigure them. Exact browser Origin configuration and handling
+local port changes remain explicit; allowlists are not relaxed. The local Vite
+development proxy validates loopback clients and exact dev Host/Origin before
+forwarding Local's HTTP/WebSocket API requests with the gateway origin.
+Production and direct remote connections retain the gateway's normal checks.
+[`apps/web/dev-proxy.ts`](../apps/web/dev-proxy.ts) owns that development boundary,
+with HTTP and upgrade regression coverage in `dev-proxy.test.mjs`. Vite needs an
+explicitly running gateway. See [web setup](web-app.md#develop-against-an-existing-daemon);
+building frontend assets alone cannot upgrade a running daemon.
 
 ## Working on a change
 
@@ -2310,18 +2594,21 @@ Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
 ```sh
 npm ci
 npm run build                  # SDK artifacts used by the app
-# Attaches through the local dev proxy; no daemon allowlist change or restart.
+# In another terminal, run a gateway for the intended compatible daemon:
+# WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open
+# Attaches through the local dev proxy; no daemon restart.
 npm run dev:web
 ```
 
 The development app is on port 3000; Vite forwards `/api` HTTP and WebSocket
-requests to `http://127.0.0.1:8080` by default. Set `WHIP_WEB_DAEMON` when the
-daemon reports a different endpoint. Production keeps same-origin attachment.
+requests to the gateway at `http://127.0.0.1:4444` by default. Set
+`WHIP_WEB_DAEMON` to the actual printed origin if the gateway uses another port,
+including implicit-4444 fallback. Production keeps same-origin attachment.
 The proxy accepts only local requests from the exact dev origin, then rewrites
 the upstream origin for HTTP content and WebSockets. It does not start or
-reconfigure the daemon. Shared app/UI source edits use React Fast Refresh;
+reconfigure a gateway or daemon. Shared app/UI source edits use React Fast Refresh;
 SDK source edits still require `npm run build`.
-Use [web-app.md](web-app.md) for daemon
+Use [web-app.md](web-app.md) for daemon/gateway
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a
 casual frontend test fixture.

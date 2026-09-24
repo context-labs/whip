@@ -1,7 +1,7 @@
 # Whip mobile
 
-The Expo/React Native companion connects directly to an existing Whip host over
-its private Tailscale HTTPS address. Execution, provider credentials, sessions and
+The Expo/React Native companion connects to an existing Whip host's web gateway
+over its private Tailscale HTTPS address. Execution, provider credentials, sessions and
 permissions stay on the host. The phone has no application login, pairing service,
 QR scanning or push notifications in this release.
 
@@ -16,22 +16,26 @@ native build or TestFlight release.
    restrict the served endpoint to the intended people/devices: reaching this
    listener permits directing host work. Use private
    [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
-2. Configure Whip's existing listener on a fixed loopback port. For example,
-   substitute the host's actual Tailscale DNS name for `whip.example.ts.net`:
+2. Start a compatible daemon, then run its gateway on a fixed loopback port.
+   Substitute the host's actual Tailscale DNS name for `whip.example.ts.net`:
 
    ```sh
+   whip daemon start
    WHIP_LISTEN=127.0.0.1:9876 \
    WHIP_ALLOWED_HOSTS=127.0.0.1:9876,whip.example.ts.net \
    WHIP_ALLOWED_ORIGINS=https://whip.example.ts.net \
-   whip daemon start
+   whip web --no-open
    ```
 
-   These are existing environment settings, read when the daemon starts.
-   `whip daemon start` does not change a running daemon's listener. Inspect
-   `whip daemon status` before scheduling any intentional restart; restarting a
-   live development daemon is not part of building or installing the phone app.
+   Keep the foreground gateway running; `--no-open` does not exit after printing
+   the URL. Ctrl+C stops web access but leaves daemon work running. No restart
+   is needed to add a gateway to a compatible running daemon. For an owned child
+   at daemon startup instead, set `WHIP_NETWORK=1` alongside the same gateway
+   settings on `whip daemon start`. `WHIP_LISTEN` alone is not an opt-in.
+   Existing daemons keep their launch configuration; do not restart active work
+   merely to build or install the phone app. Whipcode uses `WHIPCODE_*` instead.
 3. Inspect existing Serve mappings with `tailscale serve status`. On an unused
-   mapping, forward HTTPS to the loopback listener:
+   mapping, forward HTTPS to the loopback gateway:
 
    ```sh
    tailscale serve --bg http://127.0.0.1:9876
@@ -71,9 +75,14 @@ https://kuzco-gpu-2.tail7524e6.ts.net
 
 The `whip-sam.service` system service starts at boot and runs
 `/home/sam/.local/bin/whip _daemon` as `sam`, with data in `/home/sam/.whip`.
-It listens only on `127.0.0.1:9876`; persistent Tailscale Serve proxies private
-HTTPS port 443 to that listener. The service unit holds the exact Host/Origin
-allowlists. Manage this installation through systemd so those settings persist:
+The recorded deployment uses `127.0.0.1:9876`, with persistent Tailscale Serve
+proxying private HTTPS port 443 and exact Host/Origin allowlists in the service
+unit. **When upgrading this deployment to the gateway architecture**, the unit
+must also opt into the owned child with `WHIP_NETWORK=1` (or manage a separate
+foreground gateway). The daemon itself no longer binds TCP, and `WHIP_LISTEN`
+alone does not start a gateway. These instructions do not establish that this
+host has been migrated or device-tested. Manage the installation through systemd
+so its intended settings persist:
 
 ```sh
 ssh gpu-4090-sam 'systemctl status whip-sam.service --no-pager'

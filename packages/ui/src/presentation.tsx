@@ -12,10 +12,11 @@ import { CSPProvider } from '@base-ui/react/csp-provider';
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { mergeProps } from '@base-ui/react/merge-props';
 import { AlertCircle, ChevronRight, X } from 'lucide-react';
-import type { ComponentPropsWithRef, ReactNode } from 'react';
+import { useContext, type ComponentPropsWithRef, type ReactNode } from 'react';
 import { styles } from './styles.stylex';
 import { colors } from './tokens.stylex';
 import { IconButton } from './actions';
+import { ClipboardContext, type CopyText } from './clipboard';
 import type { Styled } from './actions';
 
 export type Tone = 'neutral' | 'success' | 'warning' | 'error' | 'info';
@@ -77,7 +78,10 @@ export function VisuallyHidden({children}: {children: ReactNode}) {return <span 
 const toastStyles = stylex.create({
   viewport: {position: 'fixed', bottom: 20, right: 20, zIndex: 150, width: 'min(380px, calc(100vw - 40px))', display: 'flex', flexDirection: 'column', gap: 8},
 });
-export function UIProvider({children}: {children: ReactNode}) {return <CSPProvider disableStyleElements><BaseTooltip.Provider delay={400}><BaseToast.Provider timeout={5000}>{children}<ToastViewport/></BaseToast.Provider></BaseTooltip.Provider></CSPProvider>;}
+export function UIProvider({children, copy}: {children: ReactNode; copy?: CopyText}) {
+  const inheritedCopy = useContext(ClipboardContext);
+  return <ClipboardContext.Provider value={copy ?? inheritedCopy}><CSPProvider disableStyleElements><BaseTooltip.Provider delay={400}><BaseToast.Provider timeout={5000}>{children}<ToastViewport/></BaseToast.Provider></BaseTooltip.Provider></CSPProvider></ClipboardContext.Provider>;
+}
 function ToastViewport() {
   const {toasts} = BaseToast.useToastManager();
   const visible = useNativeSurfacePresence(toasts.length > 0);

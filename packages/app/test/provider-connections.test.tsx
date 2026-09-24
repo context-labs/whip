@@ -111,6 +111,7 @@ it.each([
   fireEvent.click(await screen.findByRole('button', { name: `Connect ${id === 'openrouter' ? 'OpenRouter' : id}` }));
   const dialog = await screen.findByRole('dialog');
   const input = within(dialog).getByLabelText('API key');
+  await waitFor(() => expect(document.activeElement).toBe(input));
   const help = within(dialog).getByText(/Enter an API key above, or specify/);
   expect(input.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(help.textContent).toContain(variable);
@@ -176,7 +177,7 @@ it('keeps first-time browser sign-in focused on connection choices, even with an
   expect(within(dialog).queryByText('INFERENCE_API_KEY')).toBeNull();
   expect(within(dialog).queryByRole('button', { name: 'Disable on this host' })).toBeNull();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Use an API key' }));
-  expect(within(dialog).getByLabelText('API key')).toBeTruthy();
+  await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('API key')));
   expect(within(dialog).getByText('INFERENCE_API_KEY')).toBeTruthy();
   expect(within(dialog).queryByRole('button', { name: 'Disable on this host' })).toBeNull();
 });
@@ -482,6 +483,8 @@ it.each([false, true])('shares four default provider choices and expansion (onbo
   fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
   expect(screen.getByRole('button', { name: 'Connect groq' })).toBeTruthy();
   expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(6);
+  const refresh = screen.getByRole('button', { name: 'Refresh', exact: true });
+  if (setup) expect(screen.getByRole('button', { name: 'Connect groq' }).compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Show fewer providers' }));
   expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
   expect(screen.queryByText('Environment', { exact: true })).toBeNull();

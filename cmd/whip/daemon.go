@@ -27,10 +27,12 @@ import (
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tui"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 var (
@@ -204,6 +206,16 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		components := daemon.Components{
 			Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: definition,
+			LoadMCP: func(ctx context.Context) (mcp.Filtered, error) {
+				if err := ctx.Err(); err != nil {
+					return mcp.Filtered{}, err
+				}
+				fresh, err := config.Load()
+				if err != nil {
+					return mcp.Filtered{}, err
+				}
+				return mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(fresh.MCPServers), mcp.ImportPolicyFrom(fresh.MCPImport)), ctx.Err()
+			},
 		}
 		if mcpManager != nil {
 			components.MCP = mcpManager
@@ -221,7 +233,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		lifecycleOnce.Do(func() { lifecycleRequested <- restart })
 	}
 	server, err := daemon.NewServer(ownerDaemon, daemon.ServerOptions{
-		BuildID: version, Generation: generation, RuntimeDir: paths.Runtime, Network: network,
+		BuildID: version, Generation: generation, RuntimeDir: paths.Runtime, NetworkTerminals: network.Terminals,
 		Restart: func() { requestLifecycle(true) }, Stop: func() { requestLifecycle(false) },
 	})
 	if err != nil {
@@ -232,12 +244,27 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = server.Close()
 		_ = os.Remove(paths.Socket)
 	}()
+	gatewayCtx, stopGateway := context.WithCancel(ctx)
+	gatewayDone := make(chan struct{})
+	if network.Enabled {
+		server.SetGatewayStatus(protocol.GatewayStatus{State: "starting"})
+		go func() {
+			defer close(gatewayDone)
+			manageGateway(gatewayCtx, paths, generation, server.SetGatewayStatus)
+		}()
+	} else {
+		close(gatewayDone)
+	}
+	closeGateway := func() { stopGateway(); <-gatewayDone }
+	defer closeGateway()
 	served := make(chan error, 1)
-	go func() { served <- server.ListenAndServe(paths) }()
+	go func() { defer close(served); served <- server.ListenAndServe(paths) }()
+	defer func() { _ = server.Close(); <-served }()
 	select {
 	case err := <-served:
 		return err
 	case restart := <-lifecycleRequested:
+		closeGateway()
 		status := "stopping"
 		if restart {
 			status = "restarting"
@@ -390,37 +417,29 @@ func screenshotParts(images [][]byte) []llm.ContentPart {
 	return parts
 }
 
-// Network settings are inherited by explicit starts, automatic starts, and
-// binary replacement. The loopback listener is enabled unless NETWORK opts out.
-func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
-	options := daemon.NetworkOptions{
-		Enabled: true,
-		Address: strings.TrimSpace(os.Getenv(buildinfo.Env("LISTEN"))),
-	}
-	if value := os.Getenv(buildinfo.Env("NETWORK")); value != "" {
-		enabled, err := strconv.ParseBool(value)
-		if err != nil {
-			return daemon.NetworkOptions{}, fmt.Errorf("%s must be a boolean: %w", buildinfo.Env("NETWORK"), err)
-		}
-		options.Enabled = enabled
-	}
-	if value := os.Getenv(buildinfo.Env("NETWORK_TERMINALS")); value != "" {
-		terminals, err := strconv.ParseBool(value)
-		if err != nil {
-			return daemon.NetworkOptions{}, fmt.Errorf("%s must be a boolean: %w", buildinfo.Env("NETWORK_TERMINALS"), err)
-		}
-		options.Terminals = terminals
-	}
-	parseList := func(value string) []string {
-		result := []string{}
-		for item := range strings.SplitSeq(value, ",") {
-			if item = strings.TrimSpace(item); item != "" {
-				result = append(result, item)
+// Automatic gateway startup is opt-in. Terminal authority remains daemon-owned
+// and is independent of whether this daemon owns a gateway child.
+type daemonNetworkOptions struct {
+	webgateway.Options
+	Enabled   bool
+	Terminals bool
+}
+
+func daemonNetworkEnvironment() (daemonNetworkOptions, error) {
+	options := daemonNetworkOptions{Options: gatewayEnvironment()}
+	for _, setting := range []struct {
+		name   string
+		target *bool
+	}{
+		{"NETWORK", &options.Enabled}, {"NETWORK_TERMINALS", &options.Terminals},
+	} {
+		if value := os.Getenv(buildinfo.Env(setting.name)); value != "" {
+			enabled, err := strconv.ParseBool(value)
+			if err != nil {
+				return daemonNetworkOptions{}, fmt.Errorf("%s must be a boolean: %w", buildinfo.Env(setting.name), err)
 			}
+			*setting.target = enabled
 		}
-		return result
 	}
-	options.AllowedOrigins = parseList(os.Getenv(buildinfo.Env("ALLOWED_ORIGINS")))
-	options.AllowedHosts = parseList(os.Getenv(buildinfo.Env("ALLOWED_HOSTS")))
 	return options, nil
 }

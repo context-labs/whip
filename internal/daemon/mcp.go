@@ -24,6 +24,7 @@ func (s *Session) swapMCP(manager Closeable) Closeable {
 	defer s.mcpMu.Unlock()
 	previous := s.mcp
 	s.mcp = manager
+	s.mcpGeneration++
 	return previous
 }
 
@@ -52,6 +53,8 @@ func (s *Session) mcpProvider() tools.MCPProvider {
 // rows instead of vanishing. Re-attaching a name this or another client
 // attached earlier replaces that entry.
 func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
 	servers := mcp.AttachedConfigs(attached)
 	selected := mcp.Select(mcp.Filtered{Merged: servers}, s.definition.MCP.Servers)
 	blocked := map[string]mcp.ServerConfig{}
@@ -67,12 +70,14 @@ func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
 			refuse(name, "outside this agent's MCP server list")
 		}
 	}
-	manager := s.mcpManager()
+	manager, _ := s.mcp.(*mcp.Manager)
 	if manager == nil {
 		manager = mcp.NewManager(selected.Merged)
-		manager.SetBlocked(blocked)
+		manager.AddBlocked(blocked)
 		configureMCP(s, Components{MCP: manager})
-		if previous := s.swapMCP(manager); previous != nil {
+		previous := s.mcp
+		s.mcp = manager
+		if previous != nil {
 			_ = safeClose("previous MCP", previous.Close)
 		}
 		return nil
@@ -89,9 +94,89 @@ func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
 		}
 	}
 	manager.RemoveServers(replace...)
-	manager.AddServers(context.Background(), selected.Merged)
+	if _, err := manager.AddServers(s.supervisor.ctx, selected.Merged); err != nil {
+		return err
+	}
 	manager.AddBlocked(blocked)
 	return nil
+}
+
+// refreshMCP adds newly configured servers without replacing the root runtime
+// or any existing connection. Discovery runs outside the manager lock; a runtime
+// replacement during discovery requires retrying against its new configuration.
+func (s *Session) refreshMCP(ctx context.Context) (mcp.RefreshResult, error) {
+	var result mcp.RefreshResult
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	s.mcpMu.RLock()
+	load, generation := s.loadMCP, s.mcpGeneration
+	allowed := slices.Clone(s.mcpServers)
+	s.mcpMu.RUnlock()
+	if load == nil {
+		return result, errors.New("MCP refresh is unavailable for this session")
+	}
+	discovery, err := load(ctx)
+	if err != nil {
+		return result, fmt.Errorf("load MCP configuration: %w", err)
+	}
+	discovery = mcp.Select(discovery, allowed)
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if s.supervisor != nil && s.supervisor.ctx.Err() != nil {
+		return result, ErrStopped
+	}
+	if generation != s.mcpGeneration {
+		return result, errors.New("MCP runtime changed during discovery; retry refresh")
+	}
+	manager, _ := s.mcp.(*mcp.Manager)
+	if manager == nil {
+		if s.mcp != nil {
+			return result, errors.New("MCP refresh is unavailable for this session")
+		}
+		manager = mcp.NewManager(nil)
+		configureMCP(s, Components{MCP: manager})
+		s.mcp = manager
+	}
+	result, err = manager.AddServers(ctx, discovery.Merged)
+	if err != nil {
+		return result, err
+	}
+	// Preserve attachment refusals and never add a blocked row over a live name.
+	blocked := make(map[string]mcp.ServerConfig)
+	for name, cfg := range discovery.Blocked {
+		if _, exists := manager.Config(name); !exists {
+			blocked[name] = cfg
+		}
+	}
+	manager.SetBlocked(blocked)
+	manager.SetSourceErrors(discovery.Errs)
+	result.Blocked, result.SourceErrors = mcp.ServerStatuses(manager.Blocked()), mcp.ServerStatuses(manager.SourceErrors())
+	return result, nil
+}
+
+// reconnectMCP requests reconnection, not successful readiness. It cannot
+// enable disabled servers or change their saved/live configuration.
+func (s *Session) reconnectMCP(ctx context.Context, name string) (mcp.Server, error) {
+	if err := ctx.Err(); err != nil {
+		return mcp.Server{}, err
+	}
+	manager := s.mcpManager()
+	if manager == nil {
+		return mcp.Server{}, errors.New("MCP integration is unavailable")
+	}
+	if _, err := applyMCPAction(manager, "mcp.reconnect", name); err != nil {
+		return mcp.Server{}, err
+	}
+	for _, status := range manager.Statuses() {
+		if status.Name == name {
+			return status, nil
+		}
+	}
+	return mcp.Server{}, fmt.Errorf("MCP server %q was removed during reconnect", name)
 }
 
 // mcpListDefaultLimit is the list_tools window when the model gives none.

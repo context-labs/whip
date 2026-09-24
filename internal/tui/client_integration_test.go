@@ -4,6 +4,7 @@ package tui
 
 import (
 	"context"
+	"crypto/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 // Exercise the TUI's actual startup requests against the daemon's validation,
@@ -52,7 +54,7 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = owner.Close() })
-			server, err := daemon.NewServer(owner, daemon.ServerOptions{RuntimeDir: paths.Runtime, Network: daemon.NetworkOptions{Enabled: true}})
+			server, err := daemon.NewServer(owner, daemon.ServerOptions{RuntimeDir: paths.Runtime})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,12 +80,27 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			initialize := daemon.InitializeParams{ProtocolMajor: daemon.ProtocolMajor, ClientID: "tui-startup", ClientKind: "tui"}
-			probe, err := daemon.DialClient(ctx, paths, initialize)
-			if err != nil {
-				t.Fatal(err)
+			var endpoint string
+			if transport == "websocket" {
+				gateway, err := webgateway.Start(t.Context(), webgateway.Options{
+					Address: "127.0.0.1:0", SocketPath: paths.Socket,
+					Open: func(ctx context.Context) (webgateway.Client, error) {
+						return daemon.DialClient(ctx, paths, daemon.InitializeParams{
+							ProtocolMajor: daemon.ProtocolMajor, ClientID: "tui-gateway-" + rand.Text(), ClientKind: "gateway",
+							Capabilities: []string{protocol.NetworkClientCapability},
+						})
+					},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := gateway.Close(); err != nil {
+						t.Error(err)
+					}
+				})
+				endpoint = "ws" + strings.TrimPrefix(gateway.Endpoint(), "http") + "/api/v3/ws"
 			}
-			endpoint := "ws" + strings.TrimPrefix(probe.InitializeResult().NetworkEndpoint, "http") + "/api/v3/ws"
-			_ = probe.Close()
 			client, err := NewClient(ClientOptions{
 				ClientID: initialize.ClientID,
 				Create:   &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: home},

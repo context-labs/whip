@@ -621,3 +621,20 @@ describe('model accounting provenance', () => {
     });
   }
 });
+
+it('refreshes external MCP additions for the inspected session', async () => {
+  const f = fixture();
+  f.render(<MCP {...f.props} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh MCP configuration for this session' }));
+  await waitFor(() => expect(f.client.submit).toHaveBeenCalledWith('mcp.refresh', {}, { rootId: 'root' }));
+  expect(f.run).toHaveBeenCalledWith({ operation: 'mcp.refresh', payload: {} }, 'MCP configuration refreshed');
+});
+
+it('explains unavailable live MCP refresh without sending an unsupported action', async () => {
+  const f = fixture();
+  f.client.supports.mockImplementation((...args: unknown[]) => args[1] !== 'mcp.refresh');
+  f.render(<MCP {...f.props} />);
+  expect(screen.queryByRole('button', { name: 'Refresh MCP configuration for this session' })).toBeNull();
+  expect(screen.getByText(/This host does not support live MCP refresh/)).toBeTruthy();
+  expect(f.client.submit).not.toHaveBeenCalled();
+});

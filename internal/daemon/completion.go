@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -13,8 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/skills"
+	"github.com/context-labs/whip/internal/rlm"
 )
 
 type (
@@ -31,8 +31,12 @@ var completionIndex struct {
 }
 
 func (s *Server) completeWorkspace(ctx context.Context, p CompletionParams) (CompletionResult, error) {
-	if p.RootID == "" || p.Limit < 1 || p.Limit > 64 || len(p.Prefix) > 4096 {
-		return CompletionResult{}, errors.New("completion requires root, prefix up to 4096 bytes and limit 1..64")
+	maxLimit := 64
+	if p.Kind == "skill" {
+		maxLimit = maxSkillCompletionLimit
+	}
+	if p.RootID == "" || p.Limit < 1 || p.Limit > maxLimit || len(p.Prefix) > 4096 {
+		return CompletionResult{}, errors.New("completion requires root, prefix up to 4096 bytes and limit 1..64 (1..1024 for skills)")
 	}
 	id := p.AgentID
 	if id == "" {
@@ -41,6 +45,13 @@ func (s *Server) completeWorkspace(ctx context.Context, p CompletionParams) (Com
 	agent, err := s.daemon.store.LoadAgent(ctx, p.RootID, id)
 	if err != nil {
 		return CompletionResult{}, err
+	}
+	if p.Kind == "skill" {
+		options, err := s.completionPromptOptions(ctx, agent)
+		if err != nil {
+			return CompletionResult{}, err
+		}
+		return completePromptSkills(ctx, options, p.Prefix, p.Limit)
 	}
 	return completeAt(ctx, agent.CWD, p)
 }
@@ -56,28 +67,7 @@ func completeAt(ctx context.Context, root string, p CompletionParams) (Completio
 	}
 	switch p.Kind {
 	case "skill":
-		roster, problems := skills.ScanDetailed(skills.DirsFor(root)...)
-		warn := func(message string) {
-			if len(result.Warnings) >= 16 {
-				result.Truncated = true
-				return
-			}
-			result.Warnings = append(result.Warnings, string([]rune(message)[:min(512, len([]rune(message)))]))
-		}
-		for _, problem := range problems {
-			warn(fmt.Sprintf("%s: %s", problem.Path, problem.Err))
-		}
-		for _, skill := range roster {
-			if skill.Warning != "" {
-				warn(skill.Name + ": " + skill.Warning)
-			}
-			if err := ctx.Err(); err != nil {
-				return result, err
-			}
-			if strings.HasPrefix(skill.Name, p.Prefix) {
-				add("$"+skill.Name, string([]rune(skill.Description)[:min(80, len([]rune(skill.Description)))]))
-			}
-		}
+		return completePromptSkills(ctx, agentdef.Coding().PromptOptions(rlm.PromptOptions{WorkingDirectory: root}), p.Prefix, p.Limit)
 	case "mention":
 		if p.Prefix == "" || strings.ContainsAny(p.Prefix, "/\\") || strings.HasPrefix(p.Prefix, ".") || strings.HasPrefix(p.Prefix, "~") {
 			return completePaths(ctx, root, p, true)

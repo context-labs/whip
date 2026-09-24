@@ -174,6 +174,14 @@ export const manifest = {
       "result_type": "ExecutorPendingResult"
     },
     {
+      "name": "gateway.status",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "none",
+      "params_type": "Empty",
+      "result_type": "GatewayStatus"
+    },
+    {
       "name": "history.page",
       "surface": "rpc",
       "execution": "query",
@@ -212,6 +220,14 @@ export const manifest = {
       "permission": "host-runtime",
       "params_type": "HostDirectoryPickParams",
       "result_type": "HostDirectoryPickResult"
+    },
+    {
+      "name": "host.skills.complete",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "HostSkillCompletionParams",
+      "result_type": "CompletionResult"
     },
     {
       "name": "host.themes.list",
@@ -892,6 +908,14 @@ export const manifest = {
       "permission": "delegated-mcp-authority",
       "params_type": "MCPServerParams",
       "result_type": "Empty"
+    },
+    {
+      "name": "mcp.refresh",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "EmptyParams",
+      "result_type": "MCPRefreshResult"
     },
     {
       "name": "mcp.status",

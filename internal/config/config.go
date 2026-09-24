@@ -141,27 +141,28 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	RemoteHosts        []RemoteHost        `json:"remote_hosts,omitempty"`
-	DefaultModel       string              `json:"defaultModel"`
-	DefaultProvider    string              `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort      string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel       string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider    string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct         int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	Theme              string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
-	Sidebar            *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Repl               *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
-	Panel              string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
-	Mouse              *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking           *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste      *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds      int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	RLM                RLMConfig           `json:"rlm,omitzero"`
-	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network/stall) before the first delta; 0 = llm.DefaultMaxAttempts, 1 = no retries. A stream that fails after its first delta is regenerated at most llm.DefaultRegenerations times regardless.
-	Providers          map[string]Provider `json:"providers"`
-	ProviderKeySources ProviderKeySources  `json:"providerKeySources,omitzero"`
-	DisabledProviders  []string            `json:"disabledProviders,omitempty"`
-	Models             map[string]Model    `json:"models"`
+	RemoteHosts           []RemoteHost        `json:"remote_hosts,omitempty"`
+	DefaultPermissionMode string              `json:"defaultPermissionMode,omitempty"` // permission mode for new sessions; empty defaults to prompt
+	DefaultModel          string              `json:"defaultModel"`
+	DefaultProvider       string              `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort         string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel          string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider       string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct            int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	Theme                 string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
+	Sidebar               *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Repl                  *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
+	Panel                 string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
+	Mouse                 *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking              *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste         *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds         int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM                   RLMConfig           `json:"rlm,omitzero"`
+	MaxRetries            int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network/stall) before the first delta; 0 = llm.DefaultMaxAttempts, 1 = no retries. A stream that fails after its first delta is regenerated at most llm.DefaultRegenerations times regardless.
+	Providers             map[string]Provider `json:"providers"`
+	ProviderKeySources    ProviderKeySources  `json:"providerKeySources,omitzero"`
+	DisabledProviders     []string            `json:"disabledProviders,omitempty"`
+	Models                map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.

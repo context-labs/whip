@@ -12,9 +12,11 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/webgateway"
 )
 
 type v2Fixture struct {
+	gateway  *webgateway.Server
 	server   *Server
 	store    *session.Store
 	rootID   string
@@ -36,7 +38,7 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(owner, ServerOptions{Generation: 17, BuildID: "daemon-fixture", RuntimeDir: paths.Runtime, Network: NetworkOptions{Enabled: true, AllowedOrigins: origins}})
+	server, err := NewServer(owner, ServerOptions{Generation: 17, BuildID: "daemon-fixture", RuntimeDir: paths.Runtime})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,18 +56,19 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 			t.Error(err)
 		}
 	})
+	gateway := startTestGateway(t, paths, webgateway.Options{AllowedOrigins: origins})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	initial, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "different-client-build", ClientKind: "human", ClientID: "probe"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := "ws" + strings.TrimPrefix(initial.InitializeResult().NetworkEndpoint, "http") + "/api/v3/ws"
+	endpoint := "ws" + strings.TrimPrefix(gateway.Endpoint(), "http") + "/api/v3/ws"
 	if initial.InitializeResult().RuntimeID == "" {
 		t.Fatal("missing persistent runtime identity")
 	}
 	_ = initial.Close()
-	return v2Fixture{server: server, endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *Client {
+	return v2Fixture{server: server, gateway: gateway, endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()

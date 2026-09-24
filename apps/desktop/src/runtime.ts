@@ -153,8 +153,8 @@ export class LocalRuntime {
     signal.throwIfAborted();
     const env = this.options.env ? { ...this.options.env } : await runtimeEnvironment(signal, this.options.mode !== 'attach');
     env.WHIPCODE_HOME = absolutePath(env.WHIPCODE_HOME || path.join(env.HOME || homedir(), '.whipcode'));
-    // A stable loopback endpoint also makes CLI/web usable when desktop starts first.
-    env.WHIPCODE_LISTEN ??= '127.0.0.1:8080';
+    // Desktop needs only the private socket; ordinary startup opens no web listener.
+    // Explicit managed-gateway settings still pass through unchanged.
     delete env.WHIP_HOME;
     delete env.WHIP_COMPUTER_BIN; // The installed distribution extracts its matching embedded helper.
     return env;
@@ -229,9 +229,11 @@ export class LocalRuntime {
     if (!executable || !await stat(executable).then(() => true, error => {
       if (error.code === 'ENOENT') return false;
       throw new Error('Cannot read the selected whipcode executable. Check its permissions or choose another path.');
-    })) return { ...base, state: 'missing', canInstall: this.options.mode !== 'attach', message: this.options.mode === 'attach'
-      ? 'The selected whipcode executable is missing. Pass --executable and --home for an existing daemon.'
-      : 'The local service is not installed. Choose Set up this Mac to continue.' };
+    })) return { ...base, state: 'missing', canInstall: this.options.mode !== 'attach',
+      repairRequired: this.options.mode !== 'attach' && !!executable && (await this.settings())?.executable === executable,
+      message: this.options.mode === 'attach'
+        ? 'The selected whipcode executable is missing. Pass --executable and --home for an existing daemon.'
+        : 'The local service is not installed. Choose Set up this Mac to continue.' };
     let clientBuild: string;
     try { clientBuild = (await this.metadata(executable, env, signal)).buildId; }
     catch (error) {

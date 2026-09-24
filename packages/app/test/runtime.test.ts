@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryObserver } from '@tanstack/react-query';
 import { DeliveryUncertainError, RpcError, type CommandHandle, type ConnectionSnapshot, type RecoveryStorage } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, type AppStorage } from '../src/platform';
@@ -20,7 +21,11 @@ describe('provider inventory priming', () => {
   it('prefetches the inventory once per connection, keeps it cached, and remembers readiness on the device', async () => {
     const list = vi.fn(async () => ({ revision: '1', selection: { ready: false }, providers: [] }));
     Object.assign(mocks.client, { providers: { list } });
-    const app = runtime(); await app.connect();
+    const app = runtime();
+    const lookup = vi.spyOn(app.connections, 'host').mockReturnValue(undefined);
+    await app.connect();
+    expect(list).toHaveBeenCalledOnce(); // The connection callback must use its client, not the unpublished snapshot.
+    lookup.mockRestore();
     await Promise.all([app.primeProviders('runtime'), app.primeProviders('runtime')]);
     expect(list).toHaveBeenCalledOnce();
     expect(app.queries.getQueryData(['provider-list', 'runtime'])).toMatchObject({ selection: { ready: false } });
@@ -30,6 +35,48 @@ describe('provider inventory priming', () => {
     app.dispose();
   });
 });
+describe('New Chat query retention', () => {
+  it('retains only host metadata after the last observer leaves, then expires it', async () => {
+    vi.useFakeTimers();
+    const app = runtime();
+    const keys = ['provider-list', 'runtime-configuration', 'provider-catalogs', 'definitions'];
+    for (const key of [...keys, 'provider-login-flows', 'detail']) {
+      const observer = new QueryObserver(app.queries, { queryKey: [key, 'runtime'], queryFn: async () => ({ ready: true }) });
+      const unsubscribe = observer.subscribe(() => {});
+      await observer.refetch();
+      unsubscribe();
+    }
+    await vi.advanceTimersByTimeAsync(1);
+    expect(app.queries.getQueryData(['provider-login-flows', 'runtime'])).toBeUndefined();
+    expect(app.queries.getQueryData(['detail', 'runtime'])).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 2);
+    for (const key of keys) expect(app.queries.getQueryData([key, 'runtime'])).toEqual({ ready: true });
+    await vi.advanceTimersByTimeAsync(1);
+    for (const key of keys) expect(app.queries.getQueryData([key, 'runtime'])).toBeUndefined();
+    app.dispose();
+  });
+
+  it('allows priming to recover from failure and expiry, and clears retained data on detach', async () => {
+    vi.useFakeTimers();
+    const list = vi.fn().mockRejectedValueOnce(new Error('Temporarily unavailable'))
+      .mockResolvedValue({ selection: { ready: false }, providers: [] });
+    Object.assign(mocks.client, { providers: { list } });
+    const app = runtime(); await app.connect();
+    await Promise.resolve();
+    await app.primeProviders('runtime');
+    expect(list).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(app.queries.getQueryData(['provider-list', 'runtime'])).toBeUndefined();
+    await app.primeProviders('runtime');
+    expect(list).toHaveBeenCalledTimes(3);
+    app.queries.setQueryData(['provider-list', 'other-host'], { selection: { ready: true } });
+    app.connections.disconnect('local');
+    expect(app.queries.getQueryData(['provider-list', 'runtime'])).toBeUndefined();
+    expect(app.queries.getQueryData(['provider-list', 'other-host'])).toEqual({ selection: { ready: true } });
+    app.dispose();
+  });
+});
+
 describe('application observation ownership', () => {
   it('forgets one deleted root across views, child drafts and local presentation without touching another runtime', async () => {
     vi.useFakeTimers();

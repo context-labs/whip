@@ -213,6 +213,38 @@ it('retains immutable native update state and forwards explicit actions without 
   await platform.notify!(message); expect(f.bridge.notify).toHaveBeenCalledOnce();
 });
 
+it('forwards New session only while subscribed and alive', () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const create = vi.fn(); const off = platform.onNewSession!(create);
+  f.emit({ kind: 'close-tab' }); expect(create).not.toHaveBeenCalled();
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  off(); f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  const offLive = platform.onNewSession!(create);
+  platform.dispose?.();
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  offLive();
+  const offDisposed = platform.onNewSession!(create);
+  f.emit({ kind: 'new-session' }); expect(create).toHaveBeenCalledOnce();
+  offDisposed(); expect(f.listeners.size).toBe(0);
+});
+
+it('forwards Reopen closed tab only while subscribed and alive', () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const reopen = vi.fn(); const off = platform.onReopenClosedTab!(reopen);
+  f.emit({ kind: 'new-session' }); f.emit({ kind: 'close-tab' }); expect(reopen).not.toHaveBeenCalled();
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  off(); f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  const offLive = platform.onReopenClosedTab!(reopen);
+  platform.dispose?.();
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  offLive();
+  const offDisposed = platform.onReopenClosedTab!(reopen);
+  f.emit({ kind: 'reopen-closed-tab' }); expect(reopen).toHaveBeenCalledOnce();
+  offDisposed(); expect(f.listeners.size).toBe(0);
+});
+
 it('observes native contrast initially and on changes, rejects malformed flags and disposes listeners', async () => {
   const f = fixture();
   const platform = createDesktopPlatform(f.api, vi.fn());

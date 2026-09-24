@@ -72,7 +72,7 @@ func TestSessionSummariesAcrossTransports(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	if got := client.InitializeResult().NegotiatedCapabilities; !slices.Equal(got, []string{"session_summaries"}) {
+	if got := client.InitializeResult().NegotiatedCapabilities; !slices.Equal(got, []string{"session_summaries", protocol.NetworkClientCapability}) {
 		t.Fatalf("negotiated capabilities %v", got)
 	}
 	var result protocol.SessionSummariesResult

@@ -43,7 +43,7 @@ export default defineConfig({
     react(),
   ],
   // StyleX source packages skip prebundling; their CommonJS store shims must not.
-  optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector'] },
+  optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector', 'beautiful-mermaid'] },
   server: {
     strictPort: true,
     proxy: { '/api/': daemonProxy() },

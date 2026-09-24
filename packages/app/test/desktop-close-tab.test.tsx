@@ -39,13 +39,15 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function fixture(path = '/h/mac/s/a', roots = ['a', 'b']) {
-  const listeners = new Set<() => void>();
+  const listeners = new Set<() => void>(), newSessionListeners = new Set<() => void>(), reopenListeners = new Set<() => void>();
   const hideWindow = vi.fn();
   const disk = new Map<string, string>();
   const runtime = new AppRuntime({ defaultConnection: localProfile, connectionKinds: ['local'], resolveConnection: resolveURLConnection,
     storage: { keys: () => [...disk.keys()], getItem: key => disk.get(key) ?? null, setItem: (key, value) => { disk.set(key, value); }, removeItem: key => { disk.delete(key); } },
     copy: async () => {}, openExternal: async () => {}, download: async () => 'saved', sessionLink: value => value,
     onCloseTab(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; }, hideWindow,
+    onNewSession(listener) { newSessionListeners.add(listener); return () => { newSessionListeners.delete(listener); }; },
+    onReopenClosedTab(listener) { reopenListeners.add(listener); return () => { reopenListeners.delete(listener); }; },
   });
   const connected = { state: 'connected', info: { runtime_id: 'mac', negotiated_capabilities: [] } };
   const client = { host: { attention: async () => ({ items: [] }) }, subscribe: () => () => {}, getSnapshot: () => connected, close: vi.fn() } as unknown as WhipClient;
@@ -61,21 +63,25 @@ function fixture(path = '/h/mac/s/a', roots = ['a', 'b']) {
   const view = render(<RuntimeContext.Provider value={runtime}><UIProvider><QueryClientProvider client={runtime.queries}>
     <AppShell><p>Current route</p></AppShell>
   </QueryClientProvider></UIProvider></RuntimeContext.Provider>);
-  return { runtime, client, hideWindow, listeners,
+  return { runtime, client, hideWindow, listeners, newSessionListeners, reopenListeners,
+    reopenTab() { act(() => { for (const listener of reopenListeners) listener(); }); },
+    newSession() { act(() => { for (const listener of newSessionListeners) listener(); }); },
     closeTab() { act(() => { for (const listener of listeners) listener(); }); },
     dispose() { view.unmount(); runtime.dispose(); },
   };
 }
 
-it.each(['/h/mac/s/a', '/h/mac/s/a?view=repl', '/new/test', '/settings'])('palette New session allocates fresh tabs from %s', path => {
-  const f = fixture(path.split('?')[0]);
+it.each(['/', '/h/mac/s/a', '/h/mac/s/a?view=repl', '/new/test', '/settings', '/h/mac/t/terminal', '/browser/browser']
+  .flatMap(path => ['palette', 'native'].map(source => ({ path, source }))))('$source New session allocates fresh tabs from $path', ({ path, source }) => {
+  const f = fixture(path.split('?')[0], path === '/' ? [] : ['a', 'b']);
   if (path.endsWith('?view=repl')) act(() => { f.runtime.tabs.visit('mac', 'a', { view: 'repl' }); });
+  const create = () => source === 'native' ? f.newSession() : fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
   const before = f.runtime.tabs.workspace().tabs;
-  fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
+  create();
   const first = f.runtime.tabs.workspace().tabs.find(tab => !before.some(previous => previous.id === tab.id))!;
   expect(first.kind).toBe('new');
   expect(routing.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ to: '/new/$draftId', params: { draftId: first.id } }));
-  fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
+  create();
   expect(f.runtime.tabs.workspace().tabs).toHaveLength(before.length + 2);
   expect(f.runtime.tabs.workspace().tabs.filter(tab => !before.some(previous => previous.id === tab.id))).toHaveLength(2);
   expect(f.runtime.draft('mac:a:a')).toBe('Keep this draft');
@@ -83,16 +89,96 @@ it.each(['/h/mac/s/a', '/h/mac/s/a?view=repl', '/new/test', '/settings'])('palet
   f.dispose();
 });
 
-it('palette creation at capacity reports the limit without changing navigation or selection', () => {
+it.each(['palette', 'native'])('%s creation at capacity reports the limit without changing navigation or selection', source => {
   const f = fixture();
   act(() => { while (f.runtime.tabs.workspace().tabs.length < 32) f.runtime.tabs.openNew(); });
   const before = f.runtime.tabs.workspace();
   const report = vi.spyOn(f.runtime, 'reportWorkspace');
   routing.navigate.mockClear();
-  fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
+  if (source === 'native') f.newSession();
+  else fireEvent.click(screen.getByRole('button', { name: 'New session', exact: true }));
   expect(f.runtime.tabs.workspace()).toBe(before);
   expect(routing.navigate).not.toHaveBeenCalled();
   expect(report).toHaveBeenCalledOnce();
+  f.dispose();
+});
+
+it.each(['dialog', 'alertdialog'])('native New session does not navigate behind an open %s and unsubscribes on unmount', role => {
+  const f = fixture();
+  const before = f.runtime.tabs.workspace();
+  const dialog = document.createElement('div'); dialog.setAttribute('role', role); document.body.append(dialog);
+  routing.navigate.mockClear();
+  f.newSession();
+  expect(f.runtime.tabs.workspace()).toBe(before);
+  expect(routing.navigate).not.toHaveBeenCalled();
+  dialog.remove();
+  f.newSession();
+  expect(f.runtime.tabs.workspace().tabs).toHaveLength(before.tabs.length + 1);
+  expect(f.newSessionListeners.size).toBe(1);
+  f.dispose();
+  expect(f.newSessionListeners.size).toBe(0);
+});
+
+it.each(['/', '/h/mac/s/a', '/settings'])('native Reopen restores last-closed order and identity from %s', path => {
+  const f = fixture(path);
+  const [a, b] = f.runtime.tabs.workspace().tabs;
+  act(() => { f.runtime.tabs.closeViews([a!.id]); f.runtime.tabs.closeViews([b!.id]); });
+  routing.navigate.mockClear();
+  f.reopenTab();
+  expect(f.runtime.tabs.workspace().tabs.map(tab => tab.id)).toEqual([b!.id]);
+  expect(routing.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ state: { whipViewId: b!.id }, params: { runtimeId: 'mac', rootId: 'b' } }));
+  f.reopenTab();
+  expect(f.runtime.tabs.workspace().tabs.map(tab => tab.id)).toEqual([a!.id, b!.id]);
+  expect(routing.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ state: { whipViewId: a!.id }, params: { runtimeId: 'mac', rootId: 'a' } }));
+  expect(f.runtime.draft('mac:a:a')).toBe('Keep this draft');
+  const before = f.runtime.tabs.workspace();
+  routing.navigate.mockClear(); f.reopenTab();
+  expect(f.runtime.tabs.workspace()).toBe(before);
+  expect(routing.navigate).not.toHaveBeenCalled();
+  expect(f.hideWindow).not.toHaveBeenCalled(); expect(f.client.close).not.toHaveBeenCalled();
+  expect(f.reopenListeners.size).toBe(1); f.dispose(); expect(f.reopenListeners.size).toBe(0);
+});
+
+it('native Reopen restores an unfinished draft without allocating a new one', () => {
+  const f = fixture('/new/test', []);
+  const draft = f.runtime.tabs.workspace().tabs[0]!;
+  f.closeTab(); routing.navigate.mockClear(); f.reopenTab();
+  expect(f.runtime.tabs.workspace().tabs).toEqual([draft]);
+  expect(routing.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/new/$draftId', params: { draftId: draft.id } }));
+  f.dispose();
+});
+
+it.each(['dialog', 'alertdialog'])('native Reopen waits while a %s is open', role => {
+  const f = fixture(); f.closeTab();
+  const before = f.runtime.tabs.workspace();
+  const dialog = document.createElement('div'); dialog.setAttribute('role', role); document.body.append(dialog);
+  routing.navigate.mockClear(); f.reopenTab();
+  expect(f.runtime.tabs.workspace()).toBe(before); expect(routing.navigate).not.toHaveBeenCalled();
+  dialog.remove(); f.reopenTab();
+  expect(f.runtime.tabs.workspace().closed).toHaveLength(0);
+  f.dispose();
+});
+
+it.each(['/h/mac/s/a', '/settings'])('native Reopen reports capacity failure from %s without consuming history', path => {
+  const f = fixture(path);
+  act(() => { f.runtime.tabs.closeViews([f.runtime.tabs.workspace().tabs[0]!.id]); });
+  act(() => { for (let i = 0; i < 31; i++) f.runtime.tabs.openNew({ runtimeId: 'mac' }); });
+  const before = f.runtime.tabs.workspace();
+  const report = vi.spyOn(f.runtime, 'reportWorkspace');
+  routing.navigate.mockClear(); f.reopenTab();
+  expect(f.runtime.tabs.workspace()).toBe(before); expect(routing.navigate).not.toHaveBeenCalled();
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('32 open session tabs') }));
+  f.dispose();
+});
+
+it('native Reopen reports a failed navigation rather than dropping the restored tab', async () => {
+  const f = fixture(); f.closeTab();
+  const closed = f.runtime.tabs.workspace().closed.at(-1)!.tab;
+  const report = vi.spyOn(f.runtime, 'reportWorkspace');
+  const error = new Error('Navigation failed'); routing.navigate.mockRejectedValueOnce(error);
+  f.reopenTab(); await act(async () => {});
+  expect(f.runtime.tabs.workspace().tabs).toContainEqual(closed);
+  expect(report).toHaveBeenCalledWith(error);
   f.dispose();
 });
 

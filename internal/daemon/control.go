@@ -284,8 +284,16 @@ func resolveSessionDefaults(ctx context.Context, source DefinitionSource, create
 	return sessionDefaults(create, definition)
 }
 
+// defaultPermissionMode fails closed for legacy or unrecognized host settings.
+func defaultPermissionMode(cfg *config.Config) string {
+	if cfg.DefaultPermissionMode == session.PermissionModeAutomatic {
+		return session.PermissionModeAutomatic
+	}
+	return session.PermissionModePrompt
+}
+
 // sessionDefaults fills omitted routing from the definition's model defaults,
-// then from host configuration.
+// then omitted routing, engine, and permission mode from host configuration.
 func sessionDefaults(create CreateSession, definition agentdef.Definition) (CreateSession, error) {
 	if create.ExecutionEngine != "" && create.ExecutionEngine != "starlark" && create.ExecutionEngine != "quickjs" {
 		return create, fmt.Errorf("unknown execution engine %q", create.ExecutionEngine)
@@ -294,12 +302,16 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 		create.Model, create.Provider = definition.Model.Model, definition.Model.Provider
 	}
 	needRoute := create.Kind == session.SessionKindAgent && (create.Model == "" || create.Provider == "")
-	if !needRoute && create.ExecutionEngine != "" {
+	needPermissionMode := create.Kind == session.SessionKindAgent && create.PermissionMode == ""
+	if !needRoute && !needPermissionMode && create.ExecutionEngine != "" {
 		return create, nil
 	}
 	cfg, _, err := config.ReadVersioned()
 	if err != nil {
 		return create, err
+	}
+	if needPermissionMode {
+		create.PermissionMode = defaultPermissionMode(cfg)
 	}
 	if create.ExecutionEngine == "" {
 		create.ExecutionEngine = cfg.RLM.Engine()

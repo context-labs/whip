@@ -15,6 +15,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { CompletionPicker } from './completion-picker';
+import { useSkillCompletion } from './use-skill-completion';
 import { layout } from './styles';
 import { ErrorNotice, type ErrorType } from './error-feedback';
 import { errorMessage } from './platform';
@@ -190,6 +191,11 @@ export function Composer({
       fail(error, 'validation');
     }
   };
+  const skills = useSkillCompletion({
+    client: session.client, owner: selectionKey, scope: { rootId: session.rootId, agentId },
+    input, draft, change, connected, blocked: completion || sending || !active,
+    rememberSelection: value => runtime.compositions.rememberSelection(selectionKey, value),
+  });
   const attachmentUnavailable = !connected ? 'Reconnect to attach files.'
     : sending ? 'Wait for this message to be accepted before attaching files.'
     : attachments.some(item => !item.value && !item.error) ? 'Wait for the current upload to finish before attaching files.' : undefined;
@@ -209,6 +215,7 @@ export function Composer({
     }
   }
   async function submit() {
+    skills.dismiss();
     const text = runtime.draft(key);
     setFailure(undefined);
     const result = await submitChatInput({
@@ -297,6 +304,7 @@ export function Composer({
           onRemove={id => runtime.compositions.remove(key, id)} />
           <Textarea
             ref={input}
+            {...skills.inputProps}
             data-whip-composer
             aria-label={agentId === session.rootId ? 'Message WHIP' : 'Message this agent'}
             rows={1}
@@ -311,16 +319,18 @@ export function Composer({
             }}
             xstyle={styles.input}
             value={draft}
-            onChange={(event) => change(event.target.value)}
-            onSelect={(event) =>
+            onChange={(event) => { change(event.target.value); skills.onChange(); }}
+            onSelect={(event) => {
               runtime.compositions.rememberSelection(selectionKey, {
                 start: event.currentTarget.selectionStart,
                 end: event.currentTarget.selectionEnd,
-              })
-            }
+              });
+              skills.onSelect();
+            }}
             placeholder="Describe what you want to do…"
             maxLength={256 * 1024}
             onKeyDown={(event) => {
+              if (skills.onKeyDown(event)) return;
               if (
                 event.key === 'Enter' &&
                 !event.shiftKey &&
@@ -334,6 +344,7 @@ export function Composer({
               }
             }}
           />
+        {skills.popup}
         {activeTurn && !queueEnabled && (
           <Select
             label="Message delivery"
@@ -377,6 +388,7 @@ export function Composer({
                 start: input.current?.selectionStart ?? draft.length,
                 end: input.current?.selectionEnd ?? draft.length,
               };
+              skills.dismiss();
               setCompletion(true);
             }}
           >

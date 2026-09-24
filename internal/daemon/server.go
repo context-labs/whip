@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"runtime"
 	"slices"
@@ -31,7 +29,7 @@ const (
 )
 
 type ServerOptions struct {
-	Network               NetworkOptions
+	NetworkTerminals      bool
 	BuildID               string
 	Generation            int64
 	PID                   int
@@ -48,16 +46,14 @@ type ServerOptions struct {
 }
 
 type Server struct {
-	providers       *ProviderService
-	daemon          *Daemon
-	options         ServerOptions
-	ctx             context.Context
-	cancel          context.CancelFunc
-	listener        net.Listener
-	httpServer      *http.Server
-	networkListener net.Listener
-	networkEndpoint string
-	runtimeID       string
+	providers     *ProviderService
+	daemon        *Daemon
+	options       ServerOptions
+	ctx           context.Context
+	cancel        context.CancelFunc
+	listener      net.Listener
+	gatewayStatus protocol.GatewayStatus
+	runtimeID     string
 
 	mu        sync.Mutex
 	clients   map[*serverConn]struct{}
@@ -130,7 +126,8 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	return &Server{
 		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: providers,
 		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
-		uploads: newUploadManager(value.store, options.RuntimeDir),
+		uploads:       newUploadManager(value.store, options.RuntimeDir),
+		gatewayStatus: protocol.GatewayStatus{State: "disabled"},
 	}, nil
 }
 
@@ -156,9 +153,6 @@ func (s *Server) Serve(listener net.Listener) error {
 	s.listener = listener
 	s.lifeMu.Unlock()
 	if err := s.daemon.ResumeActive(s.ctx); err != nil {
-		return err
-	}
-	if err := s.startNetwork(); err != nil {
 		return err
 	}
 	for {
@@ -195,9 +189,6 @@ func (s *Server) Close() error {
 		s.cancel()
 		if s.listener != nil {
 			err = s.listener.Close()
-		}
-		if s.httpServer != nil {
-			err = errors.Join(err, s.httpServer.Close())
 		}
 		s.lifeMu.Unlock()
 		s.mu.Lock()
@@ -250,13 +241,16 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32602, "invalid initialize params")})
 		return
 	}
+	// Restrict before registration publishes the connection. The classification
+	// is immutable for its lifetime and never depends on client-provided identity.
+	connection.network = connection.network || slices.Contains(initialize.Capabilities, protocol.NetworkClientCapability)
 	if err := s.register(connection, initialize); err != nil {
 		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32001, err.Error())})
 		return
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1", "desktop-browser-v2"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_skill_completion", "host_global_skill_completion", "skill_catalog_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1", "desktop-browser-v2", protocol.NetworkClientCapability}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -267,7 +261,7 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 		Operations: protocol.Operations(), NegotiatedCapabilities: negotiated,
 		ExecutionEngines: executionEngines(), DefaultExecutionEngine: configuredExecutionEngine(),
 		Limits:        protocol.ProtocolLimits{FrameBytes: MaxFrameSize, Connections: s.options.MaxConnections, InFlightRequests: s.options.MaxInFlight, OutboundMessages: s.options.MaxOutbound, OutboundBytes: s.options.MaxOutboundBytes, RootSubscriptions: MaxSubscriptions, ContentChunkBytes: MaxContentChunk, UploadBytes: MaxUploadSize},
-		ProtocolMajor: ProtocolMajor, ProtocolMinor: ProtocolMinor, RuntimeID: s.runtimeID, ConnectionID: connection.id, HostPlatform: runtime.GOOS, HostArchitecture: runtime.GOARCH, NetworkEndpoint: s.networkEndpoint, BuildID: s.options.BuildID, Generation: s.options.Generation,
+		ProtocolMajor: ProtocolMajor, ProtocolMinor: ProtocolMinor, RuntimeID: s.runtimeID, ConnectionID: connection.id, HostPlatform: runtime.GOOS, HostArchitecture: runtime.GOARCH, NetworkEndpoint: s.gatewayEndpoint(), BuildID: s.options.BuildID, Generation: s.options.Generation,
 		PID: s.options.PID, StartedAt: s.options.StartedAt.Format(time.RFC3339Nano),
 		Capabilities: capabilities,
 	}}); err != nil {
@@ -381,6 +375,8 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 	}
 
 	switch request.Method {
+	case "gateway.status":
+		return s.GatewayStatus(), nil
 	case "sessions.get":
 		var params protocol.RootParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {
@@ -538,7 +534,14 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid upload metadata")
 		}
-		return map[string]bool{"accepted": true}, rpcFromError(s.uploads.begin(connection.id, params))
+		err := s.uploads.begin(connection.id, params)
+		// Disconnect cleanup can race a queued begin. If teardown already ran,
+		// this request owns removing any temporary state it created afterward.
+		if canceled := connection.ctx.Err(); canceled != nil {
+			s.uploads.abortClient(connection.id)
+			return nil, rpcFromError(canceled)
+		}
+		return map[string]bool{"accepted": true}, rpcFromError(err)
 	case "upload.chunk":
 		var params UploadChunkParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -884,20 +887,6 @@ func (c *serverConn) consumeLifecycle(generation int64) bool {
 	}
 	c.lifecycle = 0
 	return true
-}
-
-func readProtocolFrame(reader *bufio.Reader) ([]byte, error) {
-	frame, err := reader.ReadSlice('\n')
-	if errors.Is(err, bufio.ErrBufferFull) || len(frame) > MaxFrameSize {
-		return nil, ErrFrameTooLarge
-	}
-	if errors.Is(err, io.EOF) && len(frame) > 0 {
-		return nil, io.ErrUnexpectedEOF
-	}
-	if err != nil {
-		return nil, err
-	}
-	return frame, nil
 }
 
 func writeProtocolMessage(writer io.Writer, message rpcMessage) error {

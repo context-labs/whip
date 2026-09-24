@@ -60,16 +60,19 @@ export function SessionSidebar(props: SidebarProps) {
 type SidebarScroll = { scroll: RefObject<HTMLDivElement | null>; content: RefObject<HTMLDivElement | null> };
 function HostSection({ host, showHeading, ...props }: SidebarProps & SidebarScroll & { host: HostConnection; showHeading: boolean }) {
   const runtime = useRuntime();
+  const needsSetup = host.localRuntime?.state === 'missing';
   const [collapsed, setCollapsed] = useState(false);
   const expanded = !showHeading || !collapsed;
   return <section aria-label={`${host.name} sessions`} {...stylex.props(styles.host, !expanded && styles.collapsedHost)}>
     {showHeading && <button {...stylex.props(styles.destination, styles.hostHeading)} aria-expanded={!collapsed} title={host.endpoint} onClick={() => setCollapsed(value => !value)}>
       {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}<strong {...stylex.props(layout.grow, layout.ellipsis)}>{host.name}</strong>
-      <span {...stylex.props(layout.muted)}>{host.state === 'closed' ? 'Offline' : host.state === 'connected' ? '' : host.state}</span>
+      <span {...stylex.props(layout.muted)}>{needsSetup ? '' : host.state === 'closed' ? 'Offline' : host.state === 'connected' ? '' : host.state}</span>
     </button>}
     {expanded && <>
       {host.client && host.list ? <HostSidebar {...props} client={host.client} list={host.list} />
-        : <Button variant="ghost" onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>}
+        : !needsSetup && <Button variant="ghost" disabled={host.state === 'connecting'} onClick={() => {
+          void runtime.connections.connect(host.id).catch(() => {});
+        }}>{host.state === 'connecting' ? host.progress || 'Connecting…' : `Connect ${host.name}`}</Button>}
     </>}
   </section>;
 }

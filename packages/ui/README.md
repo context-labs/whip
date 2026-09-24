@@ -49,8 +49,11 @@ StyleX requires a `.stylex` import suffix for cross-package variables, so use
 `@whip/ui/tokens.stylex` in authored style modules. The plain tokens export is
 available for runtime inspection.
 
-With Vite, keep `use-sync-external-store/shim` and
-`use-sync-external-store/shim/with-selector` in `optimizeDeps.include`. The
+With Vite, keep `use-sync-external-store/shim`,
+`use-sync-external-store/shim/with-selector`, and `beautiful-mermaid` in
+`optimizeDeps.include`. The diagram engine is only loaded by its lazy worker;
+explicit optimization ensures its transitive ELK CommonJS module also works when
+UI source is installed under `node_modules`, not just linked in this workspace. The
 official StyleX plugin discovers UI/app source packages from the consumer's
 package metadata and excludes them from prebundling. Their Base UI/TanStack
 CommonJS store shims still need prebundling, as described in
@@ -91,19 +94,50 @@ Tooltip accepts `label`, a trigger child, optional `delay`, `disableHoverablePop
 `collisionAvoidance` placement options. Rich tooltip content
 must bound its dimensions with `--available-width` and `--available-height`.
 
+`useTextareaSuggestions` attaches a controlled, non-modal suggestion list to an
+existing native textarea. Pass its ref, `open`, bounded `{value,label,description?}`
+options, a query/scope key, status/detail/feedback and select/dismiss callbacks.
+Spread `inputProps` onto the textarea, call `onKeyDown` before the normal composer
+handler (a true result means handled), and render `popup` beside the input. The
+hook keeps focus in the multiline textbox, exposes the active listbox option,
+handles Up/Down, Enter, Escape and Tab, and uses Base UI positioning plus native
+surface coordination. An explicitly empty `status` reserves its line without
+announcing loading; omitting `status` removes the line. Callers own filtering,
+loading-indicator timing, insertion/caret restoration, draft state and repeated-
+Enter suppression after acceptance. The app's skill controller preloads bounded
+metadata and filters locally; background refresh keeps its same-scope options
+visible. No SDK or host knowledge
+belongs here. See `stories/TextareaSuggestions.stories.tsx` and run the browser
+probe against Storybook with `node packages/ui/tests/textarea-suggestions.mjs`.
+
 Select and Combobox use options `{value,label,description?,disabled?,icon?}`,
 string `value`, and `onValueChange(value)`. The label is required. A Combobox also
 accepts loading, emptyMessage, onInputValueChange, and onHighlightedValueChange;
 its caller owns asynchronous fetching. UI never starts a background request.
 
 `CodeBlock` takes `code`, optional `language`, `label`, `maxBytes`, `truncated`,
-`downloadAction`, and `xstyle`. Starlark/Python, JavaScript/TypeScript, Go, JSON and
+`copyText`, `copyLabel`, `headerActions`, `renderText`, and `xstyle`. Starlark/Python, JavaScript/TypeScript, Go, JSON and
 shell grammars load only when needed. Unknown languages remain plain text. It
 preserves code node identities across theme changes and renders text directly,
 including strings that resemble HTML. A 16 KiB input cap and a 4,096-token cap
 bound highlighting and DOM work. Larger bodies show a visible excerpt notice;
 the caller supplies the authorized full-content/download action. Resolved Chroma
 backgrounds and token bold, italic, underline and backgrounds are retained.
+
+Every code block includes a top-right copy button. It copies `copyText ?? code`
+exactly, before display bounds, highlighting or paint-only `renderText` decoration.
+Use `copyText` for an unformatted/full loaded source when `code` is only a preview;
+copying never fetches missing content. `copyLabel` overrides the accessible label.
+Additional `headerActions` appear beside copy, not instead of it. Clipboard errors
+are shown at the button and cleared on successful retry or changed source.
+
+`UIProvider` accepts `copy(text): Promise<void>` so applications can inject their
+platform clipboard once. `CopyButton` prefers its explicit `copy` prop, then the
+nearest provider, then the browser clipboard. Nested providers without `copy`
+inherit it. Standalone usage reports unavailable clipboard access rather than
+claiming success. `CopyButton showError` enables accessible inline failure detail;
+CodeBlock enables it automatically. Pending results are retired when the source
+changes, the component unmounts, or a newer copy attempt supersedes them.
 
 ## Nested menus
 

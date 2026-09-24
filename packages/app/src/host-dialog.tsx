@@ -259,31 +259,35 @@ function RenameServerDialog({ host, finalFocus, close }: { host: HostConnection;
 }
 
 /** Native welcome handoff; the existing connection owner retains all process policy. */
-export function LocalRuntimeSetup({ host }: { host: HostConnection }) {
+export function LocalRuntimeSetup({ host, onConnected }: { host: HostConnection; onConnected?(): void }) {
   const runtime = useRuntime();
   const [, setBusy] = useState(false);
   const attempted = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (attempted.current === host.id || host.profile.target.kind !== 'local' || !runtime.platform.localRuntime) return;
     attempted.current = host.id;
-    if (host.state === 'closed' && !host.error) void runtime.connections.connect(host.id).catch(() => {});
+    if (host.state === 'closed' && !host.error && !host.localRuntime) void runtime.connections.connect(host.id).catch(() => {});
   }, [host, runtime]);
   if (host.profile.target.kind !== 'local' || !runtime.platform.localRuntime) return null;
   return <LocalRuntimePanel key={host.id} api={runtime.platform.localRuntime} hostState={host.state} disabled={host.state === 'connecting'}
-    onBusyChange={setBusy} onboarding progress={host.progress} connectionError={host.error}
-    onConnect={() => runtime.connections.connect(host.id)} />;
+    onBusyChange={setBusy} onboarding inspection={host.localRuntime} inspectOnMount={false} progress={host.progress} connectionError={host.error}
+    onConnect={async () => { await runtime.connections.connect(host.id); onConnected?.(); }}
+    onOpenGitHub={() => runtime.platform.openExternal('https://github.com/context-labs/whip')} />;
 }
 
 type LocalRuntimeAction = keyof AppLocalRuntime | 'connect';
-export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onboarding = false, onConnect, progress, connectionError }: {
+export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onboarding = false, onConnect, progress, connectionError, inspection, inspectOnMount = true, onOpenGitHub }: {
   api: AppLocalRuntime; hostState: HostConnection['state']; disabled: boolean; onBusyChange(busy: boolean): void;
   onboarding?: boolean; onConnect?(): Promise<void>; progress?: string; connectionError?: string;
+  inspection?: LocalRuntimeStatus; inspectOnMount?: boolean; onOpenGitHub?(): Promise<void>;
 }) {
   const mounted = useRef(true);
   const request = useRef(0);
   const active = useRef<LocalRuntimeAction | undefined>(undefined);
   const [pending, setPending] = useState<LocalRuntimeAction>();
-  const [status, setStatus] = useState<LocalRuntimeStatus>();
+  const [status, setStatus] = useState(inspection);
+  const [linkError, setLinkError] = useState<unknown>();
+  useEffect(() => { if (inspection) setStatus(inspection); }, [inspection]);
   const [error, setError] = useState('');
   const [errorType, setErrorType] = useState<'resource' | 'action'>('resource');
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -313,17 +317,40 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
     }
   };
   useEffect(() => {
-    if (hostState !== 'connecting') void run('test', true);
-  }, [api, hostState]);
+    if (inspectOnMount && hostState !== 'connecting') void run('test', true);
+  }, [api, hostState, inspectOnMount]);
   const busy = disabled || pending !== undefined;
   const unavailable = !!connectionError && hostState !== 'connected';
+  const installing = pending === 'installDefault' || pending === 'install';
+  const connecting = pending === 'connect' || hostState === 'connecting';
+  const checking = !status && !unavailable && !error;
   const controls = <>
-    <div {...stylex.props(layout.row, layout.wrap)}>
+    {onboarding ? <>
+      <SettingsRow label="Use an existing installation" description="Choose a whipcode executable already on this Mac." xstyle={styles.setupRow}>
+        <Button disabled={busy} loading={pending === 'choose'} xstyle={styles.setupAction} onClick={() => void run('choose')}>Choose executable…</Button>
+      </SettingsRow>
+      {status && <>
+        <SettingsRow label="Install location" description={<code>{status.executable ?? '~/.local/bin/whipcode'}</code>} xstyle={styles.setupRow}>
+          {status.canInstall && <Button disabled={busy} loading={pending === 'install'} xstyle={styles.setupAction} onClick={() => void run('install')}>Install elsewhere…</Button>}
+        </SettingsRow>
+        <SettingsRow label="Data folder" description={<code>{status.home}</code>} xstyle={styles.setupRow}>{null}</SettingsRow>
+      </>}
+      <SettingsRow label="Local service" description={status?.state === 'missing' ? 'Not installed yet' : status?.message} xstyle={styles.setupRow}>
+        <Button disabled={busy} loading={pending === 'test'} xstyle={styles.setupAction} onClick={() => void run('test')}>Check installation</Button>
+      </SettingsRow>
+      {(status?.clientBuild || status?.daemonBuild) && <dl {...stylex.props(styles.diagnostics)}>
+        {status.clientBuild && <><dt>Client build</dt><dd><code>{status.clientBuild}</code></dd></>}
+        {status.daemonBuild && <><dt>Daemon build</dt><dd><code>{status.daemonBuild}</code></dd></>}
+      </dl>}
+      {status?.executable && status.state !== 'missing' && status.state !== 'stopped' && <SettingsRow label="Restart local service" description="Interrupts running work on this Mac." xstyle={styles.setupRow}>
+        <Button disabled={busy} xstyle={styles.setupAction} onClick={() => setConfirmRestart(true)}>Restart local service</Button>
+      </SettingsRow>}
+    </> : <div {...stylex.props(layout.row, layout.wrap)}>
       <Button variant="secondary" disabled={busy} loading={pending === 'test'} onClick={() => void run('test')}>Test Connection</Button>
       <Button variant="ghost" disabled={busy} loading={pending === 'choose'} onClick={() => void run('choose')}>Choose executable</Button>
-      {status?.canInstall && <Button variant={onboarding ? 'ghost' : 'primary'} disabled={busy} loading={pending === 'install'} onClick={() => void run('install')}>{onboarding ? 'Choose install location' : 'Install whipcode'}</Button>}
+      {status?.canInstall && <Button variant="primary" disabled={busy} loading={pending === 'install'} onClick={() => void run('install')}>Install whipcode</Button>}
       {status?.executable && status.state !== 'missing' && status.state !== 'stopped' && <Button variant="ghost" disabled={busy} loading={pending === 'restart'} onClick={() => setConfirmRestart(true)}>Restart daemon</Button>}
-    </div>
+    </div>}
     {!onboarding && status?.state === 'stopped' && <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Use Connect in the server menu to start this daemon. Test Connection does not start it.</p>}
     {confirmRestart && <div {...stylex.props(layout.column, layout.notice)}>
       <p {...stylex.props(styles.runtimeMessage)}>Restarting interrupts running work on This Mac, including work started from the CLI or web app. Existing sessions are retained.</p>
@@ -332,7 +359,7 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
         <Button variant="ghost" disabled={busy} onClick={() => setConfirmRestart(false)}>Cancel restart</Button>
       </div>
     </div>}
-    {status && <Collapsible title="Runtime diagnostics">
+    {!onboarding && status && <Collapsible title="Runtime diagnostics">
       <dl {...stylex.props(styles.diagnostics)}>
         <dt>Last checked state</dt><dd>{status.state}</dd>
         <dt>Executable</dt><dd><code>{status.executable ?? 'No executable selected'}</code></dd>
@@ -342,29 +369,50 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onbo
       </dl>
     </Collapsible>}
   </>;
-  return <section aria-label="This Mac runtime" {...stylex.props(layout.column)}>
-    {onboarding && status?.state === 'missing' && <>
-      <h2 {...stylex.props(styles.setupTitle)}>Set up Whip on this Mac</h2>
-      <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Install the local service that runs your sessions.</p>
-    </>}
-    {(!onboarding || status?.state !== 'missing' || pending || hostState === 'connecting') && <p role="status" {...stylex.props(styles.runtimeMessage)}>{pending === 'connect' || hostState === 'connecting' ? progress || 'Connecting to this Mac…'
-      : pending === 'test' ? 'Locating whipcode, checking the installation and contacting the daemon…'
-      : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
-      : pending === 'install' || pending === 'installDefault' ? 'Installing the verified local service…'
-      : pending === 'restart' ? 'Restarting the local daemon…'
-      : unavailable ? 'This Mac is unavailable. Reconnect to continue.'
-      : status?.message ?? (hostState === 'connected' ? 'This Mac is connected. Runtime diagnostics are unavailable.' : 'Local runtime diagnostics are unavailable.')}</p>}
+  const message = onboarding && checking ? 'Checking this Mac…'
+    : connecting ? progress || 'Connecting this Mac to your workspace…'
+    : pending === 'test' ? 'Checking this Mac…'
+    : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
+    : installing ? `Installing the local service included with Whip.
+We’ll connect this Mac as soon as it’s ready.`
+    : pending === 'restart' ? 'Restarting the local daemon…'
+    : unavailable ? 'This Mac is unavailable. Reconnect to continue.'
+    : onboarding && status?.state === 'missing' && status.canInstall
+      ? status.repairRequired ? `The selected installation is no longer available.
+Repair it in place, or choose another installation in Advanced.`
+        : `Whip needs a local service to run your coding sessions.
+We’ll install it with the recommended settings.`
+    : status?.message ?? (hostState === 'connected' ? 'This Mac is connected. Runtime diagnostics are unavailable.' : 'Local runtime diagnostics are unavailable.');
+  return <section aria-label="This Mac runtime" {...stylex.props(layout.column, onboarding && styles.setup)}>
+    <div {...stylex.props(onboarding && styles.setupHeader)}>
+      {onboarding && <h1 {...stylex.props(styles.setupTitle)}>{status?.state === 'missing' && status.repairRequired ? 'Repair Whip on this Mac' : 'Welcome to WhipCode'}</h1>}
+      <p role="status" {...stylex.props(onboarding ? styles.setupCopy : styles.runtimeMessage)}>{message}</p>
+    </div>
     {error && !(errorType === "resource" && unavailable) && <ErrorNotice type={errorType} owner="local-runtime-setup" error={error}
       title={errorType === "resource" ? "Could not load local runtime diagnostics" : "Local server action could not finish"}
       action={errorType === "resource" && <Button variant="ghost" disabled={busy} onClick={() => void run("test")}>Retry diagnostics</Button>} />}
     {onboarding ? <>
-      {status?.state === 'missing' && <div {...stylex.props(layout.row)}>
-        <Button variant="primary" disabled={busy} loading={pending === 'installDefault' || pending === 'install'} onClick={() => void run(api.installDefault ? 'installDefault' : 'install')}>{error ? 'Retry setup' : 'Set up this Mac'}</Button>
+      {installing || (status?.state === 'missing' && status.canInstall && !connecting && !unavailable) ? <div {...stylex.props(layout.row)}>
+        <Button variant="primary" disabled={busy} loading={installing} onClick={() => void run(api.installDefault ? 'installDefault' : 'install')}>
+          {installing ? 'Setting up…' : error ? 'Retry setup' : status?.repairRequired ? 'Repair installation' : 'Get Started'}
+        </Button>
+        {onOpenGitHub && <Button variant="secondary" onClick={() => {
+          setLinkError(undefined);
+          void onOpenGitHub().catch(setLinkError);
+        }}>
+          {/* GitHub mark from Simple Icons (CC0). */}
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+          </svg>
+          View GitHub
+        </Button>}
+      </div> : !checking && (connecting || status?.state === 'running' || status?.state === 'stopped' || unavailable) && onConnect && <div {...stylex.props(layout.row)}>
+        <Button variant="primary" disabled={busy} loading={connecting} onClick={() => void run('connect')}>
+          {connecting ? 'Connecting…' : error || connectionError ? 'Retry connection' : 'Connect to this Mac'}
+        </Button>
       </div>}
-      {(status?.state === 'running' || status?.state === 'stopped' || unavailable) && onConnect && <div {...stylex.props(layout.row)}>
-        <Button variant="primary" disabled={busy} loading={pending === 'connect' || hostState === 'connecting'} onClick={() => void run('connect')}>{error || connectionError ? 'Retry connection' : 'Connect to this Mac'}</Button>
-      </div>}
-      <Collapsible title="Advanced options"><div {...stylex.props(layout.column)}>{controls}</div></Collapsible>
+      <ErrorNotice type="action" owner="onboarding-github" title="Could not open GitHub" error={linkError} />
+      <Collapsible title="Advanced" disabled={busy}><div {...stylex.props(layout.column, styles.advanced)}>{controls}</div></Collapsible>
     </> : controls}
   </section>;
 }
@@ -380,6 +428,12 @@ const styles = stylex.create({
   footer: { justifyContent: 'flex-end', paddingTop: scale.space5, borderTop: `1px solid ${surface.controlBorder}` },
   server: { minWidth: 0, paddingBlock: scale.space3, borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   runtimeMessage: { margin: 0, paddingInlineStart: `calc(16px + ${scale.space3})` },
-  setupTitle: { margin: 0, fontSize: typography.size16, fontWeight: 500 },
+  setup: { gap: scale.space6 },
+  setupHeader: { display: 'flex', flexDirection: 'column', gap: scale.space3 },
+  setupTitle: { margin: 0, fontSize: typography.size24, fontWeight: 550, lineHeight: '32px', letterSpacing: '-0.025em' },
+  setupCopy: { margin: 0, maxWidth: 520, fontSize: typography.size14, lineHeight: '22px', color: surface.secondaryText, whiteSpace: 'pre-line' },
+  advanced: { gap: scale.space5, paddingTop: scale.space5, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder },
+  setupRow: { gap: scale.space6, flexWrap: 'wrap' },
+  setupAction: { width: 168, flexShrink: 0 },
   diagnostics: { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 8, overflowWrap: 'anywhere' },
 });

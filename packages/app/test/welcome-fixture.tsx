@@ -13,7 +13,7 @@ const runtimes: AppRuntime[] = [];
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); vi.unstubAllGlobals(); });
 
-export function fixture(remoteHost = false, providerReady = true) {
+export function fixture(remoteHost = false, providerReady = true, focused = true) {
   const values = new Map<string, string>();
   const storage = { keys: () => [...values.keys()], getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
   const pickDirectory = vi.fn(async () => '/selected/project');
@@ -51,7 +51,7 @@ export function fixture(remoteHost = false, providerReady = true) {
   function Content() {
     useSessionTabs();
     const current = runtime.tabs.workspace().tabs.find(item => item.id === tab.id);
-    return current?.kind === 'new' ? <Welcome tab={current} /> : <p>Promoted to {current?.kind === 'chat' ? current.rootId : 'nothing'}</p>;
+    return current?.kind === 'new' ? <Welcome tab={current} focused={focused} /> : <p>Promoted to {current?.kind === 'chat' ? current.rootId : 'nothing'}</p>;
   }
   const route = createRootRoute({ component: () => <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.queries}><ThemeProvider initialTheme="dark"><UIProvider><Content /></UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider> });
   const router = createRouter({ routeTree: route, history: createMemoryHistory({ initialEntries: ['/'] }) });
