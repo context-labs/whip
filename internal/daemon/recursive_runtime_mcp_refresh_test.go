@@ -18,7 +18,8 @@ func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *tes
 			url, effects := localMCPFixture(t, "guidance")
 			_, root, runtime := mcpRuntimeFixture(t, url, true, engine)
 			child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "before-refresh"})
-			waitAgentIdle(t, child)
+			// Spawn has already committed the child's grant snapshot; its model
+			// turn need not finish before the catalog changes.
 			root.mcpMu.Lock()
 			root.loadMCP = func(context.Context) (mcp.Filtered, error) {
 				return mcp.Filtered{Merged: mcp.FromConfigMap(map[string]config.MCPServer{
