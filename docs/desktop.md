@@ -427,6 +427,10 @@ they are not distributable Developer ID releases.
 ## Package, signing and canonical installation
 
 The README and Desktop share `apps/desktop/resources/Whip.png` as the logo source.
+Keep the source 1024×1024, square, and fully opaque, with the background extending
+to every edge; do not bake in rounded corners or transparent padding. On macOS 26,
+transparency can cause the legacy icon to appear inset inside a system backing
+tile rather than filling it.
 After replacing it, run `node apps/desktop/scripts/icon.mjs` on macOS to regenerate
 `apps/desktop/resources/Whip.icns`; commit both assets. Forge uses that icon for
 both stable and beta app bundles. This does not change an already installed app.
