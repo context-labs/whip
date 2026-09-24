@@ -3,7 +3,7 @@ import { parseMarkdown } from '@tanstack/markdown/parser';
 import { renderBlockReact, type MarkdownReactOptions } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
 import type { BlockNode } from '@tanstack/markdown';
-import { CodeBlock } from '@whip/ui';
+import { MarkdownCodeBlock } from './markdown-code-block';
 import type { ConversationActivityRow } from './chat-activity-rows';
 import type { TimelineRow } from './conversation-rows';
 import { MotionContext, fadeDuration, type Arrival } from './transcript-motion';
@@ -56,7 +56,7 @@ export function markdownRows(rows: readonly ConversationActivityRow[], cache: Ma
   const result = rows.flatMap(row => {
     if (row.role !== 'assistant' || row.body || row.images?.length || !row.text.trim()) return [row];
     const previous = cache.get(row.id);
-    if (previous?.text === row.text && previous.live === !!row.live) return previous.rows;
+    if (previous?.text === row.text && previous.live === !!row.live && previous.rows[0]?.truncated === row.truncated) return previous.rows;
     const document = parseMarkdown(row.live ? streamingSource(row.text) : row.text, { extensions: row.live ? [streamingMarkdownExtension()] : undefined });
     const blocks: MarkdownRow[] = document.children.map((block, index) => {
       const prior = previous?.rows[index];
@@ -161,10 +161,10 @@ export const MarkdownBlock = memo(function MarkdownBlock({ row, components, arri
       const code = node.props.children;
       if (isValidElement<{ children?: ReactNode; className?: string }>(code) && typeof code.props.children === 'string') {
         const start = offset; offset += code.props.children.length;
-        return <CodeBlock key={node.key} code={code.props.children} language={code.props.className?.replace(/^language-/, '')} renderText={(value, position) => decorate(value, start + position)} />;
+        return <MarkdownCodeBlock key={node.key} blockId={`${shown.id}:code:${start}`} code={code.props.children} language={code.props.className?.replace(/^language-/, '')} live={shown.live} truncated={shown.truncated} renderText={(value, position) => decorate(value, start + position)} />;
       }
     }
     return cloneElement(node as ReactElement<{ children?: ReactNode }>, {}, Children.map(node.props.children, child => visit(child)));
   };
   return <div ref={root} data-message-prose data-markdown-block={row.id}>{visit(tree)}</div>;
-}, (before, after) => before.row.block === after.row.block && before.row.live === after.row.live && before.row.id === after.row.id && before.components === after.components && before.arrival === after.arrival);
+}, (before, after) => before.row.block === after.row.block && before.row.live === after.row.live && before.row.truncated === after.row.truncated && before.row.id === after.row.id && before.components === after.components && before.arrival === after.arrival);

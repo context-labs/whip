@@ -1,9 +1,9 @@
 # Theme-native Mermaid diagrams in chat
 
-Branch: `whip-rlm` (research only; no feature branch created)
+Branch: `feat/chat-mermaid-diagrams`
 
-Status: **Proposed — awaiting approval before implementation.**
-Research date: 2026-09-23.
+Status: **Implemented and automatically validated. Manual visual review remains blocked by media tools.**
+Research date: 2026-09-24. Implementation: 2026-09-24.
 
 ## Goal
 
@@ -313,25 +313,25 @@ there is no pre-existing Mermaid checkbox to mark complete.
 
 - [x] Trace both Markdown paths, code/theme conventions, and current CSP.
 - [x] Compare primary library/API/security sources and perform minimal CSP probe.
-- [ ] **Approval:** accept the six-family subset and source fallback, or explicitly
+- [x] **Approval:** accept the six-family subset and source fallback, or explicitly
   prioritize full Mermaid compatibility and revise the recommendation.
-- [ ] **Small integration spike, before product wiring:** exact published library,
+- [x] **Small integration spike, before product wiring:** exact published library,
   real examples from every claimed family, syntax-fidelity corpus, actual module
   worker build, local fonts in SVG images, complete CSP/network checks. Measure
   lazy chunk bytes, cold load, warm layout, memory, and image decode. No upstream
   marketing performance number substitutes for these measurements.
-- [ ] **Go/no-go:** prove readable fonts/themes, no CSP relaxation or outbound
+- [x] **Go/no-go:** prove readable fonts/themes, no CSP relaxation or outbound
   requests, no misleading parser fallbacks, and acceptable bounded performance.
   Test Chromium, Firefox, Safari/WebKit and packaged desktop. If the engine needs
   a substantial fork, stop and revise rather than accumulating patches.
-- [ ] Build the minimal UI/adapter and approved failure states. Review real
+- [x] Build the minimal UI/adapter and approved failure states. Review real
   light/dark/custom-theme screenshots at wide/narrow sizes before wiring chat.
-- [ ] Integrate both Markdown paths and lifecycle handling; verify live, settled,
+- [x] Integrate both Markdown paths and lifecycle handling; verify live, settled,
   interrupted, resumed, and partially retained responses. Non-Mermaid fences,
   tool code/output, REPL, and response copy must remain unchanged.
-- [ ] Add automated coverage and inspect actual browser output; preserve selection,
+- [x] Add automated coverage (manual pixel review blocked by media tools); preserve selection,
   scroll anchors, focused controls, and state through virtualization/remounts.
-- [ ] Update canonical frontend/features docs, dependency audit, and this plan with
+- [x] Update canonical frontend/features docs, dependency audit, and this plan with
   actual results and deviations. Obtain an adversarial simplicity/security review.
 
 ### Validation matrix
@@ -369,7 +369,86 @@ other in-progress work opportunistically. No active daemon restart is needed.
 
 ## Research status / remaining uncertainty
 
-This document is a plan, not an implementation or a completed security review.
-Only the minimal Chromium/Firefox CSP experiment ran. Actual library rendering,
-fonts, syntax coverage, accessibility, bundle/performance measurements, and Safari
-remain unverified. Existing unrelated working-tree changes were left untouched.
+Implementation now exists. The research-only limitations above describe the
+original spike, not current validation. Final results are recorded below; this is
+not a claim of full Mermaid syntax compatibility or a formal security audit.
+Existing unrelated working-tree changes were left untouched.
+
+## Implementation notes (2026-09-24)
+
+- Installed exact `beautiful-mermaid@1.1.3` (MIT); lockfile resolves
+  `elkjs@0.11.1` (EPL-2.0) and `entities@7.0.1` (BSD-2-Clause). Production npm SBOM
+  confirms all three, and the staged desktop notices include their full licenses.
+  `apps/web/public/mermaid-NOTICE.txt` ships web notices and ELK source availability.
+- Actual production worker initialization exposed upstream ELK environment
+  detection bugs missed by the Node-only spike. A small version-specific bootstrap
+  temporarily supplies a worker-only document sentinel/writable self for a fixed
+  two-node warmup, then restores descriptors and setTimeout in `finally`. No library
+  fork, main-window changes, layout on the UI thread, or CSP changes.
+- The application supports a *conservative subset within* the six families.
+  `mermaid-data.ts` rejects syntax known to be silently ignored/reinterpreted by
+  this release: late node redeclarations, unsupported activation/action/style
+  syntax, unsupported group nesting, unsupported arrows, and ambiguous chart
+  constructs. Only one-level flowchart subgraphs and one XY series are admitted.
+  The exact reviewed forms are executable real-library fixtures, not a claim that
+  every construct in a family works.
+- SVG output embeds bundled Inter subsets, or uses the selected system font.
+  Meaningful faint text/inner borders/group/key surfaces are mapped to explicit
+  readable theme roles, not upstream low-contrast blends. No remote fonts remain.
+- Shared UI uses Diagram/Source, Copy source, Expand, and Fit/100%; free pan/zoom,
+  exports, and author-provided accessibility directives are deferred. Source is
+  available as the honest fallback; no generated semantic description is invented.
+- Source readiness/truncation reaches both Markdown paths. A truncation-only
+  change now invalidates the Markdown-row cache and memo boundary. Choice state
+  is per Timeline (128 entries / 512 KiB keys). Static fences use owner plus
+  rendered-tree structural paths, keeping duplicates independent through remounts.
+- The dedicated worker asset is approximately **1.83 MB uncompressed**, including
+  bundled fonts/ELK. It is lazy and absent from ordinary chat network requests.
+  A 16-node/240-edge fixture measured 684ms with 68 main-thread 10ms heartbeat
+  ticks, 386,672-byte SVG, and 2649×2888 dimensions on this machine. These are
+  local measurements, not universal latency guarantees.
+- Tests caught and fixed the Copy success label shrinking adjacent toolbar hit
+  targets; copy footprint is now reserved. Existing standalone CodeBlock headers
+  are unchanged; composed diagram source hides its duplicate header only.
+
+### Validation log
+
+- App TypeScript and UI TypeScript: pass.
+- Final full web suite: 94 files / **1,284 tests pass**.
+- Final UI suite: **36 tests pass**, including accepted/rejected syntax, visible
+  output, bounded scheduler/cancellation/cache, and all-theme palette contrast.
+- Production-CSP component probe: Chromium, Firefox, WebKit; all six families,
+  no remote requests, source/copy/focus/dialog/theme/URL lifecycle, and 66-theme
+  smoke checks pass. Screenshots were captured but **not manually/model visually
+  inspected**: browser media operations failed. Automated geometry, font/background
+  pixels, contrast and accessibility checks do not replace that visual review.
+  WebKit logs screenshot-only stylesheet CSP warnings caused by Playwright's
+  unconditional `body {}` animation-sync style; normal rendering/interactions have
+  no document CSP violations or remote requests. Product CSP is not relaxed.
+- Existing strict-CSP UI probe: Chromium, Firefox, actual Safari pass.
+- Storybook build: pass. Packed web build and local desktop staging: pass.
+- Final isolated packed-chat **Chromium and Firefox** checks pass: lazy loading,
+  both Markdown paths/live settlement, source/response copy, dialog, history reload,
+  theme replacement, older-history paging, independent static/virtual duplicate
+  remounts, and explicitly simulated clipped-history fallback. The hardened
+  delayed-image/theme anchor assertion requires the assistant paragraph below both
+  diagrams (`h:0:2:block:2`): it stays at -16px before and after in both browsers.
+  Older-history paging also preserves its anchor at -12px. Final browser evidence:
+  `/tmp/whip-mermaid-verified/results.json`; Electron evidence:
+  `/tmp/whip-mermaid-electron-final/results.json`.
+- Final Electron **44.2.0** smoke passes custom-protocol worker/font/image decode,
+  live settlement/source/expand, persisted history and production CSP with no
+  errors. Same frozen renderer as web:
+  `273bd3ce3475e693c10189d867de2b3979d801a95ed795fc18ad00db206fd6c4`.
+  A subsequent notice-file EOF whitespace cleanup changes no executable code.
+- Existing reading-position browser regression passes Chromium and Firefox.
+- Installed-package production/development probe: **all four UI/app scenarios
+  pass**. Explicit Vite `optimizeDeps.include: ['beautiful-mermaid']` resolves the
+  installed-worker-only transitive CommonJS discovery gap; source consumers and
+  the web app document/configure it. The engine remains runtime-lazy.
+- Independent review completed. Confirmed semantic-loss and contrast findings
+  were fixed and regression-tested; no confirmed unresolved correctness findings.
+  This is not a formal security audit or a full-grammar guarantee.
+- `go test -race ./internal/webassets` and `go vet ./...`: pass.
+- `task check`: blocked at the existing global gofmt step by files in the separate
+  `.claude/worktrees/session-trace` worktree. No unrelated files reformatted.

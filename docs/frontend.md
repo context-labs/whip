@@ -1644,7 +1644,71 @@ Markdown blocks preserve their DOM until selection ends, then display the latest
 source; other blocks continue streaming. Code decoration receives original token
 offsets and never changes its source or copy semantics.
 
-Every shared `CodeBlock` owns one always-visible copy button in its top-right
+### Mermaid diagrams
+
+Web and desktop Markdown fences marked `mermaid` use the shared
+`MermaidBlock` (`packages/ui/src/mermaid-block.tsx`), backed by the exact reviewed
+`beautiful-mermaid` release. This is a **conservative Mermaid subset**, not full
+mermaid.js compatibility. Unknown types, unsupported statements, incomplete or
+truncated source, and render/size failures remain source with an explanation;
+never silently display a partial parse as a complete diagram. The supported
+statement policy and limits live in `mermaid-data.ts` with real-library fixtures.
+Basic flowchart, state, sequence, class, ER, and single-series XY diagrams are
+supported. Styling/configuration directives, HTML, external resources, actions,
+and unsupported advanced syntax are intentionally source-only.
+
+`packages/app/src/markdown-code-block.tsx` is the Markdown-only dispatch shared by
+`timeline.tsx`'s `Prose` path and `streaming-markdown.tsx`'s virtualized walker.
+Generic tool/REPL `CodeBlock` instances never opt into rendering. Message readiness
+is explicit: live responses remain source until settlement, even if the parser
+synthetically closes a fence. Truncated retained text never renders a diagram.
+Diagram/Source preferences are presentation state owned by each mounted Timeline,
+bounded to 128 choices / 512 KiB of keys and discarded with the conversation view.
+Static Markdown annotates TanStack's rendered tree with owner+structural-path
+identity, so identical nested fences retain independent preferences on remount. Original Markdown remains
+the response-copy/history authority. No SDK, protocol, or host state is added.
+
+The shared component uses resolved theme colors, accessible text/connector roles,
+and the UI font/size preference. Chrome uses StyleX tokens and existing controls.
+Source uses `CodeBlock` with its header hidden only because the enclosing diagram
+header supplies the same original-source copy action. The expanded Dialog offers
+Fit/100% and scrolling; focus returns to Expand. Source focus/selection prevents
+an automatic image swap. Theme replacement keeps the old image until its
+replacement decodes; row-size changes use existing reading-anchor measurement.
+
+The library and bundled fonts live in one lazy module worker, never React render.
+The scheduler bounds source (32 KiB), statements (250), queued work (16 / 512 KiB),
+SVG output (1 MiB including fonts), dimensions/pixels, and cache (32 / 8 MiB).
+Active layout has a two-second termination deadline, separate from a 15-second
+cold-worker startup deadline. Stale/abandoned requests are cancelled and URLs are
+revoked after replacement/unmount; cache entries are strings, not live URLs.
+
+Generated SVG is a **Blob-backed image only**, never injected markup, an object,
+iframe, or navigable document. The output adapter strips library remote font
+imports, embeds existing local Inter subsets when selected, and rejects active
+markup/external references. Source cannot supply theme CSS or URLs. SVG image
+isolation means page CSS/fonts are not implicitly inherited; the image is
+self-contained. A release-specific worker bootstrap selects ELK's FakeWorker
+export and warms it once before restoring worker globals; it never alters the
+window. This compatibility shim is covered by real production and development
+worker tests and must be revisited on dependency upgrades. Vite consumers include
+`beautiful-mermaid` in `optimizeDeps.include`: the engine remains lazy, but its
+transitive CommonJS dependency must be transformed even inside an installed UI
+package's worker. See `packages/ui/README.md` and the packed-consumer probe. The public
+`mermaid-NOTICE.txt` includes licenses and ELK source availability; desktop's
+existing dependency-notice/SBOM pipeline also includes the transitive packages.
+Production CSP is unchanged. Raw SVG export and interactive links
+are deliberately absent because they need a different security design.
+
+Coverage: `packages/app/test/mermaid-markdown.test.tsx`, shared renderer tests,
+`npm run test:mermaid -w @whip/ui`, and the packed-app
+`apps/web/scripts/mermaid-diagrams.mjs` probe (after `npm run pack:web`; use
+`WHIP_WEB_BROWSERS=electron` after desktop staging for the packaged custom-protocol
+check). Use actual production CSP, real
+library output, offline/local assets, theme changes, and reading-position checks;
+mocked component tests alone do not validate this rendering boundary.
+
+Every standalone shared `CodeBlock` owns one always-visible copy button in its top-right
 header, including chat, REPL source/output/return values, traces and detail views.
 `UIProvider copy` receives `text => platform.copy(text)` at application bootstrap;
 UI imports no app runtime or Electron APIs. `CopyButton` resolves an explicit

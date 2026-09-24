@@ -49,8 +49,11 @@ StyleX requires a `.stylex` import suffix for cross-package variables, so use
 `@whip/ui/tokens.stylex` in authored style modules. The plain tokens export is
 available for runtime inspection.
 
-With Vite, keep `use-sync-external-store/shim` and
-`use-sync-external-store/shim/with-selector` in `optimizeDeps.include`. The
+With Vite, keep `use-sync-external-store/shim`,
+`use-sync-external-store/shim/with-selector`, and `beautiful-mermaid` in
+`optimizeDeps.include`. The diagram engine is only loaded by its lazy worker;
+explicit optimization ensures its transitive ELK CommonJS module also works when
+UI source is installed under `node_modules`, not just linked in this workspace. The
 official StyleX plugin discovers UI/app source packages from the consumer's
 package metadata and excludes them from prebundling. Their Base UI/TanStack
 CommonJS store shims still need prebundling, as described in

@@ -861,6 +861,28 @@ the wave and caption rotation.
   production renderer with `apps/web/scripts/agent-dock.mjs`.
 - Ownership and limits: [frontend guide](frontend.md#conversation-and-navigation-patterns).
 
+## Mermaid diagrams in chat
+
+Web and desktop conversations render supported fenced `mermaid` source through
+`beautiful-mermaid` in a lazy, bounded worker. Diagram/Source, Copy source, and an
+expanded Fit/100% view use shared controls and the selected theme/UI font. Live
+responses remain source until settlement. Invalid, unsupported, truncated, or
+oversized source stays readable with an explanation; copying a response preserves
+its original Markdown. Tool and REPL code viewers remain source-only.
+
+This is a deliberately conservative subset across flowchart, state, sequence,
+class, ER, and single-series XY diagrams—not all Mermaid syntax. Advanced syntax,
+source-defined CSS/configuration, actions, and external resources are not accepted.
+Diagrams are local Blob-backed SVG images, not injected page markup; fonts are
+bundled, no content is sent to a renderer service, and production CSP is unchanged.
+See [frontend.md](frontend.md#mermaid-diagrams) for ownership, limits, and security.
+
+Behavior-to-test map: shared renderer/worker tests and the production-CSP
+`packages/ui/tests/mermaid.mjs` probe cover real output, themes, lifecycle, and
+controls; `packages/app/test/mermaid-markdown.test.tsx` covers both Markdown paths,
+readiness, copying, and bounded view retention; the isolated packed-app
+`apps/web/scripts/mermaid-diagrams.mjs` checks actual conversation integration.
+
 ## Conversation row actions
 
 Sidebar, search, and Session details share Open in, Rename, same-directory Fork,

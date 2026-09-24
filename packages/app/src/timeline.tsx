@@ -1,5 +1,7 @@
 import { ErrorNotice } from './error-feedback';
 import {
+  Children,
+  cloneElement,
   isValidElement,
   memo,
   useCallback,
@@ -13,7 +15,7 @@ import {
   type ReactNode,
   type Ref,
 } from 'react';
-import { Markdown } from '@tanstack/markdown/react';
+import { renderMarkdownReact } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
@@ -42,6 +44,7 @@ import { HistoryGapControl } from './history-gap';
 import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
+import { DiagramChoices, MarkdownCodeBlock, MarkdownReadiness } from './markdown-code-block';
 import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
 import { DesignInputAttachments } from './design-input-attachments';
@@ -313,13 +316,14 @@ const markdownComponents = {
   code: (props: ComponentPropsWithoutRef<'code'>) => (
     <code {...props} {...stylex.props(styles.code)} />
   ),
-  pre: ({ children, ...props }: ComponentPropsWithoutRef<'pre'>) => {
+  pre: ({ children, blockId, ...props }: ComponentPropsWithoutRef<'pre'> & {blockId?: string}) => {
     if (
       isValidElement<{ children?: unknown; className?: string }>(children) &&
       typeof children.props.children === 'string'
     )
       return (
-        <CodeBlock
+        <MarkdownCodeBlock
+          blockId={blockId}
           code={children.props.children}
           language={children.props.className?.replace(/^language-/, '')}
         />
@@ -371,21 +375,33 @@ const markdownComponents = {
   ),
 };
 const streaming = [streamingMarkdownExtension()];
+// Annotate TanStack's rendered tree, not its grammar. Structural paths keep even
+// identical nested fences independent through an ordinary virtual remount.
+function identifyCodeBlocks(tree: ReactNode, owner: string, path = ''): ReactNode {
+  return Children.map(tree, (node, index) => {
+    if (!isValidElement<{children?: ReactNode; blockId?: string}>(node)) return node;
+    const next = `${path}:${index}`;
+    if (node.type === markdownComponents.pre) return cloneElement(node, {blockId: `${owner}:code${next}`});
+    return node.props.children === undefined ? node : cloneElement(node, {}, identifyCodeBlocks(node.props.children, owner, next));
+  });
+}
 export const Prose = memo(function Prose({
   text,
   live = false,
+  truncated = false,
+  ownerId,
 }: {
   text: string;
   live?: boolean;
+  truncated?: boolean;
+  ownerId?: string;
 }) {
-  return (
-    <div data-message-prose><Markdown
-      components={markdownComponents}
-      extensions={live ? streaming : undefined}
-    >
-      {text}
-    </Markdown></div>
-  );
+  const readiness = useMemo(() => ({live, truncated}), [live, truncated]);
+  const tree = useMemo(() => {
+    const rendered = renderMarkdownReact(text, {components: markdownComponents, extensions: live ? streaming : undefined});
+    return ownerId ? identifyCodeBlocks(rendered, ownerId) : rendered;
+  }, [text, live, ownerId]);
+  return <MarkdownReadiness.Provider value={readiness}><div data-message-prose>{tree}</div></MarkdownReadiness.Provider>;
 });
 
 function MessageDetails({ row, readBody }: { row: TimelineRow; readBody(row: TimelineRow): void }) {
@@ -515,7 +531,7 @@ export const MessageRow = memo(function MessageRow({
                 Read stored message · {row.body.size} bytes
               </Button>
             ) : (
-              <Prose text={row.text} />
+              <Prose text={row.text} truncated={row.truncated} ownerId={row.id} />
             ))}
           </div>}
           {row.delivery && (
@@ -571,7 +587,7 @@ export const MessageRow = memo(function MessageRow({
             </Button>
           ) : (
             <>
-              <Prose text={row.text} live={row.live} />
+              <Prose text={row.text} live={row.live} truncated={row.truncated} ownerId={row.id} />
               {row.images?.map((image, index) => (
                 <ImageAttachment key={index} image={image} />
               ))}
@@ -645,6 +661,7 @@ export function Timeline({
   messageScope?: MessageScope;
 }) {
   const rows = useCoalescedTranscript(incomingRows);
+  const diagramChoices = useRef(new Map<string, 'diagram' | 'source'>());
   const availableMotion = useTranscriptMotion() && connected;
   const [wasAvailable, setWasAvailable] = useState(availableMotion);
   useLayoutEffect(() => setWasAvailable(availableMotion), [availableMotion]);
@@ -789,7 +806,7 @@ export function Timeline({
     const following = blocks[blockIndex + 1];
     if (!isMarkdownRow(row) || !following || !isMarkdownRow(following) || following.ownerId !== owner) displayRows.at(-1)!.copy = copies.get(owner);
   }
-  return <MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
+  return <DiagramChoices.Provider value={diagramChoices.current}><MotionContext.Provider value={motion}><div ref={region} {...stylex.props(styles.transcript)}>
     <ReadingList actionsRef={readingActionsRef} rows={displayRows} hasMore={hasMore} loadOlder={loadOlder} loadLatest={loadLatest} latestMissing={latestMissing} chatFollow
       bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyCursor={historyCursor} historyReady={historyReady}
       canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
@@ -818,5 +835,5 @@ export function Timeline({
           {row.copy && <div data-response-actions {...stylex.props(styles.responseActions)}><MessageCopy key={source.id} owner={source.id} label={row.copy.label} text={row.copy.text} /></div>}
         </>;
       }} />
-  </div></MotionContext.Provider>;
+  </div></MotionContext.Provider></DiagramChoices.Provider>;
 }

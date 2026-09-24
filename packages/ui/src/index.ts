@@ -13,6 +13,8 @@ export {themeCatalog, themeIds} from './generated/theme-catalog';
 export type {ThemeDefinition} from './generated/theme-catalog';
 export {CodeBlock} from './code-block';
 export type {CodeBlockProps} from './code-block';
+export {MermaidBlock} from './mermaid-block';
+export type {MermaidBlockProps, MermaidView} from './mermaid-block';
 
 export {Slider} from './slider';
 export type {SliderProps} from './slider';
