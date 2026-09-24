@@ -50,11 +50,36 @@ tasks:
     cmds:
       - node --test scripts/update-local.test.mjs
 
-  onboarding:docker:
+  docker:onboarding:
     desc: Build working files and open a disposable TUI + web app at localhost:4000
     interactive: true
     cmds:
       - node scripts/onboarding-docker.mjs {{.CLI_ARGS}}
+
+  desktop:onboarding:
+    desc: Start the Desktop App with a clean install and live reload on changes
+    interactive: true
+    cmds:
+      - npm run build:desktop & npm run dev -w @whip/web -- --port 3001
+      - |
+        TEST_DIR=$(mktemp -d /tmp/whip-onboarding-dev.XXXXXX) && mkdir -p "$TEST_DIR/user" "$TEST_DIR/tmp"
+        launch_dev() {
+          env -i \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            SHELL=/bin/zsh \
+            HOME="$TEST_DIR/user" \
+            ZDOTDIR="$TEST_DIR/user" \
+            TMPDIR="$TEST_DIR/tmp" \
+            WHIP_DESKTOP_FIXTURE=1 \
+            WHIPCODE_HOME="$TEST_DIR/runtime" \
+            WHIP_DESKTOP_USER_DATA="$TEST_DIR/desktop" \
+            WHIP_DESKTOP_EXECUTABLE="$TEST_DIR/bin/whipcode" \
+            WHIP_DESKTOP_DEV_URL=http://127.0.0.1:3001/ \
+            WHIPCODE_NETWORK=0 \
+            ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron \
+            apps/desktop/.stage/app
+        }
+        launch_dev
 
   test:onboarding-docker:
     desc: Test Docker onboarding orchestration and local renderer provenance
