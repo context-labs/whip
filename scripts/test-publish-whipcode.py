@@ -26,7 +26,7 @@ class PublisherTests(unittest.TestCase):
                     'TEST_STATE': str(self.state_file), 'SOURCE_SHA': SOURCE,
                     'RELEASE_TAG': 'v1.0.0-alpha.1', 'RELEASE_MODE': 'alpha',
                     'GH_REPO': 'context-labs/whip', 'GITHUB_REPOSITORY': 'context-labs/whip',
-                    'WHIP_RELEASE_ENABLED': 'true', 'WHIP_DESKTOP_RELEASE_ENABLED': 'true',
+                    'WHIP_RELEASE_ENABLED': 'true',
                     'WHIP_RELEASE_BASELINE': 'c' * 40}
         fake = r"""#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -89,14 +89,12 @@ done(99)
                 self.env.update(RELEASE_MODE=mode, RELEASE_TAG=tag)
                 self.publish()
 
-    def test_both_switches_fail_closed(self):
-        for name in ['WHIP_RELEASE_ENABLED', 'WHIP_DESKTOP_RELEASE_ENABLED']:
-            for value in ['', 'false', '1', 'TRUE']:
-                with self.subTest(name=name, value=value):
-                    self.env[name] = value
-                    self.publish(False)
-                    self.assertEqual(self.state['calls'], [])
-            self.env[name] = 'true'
+    def test_global_switch_fails_closed(self):
+        for value in ['', 'false', '1', 'TRUE']:
+            with self.subTest(value=value):
+                self.env['WHIP_RELEASE_ENABLED'] = value
+                self.publish(False)
+                self.assertEqual(self.state['calls'], [])
 
     def test_baseline_must_be_full_sha(self):
         for value in ['', 'main', 'a' * 39]:
@@ -238,7 +236,7 @@ class WorkflowTests(unittest.TestCase):
     def test_admission_pins_protected_main_source(self):
         metadata = self.job(self.release, 'metadata')
         for guard in ["github.repository == 'context-labs/whip'", "github.ref == 'refs/heads/main'",
-                      "vars.WHIP_RELEASE_ENABLED == 'true'", "vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'",
+                      "vars.WHIP_RELEASE_ENABLED == 'true'",
                       'git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"',
                       'git merge-base --is-ancestor "$SOURCE_SHA" origin/main', 'ref: ${{ github.sha }}']:
             self.assertIn(guard, metadata)
@@ -254,6 +252,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('needs: [metadata, build, desktop, linux]', self.job(self.release, 'candidate'))
         self.assertIn('needs: [metadata, candidate]', self.job(self.release, 'publish'))
         self.assertNotIn('continue-on-error:', self.release + self.desktop)
+        self.assertIn("if: vars.WHIP_RELEASE_ENABLED == 'true'\n", self.job(self.release, 'publish'))
+        self.assertIn("if: vars.WHIP_RELEASE_ENABLED == 'true'\n", self.job(self.desktop, 'package'))
         self.assertEqual(self.release.count('uses: ./.github/workflows/ci.yml'), 1)
         self.assertEqual(self.release.count('uses: ./.github/workflows/security.yml'), 1)
 

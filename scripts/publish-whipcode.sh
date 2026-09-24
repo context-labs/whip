@@ -3,7 +3,7 @@
 set -euo pipefail
 : "${SOURCE_SHA:?}" "${RELEASE_TAG:?}" "${RELEASE_MODE:?}" "${GH_REPO:?}"
 die() { echo "$*" >&2; exit 1; }
-[[ "${WHIP_RELEASE_ENABLED:-}" == true && "${WHIP_DESKTOP_RELEASE_ENABLED:-}" == true ]] || die "Publication is disabled"
+[[ "${WHIP_RELEASE_ENABLED:-}" == true ]] || die "Publication is disabled"
 [[ "$GH_REPO" == context-labs/whip && "${GITHUB_REPOSITORY:-}" == "$GH_REPO" ]] || die "Unexpected repository"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "Invalid source SHA"
 [[ "${WHIP_RELEASE_BASELINE:-}" =~ ^[0-9a-f]{40}$ ]] || die "Missing clean release baseline"
