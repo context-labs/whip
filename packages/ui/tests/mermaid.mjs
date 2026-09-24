@@ -125,6 +125,17 @@ try {
       for (const variant of ['truncated', 'unsupported', 'unsafe', 'large', 'invalid']) {
         await visit(`?${variant}`); await expect(source()).toBeVisible();
         await expect(figure.getByRole('status').first()).toBeVisible();
+        if (variant === 'truncated') {
+          await expect(figure.getByRole('status')).toHaveCount(1);
+          await expect(figure.getByRole('status')).toHaveText('This diagram source is incomplete. Showing source.');
+          await expect(source()).toHaveText(code);
+          await expect(figure.getByText(/Showing a bounded excerpt/)).toHaveCount(0);
+          // Local CodeBlock clipping still reports the bytes it actually omitted.
+          await page.evaluate(() => window.setMermaidSource('flowchart TD\n' + 'x'.repeat(20000)));
+          await expect(figure.getByRole('status')).toHaveCount(2);
+          await expect(figure.getByText(/Showing a bounded excerpt \(16,384 bytes\)/)).toBeVisible();
+          assert.equal((await source().textContent()).length, 16384);
+        }
         await expect(diagram()).toHaveCount(0);
         if (variant !== 'invalid') assert.equal(await page.evaluate(() => window.__mermaidWorkers), 0, `${variant} source must not start renderer`);
         await assertPolicy();

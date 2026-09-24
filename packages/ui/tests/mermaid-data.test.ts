@@ -76,6 +76,24 @@ test('upstream permissive parsing is fenced off instead of presenting partial di
   ];
   for (const source of unsupported) assert.equal(validateMermaid(source).ok, false, source);
 });
+test('ordinary data labels and class names survive real-library rendering', () => {
+  for (const [source, label] of [
+    ['flowchart TD\n A[data: string] --> B[Result]', 'data: string'],
+    ['sequenceDiagram\n A->>B: data: string', 'data: string'],
+    ['stateDiagram-v2\n data: Ready\n data --> Done', 'Ready'],
+    ['classDiagram\n class data\n data: +String value', 'data'],
+  ]) {
+    assert.equal(validateMermaid(source!).ok, true, source);
+    assert.ok(prepareMermaidSVG(renderMermaidSVG(source!), palette, css).svg.includes(`>${label}</text>`), source);
+  }
+});
+test('data URLs still stay source-only, including omitted media types and mixed case', () => {
+  for (const url of ['data:text/plain,hello', 'data:text/html;base64,PHNjcmlwdD4=', 'data:,hello', 'data:;base64,aGVsbG8=', 'DATA:image/svg+xml,unsafe', 'data: text/plain,hello', 'data:text/plain ,hello']) {
+    const validation = validateMermaid(`flowchart TD\n A[${url}] --> B`);
+    assert.equal(validation.ok, false, url);
+    if (!validation.ok) assert.equal(validation.reason, 'unsafe-source', url);
+  }
+});
 test('unsafe instructions, malformed syntax, empty input and budgets have distinct outcomes', () => {
   for (const source of ['%%{init: {}}%%\nflowchart TD\n A --> B', '---\ntitle: Hi\n---\nflowchart TD\n A --> B', 'flowchart TD\n A[<img src=x>]', 'flowchart TD\n A[&#10;]']) {
     assert.equal((validateMermaid(source) as {reason: string}).reason, 'unsafe-source');

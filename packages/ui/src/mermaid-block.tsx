@@ -130,7 +130,7 @@ export function MermaidBlock({code, live = false, truncated = false, renderText,
     </figcaption>
     {status && <p role="status" {...stylex.props(styles.status)}>{status}</p>}
     {showDiagram ? <div role="region" aria-label="Mermaid diagram" tabIndex={0} {...stylex.props(styles.viewport)}>{diagram(false)}</div>
-      : <div ref={source} {...stylex.props(!live && !truncated && validation.ok && !error && !current && styles.pending)}><CodeBlock code={code} label="Mermaid source" truncated={truncated} renderText={renderText} hideHeader xstyle={styles.source} /></div>}
+      : <div ref={source} {...stylex.props(!live && !truncated && validation.ok && !error && !current && styles.pending)}><CodeBlock code={code} label="Mermaid source" renderText={renderText} hideHeader xstyle={styles.source} /></div>}
     <Dialog open={open} onOpenChange={setOpen} title={`Mermaid · ${label}`} description="Scroll to explore at 100%, or fit the diagram to this window. Source is available in the conversation." finalFocus={expand} xstyle={styles.dialog} bodyXstyle={styles.dialogBody}>
       <div role="group" aria-label="Diagram size" {...stylex.props(styles.actions)}>
         <Button size="sm" aria-pressed={fit} variant={fit ? 'secondary' : 'ghost'} onClick={() => setFit(true)}>Fit</Button>

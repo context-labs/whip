@@ -51,7 +51,8 @@ export function validateMermaid(source: string): MermaidValidation {
   if (source.length > mermaidLimits.sourceBytes || mermaidBytes(source) > mermaidLimits.sourceBytes) return fail('too-large', 'Diagram source exceeds 32 KiB.');
   if (!source.trim()) return fail('empty', 'The diagram has no source yet.');
   // Configuration, markup and entity decoding can change parser meaning. Source is not a CSS/URL authority.
-  if (/^\s*(?:---|%%\s*\{)|<\/?[A-Za-z!]|&(?:#\w+|[A-Za-z]+);|\b(?:javascript|data|https?):|\u0000/im.test(source)) return fail('unsafe-source', 'Diagram configuration, HTML and external resources are not supported.');
+  // A data URL needs a comma; ordinary `data: value` labels and declarations do not.
+  if (/^\s*(?:---|%%\s*\{)|<\/?[A-Za-z!]|&(?:#\w+|[A-Za-z]+);|\b(?:javascript|https?):|\bdata:[^,\r\n\[\]{}]*,|\u0000/im.test(source)) return fail('unsafe-source', 'Diagram configuration, HTML and external resources are not supported.');
   const lines = source.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('%%'));
   const header = lines.shift() ?? '';
   let type: MermaidType;
