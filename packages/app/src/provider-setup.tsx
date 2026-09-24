@@ -13,8 +13,8 @@ import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow
 type Connections = ReturnType<typeof useProviderConnections>;
 
 /** A view of host-owned readiness. Choosing a default is always an explicit write. */
-export function ProviderSetup({ client, enabled, hostName, connections, onReady, actions }: {
-  client: WhipClient; enabled: boolean; hostName: string; connections: Connections; onReady(): void; actions?: ReactNode;
+export function ProviderSetup({ client, enabled, hostName, connections, onReady, actions, onExpandedChange }: {
+  client: WhipClient; enabled: boolean; hostName: string; connections: Connections; onReady(): void; actions?: ReactNode; onExpandedChange?(expanded: boolean): void;
 }) {
   const { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError } = connections;
   useEffect(() => { void discover(); }, [discover]);
@@ -80,7 +80,7 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
       <Button data-provider-confirm variant="primary" disabled={!enabled || busy || !model} loading={busy} onClick={() => void useModel()}>Use {model || 'selected model'}</Button>
     </div>}
     <ProviderConnectionList key={host} entries={pending} enabled={enabled && !busy} hostName={hostName} onSelect={choose}
-      title={available.length ? 'Connect another provider' : undefined} actions={actions} refresh={refreshButton} />
+      title={available.length ? 'Connect another provider' : undefined} actions={actions} refresh={refreshButton} onExpandedChange={onExpandedChange} />
     {!inventory.isPending && !inventory.error && !entries.length && <p role="status" {...stylex.props(styles.note)}>No providers are available on this host. Try refreshing or connect a remote host.</p>}
     {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
     {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not save the default model" error={error} />}

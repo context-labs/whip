@@ -24,11 +24,13 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
   const skillRequests: unknown[] = [];
   const capabilities = options.globalSkills ? ['host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion'] : [];
   let handlers: TransportHandlers;
+  let holdReads = false;
   const factory: TransportFactory = async current => {
     handlers = current;
     return { kind: 'unix', bufferedAmount: 0, close() {}, send(text) {
       const request = JSON.parse(text) as { id?: string; method: string; params?: { operation?: string } };
       methods.push(request.method);
+      if (holdReads) return;
       let result: unknown;
       switch (request.method) {
         case 'initialize':
@@ -64,7 +66,7 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
       handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
     } };
   };
-  return { factory, methods, unexpected, skillRequests, disconnect: () => { options.held = true; handlers.close(new Error('Test disconnect')); } };
+  return { factory, methods, unexpected, skillRequests, holdReads: () => { holdReads = true; }, disconnect: () => { options.held = true; handlers.close(new Error('Test disconnect')); } };
 }
 
 beforeEach(() => {
@@ -109,10 +111,11 @@ it.each([false, true])('sets up a clean Mac without an error and enters the exis
   };
   const { app, server, platform } = await boot({ configured }, false, api);
   const panel = await screen.findByRole('region', { name: 'This Mac runtime' });
-  const setup = within(panel).getByRole('button', { name: 'Set up this Mac', exact: true });
-  expect(within(panel).getByRole('heading', { name: 'Set up Whip on this Mac' })).toBeTruthy();
+  const setup = within(panel).getByRole('button', { name: 'Get Started', exact: true });
+  expect(within(panel).getByRole('heading', { name: 'Welcome to WhipCode' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Repair this Mac', exact: true })).toBeNull();
-  expect(screen.getAllByRole('button', { name: 'Set up this Mac', exact: true })).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: 'Set up this Mac', exact: true })).toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Get Started', exact: true })).toHaveLength(1);
   expect(screen.queryByRole('alert')).toBeNull();
   expect(app.runtime.getSnapshot().home?.error).toBeUndefined();
   expect(platform.resolveConnection).not.toHaveBeenCalled();
@@ -140,6 +143,46 @@ it.each([false, true])('sets up a clean Mac without an error and enters the exis
   expect(app.runtime.tabs.workspace().tabs).toHaveLength(1);
   expect(server.methods).not.toContain('sessions.create');
   expect(server.unexpected).toEqual([]);
+});
+
+it.each([false, true])('warms first New Chat before any tabs open (configured=%s)', async configured => {
+  const { app, server } = await boot({ configured });
+  expect(app.runtime.tabs.workspace().tabs).toHaveLength(0);
+  await waitFor(() => expect(app.runtime.queries.isFetching()).toBe(0));
+  server.holdReads();
+  await act(async () => { fireEvent.click(screen.getByRole('link', { name: 'New session', exact: true })); });
+  await waitFor(() => expect(app.runtime.tabs.workspace().tabs).toHaveLength(1));
+  expect(screen.queryByText(/Loading host permission defaults/)).toBeNull();
+  expect(screen.queryByText(/Checking providers on/)).toBeNull();
+  if (configured) expect(screen.getByRole('button', { name: 'Model' }).textContent).toContain('gpt-6-astra');
+  else expect(screen.getByRole('button', { name: 'Connect OpenAI', exact: true })).toBeTruthy();
+});
+
+it.each([false, true])('reopens New Chat from zero tabs without a loading layout while reads are delayed (configured=%s)', async configured => {
+  const { app, server } = await boot({ configured });
+  const open = () => fireEvent.click(screen.getByRole('link', { name: 'New session', exact: true }));
+  await act(async () => { open(); });
+  if (configured) await screen.findByRole('textbox', { name: 'Your first message' });
+  else await screen.findByRole('button', { name: 'Connect OpenAI', exact: true });
+  await waitFor(() => expect(app.runtime.queries.isFetching()).toBe(0));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Close New Chat/ })); });
+  await waitFor(() => expect(app.runtime.tabs.workspace().tabs).toHaveLength(0));
+  // Let zero-GC queries expire; retained host metadata must not depend on another open tab.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  server.holdReads();
+  await act(async () => { await app.runtime.queries.invalidateQueries({ refetchType: 'none' }); open(); });
+  await waitFor(() => expect(app.runtime.tabs.workspace().tabs).toHaveLength(1));
+  expect(screen.queryByText(/Loading host permission defaults/)).toBeNull();
+  expect(screen.queryByText(/Checking providers on/)).toBeNull();
+  expect(document.querySelector('[data-picker-skeleton]')).toBeNull();
+  if (configured) {
+    expect(screen.getByRole('textbox', { name: 'Your first message' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Model' }).textContent).toContain('gpt-6-astra');
+  } else {
+    expect(screen.getByRole('button', { name: 'Connect OpenAI', exact: true })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  }
+  expect(server.methods).not.toContain('sessions.create');
 });
 
 async function observe(mutate?: (document: Document, view: JSDOM['window']) => void) {

@@ -495,8 +495,11 @@ is an expected setup requirement (`LocalRuntimeSetupRequiredError`), not `host.e
 real inspection and connection failures still belong to the host error surface.
 An actual error takes precedence over a previously cached missing snapshot.
 
-First launch shows **Set up Whip on this Mac**, one primary action, and one
-**Advanced** disclosure, collapsed by default. Native `repairRequired` identifies a
+First launch shows **Welcome to WhipCode**, a primary **Get Started** action, a
+secondary **View GitHub** button, and one **Advanced** disclosure, collapsed by
+default. The shared setup view is vertically centered when it fits and scrolls
+when it does not. New Chat omits its host picker during local setup; the sidebar
+does not duplicate the setup/repair action. Native `repairRequired` identifies a
 missing saved installation; an unused default executable destination still shows
 setup, not repair. Advanced reuses the native picker,
 custom install action and read-only check, showing the install/data paths and local
@@ -507,7 +510,7 @@ After installation or selection, the normal connection owner re-inspects and con
 Successful setup from the empty workspace opens the existing New Chat/provider flow;
 installed Macs keep the normal front door. Remote hosts and stale-tab pages are unchanged.
 
-**Set up this Mac** uses the optional
+**Get Started** uses the optional
 `localRuntime.installDefault` capability, then connects through `HostConnections`.
 The native runtime probes first: a compatible executable is reused, and only a
 missing installation is filled with verified bundled bytes at the saved missing
@@ -720,6 +723,7 @@ update their source, boundary tests, and this table together.
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
 | SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
+| New Chat host metadata | Provider inventory, runtime configuration, model catalogs, and definitions retained for five minutes after the last observer leaves; 10-second freshness unchanged; detach clears that host’s entries | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
 | Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
 | Sidebar layout preferences | 4 hosts, 64 collapsed directories per host, 64 KiB metadata; this does not limit connected hosts | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
@@ -760,6 +764,9 @@ The global session view ID identifies one presentation of that host’s session.
 SDK data and recipient drafts/files/locks, but retain independent mode, agent, inspector,
 scroll and caret state. When a chat view becomes active on desktop, its composer
 receives focus without scrolling; compact layouts and open overlays retain their focus.
+New Chat uses the same post-layout focus timing: its first panel is hidden until
+measured, so mount-time `autoFocus` is too early. Metadata refreshes do not refocus
+an already visible composer.
 Only the focused view is reflected in the URL. Native
 links carry a validated `whipViewId` history hint so Back/Forward can distinguish
 two views with identical URLs. Sidebar/search reuse the selected matching view,
@@ -1207,6 +1214,10 @@ because a configured environment variable does not mean a key is present.
 Rows use shared Dialog primitives. `ProviderConnectionList` owns the same compact
 connection-choice list for Settings and onboarding: Inference.net, OpenRouter,
 OpenAI, and ChatGPT subscription by default, with Show all/fewer providers.
+New Chat measures its centered column's top margin before expansion and retains
+that spacing while the additional providers flow downward; collapse or leaving
+provider setup restores normal centering. This inline style is measured geometry,
+not authored spacing. The expanded list's Refresh action stays below the rows.
 Settings keeps connected, disabled, and attention groups visible independently
 of this expansion; onboarding also keeps custom and attention/disabled choices
 accessible. A configured environment reference alone does not expand the list.
@@ -2257,12 +2268,19 @@ Keep the interface still while a host answers. Four rules, in priority order
 Spinners may be delayed to avoid flashing on fast reads (the directory dialog
 waits 180 ms); footprint reservation is never delayed, because a slot that
 appears late is itself a flash. New Chat's heading and automatic provider setup
-need host readiness, though drafting no longer depends on it. Fetch that answer
-ahead of time: `AppRuntime.primeProviders` warms the provider
-inventory when a host connects (the splash waits for Local's), and the last
-answer is remembered per host in device storage (`provider-readiness.ts`) so the
-first paint after a reload is already right. Route bodies for tabs the workspace already
-owns render nothing, so a route commit never paints their "missing" copy.
+need host readiness. `AppRuntime.primeProviders` warms the provider inventory
+using the connection callback’s verified client, before the host snapshot is
+published (the splash also awaits Local’s warm-up). Host configuration and model
+catalogs warm alongside it without blocking the splash. Query owns deduplication and
+freshness, so failed or expired prefetches can be retried. The last readiness
+answer is remembered per host in device storage (`provider-readiness.ts`).
+Provider inventory, runtime configuration, model catalogs, and definitions have
+five-minute inactive retention in the runtime's query defaults: closing the last
+tab must not discard the metadata needed to paint the next New Chat. Freshness
+stays at ten seconds; existing data remains visible while stale reads refresh.
+Login flows and other queries retain the zero-GC default. Host detach clears its
+retained queries, and no query cache is persisted to disk. Route bodies for tabs
+the workspace already owns render nothing, so a route commit never paints their "missing" copy.
 
 ### Themes are foundational
 

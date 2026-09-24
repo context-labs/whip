@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
 import { useQuery } from '@tanstack/react-query';
@@ -36,6 +36,13 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   const [adding, setAdding] = useState(false);
   const [hostSelectionError, setHostSelectionError] = useState<unknown>();
   const dropTarget = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
+  const [providerTop, setProviderTop] = useState<number>();
+  const onProviderExpandedChange = useCallback((expanded: boolean) => {
+    // Keep the collapsed view's measured top spacing instead of re-centering a taller list.
+    const top = expanded && column.current ? parseFloat(getComputedStyle(column.current).marginTop) : undefined;
+    setProviderTop(top !== undefined && Number.isFinite(top) ? top : undefined);
+  }, []);
   const { sending } = useSyncExternalStore(runtime.compositions.subscribe, () => runtime.compositions.get(welcomeDraftKey(tab.id)));
   const selected = tab.hostProfileId ?? tab.runtimeId;
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
@@ -52,10 +59,10 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
   const hostControl = <WelcomeHostPicker hosts={hosts} host={host} disabled={sending} onSelect={selectHost}
     onManage={() => void navigate({ to: '/settings', search: { section: 'connections' } })} />;
   return <ChatDropSurface ref={dropTarget}><SessionTopBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
-    <div {...stylex.props(styles.page, configuring && layout.setupPage)}><div {...stylex.props(styles.column, configuring && layout.setupColumn)}>
+    <div {...stylex.props(styles.page, configuring && layout.setupPage)}><div ref={column} {...stylex.props(styles.column, configuring && layout.setupColumn)} style={providerTop === undefined ? undefined : { marginTop: providerTop, marginBottom: 0 }}>
       {configuring && host
-        ? <><LocalRuntimeSetup host={host} />{hostControl}</>
-        : host?.client ? <WelcomeComposer key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onConnectRemote={() => setAdding(true)} dropTarget={dropTarget} />
+        ? <LocalRuntimeSetup host={host} />
+        : host?.client ? <WelcomeComposer key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} hostControl={hostControl} onProviderExpandedChange={onProviderExpandedChange} onConnectRemote={() => setAdding(true)} dropTarget={dropTarget} />
         : <><h1 {...stylex.props(styles.heading)}>What do you want to work on?</h1><p role="status">{host ? `${host.name} is ${host.state === 'closed' ? 'disconnected' : host.state}.` : 'Select or add an execution host to begin.'}</p>
           <div {...stylex.props(styles.toolbar)}>{hostControl}{host
             ? <Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button>
@@ -67,9 +74,9 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
 }
 
 /** Editable state belongs to the stable workspace draft, not the selected host. */
-export function WelcomeComposer({ client, host, tab, focused = true, hostControl, onConnectRemote, dropTarget }: {
+export function WelcomeComposer({ client, host, tab, focused = true, hostControl, onConnectRemote, dropTarget, onProviderExpandedChange }: {
   client: WhipClient; host: HostConnection; tab: NewChatTab; focused?: boolean; hostControl?: ReactNode; onConnectRemote?(): void;
-  dropTarget?: RefObject<HTMLElement | null>;
+  dropTarget?: RefObject<HTMLElement | null>; onProviderExpandedChange?(expanded: boolean): void;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
@@ -205,6 +212,18 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const offerable = connected && ready && !setupVisible && configuration.data?.mcp_import_offered === false;
   const offer = useMCPImportCandidates(client, { enabled: offerable, cwd });
   const offerVisible = offerable && shouldOffer(offer.query.data);
+  useEffect(() => {
+    if (!focused || setupVisible || offerVisible || !window.matchMedia('(min-width: 768px)').matches) return;
+    // A new workspace panel is hidden until layout measures it; mount-time autoFocus runs too early.
+    const frame = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.closest(
+        '[aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+      )) return;
+      input.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focused, setupVisible, offerVisible, key]);
   return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : offerVisible ? 'Bring your MCP servers into Whip' : 'What do you want to work on?'}</h1>
   <div ref={panel} {...stylex.props(styles.content)}>
     {offerVisible && <><MCPImportScreen client={client} hostName={host.name} cwd={cwd} onDone={focusComposer} />
@@ -214,7 +233,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         unavailable={busy ? 'Wait for this message to be accepted before attaching files.' : unresolved ? 'Check your previous submission before attaching files.' : undefined}
         onFiles={attach} onError={setError} />
       <ComposerAttachments attachments={attachments} owner={key} disabled={busy || !!unresolved} onRemove={id => runtime.compositions.remove(key, id)} />
-      <Textarea ref={input} {...skills.inputProps} onSelect={skills.onSelect} autoFocus={focused && !setupVisible} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
+      <Textarea ref={input} {...skills.inputProps} onSelect={skills.onSelect} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
         onPaste={event => {
           const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
           if (images.length) { event.preventDefault(); attach(images); }
@@ -273,7 +292,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       </>} />}
     {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} />}
     {!connected && <p role="status" {...stylex.props(styles.note)}>{connection.info ? 'Reconnecting to' : 'Connecting to'} {host.name}. Your draft stays here and will not be sent automatically.</p>}
-    {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers}
+    {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
       actions={host.local ? <Button variant="ghost" disabled={busy} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : showProviders ? hostControl : undefined}
       onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />}
   </div></>;

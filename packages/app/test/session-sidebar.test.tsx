@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { LocalRuntimeStatus } from '../src/platform';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { SessionSidebar } from '../src/session-sidebar';
@@ -6,7 +7,7 @@ import { emptySidebarState } from '../src/sidebar-state';
 
 vi.hoisted(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 
-const app = vi.hoisted(() => ({ hosts: [] as { id: string; name: string; state: string; endpoint: string }[] }));
+const app = vi.hoisted(() => ({ hosts: [] as { id: string; name: string; state: string; endpoint: string; localRuntime?: LocalRuntimeStatus }[] }));
 vi.mock('../src/context', () => ({
   useAppState: () => app,
   useRuntime: () => ({}),
@@ -26,6 +27,16 @@ it('omits the single-server heading without hiding its content or server managem
   render(sidebar());
   expect(screen.queryByRole('button', { name: /^Local\s*Offline$/ })).toBeNull();
   expect(screen.getByRole('button', { name: 'Connect Local' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Manage servers' })).toBeTruthy();
+});
+
+it.each([false, true])('omits redundant local setup actions while keeping remote connections available (repairRequired=%s)', repairRequired => {
+  app.hosts = [{ ...local, localRuntime: { state: 'missing', home: '/tmp/whip-test', message: 'No installation.', canInstall: true, repairRequired } }, remote];
+  render(sidebar());
+  expect(screen.queryByRole('button', { name: 'Set up this Mac' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Repair this Mac' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Connect Local' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Connect Remote' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Manage servers' })).toBeTruthy();
 });
 

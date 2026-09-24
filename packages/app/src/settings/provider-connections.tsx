@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import type { ProviderList, ProviderLoginStatus } from '@whip/protocol';
 import { Alert, Badge, Button, Dialog, Field, Input, Menu, type MenuItem } from '@whip/ui';
-import { ChevronDown, ChevronUp, ExternalLink, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useRuntime } from '../context';
@@ -21,7 +21,7 @@ import { loginStyles } from './provider-login.stylex';
 export type ProviderEntry = NonNullable<ProviderList['providers']>[number];
 
 const descriptions: Record<string, string> = {
-  'inference-net': 'Sign in in your browser.',
+  'inference-net': 'Sign in via browser, or enter an API key',
   openrouter: 'Access models from multiple providers with one API key.',
   'openai-codex': 'Use Codex access included with your ChatGPT account.',
 };
@@ -118,25 +118,25 @@ export function ProviderConnectionRow({ entry, enabled, connect, onSelect, setup
 }
 
 /** Compact connection choices shared by onboarding and Settings. */
-export function ProviderConnectionList({ entries, enabled, hostName, onSelect, title, actions, refresh }: {
+export function ProviderConnectionList({ entries, enabled, hostName, onSelect, title, actions, refresh, onExpandedChange }: {
   entries: ProviderEntry[]; enabled: boolean; hostName: string; onSelect(entry: ProviderEntry): void;
-  title?: string; actions?: ReactNode; refresh?: ReactNode;
+  title?: string; actions?: ReactNode; refresh?: ReactNode; onExpandedChange?(expanded: boolean): void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  useEffect(() => () => onExpandedChange?.(false), [onExpandedChange]);
   const defaults = ['inference-net', 'openrouter', 'openai', 'openai-codex'];
   const common = defaults.flatMap(id => entries.filter(entry => entry.id === id));
   const managed = entries.filter(entry => !defaults.includes(entry.id) && (entry.custom || entry.status.disabled ||
     ['sign_in_required', 'setup_required', 'configuration_error', 'unchecked'].includes(entry.status.auth_state ?? '')));
   const visible = showAll ? entries : common.length || managed.length ? [...common, ...managed] : entries.slice(0, 4);
   return <>
-    {!title && showAll && refresh && <div {...stylex.props(styles.refresh)}>{refresh}</div>}
     {!!visible.length && <SettingsGroup title={title} action={refresh} panelXstyle={styles.choicePanel}>
       {visible.map(entry => <ProviderConnectionRow key={entry.id} setup entry={entry} hostName={hostName} enabled={enabled}
         connect={!((entry.status.available || entry.status.auth_state === 'unchecked') && !entry.status.disabled)} onSelect={() => onSelect(entry)} />)}
     </SettingsGroup>}
-    <div {...stylex.props(styles.choiceActions)}>{actions}<Button variant="ghost" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
+    <div {...stylex.props(styles.choiceActions)}>{actions}<Button variant="ghost" aria-expanded={showAll} onClick={() => { onExpandedChange?.(!showAll); setShowAll(!showAll); }}>
       {showAll ? 'Show fewer providers' : 'Show all providers'}{showAll ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-    </Button></div>
+    </Button>{!title && showAll && refresh}</div>
   </>;
 }
 
@@ -216,6 +216,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
 }) {
   const runtime = useRuntime();
   const [key, setKey] = useState('');
+  const keyInput = useRef<HTMLInputElement>(null);
   const [showKey, setShowKey] = useState(!entry.status.available && !entry.status.disabled && !['literal', 'machine', 'subscription', 'external'].includes(entry.status.key_source) && !entry.methods?.includes('login') && !!entry.methods?.includes('api_key'));
   const [discard, setDiscard] = useState<'back' | 'close' | null>(null);
   const [loginId, setLoginId] = useState<string | null>(null);
@@ -312,7 +313,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     }) });
   }
   const description = `${initialConnection || showKey || inLogin ? 'Connect' : 'Connection'} on ${hostName}`;
-  return <Dialog open xstyle={(showKey || inLogin) && loginStyles.dialog} bodyXstyle={loginStyles.body} title={<span {...stylex.props(styles.nameLine)}><ProviderLogo id={entry.id} />{entry.name}</span>} description={description} onOpenChange={open => { if (!open) leaveKey('close'); }}>
+  return <Dialog open initialFocus={showKey && !inLogin ? keyInput : undefined} xstyle={(showKey || inLogin) && loginStyles.dialog} bodyXstyle={loginStyles.body} title={<span {...stylex.props(styles.nameLine)}><ProviderLogo id={entry.id} />{entry.name}</span>} description={description} onOpenChange={open => { if (!open) leaveKey('close'); }}>
     {!enabled && !inLogin && <Alert tone="warning">{hostName} is unavailable. Reconnect to continue; your draft is kept here.</Alert>}
     {showKey && !inLogin && <form onSubmit={event => {
       event.preventDefault(); const value = key.trim(); if (!value || busy || !enabled) return;
@@ -324,7 +325,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     }} {...stylex.props(loginStyles.flow)}>
       <Field label="API key" error={error && <ErrorNotice type="action" owner={`provider:${entry.id}`} title="Could not connect with this key" error={error} />} description={<>Enter an API key above, or specify{' '}
         {entry.status.environment_variable ? <code>{entry.status.environment_variable}</code> : 'the provider’s configured API key variable'} in the host’s environment.
-        {' '}Restart the host after changing environment variables to refresh.</>}><Input type="password" autoComplete="off" spellCheck={false}
+        {' '}Restart the host after changing environment variables to refresh.</>}><Input ref={keyInput} autoFocus type="password" autoComplete="off" spellCheck={false}
         value={key} disabled={!enabled || busy} onChange={event => setKey(event.target.value)} /></Field>
       <div {...stylex.props(loginStyles.footer)}><Button variant="ghost" disabled={busy} onClick={() => leaveKey('back')}>Back</Button><Button variant="primary" xstyle={loginStyles.submit} type="submit" disabled={!enabled || busy || !key.trim()}>{busy ? 'Connecting…' : 'Connect'}</Button></div>
     </form>}
@@ -356,7 +357,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     {entry.status.warnings?.map((warning, index) => <Alert key={index} tone="warning">{warning}</Alert>)}
     {entry.id === 'openai-codex' && <p {...stylex.props(styles.description)}>Uses your ChatGPT account’s Codex access. Enable device code authorization in ChatGPT Security settings before signing in. Subscription usage is separate from API billing.</p>}
     {initialConnection ? <div {...stylex.props(loginStyles.content)}>
-      {entry.methods?.includes('login') && <Button variant="primary" xstyle={loginStyles.full} disabled={!enabled || busy} onClick={startLogin}>{entry.id === 'inference-net' ? 'Sign in with Inference.net' : 'Sign in'}<ExternalLink size={14} /></Button>}
+      {entry.methods?.includes('login') && <Button variant="primary" xstyle={loginStyles.full} disabled={!enabled || busy} onClick={startLogin}>{entry.id === 'inference-net' ? 'Sign in with Inference.net' : 'Sign in'}</Button>}
       {entry.methods?.includes('api_key') && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={editKey}>Use an API key</Button>}
       {entry.methods?.includes('environment') && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={useDetectedKey}>Use detected key</Button>}
     </div> : <div {...stylex.props(styles.accountFooter)}>

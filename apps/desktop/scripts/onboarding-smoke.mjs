@@ -141,6 +141,18 @@ async function firstMessageScenario() {
     await page.getByRole('button', { name: `Use ${alias}`, exact: true }).click();
     await expect(input).toBeVisible();
     await expect(input).toBeFocused();
+    // First-panel mount starts hidden for measurement; native autoFocus alone cannot focus it.
+    for (const source of ['sidebar', 'frontdoor', 'tab-menu']) {
+      await page.getByRole('button', { name: /^Close New Chat/ }).click();
+      await expect(page.locator('[data-empty-workspace="frontdoor"]')).toBeVisible();
+      if (source === 'sidebar') await page.getByRole('link', { name: 'New session', exact: true }).click();
+      else if (source === 'frontdoor') await page.locator('[data-empty-workspace="frontdoor"]').getByRole('button', { name: 'New session', exact: true }).click();
+      else {
+        await page.getByRole('button', { name: 'Pane 1 actions', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'New session', exact: true }).click();
+      }
+      await expect(input).toBeFocused();
+    }
     await input.fill(prompt);
     const selected = await client.configuration.get();
     assert.equal(selected.default_model, alias); assert.equal(selected.default_provider, 'openrouter');
@@ -224,7 +236,7 @@ try {
   electron = await launch();
   const page = await electron.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  const setup = page.getByRole('button', { name: 'Set up this Mac', exact: true });
+  const setup = page.getByRole('button', { name: 'Get Started', exact: true });
   await expect(setup).toBeEnabled({ timeout: 30_000 });
   const initialSetupVisibleMs = performance.now() - started;
   await assert.rejects(lstat(executable), { code: 'ENOENT' });
@@ -250,6 +262,17 @@ try {
   assert(inventory.providers.every(entry => !entry.status.available), 'The isolated fixture unexpectedly inherited credentials');
   assert.equal(inventory.selection.ready, false);
   await capture(page, 'desktop-provider-chooser');
+  const providerHeading = page.getByRole('heading', { name: 'Connect a provider to get started' });
+  const firstProvider = providers.getByRole('button', { name: 'Connect Inference.net', exact: true });
+  const headingTop = (await providerHeading.boundingBox()).y;
+  const firstProviderTop = (await firstProvider.boundingBox()).y;
+  await providers.getByRole('button', { name: 'Show all providers', exact: true }).click();
+  await expect(providers.getByRole('button', { name: 'Show fewer providers', exact: true })).toBeAttached();
+  assert(Math.abs((await providerHeading.boundingBox()).y - headingTop) < 1, 'Expanding providers must not move the heading');
+  assert(Math.abs((await firstProvider.boundingBox()).y - firstProviderTop) < 1, 'Expanding providers must not move existing rows');
+  await providers.getByRole('button', { name: 'Show fewer providers', exact: true }).click();
+  await expect(providers.getByRole('button', { name: 'Show all providers', exact: true })).toBeVisible();
+  assert(Math.abs((await providerHeading.boundingBox()).y - headingTop) < 1, 'Collapsing restores the original centered layout');
   // Close only the fixture GUI; accepted daemon work must survive.
   await electron.evaluate(({ app }) => app.exit(0)).catch(error => { if (!/closed|destroyed/.test(error.message)) throw error; });
   electron = undefined;
@@ -262,7 +285,7 @@ try {
   await expect(reopened.getByRole('button', { name: 'Connect Inference.net', exact: true })).toBeEnabled();
   const relaunchToProviderChooserMs = performance.now() - relaunchStarted;
   assert.equal((await status()).pid, installed.pid);
-  await expect(reopened.getByRole('button', { name: 'Set up this Mac', exact: true })).toHaveCount(0);
+  await expect(reopened.getByRole('button', { name: 'Get Started', exact: true })).toHaveCount(0);
   await capture(reopened, 'desktop-relaunched');
   const firstMessage = await firstMessageScenario();
   assert.deepEqual(errors, []);

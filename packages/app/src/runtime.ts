@@ -125,6 +125,9 @@ export class AppRuntime {
   settingsReturn?: SettingsReturn;
 
   constructor(readonly platform: AppPlatform) {
+    // New Chat can unmount completely between drafts. Keep only its host metadata warm.
+    for (const key of ['provider-list', 'runtime-configuration', 'provider-catalogs', 'definitions'])
+      this.queries.setQueryDefaults([key], { gcTime: 5 * 60_000 });
     try {
       const saved = platform.windowStorage?.getItem(settingsReturnKey);
       if (saved && saved.length <= 4096) this.settingsReturn = parseSettingsReturn(JSON.parse(saved));
@@ -202,7 +205,11 @@ export class AppRuntime {
     this.connections = new HostConnections(platform, this.recoveryStorage(), {
       connected: (runtimeId, client) => {
         void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
-        void this.primeProviders(runtimeId);
+        void this.primeProviders(runtimeId, client);
+        void this.queries.prefetchQuery({ queryKey: ['runtime-configuration', runtimeId],
+          queryFn: ({ signal }) => client.configuration.get({ signal }) });
+        void this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId],
+          queryFn: ({ signal }) => client.providers.catalogs({ signal }) });
         // Match the dialog's landing-page key, including its absent cursor.
         void this.queries.prefetchQuery({
           queryKey: ['session-search', runtimeId, '', 'all', undefined],
@@ -211,7 +218,7 @@ export class AppRuntime {
         });
       },
       detached: (client, runtimeId) => {
-        if (runtimeId) { this.compositions.invalidateRuntime(runtimeId); this.priming.delete(runtimeId); }
+        if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
         for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
         for (const [id, lease] of this.views) if (lease.client === client) this.dropView(id, lease);
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
@@ -281,28 +288,15 @@ export class AppRuntime {
     )
       return { runtimeId: saved.runtimeId, rootId: saved.rootId };
   }
-  private readonly priming = new Map<string, Promise<void>>();
-  /**
-   * Warm a host's provider inventory as soon as it connects, and remember whether
-   * a provider was ready, so a New Chat's first paint can choose between the
-   * composer and provider setup without waiting a round trip. The cache entry
-   * pins its own gcTime: the client default is 0, which would drop an
-   * unobserved prefetch as soon as it resolved.
-   */
-  primeProviders(runtimeId?: string): Promise<void> {
-    if (!runtimeId) return Promise.resolve();
-    const known = this.priming.get(runtimeId);
-    if (known) return known;
-    const client = this.connections.host(runtimeId)?.client;
-    if (!client) return Promise.resolve();
-    const primed = this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.providers.list({ signal }), gcTime: 10 * 60_000 })
+  /** Warm provider readiness using the verified client, even before its host snapshot is published. */
+  primeProviders(runtimeId?: string, client = runtimeId ? this.connections.host(runtimeId)?.client : undefined): Promise<void> {
+    if (!runtimeId || !client) return Promise.resolve();
+    // Query owns deduplication and freshness; a failed or expired prefetch can be tried again.
+    return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.providers.list({ signal }) })
       .then(() => {
         const inventory = this.queries.getQueryData<{ selection?: { ready?: boolean } | null }>(['provider-list', runtimeId]);
         if (inventory) rememberProviderReady(this.platform.storage, runtimeId, inventory.selection?.ready === true);
-      })
-      .catch(() => {});
-    this.priming.set(runtimeId, primed);
-    return primed;
+      });
   }
   /** Remove local state only after deletion has succeeded on this runtime. */
   forgetSession(runtimeId: string, rootId: string) {
