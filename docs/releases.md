@@ -1,5 +1,12 @@
 # CLI release operations
 
+> Cutover status (2026-09-24): publication is intentionally paused by Sam's
+> decision. GitHub rejects its built-in Actions App as a restricted tag creator
+> (HTTP 422). Both release flags remain false and new `v*` creation is blocked.
+> Before enabling the flow below, configure an explicitly approved release
+> identity (for example a dedicated repo-only GitHub App) and validate its
+> creation-only authority. Do not relax main protection or reuse old workflow IDs.
+
 `whipcode` is the sole CLI; `main` is the sole maintained source. Historical
 branches/tags are records, not release or upgrade paths. This runbook describes
 the clean-project workflow; it does not authorize publication or claim that

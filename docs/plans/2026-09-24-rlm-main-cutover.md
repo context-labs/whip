@@ -21,6 +21,10 @@ Repository: `context-labs/whip`. Actual branch names: `whip-rlm`, `whip-v1`.
   stable and Desktop publication remain intentional, separately gated actions.
 - Cut over the branch first. Clean up CI/build/release plumbing before enabling
   the new publisher. Do not release the untouched transitional RLM tree.
+- **Execution update:** after GitHub rejected the built-in Actions App's tag-rule
+  eligibility (HTTP 422), Sam chose to finish the cutover and leave publication
+  paused. Release enablement/App setup below is a future milestone, not part of
+  the current completion gate; no tag-policy relaxation was approved.
 
 These decisions supersede the earlier legacy-maintenance/opt-in plan. We do
 **not** need to preserve old install paths, reserve GitHub latest or Go semver

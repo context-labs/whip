@@ -82,6 +82,14 @@ CLI tag-creation ruleset with HTTP 422: “Actor GitHub Actions integration must
 part of the ruleset source or owner organization.” The rule remains unchanged:
 new v* tags are blocked. Sam requested investigating resolution, not relaxing it.
 No broad bypass, new credential or open tag creation has been substituted.
+After targeted research found no supported built-in-App fix, Sam explicitly chose
+**finish the cutover and leave publishing paused**. Dedicated release-App setup
+and first publication are deferred; they are not completion requirements for this
+execution. CLI/desktop publication flags stay false and v* creation remains blocked.
+
+Cleanup commit `8a8a9cbbe` and the merged safety patch are in follow-up
+[PR #164](https://github.com/context-labs/whip/pull/164), initially draft pending
+hosted validation and PR #163. The local working tree is clean at that checkpoint.
 
 New publication must use a fresh workflow filename/ID; old workflows remain
 permanently disabled rather than restoring their historical rerun surface.
