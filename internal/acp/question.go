@@ -53,7 +53,11 @@ func (b *Bridge) handleQuestion(s *acpSession, payload []byte) {
 		answers := make([]protocol.QuestionAnswerEntry, len(sets))
 		for i, set := range sets {
 			answers[i] = protocol.QuestionAnswerEntry{Dismissed: true}
-			options := make([]acp.PermissionOption, len(set.Options))
+			// Match the daemon's 2..6 option limit before reserving Dismiss.
+			if len(set.Options) < 2 || len(set.Options) > 6 {
+				continue
+			}
+			options := make([]acp.PermissionOption, 0, len(set.Options)+1)
 			for index, option := range set.Options {
 				name := option.Label
 				if option.Recommended {
@@ -62,7 +66,7 @@ func (b *Bridge) handleQuestion(s *acpSession, payload []byte) {
 				if option.Description != "" {
 					name += " - " + option.Description
 				}
-				options[index] = acp.PermissionOption{OptionId: acp.PermissionOptionId(strconv.Itoa(index)), Name: name, Kind: acp.PermissionOptionKindAllowOnce}
+				options = append(options, acp.PermissionOption{OptionId: acp.PermissionOptionId(strconv.Itoa(index)), Name: name, Kind: acp.PermissionOptionKindAllowOnce})
 			}
 			options = append(options, acp.PermissionOption{OptionId: optDismiss, Name: "Dismiss", Kind: acp.PermissionOptionKindRejectOnce})
 			response, err := b.conn.RequestPermission(s.lifecycle, acp.RequestPermissionRequest{
