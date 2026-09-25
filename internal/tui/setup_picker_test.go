@@ -48,7 +48,7 @@ func TestPickerGroupsFamiliesAndMarksConnectionsWithoutMovingThem(t *testing.T) 
 	s := newTestSetup(t, h, true)
 	applySetupCommand(t, s, s.Init())
 	entries := s.entries()
-	want := []string{"inference-net", "openrouter", "openai", "cerebras", "deepinfra", "deepseek", "fireworks-ai", "groq", "togetherai", "xai"}
+	want := []string{"inference-net", "openrouter", "openai", "cerebras", "deepinfra", "deepseek", "fireworks-ai", "groq", "requesty", "togetherai", "xai"}
 	ids := make([]string, len(entries))
 	for i, entry := range entries {
 		ids[i] = entry.ID
@@ -98,7 +98,7 @@ func TestPickerRefreshPreservesSelectedProviderAndNeverAutoConnects(t *testing.T
 }
 
 func TestPickerKnownPresetOnlyAsksForKey(t *testing.T) {
-	for _, id := range []string{"openrouter", "cerebras", "groq", "deepseek", "fireworks-ai", "togetherai", "deepinfra", "xai"} {
+	for _, id := range []string{"openrouter", "cerebras", "groq", "deepseek", "fireworks-ai", "requesty", "togetherai", "deepinfra", "xai"} {
 		t.Run(id, func(t *testing.T) {
 			h := &setupTestHost{list: pickerFixture()}
 			s := newTestSetup(t, h, true)

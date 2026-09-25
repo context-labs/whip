@@ -131,6 +131,65 @@ func TestOpenRouterSetupAuthenticatesBeforeSavingKey(t *testing.T) {
 	}
 }
 
+func TestRequestySetupListsManagedPoliciesAfterAuthentication(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		models, managed int
+		count           int
+	}{
+		{name: "invalid key", models: http.StatusForbidden, managed: http.StatusOK},
+		{name: "managed", models: http.StatusOK, managed: http.StatusOK, count: 2},
+		{name: "managed unavailable", models: http.StatusOK, managed: http.StatusBadGateway, count: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
+			service := NewProviderService(t.Context(), "auth-fixture")
+			defer service.Close()
+			var paths []string
+			previous := http.DefaultTransport
+			http.DefaultTransport = catalogTransport(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Host != "router.requesty.ai" || r.Header.Get("Authorization") != "Bearer submitted-key" || r.Method != http.MethodGet {
+					t.Fatal("incorrect discovery destination, credential or method")
+				}
+				paths = append(paths, r.URL.Path)
+				var code int
+				var body string
+				switch r.URL.Path {
+				case "/v1/models":
+					code, body = test.models, `{"data":[{"id":"openai/gpt-4o-mini","api":"chat","supports_tool_calling":true}]}`
+					if code != http.StatusOK {
+						body = `{"error":{"origin":"router","message":"Invalid authorization token"}}`
+					}
+				case "/v1/models/managed":
+					code, body = test.managed, `{"data":[{"id":"gpt-5.4-mini","api":"chat","supports_tool_calling":true}]}`
+				default:
+					t.Fatal("unexpected provider request")
+				}
+				return &http.Response{StatusCode: code, Status: fmt.Sprintf("%d %s", code, http.StatusText(code)), Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			t.Cleanup(func() { http.DefaultTransport = previous })
+			before, err := service.ReadConfiguration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.SetProviderKey(t.Context(), ProviderKeySetup{Revision: before.Revision, Provider: "requesty", Key: "submitted-key"})
+			if test.count == 0 {
+				if err == nil || strings.Contains(err.Error(), "submitted-key") || strings.Join(paths, ",") != "/v1/models" {
+					t.Fatalf("invalid key accepted, exposed or listed: %v %v", paths, err)
+				}
+				return
+			}
+			if err != nil || result.Discovery == nil || result.Discovery.ModelCount != test.count || result.Discovery.Status != "loaded" {
+				t.Fatalf("valid key did not connect: %+v %v", result.Discovery, err)
+			}
+			catalog := config.LoadCatalogs()["requesty"]
+			if len(catalog.Models) != test.count || test.count == 2 && catalog.Models[0].ID != "gpt-5.4-mini" {
+				t.Fatalf("managed policies are not listed first: %+v", catalog.Models)
+			}
+		})
+	}
+}
+
 func TestProviderValidationKeepsCustomAndOtherRoutesOnModels(t *testing.T) {
 	previous := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = previous })
