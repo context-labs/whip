@@ -12,18 +12,18 @@
     "./browser-design": "./src/browser-design-overlay.tsx"
   },
   "dependencies": {
-    "@stylexjs/stylex": "0.19.0",
-    "@tanstack/markdown": "0.0.13",
+    "@stylexjs/stylex": "0.19.1",
+    "@tanstack/markdown": "0.0.15",
     "@tanstack/react-form": "1.33.5",
-    "@tanstack/react-hotkeys": "0.10.0",
-    "@tanstack/react-query": "5.102.8",
-    "@tanstack/react-router": "1.170.32",
-    "@tanstack/react-virtual": "3.14.10",
+    "@tanstack/react-hotkeys": "0.11.0",
+    "@tanstack/react-query": "5.103.2",
+    "@tanstack/react-router": "1.170.38",
+    "@tanstack/react-virtual": "3.14.13",
     "@whip/protocol": "3.0.0",
     "@whip/sdk": "0.1.0",
     "@whip/ui": "0.1.0",
     "ghostty-web": "github:anomalyco/ghostty-web#83c0a07b8628b748aed073b232cb4b52a6ca11c1",
-    "lucide-react": "1.41.0"
+    "lucide-react": "1.47.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",
