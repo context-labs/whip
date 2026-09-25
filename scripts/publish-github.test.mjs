@@ -220,7 +220,7 @@ test('stable latest is monotonic and an already published recovery never edits i
     await publishGitHubAssets(files, env);
     const create = writes(await f.state()).find(args => args[1] === 'create');
     assert(create.includes('--latest=false'));
-    assert(create[create.indexOf('--notes') + 1].includes('WHIPCODE_VERSION=v1.2.3'));
+    assert(create[create.indexOf('--notes') + 1].includes('/releases/download/v1.2.3/install.sh | sh'));
     await publishGitHubAssets(files, { ...env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
     const edit = writes(await f.state()).find(args => args[1] === 'edit');
     assert(edit.includes(`--latest=${advance}`));
@@ -233,7 +233,7 @@ test('GitHub downloads remain flat canonical names scoped by release tag for alp
   for (const tag of ['v1.0.0-alpha.7', 'v1.0.0']) {
     const f = await fixture(t, { release: false });
     const names = ['whipcode-desktop-darwin-arm64.zip', 'whipcode-desktop-darwin-arm64.dmg',
-      'whipcode-darwin-arm64', 'whipcode-darwin-x64', 'whipcode-linux-x64', 'whipcode-linux-arm64', 'install.sh'];
+      'whipcode-darwin-arm64', 'whipcode-darwin-x64', 'whipcode-linux-x64', 'whipcode-linux-arm64', 'install.sh', 'latest.sh'];
     const files = []; for (const name of names) files.push(await f.local(name));
     await publishGitHubAssets(files, { ...f.env, RELEASE_TAG: tag });
     const state = await f.state();
@@ -242,5 +242,10 @@ test('GitHub downloads remain flat canonical names scoped by release tag for alp
     const notes = creation[creation.indexOf('--notes') + 1];
     for (const name of names) assert(notes.includes(`/releases/download/${tag}/${name}`));
     assert(!notes.includes('/Whip-Beta-'));
+    assert(notes.includes(`/releases/download/${tag}/install.sh | sh`));
+    assert(notes.includes(`/releases/download/${tag}/latest.sh | sh`));
+    assert(notes.includes('fails until a complete v1+ stable release exists'));
+    assert(!notes.includes('WHIPCODE_VERSION='));
+    assert(!notes.includes('WHIPCODE_CHANNEL='));
   }
 });

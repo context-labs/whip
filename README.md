@@ -42,6 +42,10 @@ curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh |
 whipcode
 ```
 
+For an exact version, use the release's `install.sh` command from its notes—no
+version environment variable is needed for releases with the two-script split.
+The companion `latest.sh` always selects stable v1+, never an alpha.
+
 The new CLI track starts at `v1.0.0-alpha.N`. Prerelease installation is explicit;
 default stable installation becomes available with `v1.0.0`. Existing internal
 installs must follow the [manual reset checklist](docs/team-reset.md), not upgrade in place.

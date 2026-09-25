@@ -95,7 +95,7 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     const download = `https://github.com/${repository}/releases/download/${tag}`;
     const rows = assets.filter(asset => !/\.(json|txt)$/.test(asset.name) && asset.name !== 'SHA256SUMS')
       .map(asset => `| ${asset.name} | [Download](${download}/${asset.name}) |`).join('\n');
-    const notes = `## Downloads\n\n| Artifact | Link |\n| --- | --- |\n${rows}\n\nVerify downloads with [SHA256SUMS](${download}/SHA256SUMS).\n\nPinned CLI install:\n\n\`\`\`sh\ncurl -fsSL ${download}/install.sh | WHIPCODE_VERSION=${tag} sh\n\`\`\`\n` ;
+    const notes = `## Downloads\n\n| Artifact | Link |\n| --- | --- |\n${rows}\n\nVerify downloads with [SHA256SUMS](${download}/SHA256SUMS).\n\nPinned CLI install:\n\n\`\`\`sh\ncurl -fsSL ${download}/install.sh | sh\n\`\`\`\n\nLatest stable CLI install (fails until a complete v1+ stable release exists):\n\n\`\`\`sh\ncurl -fsSL ${download}/latest.sh | sh\n\`\`\`\n`;
     try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--notes', notes, '--draft', '--latest=false',
       ...(prerelease ? ['--prerelease'] : [])]); }
     catch (error) { if (!conflict(error)) throw error; }

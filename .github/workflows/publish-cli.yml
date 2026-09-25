@@ -226,7 +226,7 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Assemble and verify the exact complete release inventory
         run: |
-          cp install.sh candidate/install.sh
+          node scripts/build-installers.mjs "$RELEASE_TAG" candidate
           node apps/desktop/scripts/release-candidate.mjs assemble candidate
       - name: Attest every final asset and the aggregate manifest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4

@@ -29,7 +29,6 @@ require_release_authority() {
 }
 require_release_authority
 node apps/desktop/scripts/release-candidate.mjs verify "$candidate"
-cmp install.sh "$candidate/install.sh"
 
 # Explicit GITHUB_TOKEN tag creation, not tag-trigger chaining. Never retarget.
 if git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG" >/dev/null; then
