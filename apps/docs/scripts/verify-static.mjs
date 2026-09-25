@@ -4,11 +4,11 @@ import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { JSDOM } from 'jsdom'
 import { appRoot, loadDocuments } from './content.mjs'
-import { siteUrl } from './site-url.mjs'
+import { docsSite } from './deployment.mjs'
 import { robotsText, runtimeHighlighter } from './static-policy.mjs'
 
 const root = path.join(appRoot, 'dist/client')
-const origin = siteUrl(process.env.DOCS_SITE_URL)
+const { origin, indexable: published } = docsSite()
 const base = origin ? new URL(origin).pathname.replace(/\/$/, '') : ''
 const publicPath = (url) => base + url
 const docs = await loadDocuments()
@@ -32,7 +32,7 @@ async function htmlFor(url) {
 }
 const html404 = await htmlFor('/404')
 await writeFile(path.join(root, '404.html'), html404)
-await writeFile(path.join(root, 'robots.txt'), robotsText(origin))
+await writeFile(path.join(root, 'robots.txt'), robotsText(origin, published))
 for (const url of urls) {
   const html = await htmlFor(url)
   const document = new JSDOM(html).window.document
@@ -41,9 +41,9 @@ for (const url of urls) {
   assert.equal(document.querySelectorAll('h1').length, 1, `${url}: expected one H1`)
   assert(document.title.includes('whipcode'), `${url}: missing title`)
   assert(document.querySelector('meta[name="description"]'), `${url}: missing description`)
-  const indexable = Boolean(origin) && url !== '/404'
+  const indexable = published && url !== '/404'
   assert.equal(document.querySelector('meta[name="robots"]')?.getAttribute('content'), indexable ? 'index,follow' : 'noindex,nofollow', `${url}: wrong indexing policy`)
-  assert.equal(document.querySelector('link[rel="canonical"]')?.getAttribute('href'), indexable ? `${origin}${url}` : undefined, `${url}: wrong canonical URL`)
+  assert.equal(document.querySelector('link[rel="canonical"]')?.getAttribute('href'), origin && url !== '/404' ? `${origin}${url}` : undefined, `${url}: wrong canonical URL`)
 
   const doc = docs.find((entry) => url === `/docs/${entry.path}`)
   if (doc) {
@@ -79,8 +79,8 @@ async function files(directory) {
   return (await Promise.all(entries.map((entry) => entry.isDirectory() ? files(path.join(directory, entry.name)) : [path.join(directory, entry.name)]))).flat()
 }
 const emitted = await files(root)
-assert.equal(await readFile(path.join(root, 'robots.txt'), 'utf8'), robotsText(origin))
-if (origin) {
+assert.equal(await readFile(path.join(root, 'robots.txt'), 'utf8'), robotsText(origin, published))
+if (published) {
   const sitemap = new JSDOM(await readFile(path.join(root, 'sitemap.xml'), 'utf8'), { contentType: 'text/xml' }).window.document
   assert.deepEqual([...sitemap.querySelectorAll('loc')].map((node) => node.textContent).sort(), urls.filter((url) => url !== '/404').map((url) => `${origin}${url}`).sort())
 } else assert(!emitted.some((file) => file.endsWith('/sitemap.xml')), 'Preview build must not emit a sitemap')

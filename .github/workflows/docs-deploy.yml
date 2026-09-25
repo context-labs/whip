@@ -1,0 +1,125 @@
+name: Deploy docs
+
+on:
+  push:
+    branches: [main, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel an in-flight upload/activation. Queued stale runs are skipped below.
+concurrency:
+  group: docs-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      github.repository == 'context-labs/whip' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm install --prefix "$RUNNER_TEMP/wrangler" --no-save wrangler@4.140.0
+      - run: echo "$RUNNER_TEMP/wrangler/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: npm run check:docs
+      - run: npm run test:docs
+      - run: npm run test:docs:dev
+      - name: Validate root preview and browser behavior
+        run: |
+          npm run build:docs
+          npx playwright install --with-deps chromium
+          npm run test:docs:browser
+          npm run build:storybook:docs
+      - name: Build target-specific static package
+        env:
+          DOCS_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+          DOCS_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          npm run build:docs
+          (cd apps/docs && node scripts/package-deploy.mjs)
+          node apps/docs/scripts/worker-test.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: docs-deploy-${{ github.sha }}
+          path: apps/docs/dist/deploy
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'docs-production' || 'docs-preview' }}
+    env:
+      DOCS_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      DOCS_SOURCE_SHA: ${{ github.sha }}
+    outputs:
+      current: ${{ steps.current.outputs.current }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: docs-deploy-${{ github.sha }}
+          path: apps/docs/dist/deploy
+      - name: Install deployment tooling without credentials
+        run: |
+          npm install --prefix "$RUNNER_TEMP/wrangler" --no-save wrangler@4.140.0
+          echo "$RUNNER_TEMP/wrangler/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Reject stale branch runs
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$SOURCE_BRANCH" --jq '.object.sha') || exit 1
+          if [ "$head" = "$DOCS_SOURCE_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipping superseded docs source' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload and activate only this Worker version
+        if: steps.current.outputs.current == 'true'
+        working-directory: apps/docs/dist/deploy
+        run: node ../../scripts/deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  verify:
+    needs: deploy
+    if: needs.deploy.outputs.current == 'true'
+    runs-on: ubuntu-latest
+    env:
+      DOCS_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      DOCS_ORIGIN: ${{ github.ref == 'refs/heads/main' && 'https://inference.net' || 'https://inference.cool' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npx playwright install --with-deps chromium
+      - run: node apps/docs/scripts/worker-smoke.mjs "$DOCS_ORIGIN"

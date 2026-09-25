@@ -5,3 +5,4 @@ declare module '*.mdx' {
   export default MDXContent
 }
 declare const __DOCS_SITE_URL__: string
+declare const __DOCS_INDEXABLE__: boolean

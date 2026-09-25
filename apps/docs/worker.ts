@@ -5,9 +5,10 @@ const base = '/whipcode'
 const pages = new Set(docsManifest.map(doc => `/docs/${doc.path}`))
 
 export default {
-  async fetch(request: Request, env: { ASSETS: { fetch(request: Request): Promise<Response> } }) {
+  async fetch(request: Request, env: { DOCS_INDEXABLE?: string; ASSETS: { fetch(request: Request): Promise<Response> } }) {
     const url = new URL(request.url)
-    const headers = { 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' }
+    const headers: Record<string, string> = { 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' }
+    if (env.DOCS_INDEXABLE !== 'true') headers['X-Robots-Tag'] = 'noindex, nofollow'
     if (!['GET', 'HEAD'].includes(request.method)) {
       return new Response('Method not allowed', { status: 405, headers: { ...headers, Allow: 'GET, HEAD' } })
     }
