@@ -7,7 +7,7 @@ export function pageHead(title: string, description: string, path: string) {
       { property: 'og:title', content: name }, { property: 'og:description', content: description },
       { property: 'og:type', content: 'website' },
       ...(canonical && path !== '/404' ? [{ property: 'og:url', content: canonical }, { property: 'og:image', content: `${__DOCS_SITE_URL__}/social-card.svg` }] : []),
-      { name: 'robots', content: canonical && path !== '/404' ? 'index,follow' : 'noindex,nofollow' },
+      { name: 'robots', content: __DOCS_INDEXABLE__ && path !== '/404' ? 'index,follow' : 'noindex,nofollow' },
     ],
     links: canonical && path !== '/404' ? [{ rel: 'canonical', href: canonical }] : [],
   }

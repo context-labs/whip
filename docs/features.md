@@ -791,6 +791,16 @@ trusted-network setup and current browser evidence.
 
 ## Public documentation site
 
+Docs publish automatically from `main` to `inference.net/whipcode` and
+`development` to the separate noindex preview at `inference.cool/whipcode`.
+The branch-only `.github/workflows/docs-deploy.yml` validates and packages static
+assets before an environment-restricted per-Worker token activates an immutable
+version, preserving website routes and skipping stale sources. Environment,
+indexing, route isolation and workflow/freshness regressions live in
+`apps/docs/tests/deployment.test.ts`; `scripts/worker-smoke.mjs` covers local and
+live target routing with JS/no-JS, canonical metadata and preview noindex.
+See [deployment and recovery](../apps/docs/README.md#automatic-cloudflare-workers-deployment).
+
 `apps/docs` is an independent public site, not a daemon client or a product web
 bundle. `/` and `/docs` redirect to `/docs/quickstart`; React/TanStack Start
 prerenders 21 V1 pages. Deployments serve only

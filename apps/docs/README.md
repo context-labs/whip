@@ -120,64 +120,101 @@ The preview implements the host policy to reproduce on the chosen provider:
 - Hashed `/assets/*` files may be cached immutably for one year; HTML is revalidated.
 - Do not deploy Storybook, test fixtures, source or server output.
 
-The default local preview build emits
-`noindex,nofollow`, robots `Disallow: /`, and no canonical URL or sitemap. Once
-an HTTPS canonical URL is approved, build with it explicitly:
+The default local build emits `noindex,nofollow`, robots `Disallow: /`, and no
+canonical URL or sitemap. Publication is explicit and branch-owned:
+
+| Branch | `DOCS_ENVIRONMENT` | URL | Worker | GitHub environment |
+| --- | --- | --- | --- | --- |
+| `main` | `production` | https://inference.net/whipcode | `whipcode-docs` | `docs-production` |
+| `development` | `preview` | https://inference.cool/whipcode | `whipcode-docs-preview` | `docs-preview` |
+
+`DOCS_ENVIRONMENT` fixes the canonical URL and indexing policy together.
+Production emits indexable article metadata and `/whipcode/sitemap.xml`.
+Preview uses its own canonical URLs but emits `noindex,nofollow`, an
+`X-Robots-Tag: noindex, nofollow` response header, `Disallow: /`, and no sitemap.
+Local `DOCS_SITE_URL` overrides still support an HTTPS lowercase kebab-case base
+path, but never enable indexing alone; conflicting environment/URL inputs fail.
+Vite/TanStack own the asset/router base; plain links use `sitePath`. MDX source
+and styling remain host-independent. SVG favicon and social card are local.
+
+## Automatic Cloudflare Workers deployment
+
+`.github/workflows/docs-deploy.yml` runs on direct pushes to `main` and
+`development`, separately from reusable release CI. PRs and called app-release
+workflows cannot deploy. A manual dispatch is available on those two branches
+for recovery; there are no user-supplied target/URL/Worker inputs.
+
+Each run checks out its immutable source SHA, validates docs and the root
+noindex browser build, then builds **the target-specific** artifact. It bundles
+`worker.ts` and copies only `dist/client` to `dist/deploy/public`, with a source
+receipt. A local Worker smoke tests this exact package before artifact upload.
+No Start server bundle, Storybook, fixtures, SDK or runtime rendering ships.
+
+Only the deploy job enters the branch-restricted GitHub environment. Install,
+build and test steps have no Cloudflare credentials. The final step uses its
+environment's separate `CLOUDFLARE_API_TOKEN`, restricted to the corresponding
+Worker's **Editor** role, to `versions upload --no-bundle` and activate the exact
+returned version ID at 100%. Tokens need no zone routes, DNS, R2 or other Worker
+access. Wrangler is pinned to 4.140.0. CI configuration deliberately has **no
+routes**: version upload/activation preserves the operator-managed connections.
+A credential-free final job checks all live pages with and without JavaScript.
+
+Deployments serialize per branch and never cancel an in-flight activation.
+Immediately before upload, CI checks that its source is still the branch head;
+superseded reruns skip deployment. A push arriving during an activation queues a
+new deployment; it cannot be overwritten later by an older run. The deployment
+summary records URL, Worker, source SHA and version ID. If upload/activation
+fails, inspect the Worker versions and run output before retrying—an upload may
+already have completed. Rerun the current branch workflow, not an old SHA.
+
+### Route ownership and one-time operator setup
+
+`wrangler.jsonc` records only the exact `/whipcode` and `/whipcode/*` path routes
+for each domain. The root websites (`web-mainnet` / `web-dev`), DNS, `/assets`,
+`/robots.txt`, `/sitemap.xml` and sibling paths such as `/whipcode-other` remain
+untouched. Workers.dev and version preview URLs stay disabled. These are zone
+**path routes**, not custom domains. The entry redirects to
+`/whipcode/docs/quickstart`. Cloudflare exact routes do not match query strings:
+`/whipcode?query` uses the existing website's slash redirect before entering the
+subtree; the query survives. Root robots policy remains website-owned
+(`inference.cool` already disallows crawling).
+
+An operator bootstraps a missing named Worker and those two routes once, using
+a reviewed target build and existing Wrangler OAuth. Then create the
+Worker-specific Editor token and save it only in the corresponding GitHub
+environment. Neither token can provision the other Worker or alter routes.
+Do not replace per-Worker roles with account-wide Scripts Edit permissions.
+
+### Local validation and operator recovery
+
+Run builds/tests without provider credentials and with a disposable `HOME` plus
+explicit `WHIPCODE_HOME`. No app/daemon launch is needed. With Wrangler 4.140.0
+on `PATH`, choose a target explicitly:
 
 ```sh
-DOCS_SITE_URL=https://inference.net/whipcode npm run build:docs
+DOCS_ENVIRONMENT=preview npm run build:docs
+DOCS_ENVIRONMENT=preview npm run package:deploy -w @whip/docs
+DOCS_ENVIRONMENT=preview node apps/docs/scripts/worker-test.mjs
+DOCS_ENVIRONMENT=preview node apps/docs/scripts/worker-smoke.mjs https://inference.cool
+# Use production + https://inference.net for the main site.
 ```
 
-Configured builds emit canonical/Open Graph URLs and sitemap entries for real
-pages (never the root redirect or `/404`), and robots permit indexing. `DOCS_SITE_URL` accepts only an
-HTTPS URL with an optional lowercase kebab-case base path, without credentials,
-query or fragment. Vite/TanStack own the asset/router base; plain links use
-`sitePath`. MDX source remains host-independent and unchanged.
-SVG favicon and social card are local provisional assets; no external fetches.
-
-## Cloudflare Workers deployment
-
-The approved URL is **https://inference.net/whipcode** in the Inference.net
-Cloudflare account. `wrangler.jsonc` owns only `inference.net/whipcode` and
-`inference.net/whipcode/*`; it does not replace `web-mainnet`, change DNS, or
-claim `/assets`, `/robots.txt`, or `/sitemap.xml` on the main site. The entry URL
-redirects to `/whipcode/docs/quickstart`. Workers.dev and preview URLs are disabled.
+Prefer rerunning **Deploy docs** on the current approved branch. For an operator
+version-only deployment, build and test from a clean checkout of that branch;
+`source.json` records a SHA but does not attest that a local working tree was
+clean. Then deploy the tested package (credentials only for this step):
 
 ```sh
-# Authenticate with Wrangler if needed; credentials never enter the build.
-npx --yes wrangler@4.140.0 whoami
-npm run deploy -w @whip/docs
-node apps/docs/scripts/worker-smoke.mjs https://inference.net
+DOCS_ENVIRONMENT=preview DOCS_SOURCE_SHA=$(git rev-parse HEAD) npm run deploy -w @whip/docs
 ```
 
-The deploy command always rebuilds with the approved canonical URL before
-uploading. Only `dist/client` and the small `worker.ts` routing handler ship:
-no Start server bundle, Storybook, test fixtures, SDK or remote data fetching.
-The Worker strips the base path for the asset binding, implements the shared
-308 aliases, preserves queries, applies cache headers, and returns real 404s.
-The docs sitemap is `/whipcode/sitemap.xml`; root robots/sitemap remain owned by
-the main site. Cloudflare exact routes do not match query strings: a request to
-`/whipcode?query` first uses the existing main-site slash redirect, then enters
-our `/whipcode/*` route; queries are preserved. The root robots policy currently allows this path. Search-engine
-submission or inclusion in the main site's sitemap is separate from deployment.
-
-Local production-routing check (after the canonical build above):
-
-```sh
-npx --yes wrangler@4.140.0 dev --config apps/docs/wrangler.jsonc --port 3103 --local
-# In another terminal:
-node apps/docs/scripts/worker-smoke.mjs
-```
-
-`worker-smoke.mjs` checks every public page in Chromium with and without
-JavaScript, subpath navigation/assets, canonical URLs, mobile layout, hydration,
-themes, redirects, queries, HEAD, 405 and 404 statuses. Default root-path browser
-regressions still run against a default `npm run build:docs` artifact.
-
-For a later bad release, use `wrangler rollback --config apps/docs/wrangler.jsonc`
-with the previous deployment version. To undo the initial launch, remove only the
-two `whipcode-docs` zone routes; requests then fall back to the existing
-`inference.net/*` route. Do not delete or redeploy `web-mainnet`.
+Rollback uses `wrangler versions deploy <previous-version-id>@100% --yes
+--config apps/docs/wrangler.jsonc --env preview` (or `production`) after checking
+the intended Worker. Do not use `triggers deploy` for routine updates. Removing
+only that Worker's two docs routes restores the root website's fallback; never
+delete or redeploy the website Worker. Branch pushes to `development` also
+trigger the independently configured automatic app alpha release; docs do not
+change that release policy.
 
 ## Boundaries and validation
 
