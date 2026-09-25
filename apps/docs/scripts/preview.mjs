@@ -1,3 +1,4 @@
+import { docRedirect } from '../src/features/docs/content/redirects.ts'
 import http from 'node:http'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -7,9 +8,9 @@ export const publicRoot = fileURLToPath(new URL('../dist/client/', import.meta.u
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.json': 'application/json' }
 
 // Serve only real static files. An unknown URL is never rewritten to the SPA.
-export async function createStaticServer(root = publicRoot) {
+export async function createStaticServer(root = publicRoot, storybook = false) {
   const rootPath = await realpath(root)
-  const notFound = await readFile(path.join(rootPath, '404.html'))
+  const notFound = storybook ? '<h1>Page not found</h1>' : await readFile(path.join(rootPath, '404.html'))
   return http.createServer(async (request, response) => {
     const send = (status, body, type = mime['.html']) => {
       response.writeHead(status, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Cache-Control': response.getHeader('Cache-Control') ?? 'no-cache' })
@@ -24,8 +25,9 @@ export async function createStaticServer(root = publicRoot) {
       if (canonical.endsWith('/index.html')) canonical = canonical.slice(0, -11) || '/'
       else if (canonical.endsWith('.html')) canonical = canonical.slice(0, -5) || '/'
       if (canonical !== '/') canonical = canonical.replace(/[/]+$/, '')
-      if (canonical === '/') {
-        response.writeHead(308, { Location: '/docs/getting-started' + url.search })
+      const redirectTarget = storybook ? undefined : docRedirect(canonical)
+      if (redirectTarget) {
+        response.writeHead(308, { Location: redirectTarget + url.search })
         response.end()
         return
       }
@@ -57,7 +59,8 @@ export async function createStaticServer(root = publicRoot) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argument = process.argv.indexOf('--port')
   const port = Number(argument === -1 ? process.env.PORT ?? 3101 : process.argv[argument + 1])
-  const server = await createStaticServer()
+  const storybook = process.argv.includes('--storybook')
+  const server = await createStaticServer(storybook ? fileURLToPath(new URL('../storybook-static/', import.meta.url)) : publicRoot, storybook)
   server.listen(port, '127.0.0.1', () => console.log(`Static docs: http://127.0.0.1:${port}`))
   for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => server.close(() => process.exit(0)))
 }

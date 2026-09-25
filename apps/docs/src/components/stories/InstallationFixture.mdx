@@ -32,19 +32,8 @@ The CLI's new release track begins with `v1.0.0-alpha.N`. Use the explicit prere
 <CodeTab label="Install directly">
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh
 ```
-
-</CodeTab>
-<CodeTab label="Inspect first">
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh -o install-whipcode.sh
-less install-whipcode.sh
-WHIPCODE_CHANNEL=prerelease sh install-whipcode.sh
-```
-
-</CodeTab>
 </CodeTabs>
 
 The default destination is `~/.local/bin`. If your shell cannot find `whipcode`, add that directory to your `PATH`:

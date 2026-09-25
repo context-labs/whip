@@ -1,3 +1,4 @@
+import { docRedirects } from '../src/features/docs/content/redirects.ts'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile, rm, readFile } from 'node:fs/promises'
@@ -24,7 +25,7 @@ async function until(check, label) {
 const source = (title) => `---
 title: ${title}
 description: Temporary live-watch integration proof.
-section: reference
+section: configuration
 order: 99
 ---
 
@@ -36,7 +37,12 @@ try {
   await until(async () => (await fetch(url)).ok, 'dev startup')
   const redirect = await fetch(url, { redirect: 'manual' })
   assert.equal(redirect.status, 308)
-  assert.equal(redirect.headers.get('location'), '/docs/getting-started')
+  assert.equal(redirect.headers.get('location'), '/docs/quickstart')
+  for (const [from, to] of Object.entries(docRedirects)) {
+    const alias = await fetch(url + from + '?check=yes', { redirect: 'manual' })
+    assert.equal(alias.status, 308, from)
+    assert.equal(alias.headers.get('location'), to + '?check=yes')
+  }
   // Never overwrite an authored page if the reserved test name was used.
   await mkdir(directory)
   ownsDirectory = true

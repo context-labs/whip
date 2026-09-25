@@ -6,6 +6,106 @@ macOS. The user approved all three implementation phases without intermediate
 waits. This is an implementation record, not a claim of public deployment or
 user-approved visual baselines.
 
+## Follow-up: Quickstart replaces Introduction (2026-09-24)
+
+Removed the Introduction MDX page and made Quickstart the first sidebar item.
+`/`, `/docs`, `/docs/introduction` and `/docs/getting-started` redirect directly
+to `/docs/quickstart`, including legacy aliases and no-JavaScript static fallbacks.
+Download remains the next page; the site now has 21 pages (three written, 18
+outlines). No other navigation groups or SDK content changed.
+
+Read OpenCode's live `/v2/docs/` intro: concise product overview; CLI install tabs;
+Desktop and Web options; Connect and Customize sections. Measured its H1 30/36,
+H2 20/30, 48px section margin and 12px following gap. Applied that installation-first
+hierarchy and page-local typography/spacing to Quickstart while retaining whip's
+1280px shell, theme, header, nav, code components and a short first-task example.
+Removed numbered steps and repeated heading borders. Omitted OpenCode-specific
+package managers, Docker images and unsupported platforms.
+
+Passed docs typecheck, 69 unit tests, live dev/redirect checks, preview and
+publication builds, Storybook and all 30 browser tests. Tests cover the removed
+page redirect, single sidebar entry, ordering, first-install copy, non-numbered
+borderless headings, no-JS reading and updated pagination. Native browser attach
+was unavailable in this pass; Playwright captured responsive screenshots and
+independent axe results in `/tmp/whip-docs-quickstart-intro`: six combinations of
+320/390/1440px and dark/light passed with no WCAG A/AA violations, page errors or
+horizontal overflow. No deployment/commit.
+Full repository task check not rerun for this docs-only change.
+
+## Follow-up: TypeScript SDK reference (2026-09-24)
+
+Filled the six approved SDK sections with ten TypeScript examples: local socket
+and HTTP connections, session/run lifecycle, upload references, streaming with
+child separation and discarded drafts, explicit human permission decisions,
+deadlines, served custom tools with typed output, state-view ownership and React
+subscriptions. Documents private package status, Node 24 source-checkout usage,
+gateway trust boundary, host paths/configuration, cancellation versus detach,
+command acceptance/recovery and executor lifetime. No public npm installation
+claim or automatic permission approval.
+
+`tests/sdk-examples.test.ts` extracts the actual fenced examples and typechecks
+them against the current SDK source, not handwritten mock declarations. This
+caught incorrect draft permissions/instructions and a source-vs-dist test mapping;
+all ten final examples pass. Five additional offline behavior checks exercise
+stream/discard/failure, upload order, deadline signal and explicit allow/deny
+through local doubles. No live daemon, provider/model or tool side effect runs.
+
+Docs typecheck, 69 unit tests, SDK build, docs build, Storybook and all 30 browser
+tests pass. Browser checks include highlighted source-copy fidelity and complete
+no-JS examples at 320/1440px. Independent 320/390/1440 dark/light axe checks report
+no WCAG A/AA violations or page overflow; screenshots/report at
+`/tmp/whip-docs-sdk-review`. Full repository task check was not rerun. No SDK
+production code, dependencies, commits or deployment changed. The other 19 pages
+remain outlines; Quickstart, Download and TypeScript SDK are now written.
+
+## Follow-up: Quickstart and Download (2026-09-24)
+
+Filled only Quickstart and Download (about 300 words each), preserving their
+agreed H2 outlines. Quickstart uses a five-step Desktop-first path with a TUI
+alternative and two small prompts. Download includes a macOS Apple Silicon row,
+CLI Install/Inspect first tabs, prerequisites, version check, platform table and
+Desktop-versus-CLI update ownership. Existing library styling is reused; the
+examples inspire the information hierarchy, not unrelated package-manager or
+platform support. Other 20 articles remain outlines.
+
+Source checks: worktree README, docs/setup.md, docs/desktop.md and install.sh.
+Read-only GitHub release metadata confirmed public, non-draft v1.0.0-alpha.5
+with its Desktop DMG and all four macOS/Linux CLI assets. The direct pinned DMG
+URL returned HTTP 200 to a redirect-following HEAD request. Draft and historical
+release artifacts were not used. No installer, binary or provider request ran.
+The pinned version/link and test assertion should be updated together; no
+backend or runtime release fetching was added.
+
+Passed docs typecheck, 63 unit tests, static build, Storybook and all 26 browser
+tests. Added onboarding coverage for content, direct download destination,
+copying both installer variants, no invented package-manager options, and
+no-JS usability at 320/1440px. Independent axe audits at 320/390/1440px in both
+themes found no WCAG A/AA violations, page errors or horizontal overflow.
+Screenshots/report: `/tmp/whip-docs-onboarding-review`. Full repository task check
+was not rerun for this docs-only change. No commits or deployment.
+
+## Follow-up: V1 heading-only pages (2026-09-24)
+
+Created all 22 approved pages with 104 H2 headings, brief metadata descriptions,
+and no drafted body text. The five sidebar groups share one definition with the
+content validator. Introduction, Quickstart and Download lead Getting Started.
+All outlines have generated TOCs, sequential pagination and page-source actions.
+
+`/` and `/docs` now enter Introduction. Existing getting-started, installation,
+CLI and tools/permissions URLs redirect to Introduction, Download, TUI and
+Permissions. Preview HTTP redirects, plain-host/no-JS fallback HTML and dev routes
+are tested. Header Download links to the new Download page. Prior full articles
+needed by component tests were retained as Storybook fixtures, never published.
+
+Passed typecheck, 63 unit tests, live-dev add/edit/delete plus all legacy route
+redirects, preview/publication builds (23 rendered pages including 404), Storybook,
+and 22 browser tests. Browser coverage asserts every page's H1/H2/TOC, all 22
+ordered sidebar entries in five groups, no-JS reading, source copy/download,
+legacy URLs, mobile navigation and widths. Component interaction/style/syntax
+checks now use standalone Storybook examples and no longer depend on article
+copy. No dependencies installed, no commit/push/deployment. Prior theme-import
+fix preserved; full repository task check not rerun for this docs-only change.
+
 ## Follow-up: transcript links and inline code (2026-09-24)
 
 Matched the user-supplied whip transcript reference using the existing product

@@ -24,7 +24,7 @@ it('serves only public files, clean URLs and true 404s without a runtime bundle'
       for (const method of ['GET', 'HEAD']) {
         const home = await fetch(`${origin}${url}?from=home`, { method, redirect: 'manual' })
         expect(home.status).toBe(308)
-        expect(home.headers.get('location')).toBe('/docs/getting-started?from=home')
+        expect(home.headers.get('location')).toBe('/docs/quickstart?from=home')
       }
     }
     const nested = await fetch(`${origin}/docs/nested`)
@@ -35,7 +35,7 @@ it('serves only public files, clean URLs and true 404s without a runtime bundle'
       expect(result.status).toBe(308)
       expect(result.headers.get('location')).toBe('/docs/nested?query=yes')
     }
-    for (const url of ['/missing', '/docs/missing', '/404', '/outside.txt', '/.git/config', '/%2e%2e%2fetc/passwd']) {
+    for (const url of ['/missing', '/docs/missing', '/docs/troubleshooting', '/404', '/outside.txt', '/.git/config', '/%2e%2e%2fetc/passwd']) {
       const result = await fetch(origin + url)
       expect(result.status).toBe(404)
       expect(await result.text()).toContain('Page not found')

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Menu } from '@base-ui/react/menu';
-import { Icon } from '../ui/Icons';
-import { useHydrated } from '../ui/useHydrated';
+import { Icon } from '../Icons';
+import { useHydrated } from '../useHydrated';
 import { applyTheme, readThemePreference, saveThemePreference, themeStorageKey, type ThemePreference } from './theme';
 
 export function ThemeMenu() {

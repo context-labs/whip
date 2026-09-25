@@ -9,12 +9,13 @@ import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
+import { docSections } from '../src/features/docs/content/sections.ts'
 import { remarkHeadings, languageAliases } from './mdx-plugins.mjs'
 
 export const appRoot = fileURLToPath(new URL('../', import.meta.url))
 export const contentRoot = path.join(appRoot, 'src/content/docs')
 export const generatedFile = path.join(appRoot, 'src/features/docs/content/manifest.gen.ts')
-const sections = ['start', 'usage', 'reference']
+const sections = docSections.map(section => section.id)
 const metadataSchema = z.object({
   title: z.string().trim().min(1), navTitle: z.string().trim().min(1).optional(), description: z.string().trim().min(1),
   section: z.enum(sections), order: z.number().int().positive(),

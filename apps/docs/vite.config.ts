@@ -17,7 +17,7 @@ export default defineConfig(async () => {
     plugins: [
       contentPlugin(), docsMdx(),
       tanstackStart({
-        pages: ['/docs', ...manifest.map((doc) => `/docs/${doc.path}`), '/404'].map((path) => ({ path, sitemap: { exclude: path === '/404' } })),
+        pages: [...manifest.map((doc) => `/docs/${doc.path}`), '/404'].map((path) => ({ path, sitemap: { exclude: path === '/404' } })),
         prerender: { enabled: true, failOnError: true, autoStaticPathsDiscovery: false, crawlLinks: false, retryCount: 0 },
         sitemap: { enabled: Boolean(origin), host: origin },
       }),

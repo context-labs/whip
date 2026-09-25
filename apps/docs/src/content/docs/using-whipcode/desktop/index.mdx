@@ -1,54 +1,16 @@
 ---
-title: Use Desktop
-description: Start sessions, follow agent work and manage the machine that runs your tools.
+title: "Desktop"
+description: "Use the desktop workspace."
 section: usage
 order: 1
 ---
 
-Desktop brings conversations, project files and agent activity into a macOS window. It connects to a daemon that runs the work; the window itself is not the execution host.
+## Workspace and conversations
 
-If you have not installed it yet, start with [Desktop Beta installation](/docs/installation).
+## Managing sessions
 
-## Start a session
+## Activity and changes
 
-On the welcome screen, connect a provider, choose your project folder and send a task. Check the selected execution host, model and permission level first. A fresh setup starts with **Ask for approval**; you can change the host default in Settings.
+## Terminal tabs
 
-Press **Command+T** or choose **File → New session** to open a New Chat tab. This keeps existing drafts and running sessions intact. The session starts when you send its first message.
-
-You can change providers and manage credentials in **Settings → Providers & models**. To add a custom OpenAI-compatible endpoint, create it through the [CLI's provider dialog](/docs/configuration), then select it in Desktop on the same host.
-
-## Follow and steer the work
-
-Read the conversation for the agent's response and use the agent tree and trace to inspect delegated work. The trace shows the execution timeline, not just the final answer.
-
-When whipcode asks a question or requests permission, review it before responding. You can send another instruction to narrow the task or correct its direction. Check the resulting diff and test output before relying on a change.
-
-Model usage can include both the main agent and its children. Cost displays distinguish reported charges, estimates and unknown costs; an unknown amount is not the same as free usage.
-
-## Close and reopen tabs
-
-**Command+W** closes the current tab and hides the window when no active tab remains. **Shift+Command+T** reopens the most recently closed tab. Closed terminal tabs are not restored this way.
-
-<Callout type="warning" title="Closing the window does not stop work">
-
-The daemon owns accepted work. Closing a session tab, hiding the window or quitting Desktop does not cancel it. Use the session's stop control if you intend to stop the agent, rather than treating window closure as cancellation.
-
-</Callout>
-
-## Manage the local server
-
-Open **Settings → Servers → This Mac → Local server settings** to inspect the selected executable and connection.
-
-- **Test Connection** checks the executable, compatibility and daemon status without starting or restarting it.
-- **Install whipcode** installs the bundled backend when you need a local installation.
-- **Restart daemon** is a separate confirmed action because it can interrupt work shared with the CLI or other clients.
-
-Desktop uses a private local connection and does not open a web listener on ordinary startup. If you also want browser access, see the [CLI web command](/docs/using-whipcode/cli#open-the-web-client).
-
-For updates, use the workflow for the [installation's owner](/docs/installation#update-the-right-installation). Updating Desktop does not automatically update a manually selected or remote executable.
-
-## Use browser tools deliberately
-
-Desktop's experimental Browser tabs can be shared with an agent. They use isolated browser profiles rather than your external Chrome profile. Opening or attaching an agent to a tab is permission-gated; merely seeing a tab in a list does not grant control.
-
-Browser and computer tools can act with the access available to the selected page or app. Read [Tools and permissions](/docs/tools-and-permissions) before granting control over a signed-in session.
+## Shortcuts and settings

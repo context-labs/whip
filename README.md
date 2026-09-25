@@ -38,7 +38,7 @@ Bring an API key or use a supported subscription login. Provider access is separ
 Prefer the terminal? Install the standalone CLI on macOS or Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh
 whipcode
 ```
 

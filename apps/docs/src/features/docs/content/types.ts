@@ -8,8 +8,4 @@ export type DocMeta = {
   order: number
   headings: DocHeading[]
 }
-export const docSections = [
-  { id: 'start', label: 'Get started' },
-  { id: 'usage', label: 'Using whipcode' },
-  { id: 'reference', label: 'Reference' },
-] as const
+export { docSections } from './sections'

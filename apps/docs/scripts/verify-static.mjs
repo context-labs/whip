@@ -1,5 +1,6 @@
+import { docRedirects } from '../src/features/docs/content/redirects.ts'
 import assert from 'node:assert/strict'
-import { readFile, writeFile, readdir } from 'node:fs/promises'
+import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { JSDOM } from 'jsdom'
 import { appRoot, loadDocuments } from './content.mjs'
@@ -8,16 +9,20 @@ import { robotsText, runtimeHighlighter } from './static-policy.mjs'
 
 const root = path.join(appRoot, 'dist/client')
 const docs = await loadDocuments()
-const urls = ['/docs', ...docs.map((doc) => `/docs/${doc.path}`), '/404']
-// Plain static hosts still redirect without JavaScript or an application server.
-const rootRedirect = `<!doctype html>
+const urls = [...docs.map((doc) => `/docs/${doc.path}`), '/404']
+const rendered = new Map()
+// Static-only hosts can follow legacy URLs without JavaScript or server rules.
+for (const [from, to] of Object.entries(docRedirects)) {
+  const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Redirecting — whipcode</title><meta name="robots" content="noindex,nofollow">
-<meta http-equiv="refresh" content="0; url=/docs/getting-started"></head>
-<body><main><a href="/docs/getting-started">Continue to getting started</a></main></body></html>
-`
-await writeFile(path.join(root, 'index.html'), rootRedirect)
-const rendered = new Map([['/', new JSDOM(rootRedirect).window.document]])
+<meta http-equiv="refresh" content="0; url=${to}"></head>
+<body><main><a href="${to}">Continue to documentation</a></main></body></html>`
+  const filename = path.join(root, from === '/' ? 'index.html' : `${from.slice(1)}/index.html`)
+  await mkdir(path.dirname(filename), { recursive: true })
+  await writeFile(filename, html)
+  rendered.set(from, new JSDOM(html).window.document)
+}
 async function htmlFor(url) {
   const relative = url === '/' ? 'index.html' : `${url.slice(1)}/index.html`
   return readFile(path.join(root, relative), 'utf8').catch(() => readFile(path.join(root, `${url.slice(1)}.html`), 'utf8'))
@@ -80,5 +85,5 @@ for (const filename of emitted.filter((name) => name.endsWith('.js'))) {
   const source = await readFile(filename, 'utf8')
   assert(!runtimeHighlighter.test(source), `${filename}: browser runtime grammar/highlighter leaked`)
 }
-assert((await Promise.all(docs.map((doc) => htmlFor(`/docs/${doc.path}`)))).some((html) => html.includes('token keyword') || html.includes('token string')), 'No compile-time syntax tokens in article HTML')
+// Compiler and Storybook fixtures test syntax highlighting; outline pages need no code fences.
 console.log(`Verified ${urls.length} prerendered documents and ${emitted.length} public files; deploy only dist/client.`)

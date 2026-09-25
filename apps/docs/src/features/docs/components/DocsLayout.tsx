@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { DocHeading, DocMeta } from '../content/types';
 import { MobileNavigation, PagerCard, SidebarItem } from '../../../components/navigation';
 
-const sections = [{ id: 'start', label: 'Get started' }, { id: 'usage', label: 'Using whipcode' }, { id: 'reference', label: 'Reference' }];
+import { docSections as sections } from '../content/sections';
 export function DocsSidebar({ entries, current }: { entries: readonly DocMeta[]; current?: DocMeta }) {
   return <nav aria-label="Documentation" className="docs-navigation">{sections.map(section => <div className="sidebar-group" key={section.id}>
     <div className="label sidebar-label">{section.label}</div>

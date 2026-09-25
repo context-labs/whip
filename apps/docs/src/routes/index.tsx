@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { docRedirects } from '~/features/docs/content/redirects'
 
 export const Route = createFileRoute('/')({
-  beforeLoad: () => {
-    throw redirect({ to: '/docs/$', params: { _splat: 'getting-started' }, replace: true, statusCode: 308 })
-  },
+  beforeLoad: ({ location }) => { throw redirect({ href: docRedirects['/'] + location.searchStr + location.hash, replace: true, statusCode: 308 }) },
 })

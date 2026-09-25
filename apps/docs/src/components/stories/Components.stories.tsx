@@ -2,10 +2,12 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Button, Callout, CodeBlock, CopyButton, SplitButton, Table } from '../ui';
 import { MobileNavigation, PagerCard } from '../navigation';
-import { ThemeMenu } from '../theme/ThemeMenu';
+import { ThemeMenu } from '../ui/theme/ThemeMenu';
 import { DocsSidebar, TableOfContents } from '../../features/docs/components';
 import { docsComponents } from '../../features/docs/docs-components';
 import CodeFixture from './CodeFixture.mdx';
+import InstallationFixture from './InstallationFixture.mdx';
+import ConfigurationFixture from './ConfigurationFixture.mdx';
 import LanguagesFixture from './LanguagesFixture.mdx';
 import type { DocMeta } from '../../features/docs/content/types';
 
@@ -32,10 +34,13 @@ export const ButtonStates: Story = { render: function Buttons() {
 const entries: DocMeta[] = [
   { path: 'getting-started', title: 'Getting started', description: '', section: 'start', order: 1, headings: [] },
   { path: 'installation', title: 'Installation', description: '', section: 'start', order: 2, headings: [] },
-  { path: 'configuration', title: 'Configuration with a deliberately long label to test wrapping', description: '', section: 'reference', order: 1, headings: [] },
+  { path: 'configuration', title: 'Configuration with a deliberately long label to test wrapping', description: '', section: 'configuration', order: 1, headings: [] },
 ];
 export const NavigationDrawer: Story = { render: () => <div style={{ display: 'contents' }}><MobileNavigation title="Documentation" className="story-visible-navigation"><DocsSidebar entries={entries} current={entries[0]} /></MobileNavigation><p>Use Tab to enter, Escape to close, and confirm focus returns to the trigger.</p></div> };
 export const Contents: Story = { render: () => <><TableOfContents headings={[{ id: 'overview', text: 'Overview', level: 2 }, { id: 'long-label', text: 'A longer nested heading wraps without colliding with the rail', level: 3 }]} /><h2 id="overview">Overview</h2><h3 id="long-label">A longer nested heading</h3></> };
 export const ThemeSelection: Story = { render: () => <><p>Choose a persistent colour theme or follow your system.</p><ThemeMenu /></> };
 export const TableOverflow: Story = { render: () => <Table aria-label="Overflow example"><thead><tr><th>Setting</th><th>Description</th><th>Example value</th></tr></thead><tbody><tr><td><code>name</code></td><td>A long explanatory value that can wrap.</td><td><code>{'example-'.repeat(20)}</code></td></tr></tbody></Table> };
 export const Pagination: Story = { render: () => <nav className="doc-pagination" aria-label="Adjacent example pages"><PagerCard href="/docs/getting-started" title="A previous page with a long title" direction="previous" /><PagerCard href="/docs/installation" title="The next page with a long title" direction="next" /></nav> };
+
+export const InstallationExample: Story = { render: () => <article className="prose"><InstallationFixture components={docsComponents} /></article> };
+export const ConfigurationExample: Story = { render: () => <article className="prose"><ConfigurationFixture components={docsComponents} /></article> };

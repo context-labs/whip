@@ -1,6 +1,7 @@
+import type { DocHeading } from '../src/features/docs/content/types'
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { evaluate } from '@mdx-js/mdx'
@@ -68,8 +69,10 @@ describe('content validation', () => {
   })
   it('validates every launch source and internal link', async () => {
     const docs = await loadDocuments()
-    expect(docs).toHaveLength(6)
-    for (const doc of docs) expect(doc.headings.length).toBeGreaterThan(0)
+    const outline = JSON.parse(await readFile(new URL('./fixtures/v1-outline.json', import.meta.url), 'utf8'))
+    expect(docs).toHaveLength(21)
+    expect(docs.map(doc => [doc.path, doc.title, doc.section, doc.description, doc.headings.filter((heading: DocHeading) => heading.level === 2).map((heading: DocHeading) => heading.text)])).toEqual(outline.pages)
+    for (const doc of docs.filter(doc => doc.path !== 'typescript-sdk')) expect(doc.headings.every((heading: DocHeading) => heading.level === 2)).toBe(true)
   })
 })
 

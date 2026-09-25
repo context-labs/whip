@@ -15,7 +15,7 @@
     "preview": "node scripts/preview.mjs",
     "storybook": "npm run generate && storybook dev -p 6007",
     "test": "vitest run",
-    "test:browser": "playwright test",
+    "test:browser": "npm run build:storybook && playwright test",
     "test:dev": "node scripts/dev-smoke.mjs"
   },
   "dependencies": {

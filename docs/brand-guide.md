@@ -302,7 +302,7 @@ Icons in buttons:
 - Right: Discord then GitHub icon links in a 4px-gap group, then a 12px gap to
   the Download button. No divider between the icon links and Download.
 - Download has a leading 14px/2px-stroke icon, 8px icon/label gap, and 34px rendered
-  height. It links to `https://github.com/context-labs/whip/releases`.
+  height. It links to `/docs/download`; release links belong in that page.
 - Discord uses the user-provided invite `https://discord.gg/K2deYSXNu`.
 - Keep Download visible on mobile; below 370px use the named icon-only control
   to avoid crowding. Docs navigation remains in the docs shell, not the header.
@@ -482,7 +482,16 @@ into app-owned CSS rather than imported from product UI.
 
 Both modes are built from the same structure; only tokens change.
 
-The getting-started page follows Paper `Y3-0` with whipcode-specific copy:
+The full-article Storybook specimen preserves Paper `Y3-0` with whipcode-specific
+copy. Public V1 pages use the same title, copy/download controls, TOC and
+sequential pagination. Quickstart is the installation-first docs entry and uses
+exactly the same typography and spacing as every other public article, with no
+page-specific layout class or CSS overrides. The shared title divider has 32px
+bottom padding; section dividers have 64px top margin and 32px top padding.
+The first H2 has no extra rule because the title already provides one; do not
+add standalone rules between sections.
+Download uses a bordered platform/action row and existing code tabs. Most other
+pages remain heading-only outlines. The preserved specimen:
 - Intro then the Before you start callout; five numbered setup steps; terminal
   examples; workspace scope; troubleshooting table; next-page CLI card.
 - H1 is Getting started; the existing left-nav label remains Get started.

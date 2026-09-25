@@ -12,8 +12,8 @@ import { CopyButton } from './CopyButton';
 import { CodeBlock } from './CodeBlock';
 import { SplitButton } from './Button';
 import { MobileNavigation } from '../navigation';
-import { ThemeMenu } from '../theme/ThemeMenu';
-import { applyTheme, readThemePreference, saveThemePreference } from '../theme/theme';
+import { ThemeMenu } from './theme/ThemeMenu';
+import { applyTheme, readThemePreference, saveThemePreference } from './theme/theme';
 
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));

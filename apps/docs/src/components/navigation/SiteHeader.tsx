@@ -11,7 +11,7 @@ export function SiteHeader() {
           <CommunityLink href="https://discord.gg/K2deYSXNu" label="Discord"><DiscordMark /></CommunityLink>
           <CommunityLink />
         </nav>
-        <a className="button header-download" href="https://github.com/context-labs/whip/releases" aria-label="Download">
+        <a className="button header-download" href="/docs/download" aria-label="Download">
           <Icon name="download" strokeWidth={2} />
           <span className="header-download-label">Download</span>
         </a>

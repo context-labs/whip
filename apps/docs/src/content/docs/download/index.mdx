@@ -1,0 +1,71 @@
+---
+title: "Download"
+description: "Install and update Desktop or the command line."
+section: start
+order: 2
+---
+
+## Desktop
+
+<div className="download-option">
+  <div>
+    <strong>macOS · Apple Silicon</strong>
+    <p>macOS 14 or newer · DMG · v1.0.0-alpha.5</p>
+  </div>
+  <a className="button" href="https://github.com/context-labs/whip/releases/download/v1.0.0-alpha.5/Whip-Beta-1.0.0-alpha.5-arm64.dmg" aria-label="Download Desktop for macOS Apple Silicon">Download</a>
+</div>
+
+Open the DMG and drag **Whip Beta** into Applications. On first launch, choose **Set up this Mac** if prompted. Desktop includes its matching backend.
+
+[Release notes and other builds](https://github.com/context-labs/whip/releases/tag/v1.0.0-alpha.5).
+
+## Command line
+
+Install the standalone CLI on macOS or Linux. The installer selects your platform and verifies the download checksum.
+
+<CodeTabs label="CLI installation">
+<CodeTab label="Install">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh
+```
+
+</CodeTab>
+<CodeTab label="Inspect first">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh -o install-whipcode.sh
+less install-whipcode.sh
+WHIPCODE_CHANNEL=prerelease sh install-whipcode.sh
+```
+
+</CodeTab>
+</CodeTabs>
+
+Requires `curl`, Python 3, and `sha256sum` or `shasum`. No Node.js or Go installation is needed to run the packaged CLI.
+
+The default location is `~/.local/bin/whipcode`. Add `~/.local/bin` to your `PATH` if needed, then verify the installation:
+
+```bash
+whipcode --version
+```
+
+Continue with the [Quickstart](/docs/quickstart).
+
+## Supported platforms
+
+| Platform | Desktop | CLI |
+| --- | --- | --- |
+| macOS · Apple Silicon | macOS 14 or newer | Available |
+| macOS · Intel | — | Available |
+| Linux · x64 or arm64 | — | Available |
+| Windows | — | — |
+
+## Updates and release channels
+
+Whip is currently a prerelease. Keep `WHIPCODE_CHANNEL=prerelease` in the installer command; the stable channel does not fall back to prereleases.
+
+- **Desktop:** get a newer app from [Releases](https://github.com/context-labs/whip/releases). Use Desktop's **Upgrade** action for a Desktop-managed backend.
+- **Standalone CLI:** run `whipcode update`. An alpha installation follows the prerelease channel. Updating also requests a restart of that installation's daemon.
+
+Finish active work before upgrading. Do not update a Desktop-managed backend independently with the CLI.

@@ -1,0 +1,96 @@
+---
+title: Configuration
+description: Connect providers, choose models and keep credentials on the execution host.
+section: reference
+order: 1
+---
+
+Configuration belongs to the execution host: the machine running the daemon and tools. If Desktop connects to another machine, changing credentials on your Mac does not configure that remote host.
+
+Use **Settings → Providers & models** in Desktop or `/connect` in the terminal for routine connection changes. The host's configuration file is `~/.whipcode/config.json`.
+
+## Connect a provider
+
+| Connection | Authentication |
+| --- | --- |
+| Inference.net | Browser sign-in or API key |
+| OpenRouter | API key |
+| OpenAI API | API key, billed through the API account |
+| ChatGPT subscription | Device login, separate from OpenAI API credentials |
+| Other supported OpenAI-compatible providers | API key or the endpoint's configured authentication |
+
+Follow the provider dialog rather than putting secrets in a conversation. Known providers include their API URLs. A credential marked available means whipcode found a key or account; it does not confirm billing or successful inference.
+
+For model access through Anthropic or Google, use a supported compatible gateway. Native Anthropic Messages and Google Gemini protocols are not built-in provider adapters.
+
+## Choose a model
+
+The provider's live catalog supplies the available model choices. Popular connections may select a recommended model during setup; otherwise, choose one from the picker. New catalog models do not need a hand-written configuration entry.
+
+Use `/model refresh` in the terminal to fetch catalogs again. When the same model is available from multiple providers, select the intended provider route as well as the model.
+
+First-time onboarding saves your selection for new sessions. Later changes can have different scopes: `/model-for-session` changes only the current session. Check your session's selection rather than assuming a changed default rewrites existing work.
+
+## Reuse credentials without copying them
+
+The execution host discovers supported named environment variables, including:
+
+| Provider | Variable |
+| --- | --- |
+| Inference.net | `INFERENCE_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| OpenAI API | `OPENAI_API_KEY` |
+| Cerebras | `CEREBRAS_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+
+You can also reference a secrets file explicitly. Merge this fragment into the host's existing `~/.whipcode/config.json`, using paths to files you manage:
+
+```json
+{
+  "providerKeySources": {
+    "envFiles": ["~/.secrets/providers.env"],
+    "keyFiles": {
+      "CEREBRAS_API_KEY": "~/.secrets/cerebras.key"
+    }
+  }
+}
+```
+
+An environment file contains named assignments, such as an assignment to `OPENROUTER_API_KEY`. A key file contains only the key value. Create these files with appropriate local access controls; the configuration fragment does not create them.
+
+Open `/connect` or refresh **Providers & models** to discover the files. whipcode saves key references rather than copying the file's secret values into its configuration. It does not search arbitrary directories for keys.
+
+<Callout type="warning" title="Refresh the process that uses the key">
+
+After rotating a file-backed key, reload an existing session. Newly exported environment variables require `whipcode daemon restart` because a running daemon keeps its launch environment. Restarting can interrupt active work, including sessions in other clients.
+
+</Callout>
+
+Do not commit API keys to a repository. Avoid pasting keys into prompts, command arguments or screenshots; use the masked provider dialog or a configured secret source.
+
+## Add a custom endpoint
+
+In the terminal, open `/connect` and choose **Custom endpoint**. Enter its name and API root URL, then choose an API key, a host environment-variable reference, or explicit **No authentication**.
+
+Use the API root, not a `/chat/completions` URL. Embedded credentials, query strings and URL fragments are not accepted.
+
+Choose **Save and choose model** to discover the model list. If the endpoint cannot list models, use **Enter a model manually**, enter its exact model ID and explicitly select **Save without verification**. An unverified entry is not a guarantee of model compatibility.
+
+Once saved, the connection is available to Desktop and the CLI on that same host. Setting `OPENAI_BASE_URL` alone is not a substitute for configuring a custom route.
+
+## Set defaults for new sessions
+
+You can set the default permission level in Settings. For file-based configuration, these fields select Ask mode and the default Starlark engine:
+
+```json
+{
+  "defaultPermissionMode": "prompt",
+  "rlm": {
+    "defaultEngine": "starlark"
+  }
+}
+```
+
+Merge fields into your existing file rather than replacing your provider configuration. `automatic` selects Full Access; `quickjs` selects the JavaScript engine. Changing a default does not rewrite existing sessions, and a saved session's execution engine is fixed.
+
+Read [Tools and permissions](/docs/tools-and-permissions) before relaxing the permission level, or [CLI usage](/docs/using-whipcode/cli) for per-run options and model limits.

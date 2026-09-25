@@ -168,7 +168,8 @@ workspace. It follows the structural conventions of inference's `fast-web`, not
 its backend or deployment. Start renders during the build; only the generated
 `apps/docs/dist/client` HTML/assets are deployed. There is no runtime server,
 SDK, daemon connection, React Query, authentication, analytics or remote content.
-The root `/` redirects to `/docs/getting-started`; there is no landing page.
+The root `/` and `/docs` redirect to `/docs/quickstart`; there is no landing page.
+Legacy entry/installation/CLI/permissions URLs retain redirects.
 The `/docs/...` articles are separate from the application renderer and must
 never be embedded by `pack:web` or included in desktop builds.
 
@@ -190,10 +191,13 @@ label without changing the article title. Generated metadata provides navigation
 anchors and the complete prerender URL list. Refractor tokenizes fenced code in
 the compiler; token spans reach the browser, but highlighter code and grammars
 do not. Keep raw snippets page-local for copying, not in a global content index.
-The getting-started article includes title-row copy/download actions. Its trusted
-MDX source is imported in a page-local chunk, not the global manifest; Vite raw
+All articles include title-row copy/download actions. Their trusted MDX source
+is imported in page-local chunks, not the global manifest; Vite raw
 imports bypass the MDX compiler. Menus, theme preferences and selected code tabs
-use local component state.
+use local component state. The public content currently consists of 21 V1 pages
+(Quickstart, Download and TypeScript SDK written, 18 other outlines) in five groups: Getting Started, Using whip, Configuration, Agents & RLM,
+and Developers. Group labels/order are shared between compiler and sidebar in
+`sections.ts`. Full-article library examples remain in Storybook, not production.
 
 Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`,
 `preview:docs`, `test:docs:browser`, `storybook:docs` and

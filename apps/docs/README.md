@@ -20,8 +20,10 @@ npm run build:storybook:docs
 ```
 
 Install Chromium once with `npx playwright install chromium` (CI uses
-`--with-deps`). Browser tests require a completed `build:docs`. Storybook is a
-development-only board/component reference and is not part of the public site.
+`--with-deps`). Browser tests require a completed `build:docs`, build Storybook
+automatically, and start static servers on ports 3101 and 6008. Content-independent
+component regression checks use Storybook fixtures rather than public article
+copy. Storybook is development-only and is not part of the public site.
 
 ## Content authoring
 
@@ -36,7 +38,8 @@ section: start
 order: 1
 ```
 
-Sections are `start`, `usage`, `reference`; order must be a positive integer,
+Sections are `start`, `usage`, `configuration`, `agents`, `developers` (labels and
+order live in `src/features/docs/content/sections.ts`); page order must be a positive integer,
 unique within its section. Metadata is strict. Do not put H1 in an article: the
 layout renders the title. H2/H3 form the TOC. Heading text and IDs come from the
 same Markdown AST transform (including inline formatting, Unicode, duplicate
@@ -66,8 +69,11 @@ whipcode --help
 Actual articles need no imports. `docsComponents` supplies Callout, CodeTabs/CodeTab, table and pre/code.
 Only article metadata is global; compiled articles are separate lazy chunks.
 Optional `navTitle` keeps a short sidebar label without changing the page H1/title.
-Getting started uses the Paper article layout with section-only TOC, numbered
-steps and page copy/download controls. Its original MDX is a page-local lazy
+The site has 21 pages in five sidebar groups. Quickstart, Download and TypeScript
+SDK have article content; the other 18 remain heading-only outlines. Quickstart and Download are first. The Desktop DMG link on Download is pinned to
+a verified public release; update its version, link and browser assertion together
+when changing the recommended build. There is no runtime release fetching.
+Every page retains copy/download controls. Its original MDX is a page-local lazy
 import; `docsMdx()` bypasses MDX compilation for Vite `?raw` requests. Copy and
 download preserve the complete authored source, including frontmatter and MDX
 components. No raw-page API or global article-body index is introduced.
@@ -92,18 +98,20 @@ JavaScript disabled all tabbed snippets remain visible and labelled.
 ## Static artifact and host contract
 
 **Deploy only `apps/docs/dist/client/`.** TanStack Start's `dist/server` is a build
-intermediate; the preview does not import it. Build enumerates `/docs`, every
-manifest path and `/404`, adds a minimal root redirect document, and verifies every HTML
+intermediate; the preview does not import it. Build enumerates every manifest
+path and `/404`, adds static entry/legacy redirect documents, and verifies every HTML
 page/title/heading, local assets, token output and absence of runtime grammars.
 There is no SPA fallback, backend request or dynamic route handler at runtime.
 
 The preview implements the host policy to reproduce on the chosen provider:
 
-- `/` and `/index.html` redirect with **308** to `/docs/getting-started`, preserving
-  the query. The root route also redirects in development/client navigation.
-  `index.html` contains a no-JavaScript meta-refresh fallback and a direct link
-  for static hosts without redirect rules; no landing-page content is shipped.
-- `/docs/installation` and nested clean URLs serve their actual HTML with 200.
+- `/`, `/docs`, `/docs/introduction` and `/docs/getting-started` redirect with **308** to
+  `/docs/quickstart`. Old installation, CLI and tools/permissions paths redirect
+  to Download, TUI and Permissions. Aliases are defined once in
+  `src/features/docs/content/redirects.ts`; dev routes and preview share them.
+  Queries are preserved by HTTP redirects. Each alias has a static meta-refresh
+  document for no-JavaScript hosts without redirect rules.
+- `/docs/download` and nested clean URLs serve their actual HTML with 200.
 - Known trailing-slash, `.html` and `/index.html` aliases redirect with **308**
   to the clean URL, preserving the query. Unknown aliases still return 404.
 - Missing pages and `/404` serve `404.html` with **404**, not home HTML with 200.
@@ -132,6 +140,11 @@ See [the canonical frontend guide](../../docs/frontend.md) and
 [brand guide](../../docs/brand-guide.md). This app owns ordinary CSS and Base UI
 components; it intentionally does not import `@whip/ui`, SDK or product state.
 System fonts only. Shared public types live in `features/docs/content/types.ts`.
+
+`tests/sdk-examples.test.ts` extracts TypeScript fences from the SDK page, typechecks
+them against the actual SDK source, and exercises helpers with local doubles.
+It does not connect to a real host or run model requests; SDK code stays out of
+the docs browser bundle.
 
 `tests/content.test.tsx` exercises metadata/AST IDs, grammar aliases, exact source,
 escaping and real MDX nested tabs. `static-server.test.ts` tests host routing and

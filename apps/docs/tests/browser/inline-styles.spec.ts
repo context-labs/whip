@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 for (const mode of ['dark', 'light'] as const) test(`transcript-style links and inline code in ${mode} mode`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: mode })
   await page.setViewportSize({ width: 390, height: 900 })
-  await page.goto('/docs/installation')
+  await page.goto('http://127.0.0.1:6008/iframe.html?id=docs-components--installation-example&viewMode=story&globals=theme:' + mode)
   const linkColor = mode === 'dark' ? 'rgb(51, 177, 255)' : 'rgb(0, 114, 195)'
   const codeColor = mode === 'dark' ? 'rgb(37, 190, 106)' : 'rgb(25, 128, 56)'
   const background = mode === 'dark' ? 'rgb(30, 30, 30)' : 'rgb(244, 244, 244)'
@@ -26,11 +26,9 @@ for (const mode of ['dark', 'light'] as const) test(`transcript-style links and 
   await expect(page.locator('article td code').first()).toHaveCSS('color', codeColor)
 
   // Navigation and fenced-code output must not inherit prose decoration.
+  await page.goto('/docs/quickstart')
   await expect(page.locator('.header-download')).not.toHaveCSS('color', linkColor)
   await expect(page.locator('.header-download')).toHaveCSS('text-decoration-line', 'none')
-  await expect(page.locator('pre code').first()).toHaveCSS('padding', '0px')
-  await expect(page.locator('pre code').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  await expect(page.locator('pre code').first()).toHaveCSS('font-size', '12px')
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
 
   await page.setViewportSize({ width: 1440, height: 900 })

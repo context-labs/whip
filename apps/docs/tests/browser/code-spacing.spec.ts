@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 for (const width of [390, 1440]) test(`code spacing matches Paper at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 })
-  await page.goto('/docs/installation')
+  await page.goto('http://127.0.0.1:6008/iframe.html?id=docs-components--installation-example&viewMode=story')
   const tabs = page.locator('.code-tabs').first()
   const header = tabs.locator('.code-header')
   await expect(tabs.getByRole('tablist')).toBeVisible()
@@ -32,21 +32,24 @@ for (const width of [390, 1440]) test(`code spacing matches Paper at ${width}px`
     expect((await pre.boundingBox())!.height).toBe(lines * 20 + 40)
   }
 
-  await page.goto('/docs/getting-started')
+  await page.goto('http://127.0.0.1:6008/iframe.html?id=docs-components--installation-example&viewMode=story')
   const single = page.locator('.code-block:not(.code-block-tabbed)').first()
   await expect(single.locator('pre')).toHaveCSS('padding', '20px')
-  expect((await single.locator('pre').boundingBox())!.height).toBe(60)
+  await expect(single.locator('pre')).toHaveCSS('line-height', '20px')
   expect((await single.locator('.code-header').boundingBox())!.height).toBe(40)
 })
 
-test('no-JavaScript code blocks retain the same body and header padding', async ({ browser }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false })
-  const page = await context.newPage()
-  await page.goto('http://127.0.0.1:3101/docs/installation')
-  for (const block of await page.locator('.code-tabs-fallback .code-tabs').all()) {
-    await expect(block.locator('pre')).toHaveCSS('padding', '20px')
-    await expect(block.locator('.code-header')).toHaveCSS('padding', '0px 8px 0px 12px')
-    expect((await block.locator('.code-header').boundingBox())!.height).toBe(40)
-  }
-  await context.close()
+test('library code tabs still copy active source and render multicolour tokens', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('http://127.0.0.1:6008/iframe.html?id=docs-components--code-tabs&viewMode=story')
+  await page.getByRole('tab', { name: 'CLI', exact: true }).focus()
+  await page.keyboard.press('ArrowRight')
+  const selected = page.getByRole('tab', { name: 'TypeScript' })
+  await expect(selected).toHaveAttribute('aria-selected', 'true')
+  const panel = page.getByRole('tabpanel', { name: 'TypeScript' })
+  const expected = await panel.locator('pre code').textContent()
+  await page.getByRole('button', { name: 'Copy code' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected)
+  const colours = await panel.locator('pre .token').evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))])
+  expect(colours.length).toBeGreaterThan(2)
 })

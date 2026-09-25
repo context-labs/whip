@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test('header matches the Paper actions and keeps theme selection in the footer', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/docs/getting-started')
+  await page.goto('/docs/quickstart')
   const header = page.getByRole('banner')
   await expect(header.getByRole('link')).toHaveCount(4)
   await expect(header.getByRole('navigation', { name: 'Community' }).getByRole('link').first()).toHaveAccessibleName('Discord')
@@ -10,7 +10,7 @@ test('header matches the Paper actions and keeps theme selection in the footer',
   await expect(header.getByRole('link', { name: 'GitHub', exact: true })).toHaveAttribute('href', 'https://github.com/context-labs/whip')
   await expect(header.getByRole('link', { name: 'Discord', exact: true })).toHaveAttribute('href', 'https://discord.gg/K2deYSXNu')
   const download = header.getByRole('link', { name: 'Download', exact: true })
-  await expect(download).toHaveAttribute('href', 'https://github.com/context-labs/whip/releases')
+  await expect(download).toHaveAttribute('href', '/docs/download')
   await expect(header.getByRole('link', { name: 'Documentation', exact: true })).toHaveCount(0)
   await expect(header.getByRole('button')).toHaveCount(0)
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Colour theme: system' })).toBeVisible()
@@ -51,7 +51,7 @@ test('theme menu follows system changes, persists and syncs across tabs', async 
 
 test('mobile navigation restores keyboard focus and follows docs links', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/docs/getting-started')
+  await page.goto('/docs/quickstart')
   const trigger = page.getByRole('button', { name: 'Documentation', exact: true })
   await trigger.click()
   await expect(page.getByRole('dialog', { name: 'Documentation' })).toBeVisible()
@@ -59,14 +59,14 @@ test('mobile navigation restores keyboard focus and follows docs links', async (
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(trigger).toBeFocused()
   await trigger.click()
-  await page.getByRole('dialog').getByRole('link', { name: 'Installation', exact: true }).click()
-  await expect(page).toHaveURL('/docs/installation')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Installation')
+  await page.getByRole('dialog').getByRole('link', { name: 'Download', exact: true }).click()
+  await expect(page).toHaveURL('/docs/download')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Download')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('active sidebar text retains the inactive font weight in both themes', async ({ page }) => {
-  await page.goto('/docs/getting-started')
+  await page.goto('/docs/quickstart')
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value }, theme)
     const active = page.locator('.docs-sidebar .sidebar-item[aria-current="page"]')
@@ -77,13 +77,13 @@ test('active sidebar text retains the inactive font weight in both themes', asyn
 })
 
 test('sidebar links and no-JS mobile disclosures remain real navigation', async ({ page, browser }) => {
-  await page.goto('/docs/installation')
+  await page.goto('/docs/download')
   await page.locator('.docs-sidebar').getByRole('link', { name: 'Configuration', exact: true }).click()
   await expect(page).toHaveURL('/docs/configuration')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Configuration')
   const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } })
   const mobile = await context.newPage()
-  await mobile.goto('http://127.0.0.1:3101/docs/installation')
+  await mobile.goto('http://127.0.0.1:3101/docs/download')
   await mobile.locator('.docs-mobile-navigation summary').click()
   await mobile.locator('.docs-mobile-navigation').getByRole('link', { name: 'Configuration', exact: true }).click()
   await expect(mobile).toHaveURL('http://127.0.0.1:3101/docs/configuration')
@@ -93,8 +93,8 @@ test('sidebar links and no-JS mobile disclosures remain real navigation', async 
 
 test('copy rejection provides visible manual-copy recovery', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied') } } }))
-  await page.goto('/docs/configuration')
+  await page.goto('http://127.0.0.1:6008/iframe.html?id=docs-components--configuration-example&viewMode=story')
   await page.getByRole('button', { name: 'Copy code' }).first().click()
   await expect(page.getByRole('status').filter({ hasText: 'Copy failed. Select and copy the code manually.' })).toBeVisible()
-  await expect(page.locator('pre code').first()).toBeVisible()
+  await expect(page.locator('article pre code').first()).toBeVisible()
 })

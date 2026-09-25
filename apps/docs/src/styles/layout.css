@@ -34,6 +34,11 @@
 .getting-started-page .prose > h3 + p { margin-top: 12px; }
 .getting-started-page .doc-pagination { gap: 12px; padding-top: 24px; }
 .getting-started-page .prose table th:first-child { width: 24%; }
+.download-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-panel); }
+.download-option > div { min-width: 0; }
+.download-option strong { font-size: 14px; font-weight: 500; }
+.download-option p { margin-top: 4px; color: var(--color-text-secondary); font-size: 12px; }
+.download-option .button { flex-shrink: 0; }
 .doc-pagination { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 64px; padding-top: 32px; border-top: 1px solid var(--color-border); }
 .mobile-navigation, .mobile-toc { display: none; }
 .site-main { width: min(var(--site-max-width), 100% - 64px); margin-inline: auto; padding-block: 56px 96px; }
@@ -67,6 +72,7 @@
   .pager-card { padding: 12px; }
   .site-main { width: calc(100% - 40px); padding-block: 40px 64px; }
   .doc-grid { grid-template-columns: 1fr; }
+  .download-option { align-items: flex-start; flex-direction: column; gap: 16px; }
   .site-footer { width: calc(100% - 40px); }
 }
 @media (max-width: 370px) {

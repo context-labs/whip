@@ -1,8 +1,8 @@
 import { createRootRoute, HeadContent, Outlet, Scripts, Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { SiteHeader } from '~/components/navigation/SiteHeader'
-import { ThemeMenu } from '~/components/theme/ThemeMenu'
-import { themeInitScript } from '~/components/theme/theme'
+import { ThemeMenu } from '~/components/ui/theme/ThemeMenu'
+import { themeInitScript } from '~/components/ui/theme/theme'
 import stylesheet from '~/styles/index.css?url'
 
 export const Route = createRootRoute({
