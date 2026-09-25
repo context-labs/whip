@@ -8,6 +8,9 @@ import { siteUrl } from './site-url.mjs'
 import { robotsText, runtimeHighlighter } from './static-policy.mjs'
 
 const root = path.join(appRoot, 'dist/client')
+const origin = siteUrl(process.env.DOCS_SITE_URL)
+const base = origin ? new URL(origin).pathname.replace(/\/$/, '') : ''
+const publicPath = (url) => base + url
 const docs = await loadDocuments()
 const urls = [...docs.map((doc) => `/docs/${doc.path}`), '/404']
 const rendered = new Map()
@@ -16,8 +19,8 @@ for (const [from, to] of Object.entries(docRedirects)) {
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Redirecting — whipcode</title><meta name="robots" content="noindex,nofollow">
-<meta http-equiv="refresh" content="0; url=${to}"></head>
-<body><main><a href="${to}">Continue to documentation</a></main></body></html>`
+<meta http-equiv="refresh" content="0; url=${publicPath(to)}"></head>
+<body><main><a href="${publicPath(to)}">Continue to documentation</a></main></body></html>`
   const filename = path.join(root, from === '/' ? 'index.html' : `${from.slice(1)}/index.html`)
   await mkdir(path.dirname(filename), { recursive: true })
   await writeFile(filename, html)
@@ -29,7 +32,6 @@ async function htmlFor(url) {
 }
 const html404 = await htmlFor('/404')
 await writeFile(path.join(root, '404.html'), html404)
-const origin = siteUrl(process.env.DOCS_SITE_URL)
 await writeFile(path.join(root, 'robots.txt'), robotsText(origin))
 for (const url of urls) {
   const html = await htmlFor(url)
@@ -53,7 +55,8 @@ for (const url of urls) {
     if (element.getAttribute('rel') === 'canonical') continue
     assert(value.startsWith('/'), `${url}: asset must be local and root-relative: ${value}`)
     assert(!value.startsWith('//'), `${url}: remote asset ${value}`)
-    const asset = path.resolve(root, value.slice(1).split('?')[0])
+    assert(value.startsWith(base + '/'), `${url}: asset escaped base path: ${value}`)
+    const asset = path.resolve(root, value.slice(base.length + 1).split('?')[0])
     assert(asset.startsWith(root + path.sep), `${url}: asset outside public output`)
     await readFile(asset)
 
@@ -63,9 +66,10 @@ for (const [url, document] of rendered) {
   for (const link of document.querySelectorAll('a[href]')) {
     const href = link.getAttribute('href')
     if (/^(https?:|mailto:)/.test(href)) continue
-    const target = new URL(href, `https://docs.invalid${url}`)
+    const target = new URL(href, `https://docs.invalid${publicPath(url)}`)
     assert.equal(target.origin, 'https://docs.invalid', `${url}: unsupported link ${href}`)
-    const page = rendered.get(target.pathname)
+    assert(target.pathname.startsWith(base + '/'), `${url}: link escaped base path: ${href}`)
+    const page = rendered.get(target.pathname.slice(base.length))
     assert(page, `${url}: broken internal link ${href}`)
     if (target.hash) assert(page.getElementById(decodeURIComponent(target.hash.slice(1))), `${url}: missing fragment ${href}`)
   }

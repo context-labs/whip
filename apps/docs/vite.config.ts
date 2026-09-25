@@ -11,6 +11,7 @@ export default defineConfig(async () => {
   const manifest = await generateManifest()
   const origin = siteUrl(process.env.DOCS_SITE_URL)
   return {
+    base: origin ? new URL(origin).pathname.replace(/\/$/, '') + '/' : '/',
     resolve: { alias: { '~': fileURLToPath(new URL('./src', import.meta.url)) } },
     define: { __DOCS_SITE_URL__: JSON.stringify(origin) },
     server: { host: '127.0.0.1', port: 3100, strictPort: true },

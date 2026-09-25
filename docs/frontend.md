@@ -166,7 +166,8 @@ to route every piece of state through a framework.
 `apps/docs` is an independent React/TanStack Start site in the same Node 24/npm
 workspace. It follows the structural conventions of inference's `fast-web`, not
 its backend or deployment. Start renders during the build; only the generated
-`apps/docs/dist/client` HTML/assets are deployed. There is no runtime server,
+`apps/docs/dist/client` HTML/assets and a small Cloudflare asset-routing Worker
+are deployed. There is no React runtime server,
 SDK, daemon connection, React Query, authentication, analytics or remote content.
 The root `/` and `/docs` redirect to `/docs/quickstart`; there is no landing page.
 Legacy entry/installation/CLI/permissions URLs retain redirects.
@@ -205,10 +206,15 @@ Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`
 content contract, static preview, tests and publication procedure. Storybook
 exists for component/board review, not as a public production route.
 
-No hosting provider or canonical domain is assumed. Default builds are preview
-artifacts with indexing disabled. Set the explicit `DOCS_SITE_URL` build option
-only for an approved canonical deployment; verify clean URLs, redirects and real
-404 statuses on the chosen static host before publication. Existing engineering
+The approved production site is `https://inference.net/whipcode` on Cloudflare
+Workers. `apps/docs/wrangler.jsonc` owns only that exact entry and its subtree;
+root inference.net routes, assets, robots and sitemap remain untouched. Default
+builds are root-path previews with indexing disabled. The production build sets
+`DOCS_SITE_URL=https://inference.net/whipcode`; Vite/TanStack handle the router
+and asset base, while plain/MDX links use `sitePath`. The Worker serves only the
+static asset binding, with the shared redirects, real 404s and cache policy.
+Run the app's `deploy` command and `scripts/worker-smoke.mjs` for production
+routing validation. No server rendering or backend state is introduced. Existing engineering
 docs remain engineering references; migrate user-facing material deliberately
 rather than exposing all of `docs/` or maintaining divergent installation claims.
 

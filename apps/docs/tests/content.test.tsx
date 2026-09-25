@@ -124,6 +124,7 @@ describe('compile-time syntax', () => {
 
 it('requires a deliberate HTTPS publication origin', () => {
   expect(siteUrl(undefined)).toBe('')
+  expect(siteUrl('https://inference.net/whipcode/')).toBe('https://inference.net/whipcode')
   expect(siteUrl('https://docs.example.test/')).toBe('https://docs.example.test')
-  for (const value of ['http://example.test', 'https://user:secret@example.test', 'https://example.test/path', 'https://example.test?key=secret']) expect(() => siteUrl(value)).toThrow()
+  for (const value of ['http://example.test', 'https://user:secret@example.test', 'https://example.test?key=secret', 'https://example.test/Bad_Path', 'https://example.test/a//b', 'https://example.test/-bad']) expect(() => siteUrl(value)).toThrow()
 })

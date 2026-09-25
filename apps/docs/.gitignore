@@ -3,6 +3,7 @@ dist/
 .tanstack/
 .output/
 .vite/
+.wrangler/
 storybook-static/
 playwright-report/
 test-results/

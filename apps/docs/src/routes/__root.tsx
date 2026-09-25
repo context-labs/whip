@@ -8,7 +8,7 @@ import stylesheet from '~/styles/index.css?url'
 export const Route = createRootRoute({
   head: () => ({
     meta: [{ charSet: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'color-scheme', content: 'dark light' }],
-    links: [{ rel: 'stylesheet', href: stylesheet }, { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    links: [{ rel: 'stylesheet', href: stylesheet }, { rel: 'icon', type: 'image/svg+xml', href: import.meta.env.BASE_URL + 'favicon.svg' }],
   }),
   shellComponent: Document,
   component: Outlet,

@@ -2,7 +2,8 @@
 
 Private `@whip/docs` workspace: React, TanStack Start/Router and repository-authored
 MDX. Node 24 and npm are required. No `.env`, daemon, SDK, credentials, remote font,
-analytics, API or runtime server is needed.
+analytics, API or React runtime server is needed. Production uses a small
+Cloudflare Worker to route requests to the prebuilt static asset binding.
 
 ## Commands (from the repository root)
 
@@ -101,7 +102,7 @@ JavaScript disabled all tabbed snippets remain visible and labelled.
 intermediate; the preview does not import it. Build enumerates every manifest
 path and `/404`, adds static entry/legacy redirect documents, and verifies every HTML
 page/title/heading, local assets, token output and absence of runtime grammars.
-There is no SPA fallback, backend request or dynamic route handler at runtime.
+There is no SPA fallback, backend request or dynamic page rendering at runtime.
 
 The preview implements the host policy to reproduce on the chosen provider:
 
@@ -119,20 +120,64 @@ The preview implements the host policy to reproduce on the chosen provider:
 - Hashed `/assets/*` files may be cached immutably for one year; HTML is revalidated.
 - Do not deploy Storybook, test fixtures, source or server output.
 
-No domain or hosting provider is assumed. The default preview build emits
+The default local preview build emits
 `noindex,nofollow`, robots `Disallow: /`, and no canonical URL or sitemap. Once
-an HTTPS canonical origin is approved, build with it explicitly:
+an HTTPS canonical URL is approved, build with it explicitly:
 
 ```sh
-DOCS_SITE_URL=https://docs.example.test npm run build:docs
+DOCS_SITE_URL=https://inference.net/whipcode npm run build:docs
 ```
 
-The example is intentionally a reserved test domain, not a publication claim.
 Configured builds emit canonical/Open Graph URLs and sitemap entries for real
 pages (never the root redirect or `/404`), and robots permit indexing. `DOCS_SITE_URL` accepts only an
-HTTPS origin without path, credentials, query or fragment. The chosen static
-host must independently verify redirects/status/cache headers before launch.
+HTTPS URL with an optional lowercase kebab-case base path, without credentials,
+query or fragment. Vite/TanStack own the asset/router base; plain links use
+`sitePath`. MDX source remains host-independent and unchanged.
 SVG favicon and social card are local provisional assets; no external fetches.
+
+## Cloudflare Workers deployment
+
+The approved URL is **https://inference.net/whipcode** in the Inference.net
+Cloudflare account. `wrangler.jsonc` owns only `inference.net/whipcode` and
+`inference.net/whipcode/*`; it does not replace `web-mainnet`, change DNS, or
+claim `/assets`, `/robots.txt`, or `/sitemap.xml` on the main site. The entry URL
+redirects to `/whipcode/docs/quickstart`. Workers.dev and preview URLs are disabled.
+
+```sh
+# Authenticate with Wrangler if needed; credentials never enter the build.
+npx --yes wrangler@4.140.0 whoami
+npm run deploy -w @whip/docs
+node apps/docs/scripts/worker-smoke.mjs https://inference.net
+```
+
+The deploy command always rebuilds with the approved canonical URL before
+uploading. Only `dist/client` and the small `worker.ts` routing handler ship:
+no Start server bundle, Storybook, test fixtures, SDK or remote data fetching.
+The Worker strips the base path for the asset binding, implements the shared
+308 aliases, preserves queries, applies cache headers, and returns real 404s.
+The docs sitemap is `/whipcode/sitemap.xml`; root robots/sitemap remain owned by
+the main site. Cloudflare exact routes do not match query strings: a request to
+`/whipcode?query` first uses the existing main-site slash redirect, then enters
+our `/whipcode/*` route; queries are preserved. The root robots policy currently allows this path. Search-engine
+submission or inclusion in the main site's sitemap is separate from deployment.
+
+Local production-routing check (after the canonical build above):
+
+```sh
+npx --yes wrangler@4.140.0 dev --config apps/docs/wrangler.jsonc --port 3103 --local
+# In another terminal:
+node apps/docs/scripts/worker-smoke.mjs
+```
+
+`worker-smoke.mjs` checks every public page in Chromium with and without
+JavaScript, subpath navigation/assets, canonical URLs, mobile layout, hydration,
+themes, redirects, queries, HEAD, 405 and 404 statuses. Default root-path browser
+regressions still run against a default `npm run build:docs` artifact.
+
+For a later bad release, use `wrangler rollback --config apps/docs/wrangler.jsonc`
+with the previous deployment version. To undo the initial launch, remove only the
+two `whipcode-docs` zone routes; requests then fall back to the existing
+`inference.net/*` route. Do not delete or redeploy `web-mainnet`.
 
 ## Boundaries and validation
 

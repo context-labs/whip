@@ -8,5 +8,5 @@
     "types": ["vite/client", "node"],
     "baseUrl": ".", "paths": { "~/*": ["./src/*"] }
   },
-  "include": ["src", "scripts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tests", ".storybook"]
+  "include": ["worker.ts", "src", "scripts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tests", ".storybook"]
 }
