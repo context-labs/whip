@@ -1,7 +1,8 @@
 # Installation and local development
 
 Detailed setup instructions for WhipCode: the `whipcode` CLI and WHIP Desktop.
-`main` is the canonical source. There is no second supported CLI distribution.
+`main` is the default/stable source; `development` is the alpha integration branch.
+There is one supported CLI distribution, not a separate alpha product.
 For a pre-reset internal installation, use the [manual reset checklist](team-reset.md);
 these instructions describe fresh installations, not a migration.
 For the recommended Desktop beta quickstart, see the [project README](../README.md#quickstart).
@@ -46,6 +47,9 @@ On macOS, the native helper also requires Xcode command-line tools. Bare
 `go install .../cmd/whip@latest` is not the supported product build: it names the
 wrong executable and omits required packaged assets. Local builds use `dev`
 unless `WHIPCODE_VERSION` is explicitly supplied.
+
+Day-to-day integration uses `development` once provisioned; trusted operators may
+push directly, with PRs optional. Follow the [branch, promotion and backmerge policy](releases.md#one-source-one-candidate-one-publisher).
 
 Then run `whipcode` in your project folder. The TUI opens directly, without a
 folder-trust prompt. Tool approvals follow the session's saved permission level.
@@ -162,10 +166,11 @@ only a fallback for an unresponsive daemon.
 
 ## Standalone releases and updates
 
-The new CLI release track is `v1.0.0-alpha.N`, followed by intentionally approved
-`v1.0.0` and normal semver releases. Validated main pushes can publish prereleases
-only after release enablement; see [release operations](releases.md). Raw CLI
-assets are `whipcode-<linux|darwin>-<x64|arm64>`; Desktop downloads are
+The next train is `v1.0.1-alpha.N` (`N` is the existing workflow run number), then
+approved stable `v1.0.1`. Development pushes can publish alpha after enablement;
+main pushes run CI only, with stable manually approved. See [release operations](releases.md)
+for dispatch rules and rollout acceptance requirements. Raw CLI assets are
+`whipcode-<linux|darwin>-<x64|arm64>`; Desktop downloads are
 `whipcode-desktop-darwin-arm64.dmg` and `.zip`. Versions live in the release tag
 and CDN directory, not these basenames.
 
@@ -184,9 +189,11 @@ into managed gateway startup; `WHIPCODE_LISTEN` alone does not. See
 open-existing `--url` mode, compatibility, and trusted proxy configuration.
 
 `whipcode update` replaces the invoked standalone installation and requests only
-its daemon's restart. An alpha build follows the prerelease channel; a stable
-build follows stable. `WHIPCODE_CHANNEL` can explicitly select `prerelease` or
-`stable`. Desktop-owned backends refuse independent CLI updates.
+its daemon's restart. An alpha build follows CLI channel `prerelease`; a stable
+build follows `stable`. `WHIPCODE_CHANNEL` can explicitly select either.
+Prerelease discovery chooses the highest eligible SemVer and permits graduation
+to stable: `1.0.1-alpha.N` sorts above `1.0.0`, but below stable `1.0.1`.
+Desktop-owned backends refuse independent CLI updates.
 
 To choose a destination for an exact release, replace `<tag>` with its published
 tag. A pinned installer can roll back executable bytes; it does **not** make newer
@@ -205,6 +212,19 @@ The installer verifies a complete platform asset set and SHA-256 checksums
 before atomic replacement. Old CLI tags and Desktop tags are not candidates.
 
 ### Desktop installation and upgrades
+
+Alpha still installs **Whip Beta** / Desktop channel `beta`. New Beta builds use
+`https://whipcode-alpha-releases.inference.net`; stable downloads/updates do not change.
+Track release/update verification separately in the [acceptance checklist](roadmap.md).
+
+**Existing Beta testers:** after the first new alpha is published, quit Whip Beta
+and manually install that release's signed
+`whipcode-desktop-darwin-arm64.dmg` from GitHub Releases once. Keep local data;
+do not run the pre-reset cleanup just to switch feeds. Old Beta apps retain their
+embedded old feed, which stays readable but stops advancing after cutover; there
+is no transparent redirect. The newly signed app embeds the isolated feed for
+subsequent updates. This does not migrate incompatible saved state or silently
+replace a standalone/remote daemon. Follow the ownership and restart rules below.
 
 Every macOS desktop release, including betas, bundles its matching **whipcode**
 backend. It uses that bundled build for installation and managed upgrades;
