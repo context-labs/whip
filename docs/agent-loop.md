@@ -22,6 +22,14 @@ The ordinary assistant response completes only the current agent’s turn. It
 is persisted in that agent’s transcript, but it is not injected into the
 parent. Cross-agent communication is an explicit durable message.
 
+Exposed Chat Completions `reasoning_content` is retained with the assistant
+message and streamed through the thinking callback, separately from visible
+content. Tool continuations and restored histories preserve it. Context estimates
+include its size, and compaction receives bounded reasoning excerpts with the
+same raw-history references as other transcript content. When retries exhaust
+their budget, a reasoning-only partial response is also preserved as interrupted;
+discarded attempts are not concatenated into the retained decision.
+
 ## Context focusing
 
 At activation, the model receives a bounded recent history plus handles for

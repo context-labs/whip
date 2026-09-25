@@ -282,6 +282,7 @@ export interface AgentTranscriptResult {
                   w?: number;
                   h?: number;
                 }[];
+            reasoning_content?: string;
             tool_calls?:
               | null
               | {
@@ -526,6 +527,7 @@ export interface BoundedTranscriptPage {
                 w?: number;
                 h?: number;
               }[];
+          reasoning_content?: string;
           tool_calls?:
             | null
             | {
@@ -3146,6 +3148,7 @@ export interface RootSnapshot {
               w?: number;
               h?: number;
             }[];
+        reasoning_content?: string;
         tool_calls?:
           | null
           | {

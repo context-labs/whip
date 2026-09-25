@@ -694,7 +694,7 @@ func (a *Agent) CompactAccounting(purpose string) *llm.CallAccounting {
 // Preserve a completed or partial provider response when accounting or transport
 // stops the loop. Requested tools get explicit unexecuted results in history.
 func (a *Agent) preserveModelResponse(ev Events, msg llm.Message, usage llm.Usage, err error) {
-	if msg.Content == "" && len(msg.ToolCalls) == 0 {
+	if msg.Content == "" && msg.ReasoningContent == "" && len(msg.ToolCalls) == 0 {
 		return
 	}
 	msg.Usage = &usage
@@ -1151,6 +1151,9 @@ func writeTranscript(b *strings.Builder, msgs []llm.Message, language ...string)
 		case "user":
 			fmt.Fprintf(b, "user: %s\n", truncateField(m.TextContent(), 2000))
 		case "assistant":
+			if m.ReasoningContent != "" {
+				fmt.Fprintf(b, "assistant reasoning: %s\n", truncateField(m.ReasoningContent, 2000))
+			}
 			if c := strings.TrimSpace(m.TextContent()); c != "" {
 				fmt.Fprintf(b, "assistant: %s\n", truncateField(c, 2000))
 			}
