@@ -61,6 +61,29 @@ is the single admission gate for the complete release. Desktop remains required:
 a missing, skipped or failed Desktop build blocks publication, never permits a
 CLI-only release. Verify live settings before enabling the flow.
 
+## Download names and immutable URLs
+
+Public payload names are lowercase, product first, OS then architecture. Versions
+and channels are carried by the release tag/feed, not the filename:
+
+| Download | Filename |
+| --- | --- |
+| Linux CLI x64 / ARM64 | `whipcode-linux-x64` / `whipcode-linux-arm64` |
+| macOS CLI x64 / ARM64 | `whipcode-darwin-x64` / `whipcode-darwin-arm64` |
+| macOS Apple Silicon Desktop installer | `whipcode-desktop-darwin-arm64.dmg` |
+| macOS Apple Silicon Desktop update archive | `whipcode-desktop-darwin-arm64.zip` |
+
+Alpha and stable use the same basenames. GitHub isolates assets under
+`releases/download/<tag>/`. Desktop CDN objects use
+`desktop/<channel>/darwin/arm64/<tag>/<filename>` so each version stays immutable.
+For example: `desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-arm64.zip`.
+The channel's `RELEASES.json` discovery URL remains fixed. Preserve existing
+historical object URLs and feed entries; never overwrite or rename old releases.
+
+The app inside still has its normal Whip/Whip Beta identity. `install.sh`,
+`SHA256SUMS`, `artifact-manifest.json`, `RELEASES.json` and evidence/notices retain
+their conventional names. This naming scheme does not add supported platforms.
+
 ## Complete artifacts and publication order
 
 The existing candidate verifier owns one exact inventory: four CLI binaries,

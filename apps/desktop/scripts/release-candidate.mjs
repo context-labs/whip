@@ -6,6 +6,7 @@ import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import semver from 'semver';
+import { desktopArchiveNames, desktopArtifactURL } from './distribution.mjs';
 
 async function hash(file) {
   const stat = await lstat(file);
@@ -28,9 +29,7 @@ export async function candidate(mode, directory, env = process.env) {
   }
   const required = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh',
     'RELEASES.json', 'evidence.json', 'signed-startup.json', 'signed-runtime.json', 'linux-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'];
-  const archives = names.filter(name => /\.(dmg|zip)$/.test(name));
-  assert.equal(archives.length, 2, 'Required Desktop archives are missing or duplicated');
-  const payload = [...required, ...archives].sort();
+  const payload = [...required, ...desktopArchiveNames].sort();
   assert.deepEqual(names.filter(name => !['artifact-manifest.json', 'SHA256SUMS'].includes(name)), payload, 'Candidate inventory differs');
   const json = async name => {
     const stat = await lstat(path.join(directory, name));
@@ -43,7 +42,7 @@ export async function candidate(mode, directory, env = process.env) {
   validateRuntimeEvidence(await json('signed-runtime.json'), evidence);
   const startup = await json('signed-startup.json');
   assert(startup.completed === true && startup.interrupted === false, 'Signed startup acceptance did not complete');
-  for (const key of ['version', 'buildId', 'channel', 'updateOwner', 'source', 'rendererDigest', 'compatibility', 'nativeFiles', 'teamId'])
+  for (const key of ['version', 'buildId', 'channel', 'updateURL', 'updateOwner', 'source', 'rendererDigest', 'compatibility', 'nativeFiles', 'teamId'])
     assert.deepEqual(startup.evidence?.[key], evidence[key], `Startup tested a different package: ${key}`);
   assert(startup.evidence?.signed && startup.evidence?.notarized, 'Startup did not test a signed, notarized app');
   assert(startup.requested?.samples >= 30 && startup.requested?.firstSamples >= 1, 'Startup sample count is insufficient');
@@ -75,6 +74,10 @@ export async function candidate(mode, directory, env = process.env) {
   }
   const feed = await json('RELEASES.json');
   assert.equal(feed.currentRelease, evidence.version);
+  const selected = feed.releases.filter(release => release.version === evidence.version);
+  assert.equal(selected.length, 1, 'Feed must identify one current release');
+  assert.equal(selected[0].updateTo?.version, evidence.version, 'Feed update version differs');
+  assert.equal(selected[0].updateTo.url, desktopArtifactURL(evidence.updateURL, evidence.version, desktopArchiveNames[1]).href, 'Feed must identify the canonical versioned ZIP');
   const files = {};
   for (const name of names.filter(name => !['artifact-manifest.json', 'SHA256SUMS'].includes(name))) files[name] = await hash(path.join(directory, name));
   assert(files['whipcode-linux-x64'], 'Matching Linux backend is missing');

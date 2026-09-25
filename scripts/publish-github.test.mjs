@@ -228,3 +228,19 @@ test('stable latest is monotonic and an already published recovery never edits i
     assert.equal(writes(await f.state()).filter(args => args[1] === 'edit').length, 1);
   }
 });
+
+test('GitHub downloads remain flat canonical names scoped by release tag for alpha and stable', async t => {
+  for (const tag of ['v1.0.0-alpha.7', 'v1.0.0']) {
+    const f = await fixture(t, { release: false });
+    const names = ['whipcode-desktop-darwin-arm64.zip', 'whipcode-desktop-darwin-arm64.dmg',
+      'whipcode-darwin-arm64', 'whipcode-darwin-x64', 'whipcode-linux-x64', 'whipcode-linux-arm64', 'install.sh'];
+    const files = []; for (const name of names) files.push(await f.local(name));
+    await publishGitHubAssets(files, { ...f.env, RELEASE_TAG: tag });
+    const state = await f.state();
+    assert.deepEqual(state.assets.map(asset => asset.name).sort(), [...names].sort());
+    const creation = writes(state).find(args => args[1] === 'create');
+    const notes = creation[creation.indexOf('--notes') + 1];
+    for (const name of names) assert(notes.includes(`/releases/download/${tag}/${name}`));
+    assert(!notes.includes('/Whip-Beta-'));
+  }
+});

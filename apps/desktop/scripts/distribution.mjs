@@ -8,8 +8,20 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import yauzl from 'yauzl';
+import semver from 'semver';
 import { sha256 } from '../../../scripts/renderer-artifact.mjs';
 import { verifyDesktop } from './verify.mjs';
+
+export const desktopArchiveNames = Object.freeze(['whipcode-desktop-darwin-arm64.dmg', 'whipcode-desktop-darwin-arm64.zip']);
+
+export function desktopArtifactURL(updateURL, version, name) {
+  assert(desktopArchiveNames.includes(name), 'Invalid Desktop artifact name');
+  assert(typeof version === 'string' && semver.valid(version) === version && /^[1-9]\d*\./.test(version), 'Invalid Desktop artifact version');
+  const feed = new URL(updateURL);
+  assert(feed.href === updateURL && feed.protocol === 'https:' && !feed.username && !feed.password && !feed.search && !feed.hash &&
+    /^\/(?:[A-Za-z0-9_-]+\/)+RELEASES\.json$/.test(feed.pathname), 'Invalid canonical feed root');
+  return new URL(`v${version}/${name}`, new URL('./', feed));
+}
 
 const exec = promisify(execFile);
 const maxEntries = 50_000;
@@ -115,7 +127,7 @@ export async function extractApplicationZip(archive, directory, bundleName) {
 async function verifyContainedApplication(bundle, packageEvidence) {
   assert.equal(await bundleDigest(bundle), packageEvidence.bundleDigest, 'Distribution application bytes differ from the verified package');
   const verified = await verifyDesktop(bundle, { signed: packageEvidence.signed, notarized: packageEvidence.notarized });
-  for (const field of ['version', 'distribution', 'buildId', 'rendererDigest', 'nativeFiles', 'source', 'compatibility', 'teamId', 'runtimeSigning', 'fuses', 'signed', 'notarized'])
+  for (const field of ['version', 'distribution', 'buildId', 'updateURL', 'rendererDigest', 'nativeFiles', 'source', 'compatibility', 'teamId', 'runtimeSigning', 'fuses', 'signed', 'notarized'])
     assert.deepEqual(verified[field], packageEvidence[field], `Distribution ${field} differs from package evidence`);
   return { bundleDigest: packageEvidence.bundleDigest, rendererDigest: verified.rendererDigest, signed: verified.signed, notarized: verified.notarized };
 }
@@ -159,29 +171,38 @@ function notaryArguments() {
 export async function prepareDistribution(artifacts, directory, packageEvidence) {
   assert.match(packageEvidence.bundleDigest ?? '', /^[a-f0-9]{64}$/, 'Package evidence must bind the complete application before make');
   assert.equal(await bundleDigest(packageEvidence.bundle), packageEvidence.bundleDigest, 'Packaged application changed during make');
-  await rm(directory, { recursive: true, force: true }); await mkdir(directory, { recursive: true });
-  const files = {}; const applications = {}; let dmgNotary;
   assert.equal(artifacts.filter(file => file.endsWith('.dmg')).length, 1);
   assert.equal(artifacts.filter(file => file.endsWith('.zip')).length, 1);
+  const outputs = new Map();
   for (const source of artifacts) {
-    // GitHub normalizes spaces in uploads. Final filenames must match R2 and checksums.
-    const name = path.basename(source).replaceAll(' ', '-');
-    if (!/\.(?:dmg|zip)$/.test(name) && name !== 'RELEASES.json') throw new Error(`Unexpected distribution artifact ${name}`);
-    assert(!Object.hasOwn(files, name), `Duplicate distribution artifact ${name}`);
+    const input = path.basename(source);
+    assert(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,199}$/.test(input) && !input.includes('..'), 'Invalid maker artifact name');
+    const name = input === 'RELEASES.json' ? input : desktopArchiveNames.find(name => path.extname(name) === path.extname(input));
+    assert(name && !outputs.has(name), `Unexpected or duplicate distribution artifact ${input}`);
     const stat = await lstat(source);
-    assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= maxFileBytes, `Invalid distribution artifact ${name}`);
+    assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= maxFileBytes, `Invalid distribution artifact ${name}`);
+    outputs.set(name, source);
+  }
+  let rewrittenFeed;
+  if (outputs.has('RELEASES.json')) {
+    assert((await lstat(outputs.get('RELEASES.json'))).size <= 2 << 20, 'Maker feed exceeds its limit');
+    const feed = JSON.parse(await readFile(outputs.get('RELEASES.json'), 'utf8'));
+    assert(feed.currentRelease === packageEvidence.version && Array.isArray(feed.releases), 'Invalid maker feed');
+    const current = feed.releases.filter(release => release.version === packageEvidence.version);
+    assert.equal(current.length, 1, 'Feed must identify exactly one current release');
+    assert.equal(current[0].updateTo?.version, packageEvidence.version, 'Feed update version differs');
+    const canonical = desktopArtifactURL(packageEvidence.updateURL, packageEvidence.version, desktopArchiveNames[1]);
+    const archive = path.basename(outputs.get(desktopArchiveNames[1]));
+    const original = new URL(encodeURIComponent(archive), new URL('./', packageEvidence.updateURL));
+    assert.equal(current[0].updateTo.url, original.href, 'Feed names a different ZIP or feed root');
+    current[0].updateTo.url = canonical.href;
+    rewrittenFeed = JSON.stringify(feed) + '\n';
+  }
+  await rm(directory, { recursive: true, force: true }); await mkdir(directory, { recursive: true });
+  const files = {}; const applications = {}; let dmgNotary;
+  for (const [name, source] of outputs) {
     const target = path.join(directory, name); await copyFile(source, target);
-    if (name === 'RELEASES.json') {
-      const feed = JSON.parse(await readFile(target, 'utf8'));
-      const current = feed.releases.filter(release => release.version === packageEvidence.version);
-      assert.equal(current.length, 1, 'Feed must identify exactly one current release');
-      const url = new URL(current[0].updateTo.url);
-      const archive = path.basename(artifacts.find(file => file.endsWith('.zip')));
-      assert.equal(decodeURIComponent(url.pathname.split('/').at(-1)), archive, 'Feed names a different ZIP');
-      url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1) + encodeURIComponent(archive.replaceAll(' ', '-'));
-      current[0].updateTo.url = url.href;
-      await writeFile(target, JSON.stringify(feed) + '\n');
-    }
+    if (name === 'RELEASES.json') await writeFile(target, rewrittenFeed);
     if (name.endsWith('.dmg') && process.env.WHIP_DESKTOP_NOTARIZE === '1') {
       assert(packageEvidence.notarized, 'The ZIP must already contain the stapled application');
       await exec('/usr/bin/codesign', ['--force', '--sign', process.env.WHIP_DESKTOP_SIGN_IDENTITY, '--timestamp', target]);

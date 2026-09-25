@@ -153,7 +153,10 @@ only a fallback for an unresponsive daemon.
 
 The new CLI release track is `v1.0.0-alpha.N`, followed by intentionally approved
 `v1.0.0` and normal semver releases. Validated main pushes can publish prereleases
-only after release enablement; see [release operations](releases.md).
+only after release enablement; see [release operations](releases.md). Raw CLI
+assets are `whipcode-<linux|darwin>-<x64|arm64>`; Desktop downloads are
+`whipcode-desktop-darwin-arm64.dmg` and `.zip`. Versions live in the release tag
+and CDN directory, not these basenames.
 
 ```sh
 whipcode update

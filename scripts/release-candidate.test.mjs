@@ -13,12 +13,13 @@ async function fixture(t, version = '1.2.3-alpha.1') {
   t.after(() => rm(directory, { recursive: true, force: true }));
   const env = { RELEASE_TAG: `v${version}`, SOURCE_SHA: 'a'.repeat(40) };
   const channel = version.includes('-') ? 'beta' : 'stable';
-  const product = channel === 'beta' ? 'Whip-Beta' : 'Whip';
+  const updateURL = `https://updates.example.test/${channel}/darwin/arm64/RELEASES.json`;
   const source = { commit: env.SOURCE_SHA, dirty: false };
   const compatibility = { protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 };
   const files = {};
-  for (const [name, value] of Object.entries({ [`${product}-${version}.dmg`]: 'dmg fixture', [`${product}-${version}.zip`]: 'zip fixture',
-    'RELEASES.json': JSON.stringify({ currentRelease: version }) })) {
+  for (const [name, value] of Object.entries({ 'whipcode-desktop-darwin-arm64.dmg': 'dmg fixture', 'whipcode-desktop-darwin-arm64.zip': 'zip fixture',
+    'RELEASES.json': JSON.stringify({ currentRelease: version, releases: [{ version, updateTo: { version,
+      url: new URL(`v${version}/whipcode-desktop-darwin-arm64.zip`, updateURL).href } }] }) })) {
     const bytes = Buffer.from(value); await writeFile(path.join(directory, name), bytes);
     files[name] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
   }
@@ -26,7 +27,7 @@ async function fixture(t, version = '1.2.3-alpha.1') {
   const teamId = 'JAPWPV5JY2';
   const runtimeSigning = { teamId, identifier: 'com.contextlabs.whip.beta.runtime', hardenedRuntime: true, entitlements: runtimeEntitlements };
   const nativeFiles = { whipcode: { bytes: 123, sha256: 'e'.repeat(64) } };
-  const evidence = { version, buildId: version, channel, updateOwner: 'desktop', source, compatibility, rendererDigest: 'b'.repeat(64), signed: true, notarized: true, dmgNotary: 'fixture', files, teamId, nativeFiles, runtimeSigning };
+  const evidence = { version, buildId: version, channel, updateURL, updateOwner: 'desktop', source, compatibility, rendererDigest: 'b'.repeat(64), signed: true, notarized: true, dmgNotary: 'fixture', files, teamId, nativeFiles, runtimeSigning };
   await json('evidence.json', evidence);
   const report = { sha256: nativeFiles.whipcode.sha256, architecture: 'arm64', engines: Object.fromEntries(['quickjs', 'starlark'].map(engine => [engine, {
     descriptor: { id: engine, build: 'fixture', abi: 'fixture', profile: 'fixture' },
@@ -70,7 +71,7 @@ test('candidate cannot promote a different source, version, dirty or unsigned de
 
 test('candidate refuses missing or changed signed assets before manifest assembly', async t => {
   const f = await fixture(t);
-  const zip = path.join(f.directory, 'Whip-Beta-1.2.3-alpha.1.zip');
+  const zip = path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip');
   await writeFile(zip, 'different');
   await assert.rejects(candidate('assemble', f.directory, f.env), /Signed artifact changed/);
   await rm(zip);
@@ -122,7 +123,7 @@ test('candidate rejects incomplete or mismatched runtime execution evidence', as
 
 test('candidate refuses signed evidence that omits an archive digest', async t => {
   const f = await fixture(t);
-  const files = { ...f.evidence.files }; delete files['Whip-Beta-1.2.3-alpha.1.zip'];
+  const files = { ...f.evidence.files }; delete files['whipcode-desktop-darwin-arm64.zip'];
   await f.json('evidence.json', { ...f.evidence, files });
   await assert.rejects(candidate('assemble', f.directory, f.env), /bind every installer/);
 });
@@ -153,7 +154,7 @@ test('unified manifest covers the exact payload and sums bind it without recursi
     assert.notEqual(name, 'SHA256SUMS');
     assert.equal(digest, createHash('sha256').update(await readFile(path.join(f.directory, name))).digest('hex'));
   }
-  assert.deepEqual(Object.keys(f.evidence.files).sort(), ['RELEASES.json', 'Whip-Beta-1.2.3-alpha.1.dmg', 'Whip-Beta-1.2.3-alpha.1.zip']);
+  assert.deepEqual(Object.keys(f.evidence.files).sort(), ['RELEASES.json', 'whipcode-desktop-darwin-arm64.dmg', 'whipcode-desktop-darwin-arm64.zip']);
   await writeFile(path.join(f.directory, 'SHA256SUMS'), sums.join('\n') + '\n' + sums[0] + '\n');
   await assert.rejects(candidate('verify', f.directory, f.env), /checksums differ/);
 });
@@ -202,4 +203,22 @@ test('runtime acceptance producer projection shares and binds channel, owner, an
     const missing = structuredClone(f.runtime); delete missing.package[field];
     assert.throws(() => validateRuntimeEvidence(missing, f.evidence), new RegExp(`different package: ${field}`));
   }
+});
+
+test('candidate rejects noncanonical Desktop names and signed-but-wrong current feed URLs', async t => {
+  const f = await fixture(t);
+  const canonical = new URL('v1.2.3-alpha.1/whipcode-desktop-darwin-arm64.zip', f.evidence.updateURL).href;
+  for (const url of [canonical.replace('/v1.2.3-alpha.1/', '/v1.2.3-alpha.2/'), canonical + '?x=1',
+    canonical.replace('/v1.2.3-alpha.1/', '/x/../v1.2.3-alpha.1/'),
+    canonical.replace('/v1.2.3-alpha.1/', '/%761.2.3-alpha.1/'), canonical.replace('updates.example.test', 'foreign.example.test')]) {
+    const bytes = JSON.stringify({ currentRelease: f.evidence.version, releases: [{ version: f.evidence.version,
+      updateTo: { version: f.evidence.version, url } }] });
+    await writeFile(path.join(f.directory, 'RELEASES.json'), bytes);
+    f.evidence.files['RELEASES.json'] = { bytes: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') };
+    await f.json('evidence.json', f.evidence);
+    await assert.rejects(candidate('assemble', f.directory, f.env), /canonical versioned ZIP/);
+  }
+  await rm(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'));
+  await writeFile(path.join(f.directory, 'Whip-Beta-1.2.3-alpha.1.zip'), 'alias');
+  await assert.rejects(candidate('assemble', f.directory, f.env), /inventory differs/);
 });
