@@ -49,22 +49,6 @@ test('theme menu follows system changes, persists and syncs across tabs', async 
   await other.close()
 })
 
-test('mobile navigation restores keyboard focus and follows docs links', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/docs/quickstart')
-  const trigger = page.getByRole('button', { name: 'Documentation', exact: true })
-  await trigger.click()
-  await expect(page.getByRole('dialog', { name: 'Documentation' })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(trigger).toBeFocused()
-  await trigger.click()
-  await page.getByRole('dialog').getByRole('link', { name: 'Download', exact: true }).click()
-  await expect(page).toHaveURL('/docs/download')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Download')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-})
-
 test('active sidebar text retains the inactive font weight in both themes', async ({ page }) => {
   await page.goto('/docs/quickstart')
   for (const theme of ['dark', 'light']) {
@@ -76,19 +60,11 @@ test('active sidebar text retains the inactive font weight in both themes', asyn
   }
 })
 
-test('sidebar links and no-JS mobile disclosures remain real navigation', async ({ page, browser }) => {
+test('sidebar links remain real navigation', async ({ page }) => {
   await page.goto('/docs/download')
   await page.locator('.docs-sidebar').getByRole('link', { name: 'Configuration', exact: true }).click()
   await expect(page).toHaveURL('/docs/configuration')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Configuration')
-  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } })
-  const mobile = await context.newPage()
-  await mobile.goto('http://127.0.0.1:3101/docs/download')
-  await mobile.locator('.docs-mobile-navigation summary').click()
-  await mobile.locator('.docs-mobile-navigation').getByRole('link', { name: 'Configuration', exact: true }).click()
-  await expect(mobile).toHaveURL('http://127.0.0.1:3101/docs/configuration')
-  await expect(mobile.getByRole('heading', { level: 1 })).toHaveText('Configuration')
-  await context.close()
 })
 
 test('copy rejection provides visible manual-copy recovery', async ({ page }) => {

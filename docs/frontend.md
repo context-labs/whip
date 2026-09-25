@@ -175,9 +175,15 @@ The `/docs/...` articles are separate from the application renderer and must
 never be embedded by `pack:web` or included in desktop builds.
 
 The docs component library is app-owned under `apps/docs/src/components` and
-`src/features/docs/components`. It deliberately uses Base UI and ordinary CSS
-with semantic custom properties, **not** `@whip/ui` or StyleX. This exception
-keeps public-site styling independent of the application theme catalog. The
+`src/features/docs/components`. It uses Base UI primitives with StyleX for
+component styles, but keeps its own **docs-local** tokens
+(`apps/docs/src/tokens.stylex.ts`) that reference the site's semantic custom
+properties — it never imports `@whip/ui` or the application theme catalog, so
+public-site styling stays independent. Global base styles, the Paper token
+custom properties, and MDX prose element styling remain plain CSS under
+`apps/docs/src/styles`. StyleX is configured with `runtimeInjection: false`
+and no CSS layers so prerendered pages stay fully styled with JavaScript
+disabled. The
 [Paper board](https://app.paper.design/file/01M3A92K3HM4T5QF90SJFKQR0A/p-1-0/1O0-0)
 and its Light counterpart are the visual reference; [brand-guide.md](brand-guide.md)
 documents the local contract. Explicit user requirements supersede the board:

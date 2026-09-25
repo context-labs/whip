@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const desktopUrl = 'https://github.com/context-labs/whip/releases/download/v1.0.0-alpha.5/Whip-Beta-1.0.0-alpha.5-arm64.dmg'
-const installCommand = 'curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh'
+const installCommand = 'curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh'
 
 test('quickstart is the installation-first docs entry', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])

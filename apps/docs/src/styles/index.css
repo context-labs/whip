@@ -21,6 +21,11 @@ h2 { font-size: var(--text-h2); line-height: var(--leading-h2); font-weight: var
 h3 { font-size: var(--text-h3); line-height: var(--leading-h3); font-weight: var(--weight-semibold); }
 .label { font-size: var(--text-label); line-height: var(--leading-label); font-weight: var(--weight-medium); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--color-text-muted); }
 .page-lead { font-size: var(--text-lead); line-height: var(--leading-lead); color: var(--color-text); }
+/* .prose targets MDX-generated elements (h2, h3, p, ul, table, a, code), which
+   are not component-rendered and cannot be StyleX component styles, so these
+   typography rules stay in base CSS. Component-owned prose overrides
+   (.doc-heading, .doc-pagination, .page-lead, .toc-*, .doc-page-actions) moved
+   to StyleX in DocsLayout/DocPageActions. */
 .prose { overflow-wrap: anywhere; }
 .prose > * + * { margin-top: var(--space-5); }
 .prose h2 { margin-top: var(--space-16); padding-top: var(--space-8); border-top: 1px solid var(--color-border); }

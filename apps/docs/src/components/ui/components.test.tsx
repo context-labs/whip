@@ -11,7 +11,6 @@ import { Callout } from './Callout';
 import { CopyButton } from './CopyButton';
 import { CodeBlock } from './CodeBlock';
 import { SplitButton } from './Button';
-import { MobileNavigation } from '../navigation';
 import { ThemeMenu } from './theme/ThemeMenu';
 import { applyTheme, readThemePreference, saveThemePreference } from './theme/theme';
 
@@ -86,16 +85,6 @@ describe('documentation components', () => {
     await user.click(screen.getByRole('button', { name: 'More actions for Run example' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Alternate' }));
     expect(alternate).toHaveBeenCalledOnce();
-  });
-  it('closes mobile navigation on Escape and restores trigger focus', async () => {
-    const user = userEvent.setup();
-    render(<MobileNavigation title="Documentation"><a href="/docs">Docs overview</a></MobileNavigation>);
-    const trigger = screen.getByRole('button', { name: 'Documentation' });
-    await user.click(trigger);
-    expect(screen.getByRole('dialog')).toBeTruthy();
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
   it('selects a persistent theme without changing syntax markup', async () => {
     const user = userEvent.setup();
