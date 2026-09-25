@@ -43,4 +43,6 @@ h3 { font-size: var(--text-h3); line-height: var(--leading-h3); font-weight: var
 /* Transcript-style content links; navigation, cards and buttons retain their own styling. */
 .text-link, .prose :is(p, li, td, th, blockquote) a[href] { color: var(--color-link); text-decoration-line: underline; text-underline-offset: 3px; }
 .inline-code, :not(pre) > code { font-family: var(--font-mono); font-size: 0.85em; line-height: inherit; padding: 0 4px; background: var(--color-inline-code-background); border: 0; border-radius: var(--radius-sm); color: var(--color-code); overflow-wrap: anywhere; box-decoration-break: clone; }
+/* MDX owns the inner code element; keep its font metrics inherited from the styled pre. */
+.code-block pre > code { font: inherit; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
