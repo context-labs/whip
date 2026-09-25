@@ -9,6 +9,7 @@ export const providerEnvironmentNames = [
   "INFERENCE_API_KEY",
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
+  "REQUESTY_API_KEY",
   "TOGETHER_API_KEY",
   "XAI_API_KEY",
 ] as const;

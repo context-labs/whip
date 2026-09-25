@@ -732,6 +732,12 @@ type Pricing struct {
 
 // Models fetches GET /models from the provider.
 func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
+	return c.ModelsAt(ctx, "/models")
+}
+
+// ModelsAt fetches a model list from path below the API root. Some gateways
+// publish curated lists beside the standard /models.
+func (c *Client) ModelsAt(ctx context.Context, path string) ([]ModelInfo, error) {
 	// Catalog calls bypass runAttempt, but still need an end-to-end bound
 	// covering response headers and body reads for both authentication modes.
 	timeout, _ := c.attemptTimeout(ctx)
@@ -740,7 +746,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	if c.openAI != nil {
 		return c.subscriptionModels(ctx)
 	}
-	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -190,7 +190,23 @@ func validateProviderModels(ctx context.Context, baseURL, key string) ([]llm.Mod
 			return nil, &llm.HTTPError{Status: response.Status}
 		}
 	}
+	if client.BaseURL == config.RequestyBaseURL {
+		return requestyModels(ctx, client)
+	}
 	return client.Models(ctx)
+}
+
+// Requesty's authenticated /models rejects invalid keys and lists the models
+// the key may use. Its curated managed policies come first when available.
+func requestyModels(ctx context.Context, client *llm.Client) ([]llm.ModelInfo, error) {
+	models, err := client.Models(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if managed, err := client.ModelsAt(ctx, "/models/managed"); err == nil {
+		models = append(managed, models...)
+	}
+	return models, nil
 }
 
 // Model discovery never issues a completion or proves that inference will work.

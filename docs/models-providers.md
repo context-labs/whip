@@ -95,6 +95,7 @@ session changes keep their current scope. Your draft still requires Enter to sen
 | DeepSeek | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
 | Fireworks AI | `https://api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` |
 | Groq | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
+| Requesty | `https://router.requesty.ai/v1` | `REQUESTY_API_KEY` |
 | Together AI | `https://api.together.ai/v1` | `TOGETHER_API_KEY` |
 | xAI | `https://api.x.ai/v1` | `XAI_API_KEY` |
 
@@ -112,7 +113,8 @@ A successful empty list replaces the previous membership. A transient failure
 preserves the last cached list without renewing its age. Astra uses Responses on
 the canonical OpenAI API endpoint; other compatible API-key routes use Chat
 Completions. Explicit configured aliases remain available. OpenRouter discovery
-checks authentication separately from its public catalog. DeepInfra's public
+checks authentication separately from its public catalog. Requesty discovery lists its
+managed policies from `GET /models/managed` ahead of the authenticated catalog. DeepInfra's public
 catalog and bundled fallbacks do not validate an API key; discovery details remain available in management, while
 provider/model pickers omit informational notices. Observed authentication
 failures still reject the submitted key. DeepSeek V4 uses non-thinking mode until
