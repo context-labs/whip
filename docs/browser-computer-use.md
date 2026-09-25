@@ -1,36 +1,36 @@
 # Browser & computer use
 
-whip can drive the user's existing Chrome and Mac desktop, or an explicitly
+whipcode can drive the user's existing Chrome and Mac desktop, or an explicitly
 selected native Browser tab in the desktop workspace. Native tabs have isolated
 profiles and scoped attachment authority; they do not borrow the user's external
 Chrome profile. Legacy `browser_exec` and `computer_exec` behavior is unchanged.
 
 ## Legacy browser: four modes
 
-`browser.mode` in `~/.whip/config.json` picks how whip talks to Chrome:
+`browser.mode` in `~/.whipcode/config.json` picks how whipcode talks to Chrome:
 
 ```mermaid
 flowchart TB
     BE["browser_exec<br/>(model tool)"] --> SEL{mode}
     SEL -->|live| L["attach to running Chrome<br/>with --remote-debugging-port<br/>(your real profile, cookies, sessions)"]
-    SEL -->|dedicated| DED["whip-owned Chrome instance<br/>auto-fallback when nothing debuggable runs"]
-    SEL -->|headless| H["whip-owned headless Chrome<br/>no window, CI-friendly"]
+    SEL -->|dedicated| DED["whipcode-owned Chrome instance<br/>auto-fallback when nothing debuggable runs"]
+    SEL -->|headless| H["whipcode-owned headless Chrome<br/>no window, CI-friendly"]
     SEL -->|extension| EXTMODE["Chrome extension relay<br/>(works on default profile, Chrome ≥ 136)"]
 
     subgraph EXT["extension mode detail"]
-        W["whip local relay<br/>(token-authenticated)"] <-->|raw CDP| X["unpacked extension<br/>~/.whip/browser/extension"]
+        W["whipcode local relay<br/>(token-authenticated)"] <-->|raw CDP| X["unpacked extension<br/>~/.whipcode/browser/extension"]
         X <-->|chrome.debugger| TAB["the tab you pinned<br/>(green ● = attached)"]
     end
 ```
 
-- **live** — whip scans well-known Chromium profile dirs for
+- **live** — whipcode scans well-known Chromium profile dirs for
   `DevToolsActivePort` and attaches. Zero setup if you launch Chrome with
   debugging on.
-- **dedicated / headless** — whip launches its own Chrome; the automatic
+- **dedicated / headless** — whipcode launches its own Chrome; the automatic
   fallback when no debuggable Chrome is running.
 - **extension** — the only mode that works on Chrome ≥ 136's **default
   profile**, where direct CDP is blocked. Chrome forbids programmatic
-  extension install, so setup is `whip browser install` plus three clicks
+  extension install, so setup is `whipcode browser install` plus three clicks
   (Developer mode → Load unpacked → select the folder). Then click the
   extension icon on a tab to pin it; click again to detach. While pinned,
   Chrome shows a "whip is debugging this browser" bar — that bar *is* the
@@ -114,7 +114,7 @@ flowchart LR
   Element indexes are generation-guarded — if the UI changed since the read,
   the action fails instead of clicking the wrong thing.
 - **Consent-gated**: the first drive of an app asks the user to approve.
-  whip never guesses credentials and stops at login walls.
+  whipcode never guesses credentials and stops at login walls.
 - **Chrome AppleScript path**: driving the user's open Chrome (tabs,
   navigation, `chrome_js`) works through Chrome's AppleScript dictionary with
   no helper at all — the flagship zero-setup path.

@@ -130,8 +130,8 @@ set; on a name conflict the earlier source in this list wins:
   enable it** with `"mcpImport": {"project": {"enabled": true}}` or
   `/mcp import project on`. Enabling a source runs its servers' programs at
   session start; tool consent is not a process sandbox.
-- **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (on by default).
-- **claude**: `mcpServers` in `~/.claude.json` (on by default).
+- **codex**: `[mcp_servers.*]` tables in `~/.codex/config.toml` (off on fresh installs).
+- **claude**: `mcpServers` in `~/.claude.json` (off on fresh installs).
 - **opencode**: the `mcp` block in `~/.config/opencode/{config,opencode}.json[c]`
   (on by default; `local` entries become stdio, `remote` become HTTP,
   `{env:NAME}` placeholders become `${NAME}` references, `{file:…}` stays as

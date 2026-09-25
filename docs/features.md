@@ -789,6 +789,41 @@ unsent drafts. A command outcome is separate from completion of descendant agent
 mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
 trusted-network setup and current browser evidence.
 
+## Public documentation site
+
+`apps/docs` is an independent public site, not a daemon client or a product web
+bundle. `/` and `/docs` redirect to `/docs/quickstart`; React/TanStack Start
+prerenders 21 V1 pages. Deployments serve only
+`apps/docs/dist/client` HTML and assets, including a static root-redirect fallback.
+It has no production server, authentication, analytics or live model connection.
+
+App-relative paths below are under `apps/docs`.
+
+| Surface | Implementation | Checks |
+| --- | --- | --- |
+| Entry/legacy redirects and catch-all article route | `apps/docs/src/routes/{index,docs.index,docs.$}.tsx`, `src/features/docs/content/registry.tsx` | `apps/docs/scripts/verify-static.mjs`, `apps/docs/tests/browser/static.spec.ts` |
+| Trusted repository MDX, navigation metadata, H2/H3 anchors and local links | `apps/docs/src/content/docs`, `apps/docs/scripts/content.mjs`, `mdx-plugins.mjs` | `apps/docs/tests/content.test.tsx` |
+| App-owned Base UI/CSS library, responsive docs shell and themes | `apps/docs/src/components`, `src/features/docs/components`, `src/styles` | `src/components/stories/{BoardReference,Components}.stories.tsx`, `apps/docs/tests/browser/static.spec.ts` |
+| Build-time syntax tokens, exact-source copy and no-JS code tabs | `apps/docs/scripts/mdx-plugins.mjs`, `src/components/ui/CodeBlock.tsx`, `CopyButton.tsx` | `apps/docs/tests/content.test.tsx`, `apps/docs/tests/browser/static.spec.ts` |
+| Static preview/404 and explicit production-origin indexing | `apps/docs/scripts/{preview,site-url,verify-static}.mjs` | `apps/docs/tests/static-server.test.ts`, `apps/docs/tests/browser/static.spec.ts` |
+
+The V1 collection has Quickstart, Download and TypeScript SDK content plus 18 heading-only pages in five groups: Getting Started,
+Using whip, Configuration, Agents & RLM, and Developers. Quickstart and Download are the first two pages. Old URLs redirect to their replacements;
+copy/download actions work on every page. Full-article examples remain in
+Storybook for library regression coverage while prose is authored separately.
+The site complements the engineering manual rather than publishing it wholesale. The library uses semantic Carbonfox CSS
+and build-time multicolour highlighting; it does not import the product SDK,
+app or UI packages. Frontmatter and article headings provide one source for
+navigation and prerender paths. No search or account features are included.
+
+Default builds are noindex preview artifacts. A reviewed `DOCS_SITE_URL` enables
+production canonical URLs and sitemap generation; no hosting provider or public
+domain is assumed. Browser tests exercise the exported files, including direct
+deep links, no-JavaScript reading and actual missing-path responses. Repository
+implementation is separate from public deployment and live-release acceptance.
+See the [frontend boundary](frontend.md#public-documentation-site) and
+[site plan](../.ai-docs/plans/docs-site/README.md).
+
 ## Session information bar and contoured tabs
 
 Desktop and web use contoured tabs and a compact bar showing host/project,

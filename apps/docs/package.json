@@ -1,0 +1,60 @@
+{
+  "name": "@whip/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "vite build && node scripts/verify-static.mjs",
+    "build:storybook": "npm run generate && storybook build",
+    "check": "npm run generate && tsc --noEmit",
+    "deploy": "DOCS_SITE_URL=https://inference.net/whipcode npm run build && npx --yes wrangler@4.140.0 deploy",
+    "dev": "vite --host 127.0.0.1 --port 3100 --strictPort",
+    "generate": "node scripts/generate.mjs",
+    "preview": "node scripts/preview.mjs",
+    "storybook": "npm run generate && storybook dev -p 6007",
+    "test": "vitest run",
+    "test:browser": "npm run build:storybook && playwright test",
+    "test:dev": "node scripts/dev-smoke.mjs"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.8.0",
+    "@tanstack/react-router": "1.170.32",
+    "@tanstack/react-start": "1.168.49",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@mdx-js/mdx": "3.1.1",
+    "@mdx-js/rollup": "3.1.1",
+    "@playwright/test": "1.63.0",
+    "@storybook/addon-a11y": "10.6.0",
+    "@storybook/react-vite": "10.6.0",
+    "@tanstack/router-generator": "1.167.33",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "axe-core": "4.13.0",
+    "github-slugger": "2.0.0",
+    "jsdom": "29.1.1",
+    "mdast-util-to-string": "4.0.0",
+    "refractor": "5.0.0",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-mdx": "3.1.1",
+    "remark-parse": "11.0.0",
+    "storybook": "10.6.0",
+    "typescript": "5.9.3",
+    "unified": "11.0.5",
+    "unist-util-visit": "5.1.0",
+    "vite": "8.2.2",
+    "vitest": "5.0.0",
+    "yaml": "2.9.0",
+    "zod": "4.5.4"
+  }
+}

@@ -1,0 +1,11 @@
+/* Apply a role directly to each token, never to its descendants. This resets
+ * parent string/function/parameter wrappers without losing nested roles. */
+pre .token { color: var(--color-text); }
+pre .token:is(.comment, .prolog, .doctype, .cdata) { color: var(--color-syntax-comment); }
+pre .token:is(.keyword, .atrule) { color: var(--color-syntax-keyword); }
+pre .token:is(.string, .char, .attr-value, .regex, .inserted) { color: var(--color-syntax-string); }
+pre .token:is(.number, .boolean) { color: var(--color-syntax-number); }
+pre .token:is(.function, .function-name) { color: var(--color-syntax-function); }
+pre .token:is(.class-name, .builtin, .constant) { color: var(--color-syntax-type); }
+pre .token:is(.operator, .entity, .url) { color: var(--color-syntax-operator); }
+pre .token.punctuation { color: var(--color-syntax-punctuation); }

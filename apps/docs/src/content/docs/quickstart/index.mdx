@@ -1,0 +1,57 @@
+---
+title: "Quickstart"
+description: "WhipCode is an RLM-based AI coding agent. It’s available as a CLI, desktop app, web app, or iOS app."
+section: start
+order: 1
+---
+
+## TUI
+
+Install `whipcode` on macOS or Linux. Requires `curl` and Python 3:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh
+```
+
+To start a new session, `cd` to your project root and run `whipcode`:
+
+```bash
+cd /my-app && whipcode
+```
+Follow the instructions on screen to configure a LLM provider and start coding. Some providers such as [Inference.net](https://inference.net) and OpenRouter will be automatically detected if their canonical environment variable is set.
+
+To add additional providers, type `/connect` in the TUI, select a provider, and enter an API key or log in to your provider account. See [Providers & models](/docs/providers-models) for more details.
+
+Once a provider is connected, enter a message into the main TUI input and press enter to start the session.
+
+
+## Desktop
+Click the download button below install the WhipCode Desktop App.
+
+<div className="download-option">
+  <div>
+    <strong>macOS · Apple Silicon</strong>
+    <p>whipcode-darwin-desktop-v0.1.0</p>
+  </div>
+  <a className="button" href="https://github.com/context-labs/whip/releases/download/v1.0.0-alpha.5/Whip-Beta-1.0.0-alpha.5-arm64.dmg" aria-label="Download Desktop for macOS Apple Silicon">Download</a>
+</div>
+
+Open the DMG and drag **WhipCode** into Applications, then open the application. Follow the instructions on screen to configure a LLM provider and start coding. 
+
+Some providers such as [Inference.net](https://inference.net) and OpenRouter will be automatically detected if their canonical environment. To add additional providers, go to **Settings → Providers & models**. Choose a provider, complete its API-key or account-login flow, then select a model. See [Providers & models](/docs/providers-models) for more details.
+
+Once a provider is connected, click "New Session" and select a project root directory. Submit a message to start the session.
+
+## Web
+
+With the CLI installed, you can start a web session by running the command below:
+
+```bash
+whipcode web
+```
+
+The command connects to the WhipCode daemon and opens the web interface. Use `whipcode web --no-open` to start without opening a browser. 
+
+## Customize
+
+Set [project instructions](/docs/instructions), add [skills](/docs/skills), or connect [MCP tools](/docs/mcp). See [Configuration](/docs/configuration) for settings and [TUI](/docs/tui) for terminal themes and shortcuts.

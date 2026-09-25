@@ -1,0 +1,330 @@
+---
+title: "TypeScript SDK"
+description: "Build clients and integrations with TypeScript."
+section: developers
+order: 1
+---
+
+Use the SDK to run tasks, observe sessions, or serve agents with your own tools. Work runs on the connected host—not in your client. That host owns model credentials, permissions, files and session history.
+
+## Availability and installation
+
+`@whip/sdk` is currently a private ESM workspace package in the [whip repository](https://github.com/context-labs/whip/tree/main/packages/sdk). It is not a public npm package. Use Node.js 24 and a matching whip daemon; keep the SDK and host versions together.
+
+From a source checkout:
+
+```bash
+npm ci
+npm run build -w @whip/sdk
+```
+
+Place the `.mts` examples below in the checkout so Node can resolve its workspace packages. Node 24 runs these examples directly; for example, `node run.mts`.
+
+| Import | Use |
+| --- | --- |
+| `@whip/sdk` | Browser-safe client, sessions, commands and turns |
+| `@whip/sdk/node` | Node client and Unix-socket transport |
+| `@whip/sdk/agents` | Agent definitions and custom tools |
+| `@whip/sdk/state` | Synchronized session views |
+| `@whip/sdk/react` | React 19 subscriptions to those views |
+| `@whip/sdk/testing` | Scripted daemon for tests without model calls |
+
+## Connect to a host
+
+Configure a provider on the host before submitting work. The SDK attaches to a running daemon; it does not install or start one.
+
+### Local Unix socket
+
+Start the daemon with `whipcode daemon start`. Find its socket with `whipcode daemon status --json`, then pass the reported socket path as `WHIP_SOCKET`.
+
+Save as `connect.mts`:
+
+```typescript file=connect.mts
+import { createWhipClient, unixSocket } from '@whip/sdk/node';
+
+const socket = process.env.WHIP_SOCKET;
+if (!socket) throw new Error('Set WHIP_SOCKET to the daemon socket path');
+
+export const client = createWhipClient({
+  endpoint: unixSocket(socket),
+  clientId: 'my-whip-integration',
+  clientKind: 'automation',
+});
+```
+
+### HTTP or WebSocket
+
+Browser clients use the host's web gateway. For a local development gateway, run `WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open` and use its reported address.
+
+For HTTP, replace the contents of `connect.mts` with this version (a browser app can use the same client options):
+
+```typescript file=connect-http.mts
+import { createWhipClient } from '@whip/sdk';
+
+export const client = createWhipClient({
+  endpoint: 'http://127.0.0.1:4444',
+  clientId: 'my-whip-integration',
+  clientKind: 'automation',
+});
+```
+
+An HTTP origin or WebSocket URL is accepted. The gateway is not an authentication service: use a trusted network or authenticated proxy for remote access. Keep it bound to loopback for local use.
+
+Keep `clientId` stable for one application's command-recovery identity. It is not a credential. Use `clientKind: 'human'` only for an interface controlled by a person, not to bypass automation permissions.
+
+## Submit work
+
+Save as `run.mts` beside `connect.mts`. Set `WHIP_PROJECT` to a project path **on the execution host**.
+
+```typescript file=run.mts
+import { client } from './connect.mts';
+
+try {
+  await client.connect();
+  const cwd = process.env.WHIP_PROJECT;
+  if (!cwd) throw new Error('Set WHIP_PROJECT to a host project path');
+
+  const created = await client.sessions.create({
+    cwd,
+    execution_engine: 'starlark',
+    permission_mode: 'prompt',
+  }).result();
+  if (created.status !== 'succeeded' || !created.result) {
+    throw new Error(created.failure?.message ?? 'Session creation failed');
+  }
+
+  const session = client.session(created.result.root_id);
+  console.log('Session:', session.rootId);
+
+  const turn = session.run('Explain this project. Do not change files.');
+  const result = await turn.result();
+  if (result.status === 'succeeded') console.log(result.text);
+  else throw new Error(result.failure.message);
+} finally {
+  client.close();
+}
+```
+
+Run it from the checkout, replacing both paths:
+
+```bash
+WHIP_SOCKET=/path/to/daemon.sock WHIP_PROJECT=/path/to/project node run.mts
+```
+
+`permission_mode: 'prompt'` keeps approval mode enabled. Automation clients cannot provide human approval; leave a human client connected for actions needing approval, or expect those actions to be denied. Do not disable approvals just to make an example finish.
+
+To reuse a session, keep its root ID and call `client.session(rootId)` after connecting. If you need only the final text, `await session.run(prompt).text()` returns it or throws on failure.
+
+### Attach a file
+
+Upload explicitly, then pass the returned reference. This helper accepts a session from a connected client:
+
+```typescript file=attachment.mts
+import type { Session } from '@whip/sdk';
+
+export async function summarizeNotes(session: Session, notes: string) {
+  const uploaded = await session.client.upload(
+    new TextEncoder().encode(notes),
+    { rootId: session.rootId, mediaType: 'text/plain' },
+  );
+  return session.run({
+    text: 'Summarize these notes.',
+    attachments: [uploaded.asAttachment('text', 'notes.txt')],
+  }).text();
+}
+```
+
+Uploading alone does not put a file in a prompt. Content is scoped to its session; a child needs its own grant. Reading an existing content handle likewise does not submit it as model input.
+
+## Events and cancellation
+
+A `Turn` is an async iterable. It subscribes before submitting, so you can observe the work without racing its first event.
+
+```typescript file=stream.mts
+import type { Session } from '@whip/sdk';
+
+export async function streamTask(session: Session, prompt: string) {
+  const turn = session.run(prompt, { includeChildren: true });
+  let text = '';
+
+  for await (const event of turn) {
+    // Child events carry their own agentId; don't mix them into the root answer.
+    if (event.agentId !== session.rootId) continue;
+    if (event.type === 'text') text += event.delta;
+    if (event.type === 'discard') text = ''; // Provider retry replaced this draft.
+    if (event.type === 'host') {
+      console.log(event.operation, event.status);
+    }
+    if (event.type === 'text' || event.type === 'discard') {
+      console.log('Draft:', text);
+    }
+  }
+
+  const result = await turn.result();
+  if (result.status !== 'succeeded') throw new Error(result.failure.message);
+  return result.text; // Final result, not the accumulated draft, is authoritative.
+}
+```
+
+Other events include progress, usage, questions and permission requests. For a human UI, use `clientKind: 'human'` and present the request before deciding:
+
+```typescript file=approval.mts
+import type { PermissionEvent } from '@whip/sdk';
+
+type ApprovalRequest = { operation: string; command: string; path: string };
+
+export async function reviewPermission(
+  event: PermissionEvent,
+  askUser: (request: ApprovalRequest) => Promise<boolean>,
+) {
+  const allowed = await askUser({
+    operation: event.operation,
+    command: event.command,
+    path: event.path,
+  });
+  if (allowed) await event.allow(); // Once; no remembered permission.
+  else await event.deny('Declined by the user');
+}
+```
+
+Call this for `permission` events with your actual approval dialog. Questions expose `answer()` and `dismiss()`; use the selected answer, not the first option automatically. After reconnect, `await session.prompts()` retrieves pending requests.
+
+### Cancel explicitly
+
+For a stop button, call `await turn.cancel()`. For a deadline, pass a signal to `session.run`:
+
+```typescript file=deadline.mts
+import type { Session } from '@whip/sdk';
+
+export async function runWithDeadline(session: Session, prompt: string) {
+  const turn = session.run(prompt, {
+    signal: AbortSignal.timeout(60_000),
+  });
+  return turn.text();
+}
+```
+
+A turn's signal requests cancellation and stops observation; cancellation is not a rollback. `client.close()` only disconnects—it does not cancel accepted work.
+
+### Command acceptance and recovery
+
+Use `session.submit({ text })` when you need the underlying durable command handle:
+
+| Method | Meaning |
+| --- | --- |
+| `command.accepted()` | The host accepted the request; work is not necessarily finished |
+| `command.result()` | Wait for the terminal outcome |
+| `command.record` | Identity metadata for recovery, not the prompt body |
+| `command.cancel().result()` | Request cancellation and wait for that command's outcome |
+
+Aborting `command.result({ signal })` stops only the local wait. This differs from passing a signal to `session.run`. If acknowledgement is lost, do not blindly resubmit: the command may already be running. Use command recovery; only retry when the host definitively reports the command missing.
+
+A completed parent turn does not guarantee that every subagent or schedule has finished.
+
+## Define agents and tools
+
+Tools execute in the process serving them; model work still runs on the daemon. This example uses Zod 4 for typed input and output. Other Standard Schema implementations and raw JSON Schema are also supported.
+
+Save as `agent.mts` beside `connect.mts`:
+
+```typescript file=agent.mts
+import { client } from './connect.mts';
+import { defineAgent, tool } from '@whip/sdk/agents';
+import { z } from 'zod';
+
+const ticketSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(['open', 'closed']),
+});
+const tickets = new Map([
+  ['42', { id: '42', title: 'Fix the download link', status: 'open' as const }],
+]);
+
+const lookupTicket = tool({
+  name: 'lookup_ticket',
+  description: 'Read a ticket from the local ticket store.',
+  input: z.object({ id: z.string() }),
+  output: ticketSchema,
+  execute: async ({ id }, context) => {
+    context.signal.throwIfAborted();
+    context.progress(`Looking up ticket ${id}`);
+    const ticket = tickets.get(id);
+    if (!ticket) throw new Error(`Ticket ${id} not found`);
+    return ticket;
+  },
+});
+
+const triage = defineAgent({
+  id: 'ticket-triage',
+  instructions: { persona: 'Look up the requested ticket, then summarize its status.' },
+  modules: ['context'],
+  capabilities: [],
+  mcp: { servers: [] },
+  tools: [lookupTicket],
+  output: z.object({ summary: z.string() }),
+});
+
+try {
+  await client.connect();
+  const runtime = await client.agents.serve(triage);
+  try {
+    const cwd = process.env.WHIP_PROJECT;
+    if (!cwd) throw new Error('Set WHIP_PROJECT to a host project path');
+    const session = await runtime.sessions.create({
+      cwd,
+      permission_mode: 'prompt',
+    });
+    const result = await session.run('Summarize ticket 42.').result();
+    if (result.status === 'succeeded') console.log(result.output.summary);
+    else throw new Error(result.failure.message);
+  } finally {
+    runtime.close();
+  }
+} finally {
+  client.close();
+}
+```
+
+`serve` registers the definition, pins its revision for new sessions, and handles its tools. Keep the runtime connected while agents need those handlers. Closing it aborts active handlers; it does not delete sessions.
+
+Your tool handler owns its side effects. Respect `context.signal`; use `context.invocationId` as an idempotency key when calling a service. A timeout or disconnect cannot undo an external write. The example's in-memory lookup is read-only; approvals still follow the host policy.
+
+Named children and hooks belong in the same definition. See [Agents & subagents](/docs/agents-subagents) for the model and the [SDK reference](https://github.com/context-labs/whip/blob/main/packages/sdk/README.md#author-serve-run) for the full definition contract.
+
+## State views and React
+
+Views combine snapshots and live events. Create and start one view per session owner; React hooks only subscribe to it.
+
+```typescript file=view.mts
+import type { Session } from '@whip/sdk';
+import { createSessionView } from '@whip/sdk/state';
+
+export async function openSessionView(session: Session) {
+  const view = createSessionView(session);
+  try {
+    await view.start();
+    return view;
+  } catch (error) {
+    await view.dispose();
+    throw error;
+  }
+}
+```
+
+Pass the started view into components. This React 19 example uses `createElement` so the same TypeScript example runs without a JSX build step:
+
+```typescript file=status.mts
+import { createElement } from 'react';
+import { useSessionView } from '@whip/sdk/react';
+import type { SessionView } from '@whip/sdk/state';
+
+export function SessionStatus({ view }: { view: SessionView }) {
+  const snapshot = useSessionView(view);
+  return createElement('p', null, `Session state: ${snapshot.status}`);
+}
+```
+
+The owner calls `await view.dispose()` when leaving the session, then closes the client when the application no longer needs it. Do not create a client or view during React rendering, and do not reuse a disposed view. Non-React code can use `view.subscribe()` and `view.getSnapshot()` directly.
+
+For a working interface and offline test helpers, see the [client example](https://github.com/context-labs/whip/tree/main/examples/client) and [SDK testing reference](https://github.com/context-labs/whip/blob/main/packages/sdk/README.md#testing).

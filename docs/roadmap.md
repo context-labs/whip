@@ -23,6 +23,17 @@ direct-tool and RLM agents.
 - [x] Deterministic single-runtime evaluation and parity-focused integration
   tests.
 
+## Public documentation site
+
+- [x] Independent `apps/docs` site: Quickstart entry, static docs routes,
+  21 V1 pages, app-owned Base UI/CSS components, light/dark themes, build-time
+  syntax highlighting and static-artifact/content/browser test coverage. See
+  [the feature map](features.md#public-documentation-site) for code and test paths.
+- [ ] Write and review V1 article content under the approved headings.
+- [ ] Public deployment: select and review the production origin/host, validate
+  the referenced live release artifacts and publish only `dist/client`. This
+  remains separate from repository implementation; no domain or host is assumed.
+
 ## Cleanup still worth doing
 
 - [ ] Remove the remaining unreachable embedded direct-tool TUI/agent helpers
