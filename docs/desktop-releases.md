@@ -1,11 +1,13 @@
 # Desktop releases
 
 Desktop ships in the same `v<semver>` release as the standalone CLI/TUI.
-Main pushes produce complete alpha releases; stable dispatch requires one final
-approval. A signed/notarized Desktop failure blocks the whole release. The
-supported Desktop target is Apple Silicon, macOS 14 or newer; CI builds on macOS
-15 and records Xcode, Go, Node and runner versions. No historical migration
-contract is provided.
+Development pushes produce complete `v1.0.1-alpha.N` releases when enabled; main
+pushes run CI only. Manual stable dispatch on main requires one final approval.
+A signed/notarized Desktop failure blocks the whole release. The supported Desktop
+target is Apple Silicon, macOS 14 or newer; CI builds on macOS 15 and records
+Xcode, Go, Node and runner versions. The development-alpha configuration below
+is an operational contract, not evidence that live setup or install/update
+acceptance is complete. No historical data migration contract is provided.
 
 ## Release graph
 
@@ -19,7 +21,8 @@ The full candidate binds all CLI downloads, installer, DMG/ZIP, feed, checksums,
 package/runtime/startup evidence, SBOM and notices to one source/version. Desktop
 signing evidence still describes its signed subset; standalone binaries do not
 inherit an app signature. Verify GitHub attestations against the unified parent
-workflow and exact main source SHA/ref, never the retired Desktop workflow.
+workflow and exact source SHA/ref: `refs/heads/development` for alpha,
+`refs/heads/main` for stable, never a wildcard or the retired Desktop workflow.
 
 One final publishing job creates/verifies the private GitHub draft, stages and
 reads back immutable CDN objects, publishes the complete GitHub release, then
@@ -30,26 +33,12 @@ artifact completeness, failure states and retry rules.
 
 ## GitHub configuration
 
-All active release environments permit only the protected `main` branch. No
-release secrets are available to feature PRs. Credentials are passed only to the
-relevant signing/storage steps, not dependency installation lifecycle scripts.
-
-| Environment | Purpose | Required review |
-| --- | --- | --- |
-| `desktop-signing` | Temporary Developer ID keychain and notarization | Trusted main; no admin bypass |
-| `desktop-beta-stage` | Complete alpha GitHub/CDN/feed publication | Automatic; no admin bypass |
-| `desktop-stable-stage` | Complete stable GitHub/CDN/feed publication | Sam once after candidate validation; no admin bypass |
-
-Existing environment names avoid copying secrets. Separate `*-promote`
-environments are not called. Approval precedes public CDN staging. Main requires
-PRs, passing shared checks, zero required approving reviews and no routine bypass.
-Keep tag update/deletion protections and coverage floors.
-
-`WHIP_RELEASE_ENABLED` is the single admission gate and `WHIP_RELEASE_BASELINE`
-binds the clean source boundary. Desktop is always required; a missing, skipped
-or failed Desktop build blocks the entire release rather than permitting CLI-only
-publication. The candidate is the immutable triggering SHA; it may finish when
-main advances, but must remain a validated baseline descendant in protected main's history.
+Follow the canonical [environment allowlists and trust policy](releases.md#trust-and-environment-configuration):
+signing permits exactly main/development, beta publishing development only, and
+stable publishing main only with final approval. No PR release secrets, broad
+branch rules or dependency-lifecycle credential exposure. Storage isolation does
+not isolate shared signing or repository-wide GitHub release authority.
+Admission, source checks and queue behavior are defined in [release operations](releases.md).
 
 Set these in `desktop-signing`:
 
@@ -69,40 +58,63 @@ Set these independently in each channel's final publishing environment:
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Secret | `WHIP_DESKTOP_R2_ACCESS_KEY_ID` | Object read/write key scoped to `whipcode-releases` |
+| Secret | `WHIP_DESKTOP_R2_ACCESS_KEY_ID` | Object read/write key scoped solely to that environment's bucket |
 | Secret | `WHIP_DESKTOP_R2_SECRET_ACCESS_KEY` | Matching S3 secret |
-| Variable | `WHIP_DESKTOP_BUCKET` | `whipcode-releases` |
+| Variable | `WHIP_DESKTOP_BUCKET` | Alpha: `whipcode-alpha-releases`; stable: unchanged `whipcode-releases` |
 | Variable | `WHIP_DESKTOP_R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
 | Variable | `WHIP_DESKTOP_UPDATE_URL` | Exactly the same channel feed URL embedded at signing |
 
-Both channels use the `whipcode-releases` bucket in the Inference.net Cloudflare
-account. R2 credentials are bucket-scoped, not prefix-scoped: the publishing token
-can write both channels. GitHub environment review and the publisher enforce the
-channel boundary; they do not provide storage-level credential isolation. Separate
-buckets/tokens can add that isolation later. The publisher uses region `auto` and
-removes any inherited AWS session token. There is no AWS role/OIDC assumption in this R2 path.
+### Isolated alpha storage
 
-The bucket uses `https://whipcode-releases.inference.net` with no path rewrite:
+The configured alpha bucket/domain and matching variables are below. Verify scoped
+credentials before enablement; see the [rollout checklist](roadmap.md).
+R2 keys are bucket-scoped, not prefix-scoped: an old shared-bucket alpha key could
+still write stable objects until revoked.
 
-- Beta: `https://whipcode-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json`
-- Stable: `https://whipcode-releases.inference.net/desktop/stable/darwin/arm64/RELEASES.json`
+| Purpose | Bucket / feed |
+| --- | --- |
+| New alpha (Desktop `beta`) | `whipcode-alpha-releases`; `https://whipcode-alpha-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json` |
+| Stable, unchanged | `whipcode-releases`; `https://whipcode-releases.inference.net/desktop/stable/darwin/arm64/RELEASES.json` |
+| Old Beta, readable but no longer advanced after cutover | `whipcode-releases`; `https://whipcode-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json` |
 
-New ZIP/DMG objects live beneath a version directory, for example
-`desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-arm64.zip`.
-The DMG beside it is `whipcode-desktop-darwin-arm64.dmg`. These lowercase basenames
-are identical for alpha and stable; the channel root and immutable version tag
-isolate their bytes. `RELEASES.json` stays at the channel root and names the exact
-version-scoped ZIP. Historical feed entries and old object URLs are preserved.
-Local candidate files remain flat for checksums and GitHub uploads.
+Store the new alpha key only in `desktop-beta-stage`, never repository-wide.
+The alpha feed in `desktop-signing`'s `WHIP_DESKTOP_BETA_UPDATE_URL` must exactly
+match beta publishing's `WHIP_DESKTOP_UPDATE_URL`: the URL is embedded in the
+signed app, and publisher evidence binds it. Feed and ZIP URLs must share the
+configured origin/path. Keep the stable bucket/domain/feed and signing URL unchanged.
 
-The URL path maps directly to the R2 object key. The custom domain requires TLS
-1.2 or newer; the public `r2.dev` endpoint is disabled. A configuration rule disables
-Browser Integrity Check only for GET/HEAD requests to this exact hostname, so
-non-browser download clients do not receive Cloudflare error 1010. ZIP/DMG
-responses are immutable; feed responses must revalidate.
-Verify TLS, public downloads, range requests, content types, and no login/bot
-challenge. An empty feed may return 404 for the first release; a DNS/TLS failure
-is a configuration failure, not an empty feed.
+Use the native R2 custom domain `whipcode-alpha-releases.inference.net`; no proxy
+Worker, redirect or path rewrite. The URL path maps directly to the object key.
+Preserve object layout, conditional writes, read-back checks and cache policy:
+ZIP/DMG responses are immutable; feed responses revalidate. For example,
+`desktop/beta/darwin/arm64/v1.0.1-alpha.42/whipcode-desktop-darwin-arm64.zip`
+names the version-scoped ZIP; its DMG is `whipcode-desktop-darwin-arm64.dmg`.
+`RELEASES.json` stays at the channel root. Local candidates remain flat for
+checksums and GitHub uploads; old signed objects are never rewritten.
+
+Require TLS 1.2 or newer and disable public `r2.dev` access. Verify public GET/HEAD,
+range requests, content types and no login/bot challenge on the new exact hostname.
+If needed, scope a Browser Integrity Check exemption to GET/HEAD on that hostname,
+not production sites. An empty feed may return 404 before the first release;
+DNS/TLS failure is configuration failure, not an empty feed. The publisher uses
+region `auto`, removes inherited AWS session tokens and does not assume an AWS role.
+
+Replacing a GitHub secret does not revoke its old credential. Inventory shared
+stable/alpha and retired-environment keys without printing values; remove every
+broad alpha-accessible copy and revoke the superseded alpha key. If stable shares
+that key, first provision/update and verify a replacement scoped to the original
+bucket and stored only in the stable environment, then revoke the shared key.
+Do not break stable during rotation. Obtain Cloudflare credential-management and
+secret-manager authority if unavailable; do not treat secret replacement as revocation.
+
+Verify the alpha principal can write/delete a disposable object in its own bucket
+and is **denied** a write to a harmless unique canary key in the stable bucket,
+never a live feed/asset. If the negative check writes, stop, remove only that
+canary, correct scope and retest. Record verified policy and outcomes without secrets.
+
+Leave old Beta objects/feed readable but non-advancing after cutover; do not redirect.
+The first new alpha's release notes must link the [one-time Beta reinstall](setup.md#desktop-installation-and-upgrades)
+without prescribing data cleanup. CLI discovery still uses GitHub Releases.
 
 Use the GitHub environment settings page or `gh secret set --env NAME` reading
 from stdin. Never put secrets in command history, release evidence, or chat.
@@ -112,23 +124,23 @@ one-time workflow that seals selected source secrets to the destination GitHub
 environment public key. Never expose plaintext through logs or artifacts.
 
 The initial Apple identity and notarization key were transferred from HALO using
-that encrypted workflow. The dedicated Cloudflare account token
-`whipcode-releases-github-actions` has Object Read & Write permission on this
-bucket only. Rotate it by creating a replacement with the same scope, updating
-both R2 secrets in the two active publishing environments, validating an isolated upload
-and download, and then revoking the old token. GitHub stores the persistent copy;
-delete local transfer files after validation.
+that encrypted workflow. The historical `whipcode-releases-github-actions` token
+was scoped to the original bucket, not its channel prefixes. Follow the isolation
+and retirement procedure above rather than copying it into alpha. Future rotation
+replaces only the matching environment's scoped key, verifies disposable
+upload/download, then revokes the old key. Delete local transfer files after validation.
 
 ## Cut and validate a release
 
-1. Merge through required checks; verify source/baseline, complete candidate,
-   environment permissions and signing/storage configuration. Use the main-push
-   alpha flow or explicit main dispatch, not a manually created Desktop tag.
+1. Follow [release admission and rollout](releases.md#pause-rollout-and-recovery);
+   verify the complete candidate and signing/storage configuration. Do not create
+   a separate Desktop tag.
 2. Verify the complete release inventory, startup/runtime evidence, checksums,
    SBOM/notices, app icon and bundle identity. Stable gets one final approval;
    alphas proceed automatically only after all required checks.
 3. Test a quarantined downloaded DMG as a normal user with no global CLI needed.
-   Verify the public release and CDN feed name the exact signed candidate.
+   Verify the public release and CDN feed name the exact signed candidate; record
+   first-install and subsequent-update acceptance separately.
 4. Exercise signed Squirrel N→N+1 between post-reset builds in an isolated QA
    home/channel: running work preserved while downloading; one Restart and update
    approval; installed bytes and daemon match N+1; sessions/config survive;
@@ -217,14 +229,15 @@ partial promotion, not permission to retag, clobber or downgrade a feed.
 Disable `publish-cli.yml` and cancel active/queued runs for an emergency stop.
 Variables are admission gates, not instant cancellation. Inspect effects before
 retrying; no database downgrade or automatic feed rollback. Expired candidate
-artifacts require a new release version. The detailed procedure is in
-[release operations](releases.md#complete-artifacts-and-publication-order).
+artifacts require a new release version. Revert source via a new commit/new alpha
+version, never rewritten branch/release history. See
+[release recovery](releases.md#pause-rollout-and-recovery).
 
 ## Matching remote backend
 
 Each unified GitHub release includes `whipcode-linux-x64` from the same source,
 semantic version, and renderer. Its standalone CLI build ID uses `v<version>`
-(for example `v1.0.0-alpha.4`); Electron and the macOS managed backend use the bare
+(for example `v1.0.1-alpha.42`); Electron and the macOS managed backend use the bare
 `<version>`. Candidate verification requires that exact relationship and matching
 protocol/schema, not a loose version comparison. Download it and `SHA256SUMS` from that **exact unified version tag**,
 verify the executable checksum and GitHub attestation, and stop the remote daemon

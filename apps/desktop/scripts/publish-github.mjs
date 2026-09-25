@@ -95,7 +95,10 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     const download = `https://github.com/${repository}/releases/download/${tag}`;
     const rows = assets.filter(asset => !/\.(json|txt)$/.test(asset.name) && asset.name !== 'SHA256SUMS')
       .map(asset => `| ${asset.name} | [Download](${download}/${asset.name}) |`).join('\n');
-    const notes = `## Downloads\n\n| Artifact | Link |\n| --- | --- |\n${rows}\n\nVerify downloads with [SHA256SUMS](${download}/SHA256SUMS).\n\nPinned CLI install:\n\n\`\`\`sh\ncurl -fsSL ${download}/install.sh | sh\n\`\`\`\n\nLatest stable CLI install (fails until a complete v1+ stable release exists):\n\n\`\`\`sh\ncurl -fsSL ${download}/latest.sh | sh\n\`\`\`\n`;
+    let notes = `## Downloads\n\n| Artifact | Link |\n| --- | --- |\n${rows}\n\nVerify downloads with [SHA256SUMS](${download}/SHA256SUMS).\n\nPinned CLI install:\n\n\`\`\`sh\ncurl -fsSL ${download}/install.sh | sh\n\`\`\`\n\nLatest stable CLI install (fails until a complete v1+ stable release exists):\n\n\`\`\`sh\ncurl -fsSL ${download}/latest.sh | sh\n\`\`\`\n`;
+    if (semver.prerelease(tag)?.[0] === 'alpha') {
+      notes += `\n## One-time Whip Beta update\n\nExisting Whip Beta testers: quit Whip Beta and install the new [signed DMG](${download}/whipcode-desktop-darwin-arm64.dmg) once to switch to the isolated alpha update feed. Subsequent updates use the isolated feed; restarting to install still requires your approval. CLI prerelease installation and updates are unchanged.\n`;
+    }
     try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--notes', notes, '--draft', '--latest=false',
       ...(prerelease ? ['--prerelease'] : [])]); }
     catch (error) { if (!conflict(error)) throw error; }

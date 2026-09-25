@@ -1277,20 +1277,30 @@ modified; this change includes no session migration or automatic data deletion.
 
 ## WhipCode distribution
 
-`whipcode` is the sole supported CLI, built from `main`. `task build` and
-`task install` produce the same canonical runtime with embedded web assets.
+`whipcode` is the sole supported CLI: stable source is `main`, alpha integration
+is `development`. `task build` and `task install` produce the same canonical runtime
+with embedded web assets.
 Application-owned config, auth, sessions, locks, notices, skills, browser state,
 and extracted native helpers use `~/.whipcode` or `WHIPCODE_HOME`. Network
 controls use `WHIPCODE_*`. There is no alternate legacy identity or home alias.
 
-`main/install.sh` selects new-project releases (`v1.0.0-alpha.N`, then `v1.0.0`),
-verifies the complete platform asset set and SHA-256 checksums before atomic
-replacement. Stable is the default; prereleases are explicit. It never selects
-historical CLI or Desktop tags. `whipcode update` replaces only its invoked
+When enabled, direct development pushes gate automatic `v1.0.1-alpha.N` releases
+on CI/security and the complete CLI/signed-Desktop graph. `N` retains the workflow
+run counter. Main pushes run CI only; stable `v1.0.1` is manually approved on main.
+Alpha remains GitHub prerelease/not-latest, Desktop `beta` / Whip Beta and CLI
+`prerelease`. See [release policy](releases.md); configuration
+is not install/update acceptance.
+
+`main/install.sh` selects unified releases, verifies the complete platform asset
+set and SHA-256 checksums before atomic replacement. Stable is the default;
+prereleases are explicit and may graduate to a higher stable SemVer. It never
+selects historical CLI or Desktop tags. `whipcode update` replaces only its invoked
 installation and requests its daemon's restart. Desktop-managed backends update
-with their matched app instead. Pre-reset installations require a manual reset,
-not migration. See [setup](setup.md), [release operations](releases.md), and
-[team reset](team-reset.md).
+with their matched app instead. The isolated alpha feed requires a one-time manual
+install of the first new Whip Beta DMG; old Beta URLs remain readable, not advancing,
+and stable storage/feed stay unchanged. That feed change is not a data reset;
+pre-reset installations still require the separate manual reset, not migration.
+See [setup](setup.md), [release operations](releases.md), and [team reset](team-reset.md).
 
 Implementation: `internal/buildinfo`, `internal/update`, `cmd/whip/update.go`,
 `install.sh`, and the shared CI/security/release workflows. Package acceptance

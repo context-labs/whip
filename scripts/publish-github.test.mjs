@@ -247,5 +247,16 @@ test('GitHub downloads remain flat canonical names scoped by release tag for alp
     assert(notes.includes('fails until a complete v1+ stable release exists'));
     assert(!notes.includes('WHIPCODE_VERSION='));
     assert(!notes.includes('WHIPCODE_CHANNEL='));
+    assert.equal(notes.includes('## One-time Whip Beta update'), tag.includes('-alpha.'));
+    if (tag.includes('-alpha.')) {
+      assert(notes.includes('quit Whip Beta and install the new [signed DMG]'));
+      assert(notes.includes('once to switch to the isolated alpha update feed'));
+      assert(notes.includes('Subsequent updates use the isolated feed; restarting to install still requires your approval.'));
+      assert(notes.includes('CLI prerelease installation and updates are unchanged.'));
+    }
+    await publishGitHubAssets(files, { ...f.env, RELEASE_TAG: tag });
+    const retried = await f.state();
+    assert.deepEqual(retried.release, state.release);
+    assert.equal(writes(retried).filter(args => args[1] === 'create').length, 1);
   }
 });
