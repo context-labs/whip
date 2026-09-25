@@ -50,7 +50,7 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
           BASE_VERSION: 1.0.1
         run: |
-          [[ "$GITHUB_REPOSITORY" == context-labs/whip && "$WHIP_RELEASE_ENABLED" == true ]]
+          [[ "$GITHUB_REPOSITORY" == context-labs/whip && "$WHIP_RELEASE_ENABLED" == true ]] || exit 1
           case "$GITHUB_EVENT_NAME:$GITHUB_REF:$RELEASE_MODE" in
             push:refs/heads/development:alpha|workflow_dispatch:refs/heads/development:alpha)
               source_ref=refs/heads/development; version="$BASE_VERSION-alpha.$RUN_NUMBER"; channel=beta ;;
@@ -58,10 +58,10 @@ jobs:
               source_ref=refs/heads/main; version="$BASE_VERSION"; channel=stable ;;
             *) echo "Unsupported release event/ref/mode" >&2; exit 1 ;;
           esac
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$GITHUB_SHA" ]]
-          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$BASE_VERSION" =~ ^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          [[ "$RUN_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$BASE_VERSION" =~ ^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          [[ "$RUN_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           source_branch=${source_ref#refs/heads/}
           git fetch --no-tags origin "$source_ref:refs/remotes/origin/$source_branch"
@@ -297,7 +297,7 @@ jobs:
             alpha:refs/heads/development|stable:refs/heads/main) ;;
             *) exit 1 ;;
           esac
-          [[ "$SOURCE_REF" == "$GITHUB_REF" && "$SOURCE_SHA" == "$GITHUB_SHA" ]]
+          [[ "$SOURCE_REF" == "$GITHUB_REF" && "$SOURCE_SHA" == "$GITHUB_SHA" ]] || exit 1
           node apps/desktop/scripts/release-candidate.mjs verify candidate
           for asset in candidate/*; do
             gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" \
