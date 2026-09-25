@@ -221,7 +221,7 @@ screenshots use. Children receive the handle only.
 Servers explicitly configured in native WHIP configuration are trusted.
 Definitions discovered from the project's `.mcp.json`, the Codex file, the
 global Claude file, or the OpenCode files retain their provenance and require
-consent or a saved allow rule; `whip mcp import` and the app's import screen
+consent or a saved allow rule; `whipcode mcp import` and the app's import screen
 materialize them into native configuration, which is how an imported server
 becomes trusted. The project file is an import source of its own and is off
 unless enabled. ACP attachments are

@@ -27,7 +27,8 @@ the nearest working example. These principles apply throughout:
 5. **Bound what you retain.** Virtualizing DOM nodes does not bound cached data.
    Every new collection needs a count/byte limit and a visible overflow policy.
 6. **Use the design system.** Base UI, semantic HTML, shared StyleX tokens, and the
-   full TUI theme catalog are foundations, not optional per-screen preferences.
+   full TUI theme catalog are foundations for the product application. The public
+   docs site has an explicit app-owned CSS/design boundary described below.
 7. **Keep outcomes truthful.** Accepted, running, waiting, failed, interrupted,
    stale, unavailable, and delivery-uncertain describe different conditions.
 8. **Prefer deletion, reuse, and direct composition.** Introduce abstractions or
@@ -94,6 +95,7 @@ Use Node 24. Exact installed versions belong to the package manifests and
 | `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
 | `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
+| `@whip/docs` — `apps/docs` | Public static site, Markdown content, app-owned component library | No app, UI, SDK, protocol, daemon or runtime-release dependencies |
 | `@whip/desktop` — `apps/desktop` | Electron main/preload, packaged runtimes, SSH, native effects and distribution | Consumes the web renderer artifact; native SDK imports stay outside the renderer |
 | `@whip/mobile` — `apps/mobile` | Expo/React Native companion, native UI, lifecycle and encrypted device storage | SDK; only `@whip/app/presentation` and `@whip/ui/theme-data` from web-facing packages |
 | `examples/client` | Small SDK usage example | Independent of the product application |
@@ -158,6 +160,63 @@ Do not add Redux/Zustand, TanStack DB, a second Query client per feature, anothe
 CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
+
+## Public documentation site
+
+`apps/docs` is an independent React/TanStack Start site in the same Node 24/npm
+workspace. It follows the structural conventions of inference's `fast-web`, not
+its backend or deployment. Start renders during the build; only the generated
+`apps/docs/dist/client` HTML/assets and a small Cloudflare asset-routing Worker
+are deployed. There is no React runtime server,
+SDK, daemon connection, React Query, authentication, analytics or remote content.
+The root `/` and `/docs` redirect to `/docs/quickstart`; there is no landing page.
+Legacy entry/installation/CLI/permissions URLs retain redirects.
+The `/docs/...` articles are separate from the application renderer and must
+never be embedded by `pack:web` or included in desktop builds.
+
+The docs component library is app-owned under `apps/docs/src/components` and
+`src/features/docs/components`. It deliberately uses Base UI and ordinary CSS
+with semantic custom properties, **not** `@whip/ui` or StyleX. This exception
+keeps public-site styling independent of the application theme catalog. The
+[Paper board](https://app.paper.design/file/01M3A92K3HM4T5QF90SJFKQR0A/p-1-0/1O0-0)
+and its Light counterpart are the visual reference; [brand-guide.md](brand-guide.md)
+documents the local contract. Explicit user requirements supersede the board:
+code fences use multicolour Carbonfox syntax tokens; prose links and inline code
+match whip's transcript (blue underlined links, green borderless inline code).
+
+Trusted checked-in MDX lives in `apps/docs/src/content/docs/<slug>/index.mdx`.
+It is executable source compiled at build time, never accepted from remote or
+untrusted input. Folder paths define URLs; frontmatter defines title,
+description, section and order; optional `navTitle` preserves a shorter sidebar
+label without changing the article title. Generated metadata provides navigation, heading
+anchors and the complete prerender URL list. Refractor tokenizes fenced code in
+the compiler; token spans reach the browser, but highlighter code and grammars
+do not. Keep raw snippets page-local for copying, not in a global content index.
+All articles include title-row copy/download actions. Their trusted MDX source
+is imported in page-local chunks, not the global manifest; Vite raw
+imports bypass the MDX compiler. Menus, theme preferences and selected code tabs
+use local component state. The public content currently consists of 21 V1 pages
+(Quickstart, Download and TypeScript SDK written, 18 other outlines) in five groups: Getting Started, Using whip, Configuration, Agents & RLM,
+and Developers. Group labels/order are shared between compiler and sidebar in
+`sections.ts`. Full-article library examples remain in Storybook, not production.
+
+Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`,
+`preview:docs`, `test:docs:browser`, `storybook:docs` and
+`build:storybook:docs` from the workspace root. See the app README for the
+content contract, static preview, tests and publication procedure. Storybook
+exists for component/board review, not as a public production route.
+
+The approved production site is `https://inference.net/whipcode` on Cloudflare
+Workers. `apps/docs/wrangler.jsonc` owns only that exact entry and its subtree;
+root inference.net routes, assets, robots and sitemap remain untouched. Default
+builds are root-path previews with indexing disabled. The production build sets
+`DOCS_SITE_URL=https://inference.net/whipcode`; Vite/TanStack handle the router
+and asset base, while plain/MDX links use `sitePath`. The Worker serves only the
+static asset binding, with the shared redirects, real 404s and cache policy.
+Run the app's `deploy` command and `scripts/worker-smoke.mjs` for production
+routing validation. No server rendering or backend state is introduced. Existing engineering
+docs remain engineering references; migrate user-facing material deliberately
+rather than exposing all of `docs/` or maintaining divergent installation claims.
 
 ## Native Browser workspace boundary
 

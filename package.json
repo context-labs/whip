@@ -38,7 +38,16 @@
     "dev:mobile": "npm run build && npm run start -w @whip/mobile",
     "check:mobile": "npm run build && npm run check -w @whip/mobile",
     "test:mobile": "npm run test -w @whip/mobile",
-    "export:mobile": "npm run build && npm run export -w @whip/mobile"
+    "export:mobile": "npm run build && npm run export -w @whip/mobile",
+    "dev:docs": "npm run dev -w @whip/docs --",
+    "check:docs": "npm run check -w @whip/docs",
+    "test:docs": "npm run test -w @whip/docs",
+    "build:docs": "npm run build -w @whip/docs",
+    "preview:docs": "npm run preview -w @whip/docs --",
+    "test:docs:browser": "npm run test:browser -w @whip/docs --",
+    "storybook:docs": "npm run storybook -w @whip/docs --",
+    "build:storybook:docs": "npm run build:storybook -w @whip/docs",
+    "test:docs:dev": "npm run test:dev -w @whip/docs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

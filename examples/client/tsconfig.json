@@ -1,4 +1,4 @@
 {
-  "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx", "strict": true, "noEmit": true, "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx", "strict": true, "types": ["node"], "noEmit": true, "lib": ["ES2022", "DOM", "DOM.Iterable"] },
   "include": ["app.tsx"]
 }

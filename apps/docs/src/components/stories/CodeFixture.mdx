@@ -1,0 +1,32 @@
+<CodeTabs>
+<CodeTab label="CLI">
+
+```bash
+# Start in your project
+whipcode --help
+printf '%s\n' 'Hello, 世界 <script>&'
+```
+
+</CodeTab>
+<CodeTab label="TypeScript">
+
+```typescript
+// A build-time syntax example
+const greeting: string = "Hello, 世界";
+function greet(name: string): string {
+  return `${greeting}, ${name}`;
+}
+console.log(greet("reader"));
+```
+
+</CodeTab>
+<CodeTab label="Python">
+
+```python
+# A syntax example, not an SDK
+count = 2
+print("Hello, reader", count)
+```
+
+</CodeTab>
+</CodeTabs>

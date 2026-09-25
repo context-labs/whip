@@ -1,0 +1,293 @@
+{
+  "groups": [
+    {
+      "id": "start",
+      "label": "Getting Started"
+    },
+    {
+      "id": "usage",
+      "label": "Using whip"
+    },
+    {
+      "id": "configuration",
+      "label": "Configuration"
+    },
+    {
+      "id": "agents",
+      "label": "Agents & RLM"
+    },
+    {
+      "id": "developers",
+      "label": "Developers"
+    }
+  ],
+  "pages": [
+    [
+      "quickstart",
+      "Quickstart",
+      "start",
+      "WhipCode is an RLM-based AI coding agent. It’s available as a CLI, desktop app, web app, or iOS app.",
+      [
+        "TUI",
+        "Desktop",
+        "Web",
+        "Customize"
+      ]
+    ],
+    [
+      "download",
+      "Download",
+      "start",
+      "Install and update Desktop or the command line.",
+      [
+        "Desktop",
+        "Command line",
+        "Supported platforms",
+        "Updates and release channels"
+      ]
+    ],
+    [
+      "faq",
+      "FAQ",
+      "start",
+      "Answers to common questions.",
+      [
+        "Startup and connections",
+        "Provider errors",
+        "Denied actions",
+        "Logs and reporting issues"
+      ]
+    ],
+    [
+      "using-whipcode/desktop",
+      "Desktop",
+      "usage",
+      "Use the desktop workspace.",
+      [
+        "Workspace and conversations",
+        "Managing sessions",
+        "Activity and changes",
+        "Terminal tabs",
+        "Shortcuts and settings"
+      ]
+    ],
+    [
+      "browser-computer-use",
+      "Browser & computer use",
+      "usage",
+      "Connect a browser or control a desktop.",
+      [
+        "Browser tabs and connections",
+        "Granting browser access",
+        "Desktop control",
+        "Approvals and scope"
+      ]
+    ],
+    [
+      "design-mode",
+      "Design Mode",
+      "usage",
+      "Select interface elements and request changes.",
+      [
+        "Open a preview",
+        "Select elements",
+        "Describe a change",
+        "Choose a conversation",
+        "Evidence and limitations"
+      ]
+    ],
+    [
+      "tui",
+      "TUI",
+      "usage",
+      "Work in the interactive terminal interface.",
+      [
+        "Start in a project",
+        "Compose and navigate",
+        "Commands and shortcuts",
+        "Themes and keybindings",
+        "TUI configuration"
+      ]
+    ],
+    [
+      "headless",
+      "Headless mode",
+      "usage",
+      "Run tasks without the interactive interface.",
+      [
+        "Run a task",
+        "Input and output formats",
+        "Models and permissions",
+        "Resume a session",
+        "Exit status and cancellation"
+      ]
+    ],
+    [
+      "sessions-files",
+      "Sessions & files",
+      "usage",
+      "Manage sessions and the files they use.",
+      [
+        "Start and resume",
+        "Interrupt, stop and detach",
+        "Fork and rewind",
+        "Reference files",
+        "Upload files and images"
+      ]
+    ],
+    [
+      "configuration",
+      "Configuration",
+      "configuration",
+      "Locate settings and understand when they apply.",
+      [
+        "Files and locations",
+        "Settings and precedence",
+        "Environment variables",
+        "When changes take effect"
+      ]
+    ],
+    [
+      "hosts-ssh",
+      "Hosts & SSH",
+      "configuration",
+      "Choose where work runs and connect to a host.",
+      [
+        "Where work runs",
+        "Local hosts",
+        "Connect over SSH",
+        "Connect by URL",
+        "Reconnect and manage the host"
+      ]
+    ],
+    [
+      "providers-models",
+      "Providers & models",
+      "configuration",
+      "Connect providers and choose models.",
+      [
+        "Connect a provider",
+        "Credentials and account login",
+        "Select a model and effort",
+        "Custom providers",
+        "Usage and cost"
+      ]
+    ],
+    [
+      "permissions",
+      "Permissions",
+      "configuration",
+      "Control which actions agents can perform.",
+      [
+        "Permission modes",
+        "Approve or deny",
+        "Files, commands and integrations",
+        "Subagent inheritance",
+        "Headless and remote work"
+      ]
+    ],
+    [
+      "instructions",
+      "Instructions",
+      "configuration",
+      "Give agents persistent project and personal guidance.",
+      [
+        "Project instructions",
+        "Personal instructions",
+        "Discovery and precedence",
+        "What belongs in an instruction"
+      ]
+    ],
+    [
+      "skills",
+      "Skills",
+      "configuration",
+      "Add task-specific guidance for agents.",
+      [
+        "What a skill provides",
+        "Add a skill",
+        "SKILL.md structure",
+        "Discovery and scope",
+        "Use a skill"
+      ]
+    ],
+    [
+      "mcp",
+      "MCP",
+      "configuration",
+      "Connect external tools through MCP.",
+      [
+        "Add a server",
+        "Local and remote connections",
+        "Import configurations",
+        "Discover and authorize tools",
+        "Refresh and reconnect"
+      ]
+    ],
+    [
+      "rlm",
+      "RLM",
+      "agents",
+      "Understand recursive work and context.",
+      [
+        "How recursive work runs",
+        "Context and compaction",
+        "State and memory",
+        "Budgets and limits"
+      ]
+    ],
+    [
+      "agents-subagents",
+      "Agents & subagents",
+      "agents",
+      "Delegate work and direct agents.",
+      [
+        "Root agents and delegation",
+        "Agent definitions",
+        "Inspect and steer",
+        "Permissions and limits",
+        "Stop work and review results"
+      ]
+    ],
+    [
+      "messages-inboxes",
+      "Messages & inboxes",
+      "agents",
+      "Direct messages and follow their delivery.",
+      [
+        "Direct a message",
+        "Queue or steer",
+        "Agent communication",
+        "Message states",
+        "Notifications and results"
+      ]
+    ],
+    [
+      "schedules",
+      "Schedules",
+      "agents",
+      "Arrange future agent work.",
+      [
+        "Create a schedule",
+        "Timing and recurrence",
+        "What wakes and where",
+        "Inspect and cancel",
+        "Offline hosts"
+      ]
+    ],
+    [
+      "typescript-sdk",
+      "TypeScript SDK",
+      "developers",
+      "Build clients and integrations with TypeScript.",
+      [
+        "Availability and installation",
+        "Connect to a host",
+        "Submit work",
+        "Events and cancellation",
+        "Define agents and tools",
+        "State views and React"
+      ]
+    ]
+  ]
+}
