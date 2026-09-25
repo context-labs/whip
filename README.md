@@ -29,7 +29,7 @@
 
 Use a release built after the clean-project reset; old Desktop releases are not an upgrade path.
 
-1. Open the DMG and drag **Whip Beta** into Applications.
+1. Download `whipcode-desktop-darwin-arm64.dmg`, open it, and drag **Whip Beta** into Applications.
 2. Launch it and choose **Set up this Mac** if prompted. The app includes its matching backend; no separate CLI installation is needed.
 3. Connect a model provider, open your project, and describe what you want to do.
 

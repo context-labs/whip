@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import semver from 'semver';
+import { desktopArchiveNames, desktopArtifactURL } from './distribution.mjs';
 
 const exec = promisify(execFile);
 const limit = 1 << 30;
@@ -40,6 +41,7 @@ export function mergeReleaseFeed(previous, candidate, version, updateURL) {
   const selected = candidate.releases.filter(release => release.version === version);
   assert.equal(selected.length, 1, 'Candidate must contain exactly one current version');
   validateRelease(selected[0], base);
+  assert.equal(selected[0].updateTo.url, desktopArtifactURL(updateURL, version, desktopArchiveNames[1]).href, 'Candidate feed must identify the canonical versioned ZIP');
   const existing = previous.releases.find(release => release.version === version);
   if (existing) assert.equal(existing.updateTo.url, selected[0].updateTo.url, 'Published versions have immutable URLs');
   // Keep bounded recent history; immutable old ZIPs remain available for recovery.
@@ -97,6 +99,7 @@ export async function publish(directory, env = process.env) {
   const evidence = JSON.parse(await readFile(path.join(directory, 'evidence.json'), 'utf8'));
   assert(evidence.signed && evidence.notarized && evidence.dmgNotary && evidence.source?.dirty === false, 'Only verified, notarized clean releases may be published');
   if (env.WHIP_DESKTOP_CHANNEL) assert.equal(env.WHIP_DESKTOP_CHANNEL, semver.prerelease(evidence.version) ? 'beta' : 'stable', 'Publication channel differs');
+  assert.equal(evidence.updateURL, url.href, 'Configured feed differs from verified app');
   const candidate = JSON.parse(await readFile(path.join(directory, 'RELEASES.json'), 'utf8'));
   // Read the authoritative object with its ETag; a CDN response is not a lock.
   // Transient R2 readback must not contaminate the immutable GitHub candidate.
@@ -105,9 +108,8 @@ export async function publish(directory, env = process.env) {
     const current = mode === 'stage' ? { feed: { currentRelease: '', releases: [] } } :
       await publishedFeed(bucket, prefix + 'RELEASES.json', temporary, env);
     const feed = mergeReleaseFeed(current.feed, candidate, evidence.version, url.href);
-    const base = new URL('./', url);
     const names = Object.keys(evidence.files);
-    assert(names.some(name => name.endsWith('.zip')) && names.some(name => name.endsWith('.dmg')), 'Missing distribution artifacts');
+    assert.deepEqual([...names].sort(), ['RELEASES.json', ...desktopArchiveNames].sort(), 'Invalid Desktop payload inventory');
     assert(/^[a-f0-9]{64}$/.test(evidence.bundleDigest), 'Missing verified application tree');
     for (const name of names) {
       assert(name === path.basename(name) && !name.startsWith('.') && (/\.(zip|dmg)$/.test(name) || name === 'RELEASES.json'), 'Invalid artifact filename');
@@ -120,18 +122,20 @@ export async function publish(directory, env = process.env) {
       assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= limit && stat.size === expected.bytes && await digest(file) === expected.sha256, `Artifact changed: ${name}`);
     }
     const selected = feed.releases.find(release => release.version === evidence.version);
-    assert(names.filter(name => name.endsWith('.zip')).some(name => new URL(encodeURIComponent(name), base).href === selected.updateTo.url), 'Feed does not identify the verified ZIP');
+    assert.equal(selected.updateTo.url, desktopArtifactURL(url.href, evidence.version, desktopArchiveNames[1]).href, 'Feed does not identify the verified ZIP');
     for (const name of names.filter(name => name !== 'RELEASES.json')) {
       const expected = evidence.files[name];
+      const artifactURL = desktopArtifactURL(url.href, evidence.version, name);
+      const key = artifactURL.pathname.slice(1);
       if (mode !== 'promote') try {
-        await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', prefix + name, '--body', path.join(directory, name),
+        await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', path.join(directory, name),
           '--if-none-match', '*', '--metadata', `sha256=${expected.sha256}`, '--content-type', name.endsWith('.zip') ? 'application/zip' : 'application/x-apple-diskimage',
           '--cache-control', 'public,max-age=31536000,immutable'], { env, timeout: 10 * 60_000 });
       } catch (error) {
         // A retried release may reuse identical bytes; never overwrite a version.
         if (!/PreconditionFailed|ConditionalRequestConflict/.test(String(error.stderr))) throw error;
       }
-      const remote = await response(new URL(encodeURIComponent(name), base), expected.bytes);
+      const remote = await response(artifactURL, expected.bytes);
       assert(remote && remote.length === expected.bytes && createHash('sha256').update(remote).digest('hex') === expected.sha256, `Published bytes differ: ${name}`);
     }
     if (mode === 'stage') { console.log(`Staged verified Whip ${evidence.version}; live update feed unchanged.`); return; }

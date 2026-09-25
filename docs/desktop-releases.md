@@ -87,6 +87,14 @@ The bucket uses `https://whipcode-releases.inference.net` with no path rewrite:
 - Beta: `https://whipcode-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json`
 - Stable: `https://whipcode-releases.inference.net/desktop/stable/darwin/arm64/RELEASES.json`
 
+New ZIP/DMG objects live beneath a version directory, for example
+`desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-arm64.zip`.
+The DMG beside it is `whipcode-desktop-darwin-arm64.dmg`. These lowercase basenames
+are identical for alpha and stable; the channel root and immutable version tag
+isolate their bytes. `RELEASES.json` stays at the channel root and names the exact
+version-scoped ZIP. Historical feed entries and old object URLs are preserved.
+Local candidate files remain flat for checksums and GitHub uploads.
+
 The URL path maps directly to the R2 object key. The custom domain requires TLS
 1.2 or newer; the public `r2.dev` endpoint is disabled. A configuration rule disables
 Browser Integrity Check only for GET/HEAD requests to this exact hostname, so
@@ -233,4 +241,7 @@ Reference: [GitHub artifact verification](https://cli.github.com/manual/gh_attes
 [environment protection](https://docs.github.com/en/rest/deployments/environments),
 [R2 token scopes](https://developers.cloudflare.com/r2/api/tokens/).
 
-Final downloadable filenames use hyphens instead of spaces so GitHub, R2, the update feed, and checksums name identical artifacts. The app inside the archive retains its normal display name (Whip or Whip Beta).
+Final downloads are `whipcode-desktop-darwin-arm64.dmg` and
+`whipcode-desktop-darwin-arm64.zip`. The packaging boundary normalizes names before
+final notarization, evidence and checksums; GitHub uploads must not rename them
+afterward. The app inside retains its normal display name (Whip or Whip Beta).

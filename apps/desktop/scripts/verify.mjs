@@ -79,7 +79,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
       await exec('/usr/bin/xcrun', ['stapler', 'validate', bundle]);
       await exec('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', bundle]);
     }
-    return { bundle, version: runtime.version, channel: config.channel, updateOwner: metadata.updateOwner, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
+    return { bundle, version: runtime.version, channel: config.channel, updateURL: config.updateURL, updateOwner: metadata.updateOwner, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
       source: runtime.source, compatibility: runtime.compatibility, teamId: runtime.teamId, runtimeSigning, fuses, signed, notarized };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
