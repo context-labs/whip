@@ -2555,12 +2555,15 @@ the token module. Use Vite's transform cache so token edits still invalidate nor
 `apps/web/scripts/stylex-dev.test.mjs` reproduces that cold partial-module graph and
 runs in `task web`; production extraction remains unchanged.
 
-Both `whip` and the `whipcode` branch distribution embed this same application.
+The standalone `whipcode` CLI and Desktop embed this same application. Complete
+releases share one immutable source/version and verified renderer artifact; the
+CLI/TUI binaries and signed Desktop packages publish together. Desktop still owns
+updates of its bundled backend. See [release operations](releases.md).
 The renderer is built once and packaged in the executable; serving it requires
 no Node runtime or production Vite server. `whipcode` owns `~/.whipcode` and uses
-the equivalent `WHIPCODE_*` settings. Build with `task build:whipcode`; start the
-daemon explicitly, then run `whipcode web`. Package names and wire identifiers
-stay shared. See [branch installation](setup.md#whipcode-branch-builds).
+`WHIPCODE_*` settings. Build with `task build`; start the daemon explicitly, then
+run `whipcode web`. Package names and wire identifiers stay shared. See
+[source installation](setup.md).
 
 ### Gateway and daemon ownership
 

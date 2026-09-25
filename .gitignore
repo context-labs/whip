@@ -2,6 +2,10 @@
 /whipcode
 /vendor/
 
+# Local planning documents and evidence.
+/docs/plans/
+/.ai-docs/plans/
+
 # Swift driver build artifacts (task driver rebuilds; go:embed uses the
 # copy at internal/computer/bin/, which stays ignored too — the placeholder
 # is force-added instead).
@@ -32,8 +36,6 @@ internal/webassets/dist/*
 apps/mobile/.expo/
 apps/mobile/ios/
 apps/mobile/android/
-.ai-docs/plans/mobile-app/*.log
-.ai-docs/plans/mobile-app/artifacts/
 
 /apps/mobile/dist/
 

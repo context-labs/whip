@@ -1,4 +1,4 @@
-name: release whipcode
+name: releaseWHIP
 
 on:
   push:
@@ -6,13 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Alpha prerelease or explicitly approved v1.0.0 stable
+        description: Alpha prerelease or explicitly approved stable release
         type: choice
         options: [alpha, stable]
         default: alpha
         required: true
 
-# Never interrupt immutable uploads. A queued old SHA is skipped by metadata.
+# ponytail: serialize one whole release; approval can delay alphas and pending pushes
+# may coalesce. Split build/publication locks only if measured queue delay warrants it.
 concurrency:
   group: whipcode-publishing
   cancel-in-progress: false
@@ -30,44 +31,40 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       mode: ${{ steps.version.outputs.mode }}
       source: ${{ steps.version.outputs.source }}
-      current: ${{ steps.version.outputs.current }}
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require clean current main and select release identity
+      - name: Admit one clean main source and shared release identity
         id: version
         env:
           SOURCE_SHA: ${{ github.sha }}
           WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'alpha' }}
           RUN_NUMBER: ${{ github.run_number }}
+          BASE_VERSION: 1.0.0
         run: |
           [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"
-          if [ "$(git rev-parse origin/main)" != "$SOURCE_SHA" ]; then
-            echo 'Skipping superseded main source.'
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
           case "$RELEASE_MODE" in
-            alpha) tag="v1.0.0-alpha.$RUN_NUMBER" ;;
-            stable) tag=v1.0.0 ;;
+            alpha) version="$BASE_VERSION-alpha.$RUN_NUMBER"; channel=beta ;;
+            stable) version="$BASE_VERSION"; channel=stable ;;
             *) exit 1 ;;
           esac
-          printf 'tag=%s\nmode=%s\nsource=%s\ncurrent=true\n' "$tag" "$RELEASE_MODE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          printf 'tag=v%s\nversion=%s\nmode=%s\nchannel=%s\nsource=%s\n' "$version" "$version" "$RELEASE_MODE" "$channel" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: metadata
-    if: needs.metadata.outputs.current == 'true'
     uses: ./.github/workflows/ci.yml
 
   security:
     needs: metadata
-    if: needs.metadata.outputs.current == 'true'
     permissions:
       contents: read
       security-events: write
@@ -109,7 +106,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.metadata.outputs.source }}
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -148,33 +146,151 @@ jobs:
           path: dist/release/${{ matrix.asset }}
           if-no-files-found: error
 
-  publish:
+  desktop:
+    needs: [metadata, ci, security]
+    uses: ./.github/workflows/desktop-release.yml
+    # Preserve the working reusable signing-secret transport. The called job
+    # still binds desktop-signing and exposes credentials only to its import step.
+    secrets: inherit
+    with:
+      renderer-artifact: ci-renderer
+      version: ${{ needs.metadata.outputs.version }}
+      channel: ${{ needs.metadata.outputs.channel }}
+      source: ${{ needs.metadata.outputs.source }}
+
+  linux:
     needs: [metadata, build]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.metadata.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ci-renderer
+          path: apps/web
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: whipcode-bin-linux-amd64
+          path: linux
+      - name: Accept the exact standalone Linux bytes, never rebuild
+        run: |
+          chmod +x linux/whipcode-linux-x64
+          node apps/desktop/scripts/linux-smoke.mjs linux/whipcode-linux-x64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-linux-evidence
+          path: linux/linux-runtime.json
+          if-no-files-found: error
+
+  candidate:
+    needs: [metadata, build, desktop, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      SOURCE_SHA: ${{ needs.metadata.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.metadata.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: whipcode-bin-*
+          path: candidate
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: desktop-release-arm64
+          path: candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-linux-evidence
+          path: candidate
+      - name: Install candidate verifier dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Assemble and verify the exact complete release inventory
+        run: |
+          node scripts/build-installers.mjs "$RELEASE_TAG" candidate
+          node apps/desktop/scripts/release-candidate.mjs assemble candidate
+      - name: Attest every final asset and the aggregate manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: candidate/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-candidate
+          path: candidate
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish:
+    needs: [metadata, candidate]
     if: vars.WHIP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
-    # Stable environment requires human approval and main-only deployment rules.
-    # Alpha requires main-only deployment but no review; both paths require the kill switch.
-    environment: ${{ needs.metadata.outputs.mode == 'stable' && 'whipcode-stable' || 'whipcode-alpha' }}
+    timeout-minutes: 45
+    # Reuse existing R2 environment secrets: alpha automatic, stable one approval.
+    environment: ${{ needs.metadata.outputs.mode == 'stable' && 'desktop-stable-stage' || 'desktop-beta-stage' }}
     permissions:
       contents: write
       actions: read
+      attestations: read
+    env:
+      GH_REPO: context-labs/whip
+      SOURCE_SHA: ${{ needs.metadata.outputs.source }}
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      RELEASE_MODE: ${{ needs.metadata.outputs.mode }}
+      WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
+      WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
+      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
+      WHIP_DESKTOP_BUCKET: ${{ vars.WHIP_DESKTOP_BUCKET }}
+      WHIP_DESKTOP_R2_ENDPOINT: ${{ vars.WHIP_DESKTOP_R2_ENDPOINT }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.metadata.outputs.source }}
           fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: whipcode-bin-*
-          path: artifacts
-          merge-multiple: true
-      - name: Publish complete validated main release (no tag-trigger chaining)
+          name: release-candidate
+          path: candidate
+      - name: Verify complete candidate provenance from this main source
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: context-labs/whip
-          SOURCE_SHA: ${{ needs.metadata.outputs.source }}
-          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
-          RELEASE_MODE: ${{ needs.metadata.outputs.mode }}
-          WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
-          WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
-        run: bash scripts/publish-whipcode.sh
+        run: |
+          node apps/desktop/scripts/release-candidate.mjs verify candidate
+          for asset in candidate/*; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow context-labs/whip/.github/workflows/publish-cli.yml \
+              --signer-digest "$SOURCE_SHA" --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done
+      - name: Publish one immutable release, then the matching update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHIP_DESKTOP_R2_ACCESS_KEY_ID: ${{ secrets.WHIP_DESKTOP_R2_ACCESS_KEY_ID }}
+          WHIP_DESKTOP_R2_SECRET_ACCESS_KEY: ${{ secrets.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/publish-whipcode.sh candidate

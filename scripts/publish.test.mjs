@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,7 +8,7 @@ import { mergeReleaseFeed, publish } from '../apps/desktop/scripts/publish.mjs';
 
 const updateURL = 'https://updates.example.test/stable/darwin/arm64/RELEASES.json';
 const prefix = 'stable/darwin/arm64/';
-const release = (version, extra = {}) => ({ version, updateTo: { version, url: new URL(`Whip-${version}.zip`, updateURL).href, ...extra } });
+const release = (version, extra = {}) => ({ version, updateTo: { version, url: new URL(`v${version}/whipcode-desktop-darwin-arm64.zip`, updateURL).href, ...extra } });
 const feed = (...versions) => ({ currentRelease: versions.at(-1) ?? '', releases: versions.map(version => release(version)) });
 
 test('merges authoritative history even when the maker candidate has stale or foreign prior entries', () => {
@@ -23,7 +23,7 @@ test('rerunning a release preserves original metadata and refuses URL changes or
   const current = feed('1.0.0', '1.2.0'); current.releases[1].updateTo.notes = 'original notes';
   assert.equal(mergeReleaseFeed(current, feed('1.2.0'), '1.2.0', updateURL).releases[1].updateTo.notes, 'original notes');
   const renamed = feed('1.2.0'); renamed.releases[0].updateTo.url = new URL('different.zip', updateURL).href;
-  assert.throws(() => mergeReleaseFeed(current, renamed, '1.2.0', updateURL), /immutable URLs/);
+  assert.throws(() => mergeReleaseFeed(current, renamed, '1.2.0', updateURL), /canonical versioned ZIP/);
   assert.throws(() => mergeReleaseFeed(current, feed('1.1.0'), '1.1.0', updateURL), /downgrade/);
 });
 
@@ -82,12 +82,12 @@ async function fixture(t, { previous = feed('1.0.0'), race = '' } = {}) {
   const stateFile = path.join(root, 'objects.json');
   await writeFile(stateFile, JSON.stringify({ calls: [], objects, concurrent: feed('1.0.0', '1.1.0') }));
   const files = {}; const applications = {};
-  for (const [name, bytes] of Object.entries({ 'Whip-1.2.0.zip': 'verified ZIP', 'Whip-1.2.0.dmg': 'verified DMG', 'RELEASES.json': JSON.stringify(feed('1.2.0')) })) {
+  for (const [name, bytes] of Object.entries({ 'whipcode-desktop-darwin-arm64.zip': 'verified ZIP', 'whipcode-desktop-darwin-arm64.dmg': 'verified DMG', 'RELEASES.json': JSON.stringify(feed('1.2.0')) })) {
     await writeFile(path.join(directory, name), bytes);
     files[name] = { bytes: Buffer.byteLength(bytes), sha256: sha256(bytes) };
     if (name !== 'RELEASES.json') applications[name] = { bundleDigest: 'a'.repeat(64), rendererDigest: 'b'.repeat(64), signed: true, notarized: true };
   }
-  const evidence = { version: '1.2.0', signed: true, notarized: true, dmgNotary: 'notary-test-id', source: { dirty: false },
+  const evidence = { version: '1.2.0', updateURL, signed: true, notarized: true, dmgNotary: 'notary-test-id', source: { dirty: false },
     bundleDigest: 'a'.repeat(64), rendererDigest: 'b'.repeat(64), applications, files };
   await writeFile(path.join(directory, 'evidence.json'), JSON.stringify(evidence));
   const env = { PATH: `${bin}${path.delimiter}${path.dirname(process.execPath)}`, HOME: root, WHIP_PUBLISH_TEST_ROOT: root,
@@ -105,7 +105,7 @@ async function fixture(t, { previous = feed('1.0.0'), race = '' } = {}) {
 test('publishes immutable verified assets first, then conditionally promotes the authoritative ETag', async t => {
   const f = await fixture(t); await publish(f.directory, f.env);
   const state = await f.state(); const writes = state.calls.filter(args => args[1] === 'put-object');
-  assert.deepEqual(writes.map(args => args[args.indexOf('--key') + 1]), [prefix + 'Whip-1.2.0.zip', prefix + 'Whip-1.2.0.dmg', prefix + 'RELEASES.json']);
+  assert.deepEqual(writes.map(args => args[args.indexOf('--key') + 1]), [prefix + 'v1.2.0/whipcode-desktop-darwin-arm64.zip', prefix + 'v1.2.0/whipcode-desktop-darwin-arm64.dmg', prefix + 'RELEASES.json']);
   assert(writes.slice(0, 2).every(args => args.includes('--if-none-match')));
   assert.equal(writes[2][writes[2].indexOf('--if-match') + 1], '"previous"');
   const pinnedGet = state.calls.find(args => args[1] === 'get-object');
@@ -137,10 +137,10 @@ test('a concurrent feed change during GET or promotion cannot drop the other rel
 });
 
 test('changed local artifacts stop publication before any writes and identical release reruns remain safe', async t => {
-  const f = await fixture(t); await writeFile(path.join(f.directory, 'Whip-1.2.0.zip'), 'tampered ZIP');
+  const f = await fixture(t); await writeFile(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'), 'tampered ZIP');
   await assert.rejects(publish(f.directory, f.env), /Artifact changed/);
   assert.equal((await f.state()).calls.filter(args => args[1] === 'put-object').length, 0);
-  await writeFile(path.join(f.directory, 'Whip-1.2.0.zip'), 'verified ZIP');
+  await writeFile(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'), 'verified ZIP');
   await publish(f.directory, f.env); await publish(f.directory, f.env);
   const published = JSON.parse(Buffer.from((await f.state()).objects[prefix + 'RELEASES.json'].body, 'base64'));
   assert.equal(published.releases.filter(item => item.version === '1.2.0').length, 1);
@@ -148,7 +148,7 @@ test('changed local artifacts stop publication before any writes and identical r
 
 test('old or mismatched archive evidence cannot authorize publication', async t => {
   for (const mutation of ['missing archive proof', 'different app tree', 'different renderer', 'unsigned archive']) await t.test(mutation, async t => {
-    const f = await fixture(t); const proof = f.evidence.applications['Whip-1.2.0.zip'];
+    const f = await fixture(t); const proof = f.evidence.applications['whipcode-desktop-darwin-arm64.zip'];
     if (mutation === 'missing archive proof') delete f.evidence.applications;
     if (mutation === 'different app tree') proof.bundleDigest = 'c'.repeat(64);
     if (mutation === 'different renderer') proof.rendererDigest = 'c'.repeat(64);
@@ -182,4 +182,66 @@ test('R2 rejects foreign endpoints and requires explicit scoped credentials befo
   await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: 'https://example.com' }), /Invalid R2 account endpoint/);
   await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: `https://${'a'.repeat(32)}.r2.cloudflarestorage.com` }), /Configure scoped R2 credentials/);
   assert.equal((await f.state()).calls.length, 0);
+});
+
+test('R2 stage and feed retry leave the unified candidate unchanged after feed failure', async t => {
+  const f = await fixture(t, { race: 'promote' });
+  const original = (await readdir(f.directory)).sort();
+  // Unified CLI/evidence files are not Desktop CDN payloads.
+  await writeFile(path.join(f.directory, 'whipcode-linux-x64'), 'standalone');
+  await writeFile(path.join(f.directory, 'artifact-manifest.json'), '{}');
+  const expected = [...original, 'whipcode-linux-x64', 'artifact-manifest.json'].sort();
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'stage' });
+  await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' }), /PreconditionFailed/);
+  assert.deepEqual((await readdir(f.directory)).sort(), expected);
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+  assert.deepEqual((await readdir(f.directory)).sort(), expected);
+  const objects = Object.keys((await f.state()).objects);
+  assert(!objects.some(name => name.includes('whipcode-linux') || name.includes('artifact-manifest')));
+});
+
+test('public alpha versions use the beta feed without changing semantic identity', () => {
+  const url = updateURL.replace('/stable/', '/beta/');
+  const make = version => ({ currentRelease: version, releases: [{ version, updateTo: { version,
+    url: new URL(`v${version}/whipcode-desktop-darwin-arm64.zip`, url).href } }] });
+  const result = mergeReleaseFeed(make('1.0.0-alpha.9'), make('1.0.0-alpha.10'), '1.0.0-alpha.10', url);
+  assert.equal(result.currentRelease, '1.0.0-alpha.10');
+  assert.throws(() => mergeReleaseFeed(make('1.0.0'), make('1.0.0-alpha.10'), '1.0.0-alpha.10', url), /channel differs/);
+});
+
+test('two releases use the same basename at distinct immutable version keys and preserve old URL history', async t => {
+  const previous = feed('1.0.0');
+  previous.releases[0].updateTo.url = new URL('Whip-1.0.0.zip', updateURL).href;
+  const f = await fixture(t, { previous });
+  await publish(f.directory, f.env);
+  const first = (await f.state()).objects[prefix + 'v1.2.0/whipcode-desktop-darwin-arm64.zip'];
+  const bytes = 'second version ZIP';
+  await writeFile(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'), bytes);
+  const nextFeed = JSON.stringify(feed('1.3.0'));
+  await writeFile(path.join(f.directory, 'RELEASES.json'), nextFeed);
+  f.evidence.version = '1.3.0';
+  f.evidence.files['whipcode-desktop-darwin-arm64.zip'] = { bytes: Buffer.byteLength(bytes), sha256: sha256(bytes) };
+  f.evidence.files['RELEASES.json'] = { bytes: Buffer.byteLength(nextFeed), sha256: sha256(nextFeed) };
+  await writeFile(path.join(f.directory, 'evidence.json'), JSON.stringify(f.evidence));
+  await publish(f.directory, f.env); await publish(f.directory, f.env);
+  const objects = (await f.state()).objects;
+  assert.deepEqual(objects[prefix + 'v1.2.0/whipcode-desktop-darwin-arm64.zip'], first);
+  assert.equal(Buffer.from(objects[prefix + 'v1.3.0/whipcode-desktop-darwin-arm64.zip'].body, 'base64').toString(), bytes);
+  const current = JSON.parse(Buffer.from(objects[prefix + 'RELEASES.json'].body, 'base64'));
+  assert.deepEqual(current.releases[0], previous.releases[0]);
+  assert.equal(current.releases.at(-1).updateTo.url, new URL('v1.3.0/whipcode-desktop-darwin-arm64.zip', updateURL).href);
+  await writeFile(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'), 'different third bytes');
+  f.evidence.files['whipcode-desktop-darwin-arm64.zip'] = { bytes: 21, sha256: sha256('different third bytes') };
+  await writeFile(path.join(f.directory, 'evidence.json'), JSON.stringify(f.evidence));
+  await assert.rejects(publish(f.directory, f.env), /Published bytes differ/);
+});
+
+test('a new candidate rejects equivalent-normalized, wrong version, query, and foreign payload URLs', () => {
+  const canonical = new URL('v1.2.0/whipcode-desktop-darwin-arm64.zip', updateURL).href;
+  for (const url of [canonical.replace('/v1.2.0/', '/v1.1.0/'), canonical.replace('/v1.2.0/', '/x/../v1.2.0/'),
+    canonical.replace('/v1.2.0/', '/%761.2.0/'), canonical + '?download=1', canonical + '#hash',
+    canonical.replace('updates.example.test', 'foreign.example.test'), new URL('whipcode-desktop-darwin-arm64.zip', updateURL).href]) {
+    const next = feed('1.2.0'); next.releases[0].updateTo.url = url;
+    assert.throws(() => mergeReleaseFeed(feed('1.0.0'), next, '1.2.0', updateURL));
+  }
 });

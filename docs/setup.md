@@ -9,17 +9,28 @@ For the recommended Desktop beta quickstart, see the [project README](../README.
 ## Install
 
 The standalone installer requires `curl`, Python 3, and `sha256sum` or `shasum`.
-Before the first stable release, opt into the validated prerelease channel:
+Choose a release from [GitHub Releases](https://github.com/context-labs/whip/releases)
+and use its pinned installation command. For releases with the two-script split,
+substitute its tag below; no version environment variable is needed:
+
+```sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/install.sh | sh
+```
+
+That release's `install.sh` installs its exact version. Its `latest.sh` always
+selects the newest complete stable v1+ release, even when downloaded from an
+alpha release. It fails clearly until a stable release exists, never falling back
+to an alpha or legacy version. These policies ignore inherited version/channel
+selection variables; destination and authentication controls are unchanged.
+
+Both install `whipcode` into `~/.local/bin` by default; add that directory to your
+`PATH` if needed. `WHIPCODE_BIN_DIR` selects another destination. Older immutable
+release installers keep their original behavior. For current source-installer
+behavior and explicit prerelease discovery, this command remains available:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh
 ```
-
-It installs `whipcode` into `~/.local/bin` by default; add that directory to your
-`PATH` if needed. `WHIPCODE_BIN_DIR` selects another destination. A stable request
-(the default when `WHIPCODE_CHANNEL` is unset) fails until a new-project stable
-release exists; it never falls back to old releases. After `v1.0.0` is published,
-use the same command without `WHIPCODE_CHANNEL=prerelease` for stable installation.
 
 Or build the packaged CLI from source with Go 1.27+, Node 24, and Task:
 
@@ -153,7 +164,10 @@ only a fallback for an unresponsive daemon.
 
 The new CLI release track is `v1.0.0-alpha.N`, followed by intentionally approved
 `v1.0.0` and normal semver releases. Validated main pushes can publish prereleases
-only after release enablement; see [release operations](releases.md).
+only after release enablement; see [release operations](releases.md). Raw CLI
+assets are `whipcode-<linux|darwin>-<x64|arm64>`; Desktop downloads are
+`whipcode-desktop-darwin-arm64.dmg` and `.zip`. Versions live in the release tag
+and CDN directory, not these basenames.
 
 ```sh
 whipcode update
@@ -174,14 +188,18 @@ its daemon's restart. An alpha build follows the prerelease channel; a stable
 build follows stable. `WHIPCODE_CHANNEL` can explicitly select `prerelease` or
 `stable`. Desktop-owned backends refuse independent CLI updates.
 
-To choose a destination or pin an exact build, replace the example tag with a
-published new-project tag. An explicit pin can roll back executable bytes; it
-does **not** make newer saved state compatible with an older backend:
+To choose a destination for an exact release, replace `<tag>` with its published
+tag. A pinned installer can roll back executable bytes; it does **not** make newer
+saved state compatible with an older backend:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh \
-  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=v1.0.0-alpha.1 sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/install.sh \
+  | WHIPCODE_BIN_DIR="$HOME/.local/bin" sh
 ```
+
+To request the newest stable instead, change `install.sh` to `latest.sh`. An old
+snapshot of `latest.sh` still resolves the stable version dynamically; it does not
+update its own installer implementation.
 
 The installer verifies a complete platform asset set and SHA-256 checksums
 before atomic replacement. Old CLI tags and Desktop tags are not candidates.
@@ -190,7 +208,8 @@ before atomic replacement. Old CLI tags and Desktop tags are not candidates.
 
 Every macOS desktop release, including betas, bundles its matching **whipcode**
 backend. It uses that bundled build for installation and managed upgrades;
-it does not fetch the latest independently published standalone CLI release.
+it does not fetch an independently updated standalone CLI binary. Desktop and CLI
+artifacts share a release version, but the app owns its bundled backend updates.
 Copying the app into Applications alone does not replace an existing binary.
 
 On a clean Mac, choose **Set up this Mac** on the welcome screen. It installs the

@@ -26,13 +26,11 @@
       "quickstart",
       "Quickstart",
       "start",
-      "Whip is an open-source coding agent. Use it in the terminal, Desktop, or a browser to work across your project.",
+      "WhipCode is an RLM-based AI coding agent. It’s available as a CLI, desktop app, web app, or iOS app.",
       [
-        "CLI",
+        "TUI",
         "Desktop",
         "Web",
-        "Connect",
-        "Start a task",
         "Customize"
       ]
     ],

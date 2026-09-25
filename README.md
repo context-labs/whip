@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 license"></a>
-  <a href="https://github.com/context-labs/whip/releases?q=desktop-v"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
+  <a href="https://github.com/context-labs/whip/releases"><img src="https://img.shields.io/badge/Desktop-beta-blue" alt="Desktop beta"></a>
 </p>
 
 <p align="center">
@@ -25,11 +25,11 @@
 
 ## Quickstart
 
-**[Download Desktop Beta](https://github.com/context-labs/whip/releases?q=desktop-v)** — Apple Silicon · macOS 14 or newer.
+**[Download Desktop Beta](https://github.com/context-labs/whip/releases)** — Apple Silicon · macOS 14 or newer.
 
 Use a release built after the clean-project reset; old Desktop releases are not an upgrade path.
 
-1. Open the DMG and drag **Whip Beta** into Applications.
+1. Download `whipcode-desktop-darwin-arm64.dmg`, open it, and drag **Whip Beta** into Applications.
 2. Launch it and choose **Set up this Mac** if prompted. The app includes its matching backend; no separate CLI installation is needed.
 3. Connect a model provider, open your project, and describe what you want to do.
 
@@ -41,6 +41,10 @@ Prefer the terminal? Install the standalone CLI on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh
 whipcode
 ```
+
+For an exact version, use the release's `install.sh` command from its notes—no
+version environment variable is needed for releases with the two-script split.
+The companion `latest.sh` always selects stable v1+, never an alpha.
 
 The new CLI track starts at `v1.0.0-alpha.N`. Prerelease installation is explicit;
 default stable installation becomes available with `v1.0.0`. Existing internal

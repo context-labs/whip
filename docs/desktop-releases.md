@@ -1,64 +1,55 @@
 # Desktop releases
 
-Whip desktop releases use protected `desktop-v<semver>` tags on the approved
-current `main` commit, descending from the recorded clean release baseline. A suffix selects beta; a plain version selects stable. The first
-supported desktop target is Apple Silicon with macOS 14 or newer. CI builds on
-macOS 15 and records the actual Xcode, Go, Node, and runner image versions.
-No historical protocol, state, or configuration migration contract is provided.
+Desktop ships in the same `v<semver>` release as the standalone CLI/TUI.
+Main pushes produce complete alpha releases; stable dispatch requires one final
+approval. A signed/notarized Desktop failure blocks the whole release. The
+supported Desktop target is Apple Silicon, macOS 14 or newer; CI builds on macOS
+15 and records Xcode, Go, Node and runner versions. No historical migration
+contract is provided.
 
 ## Release graph
 
-`.github/workflows/release-desktop.yml` runs the shared CI and security
-gates, including the native desktop suite. Its one production renderer artifact
-feeds the signed macOS app and matching Linux x64 backend. Packaging verifies
-the app, native helpers, ASAR, fuses, notarization, and the actual app tree inside
-both DMG and ZIP. Native SSH, staged desktop, and signed LaunchServices acceptance
-run before a candidate is assembled.
+The single `.github/workflows/publish-cli.yml` graph reuses shared CI/security and
+one verified renderer for all standalone binaries and the signed app. It calls
+`desktop-release.yml` for signing, notarization, runtime and LaunchServices
+acceptance. The Linux remote backend is the standalone matrix's exact Linux x64
+binary, not a second compilation. The independent `desktop-v*` trigger is retired.
 
-The candidate contains the final DMG/ZIP, feed, Linux executable, checksums,
-package evidence, startup evidence, a CycloneDX dependency inventory, and notices.
-An artifact attestation binds each file to the exact release source and workflow.
-Both staging and promotion verify those attestations with source SHA, source ref,
-signer workflow, signer SHA, and hosted-runner requirements.
+The full candidate binds all CLI downloads, installer, DMG/ZIP, feed, checksums,
+package/runtime/startup evidence, SBOM and notices to one source/version. Desktop
+signing evidence still describes its signed subset; standalone binaries do not
+inherit an app signature. Verify GitHub attestations against the unified parent
+workflow and exact main source SHA/ref, never the retired Desktop workflow.
 
-Staging creates or resumes a GitHub draft, verifies immutable asset bytes, and
-uploads versioned R2 objects with create-only writes. It leaves the live feed
-unchanged. After environment approval, promotion verifies the same candidate,
-publishes the complete GitHub release, and advances the R2 feed last using its
-authoritative ETag. A retry reuses exact bytes; a conflicting published file or
-source/tag identity fails. Never rebuild under an existing release version.
-
-Desktop releases never claim the repository-wide GitHub “latest” slot. The
-independent standalone CLI release path still owns its ordinary latest-release
-discovery. The CLI `v*` graph cannot publish a desktop update feed.
+One final publishing job creates/verifies the private GitHub draft, stages and
+reads back immutable CDN objects, publishes the complete GitHub release, then
+advances the Desktop feed last. Alpha maps to the internal beta app/feed and never
+claims GitHub latest; stable advances latest only without downgrading an already
+newer stable. See [release operations](releases.md) for pinned-source semantics,
+artifact completeness, failure states and retry rules.
 
 ## GitHub configuration
 
-The repository uses these environments. Deployment rules must allow only
-`desktop-v*` **tags**, not arbitrary branches. Publishing credentials are exposed
-only to the relevant verified publication step, never to `npm ci` lifecycle scripts.
+All active release environments permit only the protected `main` branch. No
+release secrets are available to feature PRs. Credentials are passed only to the
+relevant signing/storage steps, not dependency installation lifecycle scripts.
 
 | Environment | Purpose | Required review |
 | --- | --- | --- |
-| `desktop-signing` | Import a temporary Developer ID keychain and notarize | Trusted release tags |
-| `desktop-beta-stage`, `desktop-stable-stage` | Upload immutable candidate assets publicly | Sam Heutmaker; no admin bypass |
-| `desktop-beta-promote`, `desktop-stable-promote` | Publish the completed release and feed | Sam Heutmaker; no admin bypass |
+| `desktop-signing` | Temporary Developer ID keychain and notarization | Trusted main; no admin bypass |
+| `desktop-beta-stage` | Complete alpha GitHub/CDN/feed publication | Automatic; no admin bypass |
+| `desktop-stable-stage` | Complete stable GitHub/CDN/feed publication | Sam once after candidate validation; no admin bypass |
 
-Configure approvals **before staging**, not only before feed promotion: staging
-already exposes public GitHub/R2 bytes. Verify reviewers, self-review policy,
-admin bypass, tag deployment rules, and token scopes in the live repository;
-this document does not assert those settings have already been applied.
-Protect `desktop-v*` against moving/deletion and limit tag creation to the chosen
-release actors. `main` requires PRs and passing shared checks with zero required
-approving reviewers and no routine bypass. Do not lower the coverage floor.
+Existing environment names avoid copying secrets. Separate `*-promote`
+environments are not called. Approval precedes public CDN staging. Main requires
+PRs, passing shared checks, zero required approving reviews and no routine bypass.
+Keep tag update/deletion protections and coverage floors.
 
-Repository variables `WHIP_RELEASE_ENABLED=true` and
-`WHIP_DESKTOP_RELEASE_ENABLED=true` must both be deliberately enabled.
-`WHIP_RELEASE_BASELINE` must be the full 40-character clean release commit SHA.
-The release metadata gate requires the tagged source to equal current
-`origin/main` and descend from that baseline. Main ancestry alone is insufficient
-because archived pre-reset source is also in main's history. See
-[release operations](releases.md) before enabling publication.
+`WHIP_RELEASE_ENABLED` is the single admission gate and `WHIP_RELEASE_BASELINE`
+binds the clean source boundary. Desktop is always required; a missing, skipped
+or failed Desktop build blocks the entire release rather than permitting CLI-only
+publication. The candidate is the immutable triggering SHA; it may finish when
+main advances, but must remain a validated baseline descendant in protected main's history.
 
 Set these in `desktop-signing`:
 
@@ -74,7 +65,7 @@ Set these in `desktop-signing`:
 | Variable | `WHIP_DESKTOP_BETA_UPDATE_URL` | Beta HTTPS `.../RELEASES.json` URL |
 | Variable | `WHIP_DESKTOP_STABLE_UPDATE_URL` | Stable HTTPS `.../RELEASES.json` URL |
 
-Set these independently in each channel's stage and promote environments:
+Set these independently in each channel's final publishing environment:
 
 | Type | Name | Value |
 | --- | --- | --- |
@@ -96,6 +87,14 @@ The bucket uses `https://whipcode-releases.inference.net` with no path rewrite:
 - Beta: `https://whipcode-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json`
 - Stable: `https://whipcode-releases.inference.net/desktop/stable/darwin/arm64/RELEASES.json`
 
+New ZIP/DMG objects live beneath a version directory, for example
+`desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-arm64.zip`.
+The DMG beside it is `whipcode-desktop-darwin-arm64.dmg`. These lowercase basenames
+are identical for alpha and stable; the channel root and immutable version tag
+isolate their bytes. `RELEASES.json` stays at the channel root and names the exact
+version-scoped ZIP. Historical feed entries and old object URLs are preserved.
+Local candidate files remain flat for checksums and GitHub uploads.
+
 The URL path maps directly to the R2 object key. The custom domain requires TLS
 1.2 or newer; the public `r2.dev` endpoint is disabled. A configuration rule disables
 Browser Integrity Check only for GET/HEAD requests to this exact hostname, so
@@ -116,41 +115,34 @@ The initial Apple identity and notarization key were transferred from HALO using
 that encrypted workflow. The dedicated Cloudflare account token
 `whipcode-releases-github-actions` has Object Read & Write permission on this
 bucket only. Rotate it by creating a replacement with the same scope, updating
-both R2 secrets in all four publishing environments, validating an isolated upload
+both R2 secrets in the two active publishing environments, validating an isolated upload
 and download, and then revoking the old token. GitHub stores the persistent copy;
 delete local transfer files after validation.
 
 ## Cut and validate a release
 
-1. Merge the implementation into `main` through its checks. Ensure the exact
-   current main commit is clean, descends from `WHIP_RELEASE_BASELINE`, has passed
-   the shared CI/security graph, and contains the release workflows. Confirm
-   enablement, environments, secrets, domains, and immutable tag rules.
-2. Choose an unused version. Create and push its `desktop-v<version>` tag on the
-   approved commit. This is the release trigger; a development branch push does
-   not publish desktop. Tags created with `GITHUB_TOKEN` do not trigger another
-   push workflow, so use the maintainer release procedure.
-3. Wait for the candidate; approve the exact bytes in `desktop-<channel>-stage`
-   only when public staging is authorized. Inspect `artifact-manifest.json`,
-   `evidence.json`, `signed-startup.json`, checksums, notices, and attestations.
-   Verify the app icon and bundle identity. Test a quarantined downloaded DMG
-   installation as a normal user with no global `whipcode` installed.
-4. Exercise an actual signed Squirrel N→N+1 update between **post-reset** builds
-   in an isolated QA channel/home. Old pre-reset installations are not an upgrade
-   path; use the [manual reset checklist](team-reset.md).
-   Check that downloading preserves running work; one Restart and update approval
-   carries across app relaunch; installed bytes and the running daemon both match
-   N+1; sessions/config survive; and reconnect works through the CLI and web app.
-   Also test manual DMG replacement, Later, failed/cancelled shutdown, an externally
-   replaced binary, a read-only destination, and recovery after replacement.
+1. Merge through required checks; verify source/baseline, complete candidate,
+   environment permissions and signing/storage configuration. Use the main-push
+   alpha flow or explicit main dispatch, not a manually created Desktop tag.
+2. Verify the complete release inventory, startup/runtime evidence, checksums,
+   SBOM/notices, app icon and bundle identity. Stable gets one final approval;
+   alphas proceed automatically only after all required checks.
+3. Test a quarantined downloaded DMG as a normal user with no global CLI needed.
+   Verify the public release and CDN feed name the exact signed candidate.
+4. Exercise signed Squirrel N→N+1 between post-reset builds in an isolated QA
+   home/channel: running work preserved while downloading; one Restart and update
+   approval; installed bytes and daemon match N+1; sessions/config survive;
+   CLI/web reconnect. Also test manual DMG replacement, Later, failed/cancelled
+   shutdown, external replacement, read-only destination and recovery. No
+   pre-reset migration is promised; use the [reset checklist](team-reset.md).
 5. Verify macOS 14 and current macOS on physical Apple Silicon, provider setup,
-   computer/browser helper permissions, and network access if used. A macOS 15 CI
-   runner does not prove macOS 14 compatibility. Review any inventory property
-   `whip:license-declarations-without-files` before public distribution. Currently
-   `@tanstack/markdown@0.0.13` supplies an MIT declaration but no license file.
-6. Approve the concrete candidate in `desktop-<channel>-promote`. Verify the public
-   GitHub release and R2 feed, and check discovery from the previous app version.
-   Record the run URL, tag, source SHA, feed URL, and acceptance evidence.
+   helper permissions and network use. A hosted macOS 15 run does not prove
+   minimum-OS hardware acceptance. Review SBOM property
+   `whip:license-declarations-without-files`; `@tanstack/markdown@0.0.13` supplies
+   an MIT declaration but no license file.
+6. Record run/tag/source, GitHub asset and feed outcomes, and actual acceptance.
+   Signed startup is not Squirrel replacement or physical minimum-OS evidence;
+   label any unavailable manual/hardware checks explicitly.
 
 ### Signed startup contract
 
@@ -216,44 +208,40 @@ hardware gate. Do not label a release accepted until those checks are recorded.
 
 ## Recovery
 
-For upload, draft-publication, or feed-promotion failures, rerun the **failed jobs**
-in the same workflow run while `desktop-candidate` is retained (30 days). Do not
-rerun successful packaging jobs or use a new artifact with the old tag. A retry
-finds existing drafts and verifies existing assets by immutable asset ID/hash.
-If GitHub returns a 403/404 while creating a release for a commit that changes
-workflows, inspect the token's repository/workflow permissions and the tagged
-commit before retrying. Do not replace the job token with a broad personal token
-as a default workaround. This tag-push workflow must exist in the tagged commit;
-it does not require default-branch registration unless a manual dispatch trigger
-is introduced.
-If GitHub is public but the feed is not yet promoted, the old feed remains usable;
-rerun promotion to finish. No command deletes the existing release to retry it.
+For upload, draft-publication or feed failures, rerun only the failed publication
+job while the exact candidate artifacts are retained. Do not rebuild signed
+packages under an existing version. Matching public content is verified/skipped;
+conflicting bytes/source fail. A public GitHub release with a pending feed is a
+partial promotion, not permission to retag, clobber or downgrade a feed.
 
-Do not automatically downgrade a feed or restore an old database. Ship a new
-version with a forward fix. For an emergency, disable the Desktop workflow, cancel active/queued runs, and
-document the affected version. The publication steps recheck live workflow state;
-changing enablement variables alone is not immediate cancellation. For recovery, any deliberate feed change needs review and must preserve the
-referenced archive bytes. Keep released downloads even when old feed entries age
-out of its bounded history.
+Disable `publish-cli.yml` and cancel active/queued runs for an emergency stop.
+Variables are admission gates, not instant cancellation. Inspect effects before
+retrying; no database downgrade or automatic feed rollback. Expired candidate
+artifacts require a new release version. The detailed procedure is in
+[release operations](releases.md#complete-artifacts-and-publication-order).
 
 ## Matching remote backend
 
-Each desktop GitHub release includes `whipcode-linux-x64` from the same source,
+Each unified GitHub release includes `whipcode-linux-x64` from the same source,
 semantic version, and renderer. Its standalone CLI build ID uses `v<version>`
-(for example `v1.0.0-beta.1`); Electron and the macOS managed backend use the bare
+(for example `v1.0.0-alpha.4`); Electron and the macOS managed backend use the bare
 `<version>`. Candidate verification requires that exact relationship and matching
-protocol/schema, not a loose version comparison. Download it and `SHA256SUMS` from that **exact desktop tag**,
+protocol/schema, not a loose version comparison. Download it and `SHA256SUMS` from that **exact unified version tag**,
 verify the executable checksum and GitHub attestation, and stop the remote daemon
 deliberately before replacing its executable. Keep its home/configuration intact,
 start the new executable, and verify `daemon status --json` reports the expected
 build. Desktop never silently updates SSH or URL hosts.
 
-The Linux artifact is standalone, so its explicit `whipcode update` follows the
-standalone CLI track. To stay paired to desktop, install the next matching desktop
-release's Linux artifact explicitly instead of following standalone CLI releases.
+The Linux artifact is standalone, so explicit `whipcode update` follows the same
+unified version track. To pin a remote host to a particular Desktop version,
+install that version's Linux artifact explicitly. Desktop never silently updates
+SSH or URL hosts.
 
 Reference: [GitHub artifact verification](https://cli.github.com/manual/gh_attestation_verify),
 [environment protection](https://docs.github.com/en/rest/deployments/environments),
 [R2 token scopes](https://developers.cloudflare.com/r2/api/tokens/).
 
-Final downloadable filenames use hyphens instead of spaces so GitHub, R2, the update feed, and checksums name identical artifacts. The app inside the archive retains its normal display name (Whip or Whip Beta).
+Final downloads are `whipcode-desktop-darwin-arm64.dmg` and
+`whipcode-desktop-darwin-arm64.zip`. The packaging boundary normalizes names before
+final notarization, evidence and checksums; GitHub uploads must not rename them
+afterward. The app inside retains its normal display name (Whip or Whip Beta).

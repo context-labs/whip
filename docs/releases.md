@@ -1,100 +1,164 @@
-# CLI release operations
+# WHIP release operations
 
-The publishing job uses GitHub's built-in `GITHUB_TOKEN` with `contents: write`;
-no custom App, PAT, or additional secret is required. Repository writers may
-create new `v*` tags, but existing tags cannot be moved or deleted. Creating a
-tag does not trigger CLI publication: only validated main pushes and deliberate
-main workflow dispatches do. Main still requires PRs and passing checks, with no
-bypass. Stable approval and Desktop publication remain independently gated.
+One version and GitHub release contains the CLI/TUI for Linux/macOS x64/arm64
+and the signed macOS Apple Silicon Desktop DMG/ZIP. Desktop is required, not an
+optional attachment. The TUI ships in `whipcode`; it has no separate version.
 
-`whipcode` is the sole CLI; `main` is the sole maintained source. Historical
-branches/tags are records, not release or upgrade paths. This runbook describes
-the clean-project workflow; it does not authorize publication or claim that
-repository settings and external credentials have already been configured.
+## One source, one candidate, one publisher
 
-## Contracts
+[The release workflow](../.github/workflows/publish-cli.yml) keeps its historical
+filename and run counter. Main pushes produce `v1.0.0-alpha.N`; deliberate main
+dispatch with `channel=stable` builds `v1.0.0` and requires one final approval.
+The base version is declared once in workflow metadata; advance it deliberately.
+No `desktop-v*` trigger or independent CLI-only publisher remains.
 
-| Product/artifact | Version and trigger | Discovery and ownership |
+The triggering commit is immutable: shared CI/security, the renderer, all four
+standalone binaries and the signed Desktop app use that SHA. The source must
+remain reachable from protected main and descend from `WHIP_RELEASE_BASELINE`;
+it need not remain main's tip throughout signing. New commits produce subsequent
+candidates, never substitute source inside an existing version.
+
+The single serialized workflow does not cancel active publication. Pending main
+pushes may coalesce; there is no guarantee of one release per commit. Waiting for
+stable approval can delay alphas. Keep this simple until measured queue delays
+justify separating build and publication concurrency.
+
+The shared renderer is built once. Desktop remote-backend acceptance reuses the
+standalone `whipcode-linux-x64` bytes rather than rebuilding them. The app's
+bundled signed backend retains Desktop update ownership; standalone downloads
+retain standalone ownership. Same version does not mean interchangeable payloads.
+
+## Trust and environment configuration
+
+The publisher uses GitHub's built-in `GITHUB_TOKEN` with `contents: write`.
+No App, PAT or additional account is required. Keep main PR/CI protection with
+zero required reviews and no bypass, and block update/deletion of existing tags.
+Do not reintroduce a blanket tag-creation block: it also blocks the built-in token.
+Repository writers may create tags; creating a tag does not trigger publication.
+
+Required main checks include `go`, `govulncheck`, `codeql`, and the separate
+`CodeQL` findings result. The release reuses those validation definitions and
+includes real packaged, native, renderer and signing acceptance. A missing,
+skipped or failed required component must not yield a CLI-only release.
+
+Reuse the existing environments without copying credentials:
+
+| Environment | Use | Policy |
 | --- | --- | --- |
-| Standalone CLI prerelease | Validated current main push after enablement; `v1.0.0-alpha.N` | Explicit prerelease channel, never GitHub latest |
-| Standalone CLI stable | Deliberate workflow dispatch on main, `channel=stable`; initially `v1.0.0` | Stable channel and GitHub latest |
-| Desktop | Approved current main commit tagged `desktop-v<semver>` | Separate beta/stable feeds; app and managed backend update together |
+| `desktop-signing` | Temporary Developer ID keychain and notarization | Main only; no admin bypass |
+| `desktop-beta-stage` | Entire alpha publication, CDN staging and beta-feed promotion | Main only, automatic, no admin bypass |
+| `desktop-stable-stage` | Entire stable publication, CDN staging and stable-feed promotion | Main only, Sam approval once, no admin bypass |
 
-`.github/workflows/publish-cli.yml` is the single CLI orchestrator. The retired
-`release-whipcode.yml` workflow ID stays disabled; do not re-enable it or rerun
-historical jobs to release the new product. It calls
-the same `ci.yml` and `security.yml` validation used for PRs/main. A release
-renderer is built once and its provenance-verified artifact feeds the four
-standalone targets: Linux/macOS, x64/arm64. Assets are `whipcode-<os>-<arch>`,
-`install.sh`, and `SHA256SUMS`. The publisher refuses missing/inconsistent sets
-and uses the exact validated source; no old-product identity matrix exists.
+The old environment names are retained to avoid re-provisioning secrets. The
+separate `*-promote` and `whipcode-*` publishing environments are not in the new
+route. Approval must precede public staging. Signing secrets stay in the signing
+environment; R2 secrets stay in the appropriate final publishing environment and
+are passed only to storage steps, not dependency installation scripts. See
+[Desktop signing/storage configuration](desktop-releases.md).
 
-`N` comes from the orchestrator's run number; gaps are expected. Semver ordering
-is numeric (`alpha.10` follows `alpha.9`). Stable publication and advancing the
-base version are deliberate changes, not automatic consequences of tagging.
-Publisher-created CLI tags do not start a second publication graph. Desktop
-retains separate signing, native acceptance, attestation, staging, and feed-last
-promotion: see [Desktop releases](desktop-releases.md).
+`WHIP_RELEASE_BASELINE` is the accepted clean-source SHA. `WHIP_RELEASE_ENABLED`
+is the single admission gate for the complete release. Desktop remains required:
+a missing, skipped or failed Desktop build blocks publication, never permits a
+CLI-only release. Verify live settings before enabling the flow.
 
-The obsolete Loupe workflows and configuration are removed; no replacement
-advisory AI review pipeline is part of this release flow.
+## Download names and immutable URLs
 
-## Enable only after the clean baseline is accepted
+Public payload names are lowercase, product first, OS then architecture. Versions
+and channels are carried by the release tag/feed, not the filename:
 
-1. Land the clean identity/installer/shared-validation changes through PRs.
-   Verify real hosted check names and outcomes, including aggregate `go`,
-   `govulncheck`, and `codeql`, plus the separate **CodeQL** findings check
-   (App 57789); reusable-workflow prefixes must match protection.
-   Local `task ci` alone is not the complete hosted gate.
-2. Record the full accepted clean commit SHA as repository variable
-   `WHIP_RELEASE_BASELINE`. Candidates must descend from it and equal current
-   main. Main ancestry alone could authorize pre-reset source and is insufficient.
-3. Keep main protections and the tag update/deletion rules. Do not add a blanket
-   `v*` creation block: it also blocks the built-in publishing token. Audit
-   write-capable workflows and repository write access; this setup does not
-   reserve manual tag/release creation exclusively for the publisher. Keep old
-   publisher workflow IDs retired without deleting history or published assets.
-4. Configure `whipcode-alpha` for trusted main prereleases and `whipcode-stable`
-   for Sam's explicit stable approval (no admin bypass); both permit only main.
-   Verify PRs have no publication credentials. Confirm Desktop signing and both
-   **stage and promote** approvals separately; stage uploads are already public.
-5. Only with explicit authorization, set `WHIP_RELEASE_ENABLED=true` and enable
-   `publish-cli.yml` in GitHub Actions. `WHIP_DESKTOP_RELEASE_ENABLED=true` is an
-   additional independent Desktop gate.
-   Keep publication disabled until all checks, settings, and credential ownership
-   are verified. Do not create release tags just to test preparation.
+| Download | Filename |
+| --- | --- |
+| Linux CLI x64 / ARM64 | `whipcode-linux-x64` / `whipcode-linux-arm64` |
+| macOS CLI x64 / ARM64 | `whipcode-darwin-x64` / `whipcode-darwin-arm64` |
+| macOS Apple Silicon Desktop installer | `whipcode-desktop-darwin-arm64.dmg` |
+| macOS Apple Silicon Desktop update archive | `whipcode-desktop-darwin-arm64.zip` |
 
-## Publish and verify
+Alpha and stable use the same basenames. GitHub isolates assets under
+`releases/download/<tag>/`. Desktop CDN objects use
+`desktop/<channel>/darwin/arm64/<tag>/<filename>` so each version stays immutable.
+For example: `desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-arm64.zip`.
+The channel's `RELEASES.json` discovery URL remains fixed. Preserve existing
+historical object URLs and feed entries; never overwrite or rename old releases.
 
-- Let a validated current-main push produce an alpha, or dispatch one explicitly:
-  `gh workflow run publish-cli.yml --ref main -f channel=alpha`. Use
-  `channel=stable` only for an explicitly approved `v1.0.0` release. A superseded SHA
-  is skipped; do not bypass source guards to publish it. Approve the concrete
-  stable candidate only after its shared validation completes.
-- Inspect the run's source SHA, version, asset set, and checksums. Confirm alpha
-  remains prerelease/not-latest, or the approved stable becomes latest.
-- Test a fresh temporary-home installation and the actual embedded web renderer.
-  Verify `whipcode --version`, daemon socket/status, explicit web startup, and
-  update ownership. Verify Desktop-managed binaries refuse standalone update.
-  Do not run `task update:local` against a user's installation as release testing.
-- Record run URL, source/baseline, tag, approval, asset digests, and acceptance.
-  The recommended public entrypoint is `main/install.sh`; no branch-pinned or
-  old-install compatibility URL remains. Before v1 stable, installation requires
-  explicit `WHIPCODE_CHANNEL=prerelease`; stable requests fail rather than choose
-  old tags. See [setup](setup.md#standalone-releases-and-updates).
+The app inside still has its normal Whip/Whip Beta identity. `install.sh`, `latest.sh`,
+`SHA256SUMS`, `artifact-manifest.json`, `RELEASES.json` and evidence/notices retain
+their conventional names. This naming scheme does not add supported platforms.
 
-## Failures and retries
+## Complete artifacts and publication order
 
-Never move a release tag, overwrite a published asset, or delete a release to
-retry it. Retry only the same source/version and a matching unpublished draft;
-conflicting identity or bytes must fail. If source must change, validate and
-publish a new version. Preserve old immutable downloads as historical records.
+The existing candidate verifier owns one exact inventory: four CLI binaries,
+installer, signed Desktop archives, update metadata, evidence/SBOM/notices,
+checksums and attestation. Hash final signed bytes, reject missing/extra/duplicate
+files, and bind source/version/channel/runtime identity. CLI consumers require
+the CLI subset and accept additional well-formed Desktop/evidence assets; they
+still verify selected bytes and safe, unique checksum records. The candidate has
+17 files: 15 payload/evidence files, a manifest hashing those 15, and one
+`SHA256SUMS` containing 16 entries including the manifest, never itself. GitHub
+attestations cover the final files without adding a recursive checksum envelope.
 
-If publication or an external service fails, inspect the existing state before
-retrying; an interrupted job may already have uploaded assets. For an emergency stop, **disable the publication workflows and cancel active
-and queued runs** through the authorized maintainer process. The publisher
-rechecks live workflow state before side effects. `WHIP_RELEASE_ENABLED=false`
-is an admission gate, not immediate cancellation: expressions may have been
-evaluated before approval. Never weaken a check to resume publication.
-Pre-reset machines follow the [manual reset checklist](team-reset.md), not an
-in-place installer or database migration.
+1. All required builds, acceptance and candidate checks succeed.
+2. Alpha proceeds automatically; stable receives its single final approval.
+3. Populate or resume the matching private GitHub draft and verify its exact bytes.
+4. Upload/read back immutable CDN payloads. These URLs are public even before
+   feed promotion; no preannouncement confidentiality is promised.
+5. Publish the complete GitHub release once. Alpha is prerelease/not-latest.
+   Stable advances latest only when no newer stable has already published.
+6. Advance/read back the Desktop feed last, retaining CAS and no-downgrade checks.
+
+A failure before GitHub publication leaves no public GitHub release or feed
+change; a partial draft and unadvertised immutable CDN files may remain. A feed
+failure after publication means **complete release published, feed pending**.
+Retry the failed publication/promotion job using the exact retained candidate,
+not all builds. Conflicting source/bytes fail; never retag or overwrite public
+assets. Already published identical content is verified, not replaced. If saved
+candidate artifacts expire or source must change, issue a new version.
+
+## Run and verify
+
+```sh
+# A main push does this automatically when enabled.
+gh workflow run publish-cli.yml --ref main -f channel=alpha
+
+# Deliberate stable candidate; final environment approval is still required.
+gh workflow run publish-cli.yml --ref main -f channel=stable
+```
+
+Verify the run's SHA/tag/version, full inventory, checksums and attestations;
+clean CLI installation and Chromium/daemon startup; signed Desktop installation,
+matching backend, and update-feed discovery. Use disposable homes and candidate
+apps, not `task update:local` against a user's installation. Record both GitHub
+release and feed outcomes. Desktop never updates an SSH/URL host silently.
+
+Each release contains two generated installers from the one source `install.sh`:
+
+| Published asset | Selection policy |
+| --- | --- |
+| `install.sh` | Exact embedded release tag, including alpha/beta; no version environment variable needed |
+| `latest.sh` | Newest complete stable v1+ release at execution time; never alpha/beta or legacy v0 |
+
+Neither generated script can be redirected by inherited `WHIPCODE_VERSION` or
+`WHIPCODE_CHANNEL`. Other controls, such as the destination and authentication,
+retain their existing behavior. `latest.sh` fails clearly when no stable v1+
+release exists. A release-hosted copy is a snapshot of installer code, even though
+its stable selection is dynamic.
+
+Use the command in that release's notes, for example (substitute a published tag):
+
+```sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/install.sh | sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/latest.sh | sh
+```
+
+The repository's `main/install.sh` remains the shared source and supports explicit
+selection overrides used by development and `whipcode update`. There are not two
+separately maintained installer implementations. Generate both assets before
+candidate hashing/attestation; verify both byte-for-byte against the expected
+source/tag generation before any public effect. Old published assets stay intact.
+See [setup](setup.md#standalone-releases-and-updates) and the
+[manual reset checklist](team-reset.md).
+
+For emergency stop, disable `publish-cli.yml` and cancel active/queued runs.
+`WHIP_RELEASE_ENABLED=false` alone is not immediate cancellation: GitHub may have
+resolved it before approval. Live workflow-state checks precede public effects,
+but interrupted requests can already have changed external state. Inspect before
+retrying. Do not weaken source, signing, artifact or environment checks to resume.

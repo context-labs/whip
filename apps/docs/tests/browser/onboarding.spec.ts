@@ -1,32 +1,30 @@
 import { test, expect } from '@playwright/test'
 
 const desktopUrl = 'https://github.com/context-labs/whip/releases/download/v1.0.0-alpha.5/Whip-Beta-1.0.0-alpha.5-arm64.dmg'
-const installCommand = 'curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | WHIPCODE_CHANNEL=prerelease sh'
+const installCommand = 'curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh'
 
 test('quickstart is the installation-first docs entry', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
   await expect(page).toHaveURL('/docs/quickstart')
   const article = page.locator('article')
-  await expect(page.locator('.page-lead')).toContainText('open-source coding agent')
-  await expect(article.locator('h2')).toHaveText(['CLI', 'Desktop', 'Web', 'Connect', 'Start a task', 'Customize'])
+  await expect(page.locator('.page-lead')).toContainText('RLM-based AI coding agent')
+  await expect(article.locator('h2')).toHaveText(['TUI', 'Desktop', 'Web', 'Customize'])
   await expect(page.locator('.docs-sidebar .sidebar-item').first()).toHaveText('Quickstart')
   await expect(page.locator('.docs-sidebar').getByRole('link', { name: 'Introduction', exact: true })).toHaveCount(0)
-  await expect(article.getByRole('link', { name: 'Download Desktop', exact: true })).toHaveAttribute('href', '/docs/download#desktop')
-  await expect(article).toContainText('Set up this Mac')
+  await expect(article.getByRole('link', { name: 'Download Desktop for macOS Apple Silicon' })).toHaveAttribute('href', desktopUrl)
   await expect(article).toContainText('Providers & models')
-  await expect(article).toContainText('Ask for approval')
+  await expect(article).toContainText('/connect')
   await expect(article).toContainText('whipcode web')
-  await expect(article).toContainText('Do not change any files.')
-  const tabs = article.locator('.code-tabs')
-  await expect(tabs.getByRole('tab', { name: 'Install', exact: true })).toBeVisible()
-  await tabs.getByRole('button', { name: 'Copy code' }).click()
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(installCommand + String.fromCharCode(10))
-  await expect(article.locator('hr')).toHaveCount(2)
+  await expect(article).toContainText('New Session')
+  await expect(article.locator('pre code').first()).toHaveText(installCommand)
+  await article.getByRole('button', { name: 'Copy code' }).first().click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(installCommand + '\n')
+  await expect(article.locator('hr')).toHaveCount(0)
   await expect(article).not.toContainText('brew install')
   await expect(article).not.toContainText('npm install')
-  await article.getByRole('link', { name: 'Download Desktop', exact: true }).click()
-  await expect(page).toHaveURL('/docs/download#desktop')
+  await article.getByRole('link', { name: 'Configuration', exact: true }).click()
+  await expect(page).toHaveURL('/docs/configuration')
 })
 
 for (const javaScriptEnabled of [true, false]) test.describe(`article styles with JavaScript ${javaScriptEnabled ? 'enabled' : 'disabled'}`, () => {
@@ -104,7 +102,7 @@ for (const width of [320, 1440]) test(`onboarding pages remain usable without Ja
   const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width, height: 900 } })
   const page = await context.newPage()
   await page.goto('http://127.0.0.1:3101/docs/quickstart')
-  await expect(page.locator('article pre')).toHaveCount(5)
+  await expect(page.locator('article pre')).toHaveCount(3)
   for (const block of await page.locator('article pre').all()) await expect(block).toBeVisible()
   await page.goto('http://127.0.0.1:3101/docs/download')
   await expect(page.getByRole('link', { name: 'Download Desktop for macOS Apple Silicon' })).toBeVisible()

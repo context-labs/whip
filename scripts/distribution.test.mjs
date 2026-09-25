@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { crc32 } from 'node:zlib';
-import { bundleDigest, extractApplicationZip, prepareDistribution } from '../apps/desktop/scripts/distribution.mjs';
+import { bundleDigest, desktopArchiveNames, desktopArtifactURL, extractApplicationZip, prepareDistribution } from '../apps/desktop/scripts/distribution.mjs';
 
 // Stored ZIP entries keep hostile central-directory paths and Unix modes intact.
 function zip(entries) {
@@ -139,7 +139,74 @@ test('a substituted DMG application is rejected and its private volume is detach
   const dmg = path.join(f.root, 'Whip bad.dmg');
   await exec('/usr/bin/hdiutil', ['create', '-srcfolder', imageRoot, '-format', 'UDZO', '-volname', 'Whip Distribution Fixture', dmg], { timeout: 30_000 });
   await assert.rejects(prepareDistribution([dmg, f.archive], path.join(f.root, 'release'), evidence), /application bytes differ/);
+  assert.deepEqual(await readFile(path.join(f.root, 'release', desktopArchiveNames[0])), await readFile(dmg));
+  await assert.rejects(readFile(path.join(f.root, 'release', path.basename(dmg))), { code: 'ENOENT' });
   const mounted = await exec('/usr/bin/hdiutil', ['info'], { timeout: 10_000 });
   assert(!mounted.stdout.includes(path.join(f.root, 'release', path.basename(dmg))), 'A rejected DMG must not remain mounted');
   await assert.rejects(readFile(path.join(f.root, 'release/evidence.json')), { code: 'ENOENT' });
+});
+
+test('the real distribution producer rewrites only the current maker entry and copies the canonical ZIP', async t => {
+  for (const version of ['1.0.0-alpha.7', '1.0.0']) {
+    const f = await fixture(t);
+    const bundle = await f.extract([{ name: 'Whip.app/Contents/main.cjs', body: 'verified native main' }]);
+    const channel = version.includes('-') ? 'beta' : 'stable';
+    const updateURL = `https://updates.example.test/desktop/${channel}/darwin/arm64/RELEASES.json`;
+    const sourceZip = path.join(f.root, `Whip ${channel} darwin arm64 ${version}.zip`);
+    await cp(f.archive, sourceZip);
+    const dmg = path.join(f.root, 'Whip source.dmg'); await writeFile(dmg, 'not mounted in this test');
+    const historical = { version: '0.9.0', updateTo: { version: '0.9.0', url: new URL('Whip-old.zip', updateURL).href, notes: 'keep' } };
+    const feedFile = path.join(f.root, 'RELEASES.json');
+    // Match maker-zip/dist/MakerZIP.js: mutate the base URL pathname, then toString().
+    const makerURL = new URL(updateURL.replace(/\/RELEASES\.json$/, ''));
+    makerURL.pathname += `/${path.basename(sourceZip)}`;
+    await writeFile(feedFile, JSON.stringify({ currentRelease: version, releases: [historical, { version, updateTo: {
+      version, url: makerURL.toString() } }] }));
+    const directory = path.join(f.root, 'release');
+    // Deliberately fail app-tree verification after the real rename/copy/feed boundary.
+    await writeFile(path.join(bundle, 'Contents/main.cjs'), 'different verified bytes');
+    await assert.rejects(prepareDistribution([feedFile, sourceZip, dmg], directory,
+      { bundle, bundleDigest: await bundleDigest(bundle), version, updateURL }), /application bytes differ/);
+    assert.deepEqual(await readFile(path.join(directory, desktopArchiveNames[1])), await readFile(sourceZip));
+    const feed = JSON.parse(await readFile(path.join(directory, 'RELEASES.json')));
+    assert.deepEqual(feed.releases[0], historical);
+    assert.equal(feed.releases[1].updateTo.url, new URL(`v${version}/${desktopArchiveNames[1]}`, updateURL).href);
+    assert.equal(path.basename(bundle), 'Whip.app');
+    await assert.rejects(readFile(path.join(directory, 'evidence.json')), { code: 'ENOENT' });
+  }
+});
+
+test('canonical artifact URL rejects unsafe versions, filenames and normalized feed roots', () => {
+  const root = 'https://updates.example.test/beta/darwin/arm64/RELEASES.json';
+  for (const version of ['v1.0.0', '../1.0.0', '1.0.0-alpha.01', '1.0.0/else', '0.9.0'])
+    assert.throws(() => desktopArtifactURL(root, version, desktopArchiveNames[1]));
+  for (const feed of [root + '?x=1', root + '#x', root.replace('/beta/', '/beta/../beta/'),
+    root.replace('/beta/', '/%62eta/'), root.replace('/beta/', '/beta//'), root.replace('https:', 'http:')])
+    assert.throws(() => desktopArtifactURL(feed, '1.0.0', desktopArchiveNames[1]));
+  for (const name of ['Whip.zip', '../whipcode-desktop-darwin-arm64.zip', 'whipcode-desktop-darwin-arm64.zip?x'])
+    assert.throws(() => desktopArtifactURL(root, '1.0.0', name));
+});
+
+test('producer rejects malformed maker source/feed before touching existing output', async t => {
+  const f = await fixture(t); const bundle = await f.extract([{ name: 'Whip.app/main', body: 'original' }]);
+  const version = '1.0.0-alpha.7';
+  const updateURL = 'https://updates.example.test/desktop/beta/darwin/arm64/RELEASES.json';
+  const evidence = { bundle, bundleDigest: await bundleDigest(bundle), version, updateURL };
+  const dmg = path.join(f.root, 'maker.dmg'); await writeFile(dmg, 'dmg');
+  const feedFile = path.join(f.root, 'RELEASES.json');
+  const sourceURL = new URL(encodeURIComponent(path.basename(f.archive)), updateURL).href;
+  const directory = path.join(f.root, 'release'); await mkdir(directory); await writeFile(path.join(directory, 'keep'), 'previous');
+  for (const url of [sourceURL.replace('updates.example.test', 'foreign.example.test'), sourceURL + '?x',
+    sourceURL.replace('/beta/', '/stable/'), sourceURL.replace('/arm64/', '/arm64/x/../'), sourceURL.replace('.zip', '-other.zip')]) {
+    await writeFile(feedFile, JSON.stringify({ currentRelease: version, releases: [{ version, updateTo: { version, url } }] }));
+    await assert.rejects(prepareDistribution([feedFile, f.archive, dmg], directory, evidence), /different ZIP or feed root/);
+    assert.equal(await readFile(path.join(directory, 'keep'), 'utf8'), 'previous');
+  }
+  await writeFile(feedFile, JSON.stringify({ currentRelease: version, releases: [{ version, updateTo: { version, url: sourceURL } }] }));
+  const unknown = path.join(f.root, 'extra.txt'); await writeFile(unknown, 'extra');
+  const alias = path.join(f.root, 'alias.zip'); await symlink(f.archive, alias);
+  for (const artifacts of [[dmg, f.archive, feedFile, unknown], [dmg, f.archive, feedFile, feedFile], [dmg, alias, feedFile], [dmg, f.archive, f.archive]]) {
+    await assert.rejects(prepareDistribution(artifacts, directory, evidence));
+    assert.equal(await readFile(path.join(directory, 'keep'), 'utf8'), 'previous');
+  }
 });

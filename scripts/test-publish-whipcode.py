@@ -1,421 +1,374 @@
 #!/usr/bin/env python3
-"""Test release publication state transitions without writing to GitHub."""
+"""Offline publication orchestration and workflow contracts; JS tests own byte integrity."""
 import json
 import os
-import re
 from pathlib import Path
-import shutil
+import re
 import subprocess
-import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().with_name('publish-whipcode.sh')
+SCRIPT = Path(__file__).with_name('publish-whipcode.sh').resolve()
 SOURCE = 'a' * 40
-NAMES = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64']
 
 
 class PublisherTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='whipcode-publisher-')
+        self.tmp = tempfile.TemporaryDirectory(prefix='unified-publish-test-')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / 'artifacts').mkdir()
-        self.tools = self.root / 'tools'
-        self.tools.mkdir()
-        for name in NAMES:
-            (self.root / 'artifacts' / name).write_text(name)
+        (self.root / 'candidate').mkdir()
         (self.root / 'install.sh').write_text('installer')
-        self.state = {'exists': False, 'draft': True, 'tag': False, 'tag_sha': SOURCE,
-                      'target': SOURCE, 'head': SOURCE, 'calls': [], 'fail_upload': False,
-                      'supersede_upload': False, 'prerelease': True}
-        self.state_path = self.root / 'state.json'
-        self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
-                    'STATE': str(self.state_path), 'SOURCE_SHA': SOURCE,
-                    'RELEASE_TAG': 'v1.0.0-alpha.1', 'GH_REPO': 'context-labs/whip',
-                    'RELEASE_MODE': 'alpha', 'WHIP_RELEASE_ENABLED': 'true',
+        (self.root / 'candidate/install.sh').write_text('pinned installer')
+        (self.root / 'candidate/latest.sh').write_text('stable installer')
+        self.state_file = self.root / 'state.json'
+        self.state = {'calls': [], 'tag': False, 'tag_sha': SOURCE, 'workflow': 'active'}
+        self.env = {**os.environ, 'PATH': str(self.root) + os.pathsep + os.environ['PATH'],
+                    'TEST_STATE': str(self.state_file), 'SOURCE_SHA': SOURCE,
+                    'RELEASE_TAG': 'v1.0.0-alpha.1', 'RELEASE_MODE': 'alpha',
+                    'GH_REPO': 'context-labs/whip', 'GITHUB_REPOSITORY': 'context-labs/whip',
+                    'WHIP_RELEASE_ENABLED': 'true',
                     'WHIP_RELEASE_BASELINE': 'c' * 40}
-        for tool in ['gh', 'git']:
-            p = self.tools / tool
-            p.write_text('#!' + sys.executable + '\n' + r'''
-import hashlib, json, os, sys
-from pathlib import Path
-p=Path(os.environ['STATE']); s=json.loads(p.read_text())
-a=sys.argv[1:]; tool=Path(sys.argv[0]).name
-s['calls'].append([tool]+a)
+        fake = r"""#!/usr/bin/env python3
+import json, os, pathlib, sys
+p=pathlib.Path(os.environ['TEST_STATE']); s=json.loads(p.read_text())
+cmd=pathlib.Path(sys.argv[0]).name; a=sys.argv[1:]
+s['calls'].append([cmd,*a])
 def done(code=0, output=''):
-    p.write_text(json.dumps(s)); print(output,end=''); sys.exit(code)
-if tool=='git':
-    if a[0]=='ls-remote': done(128 if s.get('fail_lookup') else (0 if s['tag'] else 2))
-    if a[0]=='fetch': done(1 if s.get('fail_fetch') else 0)
-    if a[0]=='rev-parse': done(output=(s.get('checkout', os.environ['SOURCE_SHA']) if a[1]=='HEAD' else s['tag_sha'])+'\n')
-    if a[0]=='merge-base': done(1 if s.get('pre_baseline') else 0)
-if a[0]=='api':
-    if any('/actions/workflows/' in value for value in a):
-        done(1 if s.get('fail_workflow') else 0, s.get('workflow_state', 'active'))
+    p.write_text(json.dumps(s)); sys.stdout.write(output); sys.exit(code)
+if cmd=='git':
+    if a[0]=='rev-parse': done(output=(s.get('checkout',os.environ['SOURCE_SHA']) if a[1]=='HEAD' else s['tag_sha']))
+    if a[0]=='fetch': done(1 if s.get('fetch_fail') else 0)
+    if a[0]=='merge-base':
+        done(1 if (s.get('off_main') if a[-1]=='origin/main' else s.get('pre_baseline')) else 0)
+    if a[0]=='ls-remote': done(128 if s.get('lookup_fail') else (0 if s['tag'] else 2))
+if cmd=='gh':
+    if '/actions/workflows/' in ' '.join(a): done(1 if s.get('workflow_fail') else 0,s['workflow'])
     if '--method' in a:
-        if s.get('fail_tag'): done(1)
+        if s.get('tag_fail'): done(1)
         s['tag']=True; done()
-    done(1 if s.get('fail_head') else 0, s['head']+'\n')
-if a[:2]==['release','view']:
-    if not s['exists']: done(1)
-    names=['whipcode-linux-x64','whipcode-linux-arm64','whipcode-darwin-x64',
-           'whipcode-darwin-arm64','SHA256SUMS','install.sh']
-    if s.get('missing_asset'): names.pop()
-    if s.get('extra_asset'): names.append('unexpected.txt')
-    done(output=json.dumps({'isDraft':s['draft'],'isPrerelease':s['prerelease'],'targetCommitish':s['target'],
-                            'assets':[{'name':n,'size':1} for n in names]}))
-if a[:2]==['release','create']:
-    s['exists']=True; s['draft']=True
-    if s.get('disable_create'): s['workflow_state']='disabled_manually'
+if cmd=='node':
+    helper=pathlib.Path(a[0]).name
+    phase=helper+':'+(a[1] if helper=='release-candidate.mjs' else os.environ.get('WHIP_DESKTOP_PUBLISH_MODE',''))
+    s.setdefault('phases',[]).append(phase)
+    if s.get('fail_phase')==phase: done(1)
+    if helper=='release-candidate.mjs' and s.get('bad_candidate'): done(1)
+    if helper=='release-candidate.mjs':
+        for name,expected in [('install.sh','pinned installer'),('latest.sh','stable installer')]:
+            if pathlib.Path(a[2],name).read_text()!=expected: done(1)
+    if helper=='publish-github.mjs' and os.environ.get('WHIP_DESKTOP_PUBLISH_MODE')=='promote': s['public']=True
+    if s.get('disable_after')==phase: s['workflow']='disabled_manually'
+    if s.get('orphan_after')==phase: s['off_main']=True
     done()
-if a[:2]==['release','upload']:
-    if s['fail_upload']: done(1)
-    if s['supersede_upload']: s['head']='b'*40
-    if s.get('disable_upload'): s['workflow_state']='disabled_manually'
-    done()
-if a[:2]==['release','edit']:
-    s['draft']=False; s['prerelease']='--prerelease=false' not in a; done()
-if a[:2]==['release','download']:
-    dest=Path(a[a.index('--dir')+1]); dest.mkdir(parents=True)
-    names=['whipcode-linux-x64','whipcode-linux-arm64','whipcode-darwin-x64','whipcode-darwin-arm64']
-    sums=''
-    for name in names:
-        # Previously published bytes differ from a new rebuild but remain valid.
-        body='published '+name
-        (dest/name).write_text(body)
-        sums+=hashlib.sha256(body.encode()).hexdigest()+'  '+name+'\n'
-    if s.get('corrupt_published'): (dest/names[0]).write_text('corrupted')
-    installer='different' if s.get('wrong_installer') else 'installer'
-    (dest/'install.sh').write_text(installer)
-    sums+=hashlib.sha256(installer.encode()).hexdigest()+'  install.sh\n'
-    if s.get('incomplete_manifest'): sums=''
-    if s.get('unsafe_manifest'): sums=sums.replace('install.sh', '../install.sh')
-    (dest/'SHA256SUMS').write_text(sums)
-    done()
-done(9)
-''')
-            p.chmod(0o755)
-        if not shutil.which('sha256sum'):
-            shim = self.tools / 'sha256sum'
-            shim.write_text('#!/bin/sh\nexec shasum -a 256 "$@"\n')
-            shim.chmod(0o755)
+done(99)
+"""
+        for name in ['git', 'gh', 'node']:
+            path = self.root / name
+            path.write_text(fake)
+            path.chmod(0o755)
 
     def publish(self, success=True):
-        self.state_path.write_text(json.dumps(self.state))
-        p = subprocess.run(['bash', str(SCRIPT)], cwd=self.root, env=self.env,
-                           capture_output=True, text=True, timeout=30)
-        self.state = json.loads(self.state_path.read_text())
-        self.assertEqual(p.returncode == 0, success, p.stdout + p.stderr)
-        return p
+        self.state_file.write_text(json.dumps(self.state))
+        result = subprocess.run(['bash', str(SCRIPT), 'candidate'], cwd=self.root,
+                                env=self.env, text=True, capture_output=True, timeout=15)
+        self.state = json.loads(self.state_file.read_text())
+        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        return result
 
-    def called(self, verb):
-        return any(call[:3] == ['gh', 'release', verb] for call in self.state['calls'])
+    def assert_no_publication(self):
+        self.assertFalse(self.state.get('public'))
+        self.assertFalse(any('publish-' in p for p in self.state.get('phases', [])))
 
-    def test_new_release(self):
+    def test_one_ordered_lifecycle_feed_last(self):
         self.publish()
-        self.assertTrue(self.called('create'))
-        self.assertTrue(self.called('upload'))
-        self.assertFalse(self.state['draft'])
+        self.assertEqual(self.state['phases'], ['release-candidate.mjs:verify',
+            'publish-github.mjs:stage', 'publish.mjs:stage',
+            'publish-github.mjs:promote', 'publish.mjs:promote'])
+        self.assertTrue(self.state['tag'])
+        self.assertTrue(self.state['public'])
 
-    def test_tagless_draft_recovery(self):
-        self.state['exists'] = True
-        self.publish()
-        self.assertFalse(self.called('create'))
-        self.assertTrue(self.called('upload'))
-        self.assertFalse(self.state['draft'])
+    def test_stable_and_next_reviewed_base_use_same_lifecycle(self):
+        for mode, tag in [('stable', 'v1.0.0'), ('stable', 'v2.1.0'), ('alpha', 'v2.1.0-alpha.9')]:
+            with self.subTest(tag=tag):
+                self.env.update(RELEASE_MODE=mode, RELEASE_TAG=tag)
+                self.publish()
 
-    def test_wrong_draft_target(self):
-        self.state.update(exists=True, target='b' * 40)
-        self.publish(False)
-        self.assertFalse(self.called('upload'))
-
-    def test_conflicting_tag_without_release(self):
-        self.state.update(tag=True, tag_sha='b' * 40)
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_published_rerun_verifies_without_clobber(self):
-        self.state.update(exists=True, tag=True, draft=False)
-        self.publish()
-        self.assertTrue(self.called('download'))
-        self.assertFalse(self.called('upload'))
-        self.assertFalse(self.called('edit'))
-
-    def test_published_checksum_failure_is_not_success(self):
-        self.state.update(exists=True, tag=True, draft=False, corrupt_published=True)
-        self.publish(False)
-        self.assertFalse(self.called('upload'))
-        self.assertFalse(self.called('edit'))
-
-    def test_published_installer_must_match_source(self):
-        self.state.update(exists=True, tag=True, draft=False, wrong_installer=True)
-        self.publish(False)
-        self.assertFalse(self.called('upload'))
-        self.assertFalse(self.called('edit'))
-
-    def test_tag_fetch_failure_prevents_creation(self):
-        self.state.update(tag=True, fail_fetch=True)
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_upload_failure_keeps_draft(self):
-        self.state['fail_upload'] = True
-        self.publish(False)
-        self.assertTrue(self.state['draft'])
-        self.assertFalse(self.called('edit'))
-
-    def test_superseded_source_skips_publish(self):
-        self.state['head'] = 'b' * 40
-        self.publish()
-        self.assertFalse(self.called('create'))
-
-    def test_superseded_upload_stays_draft(self):
-        self.state['supersede_upload'] = True
-        self.publish()
-        self.assertTrue(self.called('upload'))
-        self.assertTrue(self.state['draft'])
-        self.assertFalse(self.called('edit'))
-
-    def test_stable_is_explicit_and_latest(self):
-        self.env.update(RELEASE_MODE='stable', RELEASE_TAG='v1.0.0')
-        self.publish()
-        self.assertFalse(self.state['prerelease'])
-        edit = next(c for c in self.state['calls'] if c[:3] == ['gh', 'release', 'edit'])
-        self.assertIn('--prerelease=false', edit)
-        self.assertIn('--latest=true', edit)
-
-    def test_alpha_release_notes_pin_prerelease_install(self):
-        self.publish()
-        notes = (self.root / 'artifacts/notes.md').read_text()
-        self.assertIn('| WHIPCODE_VERSION=v1.0.0-alpha.1 sh', notes)
-
-    def test_stable_release_notes_pin_stable_install(self):
-        self.env.update(RELEASE_MODE='stable', RELEASE_TAG='v1.0.0')
-        self.publish()
-        notes = (self.root / 'artifacts/notes.md').read_text()
-        self.assertIn('| WHIPCODE_VERSION=v1.0.0 sh', notes)
-
-    def test_alpha_never_becomes_latest(self):
-        self.publish()
-        edit = next(c for c in self.state['calls'] if c[:3] == ['gh', 'release', 'edit'])
-        self.assertIn('--prerelease', edit)
-        self.assertIn('--latest=false', edit)
-        self.assertTrue(any(c[:4] == ['gh', 'api', '--method', 'POST'] for c in self.state['calls']))
-
-    def test_disabled_or_unset_switch_never_calls_github(self):
+    def test_global_switch_fails_closed(self):
         for value in ['', 'false', '1', 'TRUE']:
             with self.subTest(value=value):
                 self.env['WHIP_RELEASE_ENABLED'] = value
                 self.publish(False)
                 self.assertEqual(self.state['calls'], [])
 
-    def test_baseline_required_and_must_be_sha(self):
-        for value in ['', 'main', 'c' * 39]:
+    def test_baseline_must_be_full_sha(self):
+        for value in ['', 'main', 'a' * 39]:
             with self.subTest(value=value):
                 self.env['WHIP_RELEASE_BASELINE'] = value
                 self.publish(False)
                 self.assertEqual(self.state['calls'], [])
 
-    def test_predating_baseline_fails(self):
-        self.state['pre_baseline'] = True
+    def test_wrong_repository_rejected(self):
+        self.env['GITHUB_REPOSITORY'] = 'fork/whip'
         self.publish(False)
-        self.assertFalse(self.called('create'))
+        self.assertEqual(self.state['calls'], [])
 
-    def test_checkout_must_equal_validated_source(self):
-        self.state['checkout'] = 'b' * 40
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_reject_legacy_or_mismatched_channels(self):
-        for mode, tag in [('alpha', 'whipcode-v0.0.1'), ('alpha', 'v0.0.1'),
-                          ('alpha', 'v1.0.0'), ('alpha', 'v1.0.0-alpha.0'),
-                          ('alpha', 'v1.0.0-alpha.01'), ('alpha', 'v1.0.0-beta.1'),
-                          ('stable', 'v1.0.0-alpha.1'), ('stable', 'v2.0.0'),
-                          ('other', 'v1.0.0')]:
+    def test_reject_wrong_channel_and_legacy_or_noncanonical_tags(self):
+        for mode, tag in [('alpha', 'v1.0.0'), ('stable', 'v1.0.0-alpha.1'),
+                          ('alpha', 'v0.0.1-alpha.1'), ('alpha', 'whipcode-v0.0.1'),
+                          ('alpha', 'desktop-v1.0.0-alpha.1'), ('alpha', 'v1.0.0-alpha.0'),
+                          ('alpha', 'v1.0.0-alpha.01'), ('stable', 'v1.01.0'),
+                          ('alpha', 'v1.0.0-beta.1'), ('other', 'v1.0.0')]:
             with self.subTest(mode=mode, tag=tag):
                 self.env.update(RELEASE_MODE=mode, RELEASE_TAG=tag)
                 self.publish(False)
-                self.assertFalse(self.called('create'))
+                self.assertEqual(self.state['calls'], [])
 
-    def test_missing_or_extra_assets_prevent_publication(self):
-        for field in ['missing_asset', 'extra_asset']:
+    def test_source_boundary_failures(self):
+        for field, value in [('checkout', 'b' * 40), ('pre_baseline', True),
+                             ('off_main', True), ('fetch_fail', True)]:
+            with self.subTest(field=field):
+                self.state[field] = value
+                self.publish(False)
+                self.assert_no_publication()
+                del self.state[field]
+
+    def test_advancing_main_does_not_supersede_pinned_source(self):
+        # The git fake allows source ancestry but cannot answer current-tip API calls.
+        self.publish()
+        self.assertFalse(any('git/ref/heads/main' in ' '.join(c) for c in self.state['calls']))
+        self.assertIn(['git', 'merge-base', '--is-ancestor', SOURCE, 'origin/main'], self.state['calls'])
+
+    def test_workflow_disabled_or_unavailable_fails_closed(self):
+        for field, value in [('workflow', 'disabled_manually'), ('workflow_fail', True)]:
+            with self.subTest(field=field):
+                self.state[field] = value
+                self.publish(False)
+                self.assert_no_job_tag()
+                self.state[field] = 'active' if field == 'workflow' else False
+
+    def assert_no_job_tag(self):
+        self.assertFalse(self.state['tag'])
+        self.assert_no_publication()
+
+    def test_invalid_candidate_before_tag_side_effect(self):
+        self.state['bad_candidate'] = True
+        self.publish(False)
+        self.assert_no_job_tag()
+
+    def test_both_installers_must_match_generated_bytes(self):
+        for name, original in [('install.sh', 'pinned installer'), ('latest.sh', 'stable installer')]:
+            with self.subTest(name=name):
+                (self.root / 'candidate' / name).write_text('wrong')
+                self.publish(False)
+                self.assert_no_job_tag()
+                (self.root / 'candidate' / name).write_text(original)
+
+    def test_orphan_tag_wrong_source_rejected(self):
+        self.state.update(tag=True, tag_sha='b' * 40)
+        self.publish(False)
+        self.assert_no_publication()
+
+    def test_matching_tag_is_not_recreated(self):
+        self.state['tag'] = True
+        self.publish()
+        self.assertFalse(any('--method' in c for c in self.state['calls']))
+
+    def test_tag_lookup_and_creation_errors_fail_closed(self):
+        for field in ['lookup_fail', 'tag_fail']:
             with self.subTest(field=field):
                 self.state[field] = True
                 self.publish(False)
-                self.assertFalse(self.called('edit'))
-                self.state[field] = False
+                self.assert_no_publication()
+                del self.state[field]
 
-    def test_disabled_workflow_prevents_publication(self):
-        self.state['workflow_state'] = 'disabled_manually'
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_unavailable_workflow_state_fails_closed(self):
-        self.state['fail_workflow'] = True
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_workflow_disabled_before_upload_does_not_clobber(self):
-        self.state['disable_create'] = True
-        self.publish(False)
-        self.assertTrue(self.state['draft'])
-        self.assertFalse(self.called('upload'))
-        self.assertFalse(self.called('edit'))
-
-    def test_workflow_disabled_during_upload_leaves_draft(self):
-        self.state['disable_upload'] = True
-        self.publish(False)
-        self.assertTrue(self.state['draft'])
-        self.assertFalse(self.called('edit'))
-
-    def test_remote_head_failure_does_not_publish(self):
-        self.state['fail_head'] = True
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_tag_lookup_failure_is_not_absence(self):
-        self.state['fail_lookup'] = True
-        self.publish(False)
-        self.assertFalse(self.called('create'))
-
-    def test_tag_creation_failure_keeps_draft(self):
-        self.state['fail_tag'] = True
-        self.publish(False)
-        self.assertTrue(self.state['draft'])
-        self.assertFalse(self.called('edit'))
-
-    def test_published_assets_must_be_exact(self):
-        self.state.update(exists=True, tag=True, draft=False, extra_asset=True)
-        self.publish(False)
-        self.assertFalse(self.called('upload'))
-        self.assertFalse(self.called('edit'))
-
-    def test_published_channel_must_match(self):
-        self.state.update(exists=True, tag=True, draft=False, prerelease=False)
-        self.publish(False)
-        self.assertFalse(self.called('upload'))
-
-    def test_published_incomplete_or_unsafe_checksums_fail(self):
-        for field in ['incomplete_manifest', 'unsafe_manifest']:
-            with self.subTest(field=field):
-                self.state.update(exists=True, tag=True, draft=False)
-                self.state[field] = True
+    def test_helper_failures_stop_following_phases(self):
+        phases = ['publish-github.mjs:stage', 'publish.mjs:stage', 'publish-github.mjs:promote']
+        for phase in phases:
+            with self.subTest(phase=phase):
+                self.state['phases'] = []
+                self.state['fail_phase'] = phase
                 self.publish(False)
-                self.assertFalse(self.called('edit'))
-                self.state[field] = False
-                shutil.rmtree(self.root / 'artifacts' / 'published', ignore_errors=True)
+                self.assertEqual(self.state['phases'][-1], phase)
+                self.assertFalse(self.state.get('public'))
+
+    def test_feed_failure_explicit_partial_success(self):
+        self.state['fail_phase'] = 'publish.mjs:promote'
+        result = self.publish(False)
+        self.assertTrue(self.state['public'])
+        self.assertIn('GitHub release is published, but Desktop feed promotion failed', result.stderr)
+
+    def test_stop_between_staging_and_publication(self):
+        self.state['disable_after'] = 'publish.mjs:stage'
+        self.publish(False)
+        self.assertFalse(self.state.get('public'))
+        self.assertEqual(self.state['phases'][-1], 'publish.mjs:stage')
+
+    def test_stop_after_github_reports_partial_success(self):
+        self.state['disable_after'] = 'publish-github.mjs:promote'
+        result = self.publish(False)
+        self.assertTrue(self.state['public'])
+        self.assertIn('feed promotion failed', result.stderr)
+        self.assertNotIn('publish.mjs:promote', self.state['phases'])
+
+    def test_source_removed_after_staging_cannot_publish(self):
+        self.state['orphan_after'] = 'publish.mjs:stage'
+        self.publish(False)
+        self.assertFalse(self.state.get('public'))
 
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.workflows = SCRIPT.parent.parent / '.github' / 'workflows'
+        self.workflows = SCRIPT.parent.parent / '.github/workflows'
         self.release = (self.workflows / 'publish-cli.yml').read_text()
-        self.security = (self.workflows / 'security.yml').read_text()
+        self.desktop = (self.workflows / 'desktop-release.yml').read_text()
         self.ci = (self.workflows / 'ci.yml').read_text()
+        self.security = (self.workflows / 'security.yml').read_text()
 
     def job(self, workflow, name):
-        # Source contracts supplement actionlint's YAML/expression validation.
         match = re.search(r'(?ms)^  ' + re.escape(name) + r':\n(.*?)(?=^  [a-zA-Z_-]+:|\Z)', workflow)
         self.assertIsNotNone(match, name)
         return match.group(1)
 
-    def test_one_shared_validation_definition(self):
+    def test_one_workflow_identity_and_version(self):
+        self.assertIn('name: releaseWHIP\n', self.release)
+        self.assertIn('  push:\n    branches: [main]\n', self.release)
+        self.assertIn('  workflow_dispatch:\n', self.release)
+        self.assertNotIn('tags:', self.release)
+        self.assertEqual(self.release.count('BASE_VERSION: 1.0.0'), 1)
+        self.assertIn('version="$BASE_VERSION-alpha.$RUN_NUMBER"', self.release)
+        self.assertIn('version="$BASE_VERSION"; channel=stable', self.release)
+        for name in ['release-desktop.yml', 'desktop-publish.yml', 'release-whipcode.yml', 'release.yml']:
+            self.assertFalse((self.workflows / name).exists())
+
+    def test_admission_pins_protected_main_source(self):
+        metadata = self.job(self.release, 'metadata')
+        for guard in ["github.repository == 'context-labs/whip'", "github.ref == 'refs/heads/main'",
+                      "vars.WHIP_RELEASE_ENABLED == 'true'",
+                      'git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"',
+                      'git merge-base --is-ancestor "$SOURCE_SHA" origin/main', 'ref: ${{ github.sha }}']:
+            self.assertIn(guard, metadata)
+        self.assertNotIn('git rev-parse origin/main', self.release)
+        self.assertIn('cancel-in-progress: false', self.release)
+        self.assertIn('# ponytail:', self.release)
+        self.assertIn('group: whipcode-publishing', self.release)
+
+    def test_complete_graph_is_mandatory(self):
+        self.assertIn('needs: [metadata, ci, security]', self.job(self.release, 'build'))
+        self.assertIn('needs: [metadata, ci, security]', self.job(self.release, 'desktop'))
+        self.assertIn('needs: [metadata, build]', self.job(self.release, 'linux'))
+        self.assertIn('needs: [metadata, build, desktop, linux]', self.job(self.release, 'candidate'))
+        self.assertIn('needs: [metadata, candidate]', self.job(self.release, 'publish'))
+        self.assertNotIn('continue-on-error:', self.release + self.desktop)
+        self.assertIn("if: vars.WHIP_RELEASE_ENABLED == 'true'\n", self.job(self.release, 'publish'))
+        self.assertIn("if: vars.WHIP_RELEASE_ENABLED == 'true'\n", self.job(self.desktop, 'package'))
+        self.assertEqual(self.release.count('uses: ./.github/workflows/ci.yml'), 1)
+        self.assertEqual(self.release.count('uses: ./.github/workflows/security.yml'), 1)
+
+    def test_single_publish_approval_and_scoped_secrets(self):
+        publish = self.job(self.release, 'publish')
+        self.assertIn("'desktop-stable-stage' || 'desktop-beta-stage'", publish)
+        self.assertIn('bash scripts/publish-whipcode.sh candidate', publish)
+        self.assertIn('GH_TOKEN: ${{ github.token }}', publish)
+        self.assertEqual(self.release.count('contents: write'), 1)
+        self.assertEqual(self.release.count('secrets: inherit'), 1)
+        self.assertIn('secrets: inherit', self.job(self.release, 'desktop'))
+        for name in ['ci', 'security', 'build', 'linux', 'candidate', 'publish']:
+            self.assertNotIn('secrets: inherit', self.job(self.release, name))
+        signing_env = self.desktop.split('    steps:')[0]
+        self.assertNotIn('secrets.', signing_env)
+        self.assertEqual(self.desktop.count('secrets.'), 3)
+        signing_step = self.desktop.split('      - name: Import temporary signing credentials')[1].split('      - name:')[0]
+        self.assertEqual(signing_step.count('secrets.'), 3)
+        self.assertNotIn('pull_request:', self.release)
+        self.assertNotIn('desktop-stable-promote', self.release)
+        self.assertNotIn('GH_TOKEN:', publish.split('    steps:')[0])
+        self.assertEqual(publish.count('GH_TOKEN: ${{ github.token }}'), 2)
+        checkout = publish.split('uses: actions/checkout@')[1].split('      - ')[0]
+        self.assertIn('persist-credentials: false', checkout)
+        self.assertIn('environment: desktop-signing', self.desktop)
+        self.assertIn('ref: ${{ inputs.source }}', self.desktop)
+
+    def test_exact_standalone_linux_reused_without_compilation(self):
+        linux = self.job(self.release, 'linux')
+        self.assertIn('name: whipcode-bin-linux-amd64', linux)
+        self.assertIn('linux-smoke.mjs linux/whipcode-linux-x64', linux)
+        self.assertNotIn('go build', linux)
+        self.assertIn('path: linux/linux-runtime.json', linux)
+        self.assertNotIn('whipcode-linux-x64', self.job(self.release, 'candidate'))
+
+    def test_candidate_attestation_matches_actual_unified_main_workflow(self):
+        candidate = self.job(self.release, 'candidate')
+        self.assertIn('node scripts/build-installers.mjs "$RELEASE_TAG" candidate', candidate)
+        self.assertLess(candidate.index('node scripts/build-installers.mjs'), candidate.index('release-candidate.mjs assemble candidate'))
+        self.assertIn('release-candidate.mjs assemble candidate', candidate)
+        self.assertIn('run: npm ci', candidate)
+        self.assertIn("ELECTRON_SKIP_BINARY_DOWNLOAD: '1'", candidate)
+        self.assertLess(candidate.index('run: npm ci'), candidate.index('release-candidate.mjs assemble candidate'))
+        self.assertIn('subject-path: candidate/*', candidate)
+        publish = self.job(self.release, 'publish')
+        self.assertIn('--signer-workflow context-labs/whip/.github/workflows/publish-cli.yml', publish)
+        self.assertIn('--source-ref refs/heads/main --source-digest "$SOURCE_SHA"', publish)
+        self.assertIn('release-candidate.mjs verify candidate', publish)
+        self.assertIn('--deny-self-hosted-runners', publish)
+
+    def test_candidate_run_steps_install_dependencies_before_node(self):
+        candidate = self.job(self.release, 'candidate')
+        # Exercise run-step ordering in an empty workspace; the fake node fails
+        # unless npm ci actually ran with Electron downloads disabled first.
+        with tempfile.TemporaryDirectory(prefix='candidate-workspace-') as directory:
+            root = Path(directory)
+            (root / 'candidate').mkdir()
+            (root / 'install.sh').write_text('installer')
+            (root / 'npm').write_text('#!/bin/sh\n[ "$1" = ci ] && [ "$ELECTRON_SKIP_BINARY_DOWNLOAD" = 1 ] || exit 1\ntouch dependencies-ready\n')
+            (root / 'node').write_text('#!/bin/sh\ntest -f dependencies-ready || exit 1\ncase "$1" in scripts/build-installers.mjs) printf pinned > candidate/install.sh; printf stable > candidate/latest.sh;; *) test -s candidate/install.sh && test -s candidate/latest.sh || exit 1; touch assembled;; esac\n')
+            for executable in ['npm', 'node']:
+                (root / executable).chmod(0o755)
+            env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'], 'RELEASE_TAG': 'v1.0.0-alpha.1'}
+            executed = 0
+            for step in candidate.split('      - ')[1:]:
+                match = re.search(r'^        run: (.*)$', step, re.M)
+                if not match:
+                    continue
+                command = match.group(1)
+                if command == '|':
+                    command = '\n'.join(line[10:] for line in step[match.end():].splitlines()
+                                        if line.startswith('          '))
+                step_env = dict(env)
+                if "ELECTRON_SKIP_BINARY_DOWNLOAD: '1'" in step:
+                    step_env['ELECTRON_SKIP_BINARY_DOWNLOAD'] = '1'
+                result = subprocess.run(['bash', '-e', '-c', command], cwd=root, env=step_env,
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                executed += 1
+            self.assertEqual(executed, 2)
+            self.assertTrue((root / 'assembled').exists())
+
+    def test_distribution_installer_dependencies_precede_execution(self):
+        distribution = self.job(self.ci, 'distribution')
+        self.assertLess(distribution.index('uses: actions/setup-node@'), distribution.index('run: npm ci'))
+        self.assertEqual(distribution.count('run: npm ci'), 1)
+        for command in ['python3 scripts/test-install-whipcode.py', 'python3 scripts/test-publish-whipcode.py',
+                        'node --test scripts/build-installers.test.mjs']:
+            self.assertLess(distribution.index('run: npm ci'), distribution.index(command))
+
+    def test_all_checkouts_explicit_immutable_source(self):
+        for text in [self.release, self.desktop, self.ci, self.security,
+                     (self.workflows / 'desktop-check.yml').read_text(),
+                     (self.workflows / 'mobile.yml').read_text()]:
+            for block in text.split('uses: actions/checkout@')[1:]:
+                self.assertIn('ref: ${{ ', block.split('      - ')[0])
+
+    def test_shared_gates_still_fail_closed(self):
         for workflow in [self.ci, self.security]:
             self.assertIn('  workflow_call:\n', workflow)
             self.assertIn('  pull_request:\n    branches: [main]\n', workflow)
-            self.assertIn('  push:\n    branches: [main]\n', workflow)
             self.assertNotIn('continue-on-error:', workflow)
-        for old in ['ci-whipcode.yml', 'security-whipcode.yml', 'release.yml', 'release-whipcode.yml',
-                    'whip--loupe-chat.yml', 'whip--loupe-review.yml']:
-            self.assertFalse((self.workflows / old).exists())
-        for job in ['lint', 'test', 'build', 'runtime', 'driver', 'sdk', 'distribution', 'desktop', 'mobile']:
-            self.assertIn('${{ needs.' + job + '.result }}" = success', self.job(self.ci, 'go'))
+        for name in ['lint', 'test', 'build', 'runtime', 'driver', 'sdk', 'distribution', 'desktop', 'mobile']:
+            self.assertIn('${{ needs.' + name + '.result }}" = success', self.job(self.ci, 'go'))
         self.assertIn('if: always()', self.job(self.ci, 'go'))
-        self.assertIn('npm run test:package', self.job(self.ci, 'sdk'))
-        self.assertIn('needs: sdk', self.job(self.ci, 'distribution'))
-        self.assertIn('node scripts/pack-web.mjs --release', self.job(self.ci, 'distribution'))
-
-    def test_main_and_baseline_gate_all_publication(self):
-        self.assertNotIn('pull_request:', self.release)
-        self.assertNotIn('tags:', self.release)
-        metadata = self.job(self.release, 'metadata')
-        for guard in ["github.repository == 'context-labs/whip'", "github.ref == 'refs/heads/main'",
-                      "vars.WHIP_RELEASE_ENABLED == 'true'", 'vars.WHIP_RELEASE_BASELINE',
-                      'git merge-base --is-ancestor', 'git rev-parse origin/main']:
-            self.assertIn(guard, metadata)
-        self.assertIn('uses: ./.github/workflows/ci.yml', self.job(self.release, 'ci'))
-        self.assertIn('uses: ./.github/workflows/security.yml', self.job(self.release, 'security'))
-        self.assertIn('needs: [metadata, ci, security]', self.job(self.release, 'build'))
-        publish = self.job(self.release, 'publish')
-        self.assertIn('needs: [metadata, build]', publish)
-        self.assertIn("if: vars.WHIP_RELEASE_ENABLED == 'true'", publish)
-        self.assertIn('vars.WHIP_RELEASE_BASELINE', publish)
-        self.assertIn('ref: ${{ needs.metadata.outputs.source }}', publish)
-
-    def test_stable_requires_dispatch_and_protected_environment(self):
-        self.assertIn('  workflow_dispatch:\n', self.release)
-        self.assertIn('options: [alpha, stable]', self.release)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.channel || 'alpha'", self.release)
-        self.assertIn('alpha) tag="v1.0.0-alpha.$RUN_NUMBER"', self.release)
-        self.assertIn('stable) tag=v1.0.0', self.release)
-        self.assertIn("needs.metadata.outputs.mode == 'stable' && 'whipcode-stable'", self.job(self.release, 'publish'))
-        self.assertIn('GH_TOKEN: ${{ github.token }}', self.job(self.release, 'publish'))
-        self.assertNotIn('secrets.', self.release)
-        self.assertIn('group: whipcode-publishing', self.release)
-        self.assertIn('cancel-in-progress: false', self.release)
-
-    def test_security_has_no_release_authority(self):
-        self.assertIn('\npermissions:\n  contents: read\n', self.security)
-        self.assertNotIn('secrets.', self.security)
         self.assertNotIn('contents: write', self.security)
+        self.assertNotIn('secrets.', self.security)
         self.assertNotIn('pull_request_target:', self.release + self.security)
-        self.assertEqual(self.security.count('security-events: write'), 1)
-        self.assertIn('category: "/language:go"', self.job(self.security, 'codeql'))
-        self.assertIn('go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...', self.security)
-
-    def test_desktop_shares_boundary_and_validation(self):
-        desktop = (self.workflows / 'release-desktop.yml').read_text()
-        for expected in ["vars.WHIP_RELEASE_ENABLED == 'true'", "vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'",
-                         'vars.WHIP_RELEASE_BASELINE', 'git merge-base --is-ancestor',
-                         'git rev-parse origin/main', './.github/workflows/ci.yml',
-                         './.github/workflows/security.yml', 'actions/attest@']:
-            self.assertIn(expected, desktop)
-        publish = (self.workflows / 'desktop-publish.yml').read_text()
-        self.assertIn('environment: desktop-${{ inputs.channel }}-${{ inputs.mode }}', publish)
-        self.assertIn('git/ref/heads/main', publish)
-        self.assertIn('gh attestation verify', publish)
-        self.assertIn('main.version=v$RELEASE_VERSION', self.job(desktop, 'linux'))
-
-    def test_each_desktop_public_step_rechecks_current_main_and_workflow(self):
-        publish = (self.workflows / 'desktop-publish.yml').read_text()
-        blocks = re.findall(r'        run: \|\n((?:          .*\n)+)', publish)
-        blocks = [b for b in blocks if 'node apps/desktop/scripts/publish' in b]
-        self.assertEqual(len(blocks), 3)
-        with tempfile.TemporaryDirectory(prefix='desktop-publish-guards-') as directory:
-            root = Path(directory)
-            gh = root / 'gh'
-            gh.write_text("#!/bin/sh\ncase \"$*\" in *actions/workflows*) printf '%s' \"$WORKFLOW_STATE\";; *git/ref/heads/main*) printf '%s' \"$MAIN_SHA\";; *) exit 1;; esac\n")
-            gh.chmod(0o755)
-            node = root / 'node'
-            node.write_text('#!/bin/sh\ntouch "$WROTE"\n')
-            node.chmod(0o755)
-            wrote = root / 'wrote'
-            for index, block in enumerate(blocks):
-                for state, head, allowed in [('active', SOURCE, True),
-                                             ('active', 'b' * 40, False),
-                                             ('disabled_manually', SOURCE, False),
-                                             ('', SOURCE, False)]:
-                    with self.subTest(step=index, state=state, head=head):
-                        wrote.unlink(missing_ok=True)
-                        env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
-                               'GITHUB_REPOSITORY': 'context-labs/whip', 'SOURCE_SHA': SOURCE,
-                               'WORKFLOW_STATE': state, 'MAIN_SHA': head, 'WROTE': str(wrote)}
-                        command = '\n'.join(line[10:] for line in block.splitlines())
-                        result = subprocess.run(['bash', '-e', '-c', command], env=env,
-                                                capture_output=True, text=True, timeout=10)
-                        self.assertEqual(result.returncode == 0, allowed, result.stderr)
-                        self.assertEqual(wrote.exists(), allowed)
 
 
 if __name__ == '__main__':

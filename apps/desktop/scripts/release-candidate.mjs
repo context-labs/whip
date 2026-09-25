@@ -5,6 +5,9 @@ import { createReadStream } from 'node:fs';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import semver from 'semver';
+import { buildInstallers } from '../../../scripts/build-installers.mjs';
+import { desktopArchiveNames, desktopArtifactURL } from './distribution.mjs';
 
 async function hash(file) {
   const stat = await lstat(file);
@@ -17,12 +20,24 @@ async function hash(file) {
 
 export async function candidate(mode, directory, env = process.env) {
   assert(['assemble', 'verify'].includes(mode), 'Use assemble or verify');
-  const match = /^desktop-v(\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(env.RELEASE_TAG ?? '');
-  assert(match && /^[a-f0-9]{40}$/.test(env.SOURCE_SHA ?? ''), 'Invalid release identity');
+  const match = /^v([1-9]\d*\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(env.RELEASE_TAG ?? '');
+  assert(match && semver.valid(match[1]) === match[1] && /^[a-f0-9]{40}$/.test(env.SOURCE_SHA ?? ''), 'Invalid release identity');
   const names = (await readdir(directory)).sort();
-  assert(names.length <= 20 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)), 'Invalid candidate filenames');
+  assert(names.length <= 17 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)), 'Invalid candidate filenames');
+  for (const name of names) {
+    const stat = await lstat(path.join(directory, name));
+    assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 2 ** 30, 'Invalid candidate file');
+  }
+  const required = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh', 'latest.sh',
+    'RELEASES.json', 'evidence.json', 'signed-startup.json', 'signed-runtime.json', 'linux-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'];
+  const payload = [...required, ...desktopArchiveNames].sort();
+  assert.deepEqual(names.filter(name => !['artifact-manifest.json', 'SHA256SUMS'].includes(name)), payload, 'Candidate inventory differs');
+  const installers = buildInstallers(await readFile(new URL('../../../install.sh', import.meta.url), 'utf8'), env.RELEASE_TAG);
+  for (const [name, expected] of Object.entries(installers))
+    assert.equal(await readFile(path.join(directory, name), 'utf8'), expected, `Generated installer differs: ${name}`);
   const json = async name => {
-    assert((await lstat(path.join(directory, name))).size <= 2 << 20, 'Candidate metadata exceeds its limit');
+    const stat = await lstat(path.join(directory, name));
+    assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 2 << 20, 'Candidate metadata is not a bounded regular file');
     return JSON.parse(await readFile(path.join(directory, name), 'utf8'));
   };
   for (const name of ['signed-startup.json', 'signed-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'])
@@ -31,7 +46,7 @@ export async function candidate(mode, directory, env = process.env) {
   validateRuntimeEvidence(await json('signed-runtime.json'), evidence);
   const startup = await json('signed-startup.json');
   assert(startup.completed === true && startup.interrupted === false, 'Signed startup acceptance did not complete');
-  for (const key of ['version', 'buildId', 'source', 'rendererDigest', 'compatibility', 'nativeFiles', 'teamId'])
+  for (const key of ['version', 'buildId', 'channel', 'updateURL', 'updateOwner', 'source', 'rendererDigest', 'compatibility', 'nativeFiles', 'teamId'])
     assert.deepEqual(startup.evidence?.[key], evidence[key], `Startup tested a different package: ${key}`);
   assert(startup.evidence?.signed && startup.evidence?.notarized, 'Startup did not test a signed, notarized app');
   assert(startup.requested?.samples >= 30 && startup.requested?.firstSamples >= 1, 'Startup sample count is insufficient');
@@ -44,6 +59,8 @@ export async function candidate(mode, directory, env = process.env) {
   const sbom = await json('sbom.cdx.json');
   assert(sbom.bomFormat === 'CycloneDX' && sbom.components?.length > 0, 'Missing dependency inventory');
   assert.equal(evidence.version, match[1]); assert.equal(evidence.buildId, match[1]);
+  assert.equal(evidence.channel, semver.prerelease(match[1]) ? 'beta' : 'stable', 'Desktop channel differs from version');
+  assert.equal(evidence.updateOwner, 'desktop', 'Signed backend must remain Desktop-owned');
   assert.equal(evidence.source?.commit, env.SOURCE_SHA); assert.equal(evidence.source?.dirty, false);
   assert(evidence.signed && evidence.notarized && evidence.dmgNotary, 'Candidate must be signed and notarized');
   // Preserve one exact semantic release while keeping the standalone CLI tag encoding.
@@ -51,6 +68,7 @@ export async function candidate(mode, directory, env = process.env) {
   assert.equal(linux.source?.commit, env.SOURCE_SHA); assert.equal(linux.source?.dirty, false);
   assert(linux.smoke?.embeddedRenderer && linux.smoke?.daemonReady, 'Linux acceptance is missing');
   assert.equal(linux.rendererDigest, evidence.rendererDigest);
+  assert.equal(linux.sha256, (await hash(path.join(directory, 'whipcode-linux-x64'))).sha256, 'Linux acceptance tested different executable bytes');
   for (const field of ['protocolMajor', 'protocolMinor', 'schemaVersion']) assert.equal(linux[field], evidence.compatibility[field]);
   for (const suffix of ['.dmg', '.zip']) assert.equal(names.filter(name => name.endsWith(suffix)).length, 1);
   assert.deepEqual(Object.keys(evidence.files).sort(), names.filter(name => name.endsWith('.dmg') || name.endsWith('.zip') || name === 'RELEASES.json').sort(), 'Signed evidence must bind every installer and feed');
@@ -60,18 +78,23 @@ export async function candidate(mode, directory, env = process.env) {
   }
   const feed = await json('RELEASES.json');
   assert.equal(feed.currentRelease, evidence.version);
+  const selected = feed.releases.filter(release => release.version === evidence.version);
+  assert.equal(selected.length, 1, 'Feed must identify one current release');
+  assert.equal(selected[0].updateTo?.version, evidence.version, 'Feed update version differs');
+  assert.equal(selected[0].updateTo.url, desktopArtifactURL(evidence.updateURL, evidence.version, desktopArchiveNames[1]).href, 'Feed must identify the canonical versioned ZIP');
   const files = {};
   for (const name of names.filter(name => !['artifact-manifest.json', 'SHA256SUMS'].includes(name))) files[name] = await hash(path.join(directory, name));
   assert(files['whipcode-linux-x64'], 'Matching Linux backend is missing');
   const manifest = { schema: 1, tag: env.RELEASE_TAG, source: env.SOURCE_SHA, version: match[1], files };
   const manifestFile = path.join(directory, 'artifact-manifest.json');
-  if (mode === 'assemble') await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
+  if (mode === 'assemble' && !names.includes('artifact-manifest.json')) await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
   else assert.deepEqual(await json('artifact-manifest.json'), manifest, 'Candidate identity or bytes differ');
+  // Payload/evidence hashes live in the manifest; sums additionally bind that manifest, never themselves.
   files['artifact-manifest.json'] = await hash(manifestFile);
   const sums = Object.entries(files).sort(([a], [b]) => a.localeCompare(b, 'en')).map(([name, file]) => `${file.sha256}  ${name}`).join('\n') + '\n';
-  if (mode === 'assemble') await writeFile(path.join(directory, 'SHA256SUMS'), sums);
+  if (mode === 'assemble' && !names.includes('SHA256SUMS')) await writeFile(path.join(directory, 'SHA256SUMS'), sums);
   else assert.equal(await readFile(path.join(directory, 'SHA256SUMS'), 'utf8'), sums, 'Candidate checksums differ');
-  console.log(`Verified ${env.RELEASE_TAG} from ${env.SOURCE_SHA}: ${Object.keys(files).length} final artifacts`);
+  console.log(`Verified ${env.RELEASE_TAG} from ${env.SOURCE_SHA}: ${Object.keys(files).length} checksummed artifacts plus SHA256SUMS`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))

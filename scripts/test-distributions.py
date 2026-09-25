@@ -25,7 +25,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64',
-          'whipcode-darwin-arm64', 'SHA256SUMS', 'install.sh']
+          'whipcode-darwin-arm64', 'SHA256SUMS', 'install.sh', 'latest.sh']
 
 
 def run(binary, *args, env, check=True):
@@ -168,28 +168,37 @@ def main():
         env = {key: value for key, value in os.environ.items()
                if key in ['PATH', 'TMPDIR', 'TEMP', 'TMP', 'USER', 'LOGNAME', 'SHELL', 'LANG']}
         env.update(HOME=str(home), PATH=str(tools) + os.pathsep + env.get('PATH', '/usr/bin:/bin'),
-                   WHIPCODE_BIN_DIR=str(destination), WHIPCODE_VERSION=args.version,
+                   WHIPCODE_BIN_DIR=str(destination),
                    WHIPCODE_LISTEN='127.0.0.1:0', WHIPCODE_NETWORK='1',
                    FIXTURE=str(root / 'fixture.json'))
         fixture = {'releases': [], 'assets': {}, 'fail': False, 'installer': str(ROOT / 'install.sh')}
 
         def release(binary, tag):
-            digest = hashlib.sha256(binary.read_bytes()).hexdigest()
-            sums = root / (tag + '-SHA256SUMS')
-            sums.write_text(''.join(f'{digest}  {name}\n' for name in ASSETS[:4]) +
-                            hashlib.sha256((ROOT / 'install.sh').read_bytes()).hexdigest() + '  install.sh\n')
+            directory = root / tag
+            subprocess.run(['node', str(ROOT / 'scripts/build-installers.mjs'), tag, str(directory)],
+                           env=env, check=True, capture_output=True, text=True, timeout=10)
+            paths = {name: binary for name in ASSETS[:4]}
+            paths.update({name: directory / name for name in ['install.sh', 'latest.sh']})
+            sums = directory / 'SHA256SUMS'
+            sums.write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + name + '\n'
+                                    for name, path in paths.items()))
+            paths['SHA256SUMS'] = sums
             result = {'tag_name': tag, 'draft': False, 'prerelease': '-' in tag.split('+')[0], 'assets': []}
-            for name in ASSETS:
+            for name, path in paths.items():
                 ident = len(fixture['assets']) + 1
-                path = sums if name == 'SHA256SUMS' else ROOT / 'install.sh' if name == 'install.sh' else binary
                 fixture['assets'][str(ident)] = str(path)
                 result['assets'].append({'id': ident, 'name': name, 'size': path.stat().st_size})
             fixture['releases'].append(result)
+            return directory / 'install.sh'
 
         def save_fixture():
             Path(env['FIXTURE']).write_text(json.dumps(fixture))
 
-        release(candidate, args.version)
+        pinned_installer = release(candidate, args.version)
+        if newer:
+            # A newer release is already discoverable: initial installation must
+            # still use the embedded pin with no selection environment variables.
+            release(newer, args.update_version)
         save_fixture()
         curl = tools / 'curl'
         curl.write_text('#!' + sys.executable + '\n' + r"""
@@ -222,7 +231,7 @@ else:
         gh.write_text('#!/bin/sh\nexit 1\n')
         gh.chmod(0o755)
         (tools / 'python3').symlink_to(sys.executable)
-        run(Path('/bin/sh'), str(ROOT / 'install.sh'), env=env)
+        run(Path('/bin/sh'), str(pinned_installer), env=env)
         binary = destination / 'whipcode'
         assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.version
         run(binary, '--bench', env=env)
@@ -261,10 +270,10 @@ else:
             assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.version
             fixture['fail'] = False
             if newer:
-                release(newer, args.update_version)
                 save_fixture()
-                # Updater must ignore a stale pin and install beside its actual
-                # executable, not blindly trust an inherited destination override.
+                # Updater fetches the raw source installer, not the old release's
+                # pinned asset. It must ignore stale inherited placement/version.
+                env['WHIPCODE_VERSION'] = args.version
                 env['WHIPCODE_BIN_DIR'] = str(root / 'wrong-destination')
                 run(binary, 'update', env=env)
                 updated = wait_for_gateway(status, args.update_version, previous_generation=restarted['generation'])
@@ -272,7 +281,7 @@ else:
                 assert not (root / 'wrong-destination').exists()
                 assert_saved_session(app_home, session_id)
                 renderer_smoke(updated['network_endpoint'], manifest)
-            print('PASS packaged installer, fixed identity, fresh config/session, renderer digests, daemon lifecycle and safe failure')
+            print('PASS packaged pinned installer without selection env, fixed identity, fresh config/session, renderer digests, daemon lifecycle and safe failure')
             if newer:
                 print('PASS new-to-new update, destination/channel selection, daemon reconnect and session persistence')
         finally:

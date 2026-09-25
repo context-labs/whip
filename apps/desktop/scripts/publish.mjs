@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { candidate as verifyCandidate } from './release-candidate.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import semver from 'semver';
+import { desktopArchiveNames, desktopArtifactURL } from './distribution.mjs';
 
 const exec = promisify(execFile);
 const limit = 1 << 30;
@@ -26,7 +29,10 @@ export function mergeReleaseFeed(previous, candidate, version, updateURL) {
   const base = new URL('./', feedURL(updateURL));
   assert(semver.valid(version), 'Invalid current release version');
   assert(previous && Array.isArray(previous.releases) && previous.releases.length <= 200, 'Invalid published release feed');
-  for (const release of previous.releases) validateRelease(release, base);
+  for (const release of previous.releases) {
+    validateRelease(release, base);
+    assert(Boolean(semver.prerelease(release.version)) === Boolean(semver.prerelease(version)), 'Feed release channel differs');
+  }
   if (previous.currentRelease) {
     assert(previous.releases.some(release => release.version === previous.currentRelease), 'Published current release is missing');
     assert(semver.gte(version, previous.currentRelease), 'Feed promotion cannot downgrade the current release');
@@ -35,6 +41,7 @@ export function mergeReleaseFeed(previous, candidate, version, updateURL) {
   const selected = candidate.releases.filter(release => release.version === version);
   assert.equal(selected.length, 1, 'Candidate must contain exactly one current version');
   validateRelease(selected[0], base);
+  assert.equal(selected[0].updateTo.url, desktopArtifactURL(updateURL, version, desktopArchiveNames[1]).href, 'Candidate feed must identify the canonical versioned ZIP');
   const existing = previous.releases.find(release => release.version === version);
   if (existing) assert.equal(existing.updateTo.url, selected[0].updateTo.url, 'Published versions have immutable URLs');
   // Keep bounded recent history; immutable old ZIPs remain available for recovery.
@@ -91,52 +98,62 @@ export async function publish(directory, env = process.env) {
   assert(prefix && !/[\\\u0000-\u0020]/.test(prefix) && !prefix.split('/').some(part => part.startsWith('.')), 'Invalid feed bucket prefix');
   const evidence = JSON.parse(await readFile(path.join(directory, 'evidence.json'), 'utf8'));
   assert(evidence.signed && evidence.notarized && evidence.dmgNotary && evidence.source?.dirty === false, 'Only verified, notarized clean releases may be published');
+  if (env.WHIP_DESKTOP_CHANNEL) assert.equal(env.WHIP_DESKTOP_CHANNEL, semver.prerelease(evidence.version) ? 'beta' : 'stable', 'Publication channel differs');
+  assert.equal(evidence.updateURL, url.href, 'Configured feed differs from verified app');
   const candidate = JSON.parse(await readFile(path.join(directory, 'RELEASES.json'), 'utf8'));
   // Read the authoritative object with its ETag; a CDN response is not a lock.
-  const current = await publishedFeed(bucket, prefix + 'RELEASES.json', directory, env);
-  const feed = mergeReleaseFeed(current.feed, candidate, evidence.version, url.href);
-  const base = new URL('./', url);
-  const names = Object.keys(evidence.files);
-  assert(names.some(name => name.endsWith('.zip')) && names.some(name => name.endsWith('.dmg')), 'Missing distribution artifacts');
-  assert(/^[a-f0-9]{64}$/.test(evidence.bundleDigest), 'Missing verified application tree');
-  for (const name of names) {
-    assert(name === path.basename(name) && !name.startsWith('.') && (/\.(zip|dmg)$/.test(name) || name === 'RELEASES.json'), 'Invalid artifact filename');
-    if (name !== 'RELEASES.json') {
-      const application = evidence.applications?.[name];
-      assert(application?.bundleDigest === evidence.bundleDigest && application.rendererDigest === evidence.rendererDigest &&
-        application.signed === true && application.notarized === true, `Missing verified archived application: ${name}`);
+  // Transient R2 readback must not contaminate the immutable GitHub candidate.
+  const temporary = await mkdtemp(path.join(tmpdir(), 'whip-release-feed-'));
+  try {
+    const current = mode === 'stage' ? { feed: { currentRelease: '', releases: [] } } :
+      await publishedFeed(bucket, prefix + 'RELEASES.json', temporary, env);
+    const feed = mergeReleaseFeed(current.feed, candidate, evidence.version, url.href);
+    const names = Object.keys(evidence.files);
+    assert.deepEqual([...names].sort(), ['RELEASES.json', ...desktopArchiveNames].sort(), 'Invalid Desktop payload inventory');
+    assert(/^[a-f0-9]{64}$/.test(evidence.bundleDigest), 'Missing verified application tree');
+    for (const name of names) {
+      assert(name === path.basename(name) && !name.startsWith('.') && (/\.(zip|dmg)$/.test(name) || name === 'RELEASES.json'), 'Invalid artifact filename');
+      if (name !== 'RELEASES.json') {
+        const application = evidence.applications?.[name];
+        assert(application?.bundleDigest === evidence.bundleDigest && application.rendererDigest === evidence.rendererDigest &&
+          application.signed === true && application.notarized === true, `Missing verified archived application: ${name}`);
+      }
+      const file = path.join(directory, name); const stat = await lstat(file); const expected = evidence.files[name];
+      assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= limit && stat.size === expected.bytes && await digest(file) === expected.sha256, `Artifact changed: ${name}`);
     }
-    const file = path.join(directory, name); const stat = await lstat(file); const expected = evidence.files[name];
-    assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= limit && stat.size === expected.bytes && await digest(file) === expected.sha256, `Artifact changed: ${name}`);
-  }
-  const selected = feed.releases.find(release => release.version === evidence.version);
-  assert(names.filter(name => name.endsWith('.zip')).some(name => new URL(encodeURIComponent(name), base).href === selected.updateTo.url), 'Feed does not identify the verified ZIP');
-  for (const name of names.filter(name => name !== 'RELEASES.json')) {
-    const expected = evidence.files[name];
-    if (mode !== 'promote') try {
-      await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', prefix + name, '--body', path.join(directory, name),
-        '--if-none-match', '*', '--metadata', `sha256=${expected.sha256}`, '--content-type', name.endsWith('.zip') ? 'application/zip' : 'application/x-apple-diskimage',
-        '--cache-control', 'public,max-age=31536000,immutable'], { env, timeout: 10 * 60_000 });
-    } catch (error) {
-      // A retried release may reuse identical bytes; never overwrite a version.
-      if (!/PreconditionFailed|ConditionalRequestConflict/.test(String(error.stderr))) throw error;
+    const selected = feed.releases.find(release => release.version === evidence.version);
+    assert.equal(selected.updateTo.url, desktopArtifactURL(url.href, evidence.version, desktopArchiveNames[1]).href, 'Feed does not identify the verified ZIP');
+    for (const name of names.filter(name => name !== 'RELEASES.json')) {
+      const expected = evidence.files[name];
+      const artifactURL = desktopArtifactURL(url.href, evidence.version, name);
+      const key = artifactURL.pathname.slice(1);
+      if (mode !== 'promote') try {
+        await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', path.join(directory, name),
+          '--if-none-match', '*', '--metadata', `sha256=${expected.sha256}`, '--content-type', name.endsWith('.zip') ? 'application/zip' : 'application/x-apple-diskimage',
+          '--cache-control', 'public,max-age=31536000,immutable'], { env, timeout: 10 * 60_000 });
+      } catch (error) {
+        // A retried release may reuse identical bytes; never overwrite a version.
+        if (!/PreconditionFailed|ConditionalRequestConflict/.test(String(error.stderr))) throw error;
+      }
+      const remote = await response(artifactURL, expected.bytes);
+      assert(remote && remote.length === expected.bytes && createHash('sha256').update(remote).digest('hex') === expected.sha256, `Published bytes differ: ${name}`);
     }
-    const remote = await response(new URL(encodeURIComponent(name), base), expected.bytes);
-    assert(remote && remote.length === expected.bytes && createHash('sha256').update(remote).digest('hex') === expected.sha256, `Published bytes differ: ${name}`);
-  }
-  if (mode === 'stage') { console.log(`Staged verified Whip ${evidence.version}; live update feed unchanged.`); return; }
-  // Conditional promotion also protects against a writer outside our serialized
-  // workflow. On conflict, retry from its new history; never overwrite blindly.
-  const feedFile = path.join(directory, 'RELEASES.promote.json');
-  await writeFile(feedFile, JSON.stringify(feed) + '\n');
-  await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', prefix + 'RELEASES.json', '--body', feedFile,
-    ...(current.etag ? ['--if-match', current.etag] : ['--if-none-match', '*']),
-    '--content-type', 'application/json', '--cache-control', 'no-cache'], { env, timeout: 60_000 });
-  const promoted = await response(url, 2 << 20);
-  assert(promoted && promoted.equals(await readFile(feedFile)), 'Promoted feed is not visible');
-  console.log(`Published verified Whip ${evidence.version}; update feed promoted last.`);
+    if (mode === 'stage') { console.log(`Staged verified Whip ${evidence.version}; live update feed unchanged.`); return; }
+    // Conditional promotion also protects against a writer outside our serialized
+    // workflow. On conflict, retry from its new history; never overwrite blindly.
+    const feedFile = path.join(temporary, 'RELEASES.promote.json');
+    await writeFile(feedFile, JSON.stringify(feed) + '\n');
+    await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', prefix + 'RELEASES.json', '--body', feedFile,
+      ...(current.etag ? ['--if-match', current.etag] : ['--if-none-match', '*']),
+      '--content-type', 'application/json', '--cache-control', 'no-cache'], { env, timeout: 60_000 });
+    const promoted = await response(url, 2 << 20);
+    assert(promoted && promoted.equals(await readFile(feedFile)), 'Promoted feed is not visible');
+    console.log(`Published verified Whip ${evidence.version}; update feed promoted last.`);
+  } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   assert(process.argv[2], 'Usage: publish.mjs /path/to/release');
-  await publish(path.resolve(process.argv[2]));
+  const directory = path.resolve(process.argv[2]);
+  await verifyCandidate('verify', directory);
+  await publish(directory);
 }
