@@ -80,7 +80,7 @@ For example: `desktop/beta/darwin/arm64/v1.0.0-alpha.7/whipcode-desktop-darwin-a
 The channel's `RELEASES.json` discovery URL remains fixed. Preserve existing
 historical object URLs and feed entries; never overwrite or rename old releases.
 
-The app inside still has its normal Whip/Whip Beta identity. `install.sh`,
+The app inside still has its normal Whip/Whip Beta identity. `install.sh`, `latest.sh`,
 `SHA256SUMS`, `artifact-manifest.json`, `RELEASES.json` and evidence/notices retain
 their conventional names. This naming scheme does not add supported platforms.
 
@@ -92,8 +92,8 @@ checksums and attestation. Hash final signed bytes, reject missing/extra/duplica
 files, and bind source/version/channel/runtime identity. CLI consumers require
 the CLI subset and accept additional well-formed Desktop/evidence assets; they
 still verify selected bytes and safe, unique checksum records. The candidate has
-16 files: 14 payload/evidence files, a manifest hashing those 14, and one
-`SHA256SUMS` containing 15 entries including the manifest, never itself. GitHub
+17 files: 15 payload/evidence files, a manifest hashing those 15, and one
+`SHA256SUMS` containing 16 entries including the manifest, never itself. GitHub
 attestations cover the final files without adding a recursive checksum envelope.
 
 1. All required builds, acceptance and candidate checks succeed.
@@ -129,9 +129,31 @@ matching backend, and update-feed discovery. Use disposable homes and candidate
 apps, not `task update:local` against a user's installation. Record both GitHub
 release and feed outcomes. Desktop never updates an SSH/URL host silently.
 
-Before v1 stable, install explicitly with `WHIPCODE_CHANNEL=prerelease` through
-`main/install.sh`. Pre-unification alpha installers that insist on six assets may
-need reinstalling from that current script; no compatibility shim is maintained.
+Each release contains two generated installers from the one source `install.sh`:
+
+| Published asset | Selection policy |
+| --- | --- |
+| `install.sh` | Exact embedded release tag, including alpha/beta; no version environment variable needed |
+| `latest.sh` | Newest complete stable v1+ release at execution time; never alpha/beta or legacy v0 |
+
+Neither generated script can be redirected by inherited `WHIPCODE_VERSION` or
+`WHIPCODE_CHANNEL`. Other controls, such as the destination and authentication,
+retain their existing behavior. `latest.sh` fails clearly when no stable v1+
+release exists. A release-hosted copy is a snapshot of installer code, even though
+its stable selection is dynamic.
+
+Use the command in that release's notes, for example (substitute a published tag):
+
+```sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/install.sh | sh
+curl -fsSL https://github.com/context-labs/whip/releases/download/<tag>/latest.sh | sh
+```
+
+The repository's `main/install.sh` remains the shared source and supports explicit
+selection overrides used by development and `whipcode update`. There are not two
+separately maintained installer implementations. Generate both assets before
+candidate hashing/attestation; verify both byte-for-byte against the expected
+source/tag generation before any public effect. Old published assets stay intact.
 See [setup](setup.md#standalone-releases-and-updates) and the
 [manual reset checklist](team-reset.md).
 

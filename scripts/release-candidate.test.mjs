@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/prom
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { buildInstallers } from './build-installers.mjs';
 import { candidate } from '../apps/desktop/scripts/release-candidate.mjs';
 import { runtimeIdentityFields, validateRuntimeEvidence } from '../apps/desktop/scripts/runtime-evidence.mjs';
 import { runtimeEntitlements, validateRuntimeSigning } from '../apps/desktop/scripts/runtime-signing.mjs';
@@ -44,8 +45,10 @@ async function fixture(t, version = '1.2.3-alpha.1') {
   await json('linux-runtime.json', { ...compatibility, distribution: 'whipcode', updateOwner: 'standalone', buildId: `v${version}`, source,
     sha256: createHash('sha256').update('linux fixture').digest('hex'), rendererDigest: evidence.rendererDigest, smoke: { embeddedRenderer: true, daemonReady: true } });
   await writeFile(path.join(directory, 'whipcode-linux-x64'), 'linux fixture');
-  for (const name of ['whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh'])
+  for (const name of ['whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64'])
     await writeFile(path.join(directory, name), name + ' fixture');
+  const installers = buildInstallers(await readFile(new URL('../install.sh', import.meta.url), 'utf8'), env.RELEASE_TAG);
+  for (const [name, contents] of Object.entries(installers)) await writeFile(path.join(directory, name), contents);
   return { directory, env, json, evidence, startup, runtime };
 }
 
@@ -143,12 +146,12 @@ test('unified manifest covers the exact payload and sums bind it without recursi
   await candidate('assemble', f.directory, f.env);
   const manifest = JSON.parse(await readFile(path.join(f.directory, 'artifact-manifest.json')));
   const sums = (await readFile(path.join(f.directory, 'SHA256SUMS'), 'utf8')).trim().split('\n');
-  assert.equal((await readdir(f.directory)).length, 16);
-  assert.equal(Object.keys(manifest.files).length, 14);
+  assert.equal((await readdir(f.directory)).length, 17);
+  assert.equal(Object.keys(manifest.files).length, 15);
   assert(!Object.hasOwn(manifest.files, 'SHA256SUMS'));
   assert(!Object.hasOwn(manifest.files, 'artifact-manifest.json'));
-  assert.equal(sums.length, 15);
-  assert.equal(new Set(sums.map(line => line.split('  ')[1])).size, 15);
+  assert.equal(sums.length, 16);
+  assert.equal(new Set(sums.map(line => line.split('  ')[1])).size, 16);
   for (const line of sums) {
     const [digest, name] = line.split('  ');
     assert.notEqual(name, 'SHA256SUMS');
@@ -160,7 +163,7 @@ test('unified manifest covers the exact payload and sums bind it without recursi
 });
 
 test('candidate fails closed on missing CLI, foreign files, retired tags, and mismatched channel/ownership', async t => {
-  for (const name of ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh']) {
+  for (const name of ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh', 'latest.sh']) {
     const f = await fixture(t); await rm(path.join(f.directory, name));
     await assert.rejects(candidate('assemble', f.directory, f.env), /inventory differs/);
   }
@@ -221,4 +224,18 @@ test('candidate rejects noncanonical Desktop names and signed-but-wrong current 
   await rm(path.join(f.directory, 'whipcode-desktop-darwin-arm64.zip'));
   await writeFile(path.join(f.directory, 'Whip-Beta-1.2.3-alpha.1.zip'), 'alias');
   await assert.rejects(candidate('assemble', f.directory, f.env), /inventory differs/);
+});
+
+
+test('candidate verifies both deterministic installers before hashes can legitimize tampering', async t => {
+  for (const version of ['1.2.3-alpha.1', '1.2.3']) {
+    for (const name of ['install.sh', 'latest.sh']) {
+      const f = await fixture(t, version);
+      await candidate('assemble', f.directory, f.env);
+      await candidate('verify', f.directory, f.env);
+      await writeFile(path.join(f.directory, name), (await readFile(path.join(f.directory, name), 'utf8')) + '\n# changed\n');
+      await assert.rejects(candidate('assemble', f.directory, f.env), /Generated installer differs/);
+      await assert.rejects(candidate('verify', f.directory, f.env), /Generated installer differs/);
+    }
+  }
 });

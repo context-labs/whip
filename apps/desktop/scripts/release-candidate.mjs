@@ -6,6 +6,7 @@ import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import semver from 'semver';
+import { buildInstallers } from '../../../scripts/build-installers.mjs';
 import { desktopArchiveNames, desktopArtifactURL } from './distribution.mjs';
 
 async function hash(file) {
@@ -22,15 +23,18 @@ export async function candidate(mode, directory, env = process.env) {
   const match = /^v([1-9]\d*\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(env.RELEASE_TAG ?? '');
   assert(match && semver.valid(match[1]) === match[1] && /^[a-f0-9]{40}$/.test(env.SOURCE_SHA ?? ''), 'Invalid release identity');
   const names = (await readdir(directory)).sort();
-  assert(names.length <= 16 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)), 'Invalid candidate filenames');
+  assert(names.length <= 17 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)), 'Invalid candidate filenames');
   for (const name of names) {
     const stat = await lstat(path.join(directory, name));
     assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 2 ** 30, 'Invalid candidate file');
   }
-  const required = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh',
+  const required = ['whipcode-linux-x64', 'whipcode-linux-arm64', 'whipcode-darwin-x64', 'whipcode-darwin-arm64', 'install.sh', 'latest.sh',
     'RELEASES.json', 'evidence.json', 'signed-startup.json', 'signed-runtime.json', 'linux-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'];
   const payload = [...required, ...desktopArchiveNames].sort();
   assert.deepEqual(names.filter(name => !['artifact-manifest.json', 'SHA256SUMS'].includes(name)), payload, 'Candidate inventory differs');
+  const installers = buildInstallers(await readFile(new URL('../../../install.sh', import.meta.url), 'utf8'), env.RELEASE_TAG);
+  for (const [name, expected] of Object.entries(installers))
+    assert.equal(await readFile(path.join(directory, name), 'utf8'), expected, `Generated installer differs: ${name}`);
   const json = async name => {
     const stat = await lstat(path.join(directory, name));
     assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 2 << 20, 'Candidate metadata is not a bounded regular file');

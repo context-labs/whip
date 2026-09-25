@@ -314,11 +314,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Installer and release selection acceptance
-        run: |
-          python3 scripts/test-install-whipcode.py
-          python3 scripts/test-publish-whipcode.py
-          PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-distributions-unit.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
@@ -330,6 +325,13 @@ jobs:
         with:
           name: ci-renderer
           path: apps/web
+      - name: Installer and release selection acceptance
+        run: |
+          python3 scripts/test-install-whipcode.py
+          python3 scripts/test-publish-whipcode.py
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-distributions-unit.py
+      - name: Deterministic release installer generation
+        run: node --test scripts/build-installers.test.mjs
       - name: Verify and embed the same tested renderer
         run: node scripts/pack-web.mjs --release
       - name: Compiled whipcode acceptance

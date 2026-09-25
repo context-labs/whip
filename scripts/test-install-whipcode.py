@@ -86,9 +86,9 @@ else:
     def asset_id(self, name, tag='v1.0.0-alpha.10'):
         return str(next(a['id'] for a in self.data['tags'][tag]['assets'] if a['name'] == name))
 
-    def install(self, success=True):
+    def install(self, success=True, installer=INSTALLER):
         Path(self.env['FIXTURE']).write_text(json.dumps(self.data))
-        result = subprocess.run(['/bin/sh', str(INSTALLER)], env=self.env,
+        result = subprocess.run(['/bin/sh', str(installer)], env=self.env,
                                 capture_output=True, text=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -100,6 +100,94 @@ else:
 
     def installed_version(self):
         return subprocess.check_output([str(self.dest / 'whipcode'), '--version'], text=True).strip()
+
+    def generated(self, tag):
+        directory = self.root / 'generated'
+        builder = INSTALLER.parent / 'scripts/build-installers.mjs'
+        subprocess.run([shutil.which('node'), str(builder), tag, str(directory)],
+                       env={'HOME': str(self.home), 'PATH': os.environ['PATH']},
+                       check=True, capture_output=True, text=True, timeout=10)
+        for name in ['install.sh', 'latest.sh']:
+            subprocess.run(['/bin/sh', '-n', str(directory / name)], check=True)
+        return directory
+
+    def test_generated_alpha_pins_without_environment_even_with_newer_stable(self):
+        directory = self.generated('v1.0.0-alpha.9')
+        del self.env['WHIPCODE_CHANNEL']
+        self.data['pages']['1'].append(self.release('v2.0.0'))
+        self.install(installer=directory / 'install.sh')
+        self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.9')
+
+    def test_generated_stable_pins_without_environment(self):
+        directory = self.generated('v1.0.0')
+        del self.env['WHIPCODE_CHANNEL']
+        self.data['pages']['1'] += [self.release('v1.0.0'), self.release('v2.0.0')]
+        self.install(installer=directory / 'install.sh')
+        self.assertEqual(self.installed_version(), 'whipcode v1.0.0')
+
+    def test_generated_pin_never_falls_back_when_release_is_incomplete(self):
+        directory = self.generated('v1.0.0-alpha.9')
+        self.data['tags']['v1.0.0-alpha.9']['assets'].pop()
+        self.data['pages']['1'].append(self.release('v2.0.0'))
+        result = self.install(False, installer=directory / 'install.sh')
+        self.assertIn('this installer cannot select another version', result.stderr)
+        self.assertFalse((self.dest / 'whipcode').exists())
+
+    def test_generated_pin_ignores_conflicting_environment_and_allows_rollback(self):
+        self.install()
+        directory = self.generated('v1.0.0-alpha.9')
+        self.env.update(WHIPCODE_VERSION='v99.0.0', WHIPCODE_CHANNEL='invalid')
+        self.install(installer=directory / 'install.sh')
+        self.assertEqual(self.installed_version(), 'whipcode v1.0.0-alpha.9')
+
+    def test_generated_latest_ignores_pin_and_channel_and_excludes_historical_tags(self):
+        directory = self.generated('v1.0.0-alpha.9')
+        self.data['pages']['1'] += [self.release(tag) for tag in
+                                  ['v1.0.0', 'v1.1.0', 'v2.0.0-alpha.10',
+                                   'v0.99.0', 'whipcode-v99.0.0', 'desktop-v99.0.0']]
+        for channel in ['prerelease', 'invalid']:
+            with self.subTest(channel=channel):
+                self.env.update(WHIPCODE_VERSION='v1.0.0-alpha.9', WHIPCODE_CHANNEL=channel)
+                self.install(installer=directory / 'latest.sh')
+                self.assertEqual(self.installed_version(), 'whipcode v1.1.0')
+
+    def test_generated_latest_fails_without_stable_even_with_alpha_environment(self):
+        directory = self.generated('v1.0.0-alpha.9')
+        self.env['WHIPCODE_VERSION'] = 'v1.0.0-alpha.9'
+        self.data['pages']['1'] += [self.release('v0.9.0'), self.release('desktop-v1.0.0')]
+        result = self.install(False, installer=directory / 'latest.sh')
+        self.assertIn('no complete stable whipcode v1+', result.stderr)
+        self.assertIn('latest.sh never selects prereleases', result.stderr)
+        self.assertFalse((self.dest / 'whipcode').exists())
+
+    def test_generated_latest_never_automatically_downgrades(self):
+        directory = self.generated('v2.0.0')
+        self.data['pages']['1'] = [self.release('v2.0.0')]
+        self.install(installer=directory / 'install.sh')
+        self.data['pages']['1'] = [self.release('v1.0.0')]
+        self.env['WHIPCODE_VERSION'] = 'v1.0.0'
+        self.assertIn('explicit rollback', self.install(False, installer=directory / 'latest.sh').stderr)
+        self.assertEqual(self.installed_version(), 'whipcode v2.0.0')
+
+    def test_generated_installers_keep_checksum_protection(self):
+        directory = self.generated('v1.0.0')
+        self.data['pages']['1'] = [self.release('v1.0.0')]
+        self.install(installer=directory / 'install.sh')
+        self.data['assets'][self.asset_id(NAMES[0], 'v1.0.0')] = 'tampered binary'
+        for name in ['install.sh', 'latest.sh']:
+            with self.subTest(name=name):
+                self.assertIn('CHECKSUM MISMATCH', self.install(False, installer=directory / name).stderr)
+                self.assertEqual(self.installed_version(), 'whipcode v1.0.0')
+
+    def test_generated_installers_keep_atomic_replacement(self):
+        directory = self.generated('v1.0.0')
+        self.data['pages']['1'] = [self.release('v1.0.0')]
+        self.install(installer=directory / 'install.sh')
+        self.tool('mv', '#!/bin/sh\nexit 1\n')
+        for name in ['install.sh', 'latest.sh']:
+            with self.subTest(name=name):
+                self.assertIn('could not replace', self.install(False, installer=directory / name).stderr)
+                self.assertEqual(self.installed_version(), 'whipcode v1.0.0')
 
     def test_all_platforms_and_numeric_alpha_order(self):
         for os_name, arch in [('Linux', 'x86_64'), ('Linux', 'aarch64'),

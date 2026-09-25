@@ -1,15 +1,21 @@
 #!/bin/sh
 # whipcode installer: verified releases, atomic replacement, no daemon changes.
-# Usage:
+# Release assets: install.sh pins its release; latest.sh always selects stable.
+# Source installer (supports the overrides below):
 #   curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh
-# Before v1 stable: download this script, then WHIPCODE_CHANNEL=prerelease sh install.sh
+# Before v1 stable, use a release's pinned install.sh or source with prerelease opt-in.
 # Requires curl, python3, and sha256sum or shasum.
-# Env overrides:
+# Source-only release selection overrides (generated release scripts ignore both):
 #   WHIPCODE_CHANNEL=prerelease   opt into prereleases (default: stable)
 #   WHIPCODE_VERSION=v1.0.0-alpha.1   pin an exact v1+ tag; overrides channel
+# Destination and authentication overrides (all installer modes):
 #   WHIPCODE_BIN_DIR=~/bin        install directory (default: ~/.local/bin)
 #   GH_TOKEN=...                 optional GitHub token (authenticated gh also works)
 set -eu
+
+# scripts/build-installers.mjs replaces only this policy block for release assets.
+INSTALLER_MODE=source
+INSTALLER_VERSION=
 
 REPO="context-labs/whip"
 API="https://api.github.com/repos/$REPO"
@@ -58,9 +64,13 @@ staged=""
 cleanup() { rm -rf "$tmp"; [ -z "$staged" ] || rm -f "$staged"; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-VERSION="${WHIPCODE_VERSION:-}"
+case "$INSTALLER_MODE" in
+  source) VERSION="${WHIPCODE_VERSION:-}"; CHANNEL="${WHIPCODE_CHANNEL:-stable}";;
+  pinned) VERSION="$INSTALLER_VERSION"; CHANNEL=stable;;
+  latest) VERSION=""; CHANNEL=stable;;
+  *) die "invalid installer policy";;
+esac
 pinned="$VERSION"
-CHANNEL="${WHIPCODE_CHANNEL:-stable}"
 case "$CHANNEL" in stable|prerelease) ;; *) die "WHIPCODE_CHANNEL must be stable or prerelease";; esac
 
 # Share the parser/comparator between discovery, pin validation and downgrade
@@ -174,10 +184,18 @@ while :; do
 $parsed
 FIELDS
   [ -z "$pinned" ] && [ "$count" -eq 100 ] || break
-  [ "$page" -lt 100 ] || die "release lookup exceeded 100 pages; set WHIPCODE_VERSION"
+  [ "$page" -lt 100 ] || die "release lookup exceeded 100 pages; use an exact release-pinned installer"
   page=$((page + 1))
 done
-[ "$BIN_ID" -gt 0 ] || die "no complete ${pinned:-$CHANNEL} whipcode v1+ release found; before v1 stable, explicitly set WHIPCODE_CHANNEL=prerelease"
+if [ "$BIN_ID" -le 0 ]; then
+  if [ "$INSTALLER_MODE" = latest ]; then
+    die "no complete stable whipcode v1+ release found; latest.sh never selects prereleases"
+  fi
+  if [ "$INSTALLER_MODE" = pinned ]; then
+    die "no complete pinned whipcode release $pinned found; this installer cannot select another version"
+  fi
+  die "no complete ${pinned:-$CHANNEL} whipcode v1+ release found; use a release-pinned installer or the source installer with WHIPCODE_CHANNEL=prerelease"
+fi
 
 printf '\nwhipcode %s — %s\n' "$VERSION" "$ASSET"
 say "Downloading $ASSET..."
@@ -207,7 +225,7 @@ DEST=$(cd "$DEST" && pwd -P) || die "could not resolve install directory"
 if [ -z "$pinned" ] && [ -x "$DEST/whipcode" ]; then
   current=$("$DEST/whipcode" --version 2>/dev/null || true)
   python3 "$tmp/releases.py" newer "$current" "$VERSION" \
-    || die "installed whipcode is newer; set WHIPCODE_VERSION for an explicit rollback"
+    || die "installed whipcode is newer; use a release-pinned installer for an explicit rollback"
 fi
 # Stage on the destination filesystem so replacement is atomic.
 staged=$(mktemp "$DEST/.whipcode.XXXXXX") || die "could not stage installation"

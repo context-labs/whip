@@ -19,7 +19,8 @@ class PublisherTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / 'candidate').mkdir()
         (self.root / 'install.sh').write_text('installer')
-        (self.root / 'candidate/install.sh').write_text('installer')
+        (self.root / 'candidate/install.sh').write_text('pinned installer')
+        (self.root / 'candidate/latest.sh').write_text('stable installer')
         self.state_file = self.root / 'state.json'
         self.state = {'calls': [], 'tag': False, 'tag_sha': SOURCE, 'workflow': 'active'}
         self.env = {**os.environ, 'PATH': str(self.root) + os.pathsep + os.environ['PATH'],
@@ -52,6 +53,9 @@ if cmd=='node':
     s.setdefault('phases',[]).append(phase)
     if s.get('fail_phase')==phase: done(1)
     if helper=='release-candidate.mjs' and s.get('bad_candidate'): done(1)
+    if helper=='release-candidate.mjs':
+        for name,expected in [('install.sh','pinned installer'),('latest.sh','stable installer')]:
+            if pathlib.Path(a[2],name).read_text()!=expected: done(1)
     if helper=='publish-github.mjs' and os.environ.get('WHIP_DESKTOP_PUBLISH_MODE')=='promote': s['public']=True
     if s.get('disable_after')==phase: s['workflow']='disabled_manually'
     if s.get('orphan_after')==phase: s['off_main']=True
@@ -151,10 +155,13 @@ done(99)
         self.publish(False)
         self.assert_no_job_tag()
 
-    def test_installer_must_match_pinned_source(self):
-        (self.root / 'candidate/install.sh').write_text('wrong')
-        self.publish(False)
-        self.assert_no_job_tag()
+    def test_both_installers_must_match_generated_bytes(self):
+        for name, original in [('install.sh', 'pinned installer'), ('latest.sh', 'stable installer')]:
+            with self.subTest(name=name):
+                (self.root / 'candidate' / name).write_text('wrong')
+                self.publish(False)
+                self.assert_no_job_tag()
+                (self.root / 'candidate' / name).write_text(original)
 
     def test_orphan_tag_wrong_source_rejected(self):
         self.state.update(tag=True, tag_sha='b' * 40)
@@ -291,7 +298,8 @@ class WorkflowTests(unittest.TestCase):
 
     def test_candidate_attestation_matches_actual_unified_main_workflow(self):
         candidate = self.job(self.release, 'candidate')
-        self.assertIn('cp install.sh candidate/install.sh', candidate)
+        self.assertIn('node scripts/build-installers.mjs "$RELEASE_TAG" candidate', candidate)
+        self.assertLess(candidate.index('node scripts/build-installers.mjs'), candidate.index('release-candidate.mjs assemble candidate'))
         self.assertIn('release-candidate.mjs assemble candidate', candidate)
         self.assertIn('run: npm ci', candidate)
         self.assertIn("ELECTRON_SKIP_BINARY_DOWNLOAD: '1'", candidate)
@@ -312,10 +320,10 @@ class WorkflowTests(unittest.TestCase):
             (root / 'candidate').mkdir()
             (root / 'install.sh').write_text('installer')
             (root / 'npm').write_text('#!/bin/sh\n[ "$1" = ci ] && [ "$ELECTRON_SKIP_BINARY_DOWNLOAD" = 1 ] || exit 1\ntouch dependencies-ready\n')
-            (root / 'node').write_text('#!/bin/sh\ntest -f dependencies-ready && test -s candidate/install.sh || exit 1\ntouch assembled\n')
+            (root / 'node').write_text('#!/bin/sh\ntest -f dependencies-ready || exit 1\ncase "$1" in scripts/build-installers.mjs) printf pinned > candidate/install.sh; printf stable > candidate/latest.sh;; *) test -s candidate/install.sh && test -s candidate/latest.sh || exit 1; touch assembled;; esac\n')
             for executable in ['npm', 'node']:
                 (root / executable).chmod(0o755)
-            env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH']}
+            env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'], 'RELEASE_TAG': 'v1.0.0-alpha.1'}
             executed = 0
             for step in candidate.split('      - ')[1:]:
                 match = re.search(r'^        run: (.*)$', step, re.M)
@@ -334,6 +342,14 @@ class WorkflowTests(unittest.TestCase):
                 executed += 1
             self.assertEqual(executed, 2)
             self.assertTrue((root / 'assembled').exists())
+
+    def test_distribution_installer_dependencies_precede_execution(self):
+        distribution = self.job(self.ci, 'distribution')
+        self.assertLess(distribution.index('uses: actions/setup-node@'), distribution.index('run: npm ci'))
+        self.assertEqual(distribution.count('run: npm ci'), 1)
+        for command in ['python3 scripts/test-install-whipcode.py', 'python3 scripts/test-publish-whipcode.py',
+                        'node --test scripts/build-installers.test.mjs']:
+            self.assertLess(distribution.index('run: npm ci'), distribution.index(command))
 
     def test_all_checkouts_explicit_immutable_source(self):
         for text in [self.release, self.desktop, self.ci, self.security,
