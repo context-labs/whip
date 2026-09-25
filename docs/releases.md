@@ -57,10 +57,9 @@ are passed only to storage steps, not dependency installation scripts. See
 [Desktop signing/storage configuration](desktop-releases.md).
 
 `WHIP_RELEASE_BASELINE` is the accepted clean-source SHA. `WHIP_RELEASE_ENABLED`
-is the global admission gate; keep it false during rewiring. The temporary
-`WHIP_DESKTOP_RELEASE_ENABLED` gate, while present, blocks the WHOLE release if
-false; it is not permission for CLI-only publication. Retire that redundant gate
-after complete-release acceptance. Verify live settings before enabling the flow.
+is the single admission gate for the complete release. Desktop remains required:
+a missing, skipped or failed Desktop build blocks publication, never permits a
+CLI-only release. Verify live settings before enabling the flow.
 
 ## Complete artifacts and publication order
 

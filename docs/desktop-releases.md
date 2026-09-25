@@ -45,11 +45,11 @@ environments are not called. Approval precedes public CDN staging. Main requires
 PRs, passing shared checks, zero required approving reviews and no routine bypass.
 Keep tag update/deletion protections and coverage floors.
 
-`WHIP_RELEASE_ENABLED` is the global admission gate and `WHIP_RELEASE_BASELINE`
-binds the clean source boundary. The transition's Desktop flag, if present,
-blocks the entire release rather than permitting CLI-only publication. The
-candidate is the immutable triggering SHA; it may finish when main advances,
-but must remain a validated baseline descendant in protected main's history.
+`WHIP_RELEASE_ENABLED` is the single admission gate and `WHIP_RELEASE_BASELINE`
+binds the clean source boundary. Desktop is always required; a missing, skipped
+or failed Desktop build blocks the entire release rather than permitting CLI-only
+publication. The candidate is the immutable triggering SHA; it may finish when
+main advances, but must remain a validated baseline descendant in protected main's history.
 
 Set these in `desktop-signing`:
 

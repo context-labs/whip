@@ -25,8 +25,7 @@ jobs:
   metadata:
     if: >-
       github.repository == 'context-labs/whip' &&
-      github.ref == 'refs/heads/main' && vars.WHIP_RELEASE_ENABLED == 'true' &&
-      vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'
+      github.ref == 'refs/heads/main' && vars.WHIP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -243,7 +242,7 @@ jobs:
 
   publish:
     needs: [metadata, candidate]
-    if: vars.WHIP_RELEASE_ENABLED == 'true' && vars.WHIP_DESKTOP_RELEASE_ENABLED == 'true'
+    if: vars.WHIP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Reuse existing R2 environment secrets: alpha automatic, stable one approval.
@@ -258,7 +257,6 @@ jobs:
       RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
       RELEASE_MODE: ${{ needs.metadata.outputs.mode }}
       WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
-      WHIP_DESKTOP_RELEASE_ENABLED: ${{ vars.WHIP_DESKTOP_RELEASE_ENABLED }}
       WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
       WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
       WHIP_DESKTOP_BUCKET: ${{ vars.WHIP_DESKTOP_BUCKET }}
