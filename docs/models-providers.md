@@ -115,9 +115,19 @@ Completions. Explicit configured aliases remain available. OpenRouter discovery
 checks authentication separately from its public catalog. DeepInfra's public
 catalog and bundled fallbacks do not validate an API key; discovery details remain available in management, while
 provider/model pickers omit informational notices. Observed authentication
-failures still reject the submitted key. DeepSeek V4 uses non-thinking mode until
-reasoning-content replay is supported. See the
+failures still reject the submitted key. DeepSeek V4 retains its existing
+non-thinking default; older saved tool rounds may lack the reasoning required
+by thinking mode. See the
 [compatibility scope and evidence](../.ai-docs/plans/tui-provider-configuration/CATALOG-COMPATIBILITY.md).
+
+Compatible Chat Completions endpoints that expose `reasoning_content` have that
+text retained separately from ordinary assistant content. Whip replays it in
+subsequent requests, including tool round trips and restored sessions. Custom
+proxies retain this generic wire contract; the canonical OpenAI Chat Completions
+endpoint omits this extension. Responses/ChatGPT continuation state uses its
+existing separate protocol. This does not add support for other providers'
+structured or encrypted reasoning fields, and cannot recover thoughts omitted
+from older saved sessions.
 
 `OPENAI_BASE_URL` or `OPENAI_API_BASE` pointing elsewhere prevents automatic use
 of `OPENAI_API_KEY` at OpenAI's canonical endpoint. Configure that custom endpoint

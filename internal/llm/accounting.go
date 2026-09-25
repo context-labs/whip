@@ -328,7 +328,7 @@ func (p Pricing) ActualCost(u Usage) (int64, bool, error) {
 	return amount, true, err
 }
 
-// EstimateTokens approximates input with message framing, tool calls and images.
+// EstimateTokens approximates input with message framing, reasoning, tool calls and images.
 func EstimateTokens(messages []Message) int {
 	total := 0
 	add := func(tokens int) {
@@ -341,6 +341,7 @@ func EstimateTokens(messages []Message) int {
 	for _, message := range messages {
 		add(4)
 		add((len(message.Content) + 3) / 4)
+		add((len(message.ReasoningContent) + 3) / 4)
 		// Opaque Responses state also consumes context. Count its serialized
 		// size conservatively; visible text alone can hide a large history.
 		add((len(message.Continuation.Items) + 3) / 4)
