@@ -1,20 +1,33 @@
 {
   "$schema": "https://unpkg.com/wrangler@4.140.0/config-schema.json",
-  "name": "whipcode-docs",
   "account_id": "b0c6d69f10b59b4d5b3a1a6d882d95ba",
   "main": "worker.ts",
   "compatibility_date": "2026-09-25",
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [
-    { "pattern": "inference.net/whipcode", "zone_name": "inference.net" },
-    { "pattern": "inference.net/whipcode/*", "zone_name": "inference.net" }
-  ],
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
     "run_worker_first": true,
     "html_handling": "none",
     "not_found_handling": "none"
+  },
+  "env": {
+    "production": {
+      "name": "whipcode-docs",
+      "vars": { "DOCS_INDEXABLE": "true" },
+      "routes": [
+        { "pattern": "inference.net/whipcode", "zone_name": "inference.net" },
+        { "pattern": "inference.net/whipcode/*", "zone_name": "inference.net" }
+      ]
+    },
+    "preview": {
+      "name": "whipcode-docs-preview",
+      "vars": { "DOCS_INDEXABLE": "false" },
+      "routes": [
+        { "pattern": "inference.cool/whipcode", "zone_name": "inference.cool" },
+        { "pattern": "inference.cool/whipcode/*", "zone_name": "inference.cool" }
+      ]
+    }
   }
 }

@@ -1,5 +1,5 @@
-export function robotsText(origin) {
-  const lines = origin ? ['User-agent: *', 'Allow: /', `Sitemap: ${origin}/sitemap.xml`, ''] : ['User-agent: *', 'Disallow: /', '']
+export function robotsText(origin, indexable = false) {
+  const lines = origin && indexable ? ['User-agent: *', 'Allow: /', `Sitemap: ${origin}/sitemap.xml`, ''] : ['User-agent: *', 'Disallow: /', '']
   return lines.join(String.fromCharCode(10))
 }
 

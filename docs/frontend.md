@@ -206,15 +206,24 @@ Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`
 content contract, static preview, tests and publication procedure. Storybook
 exists for component/board review, not as a public production route.
 
-The approved production site is `https://inference.net/whipcode` on Cloudflare
-Workers. `apps/docs/wrangler.jsonc` owns only that exact entry and its subtree;
-root inference.net routes, assets, robots and sitemap remain untouched. Default
-builds are root-path previews with indexing disabled. The production build sets
-`DOCS_SITE_URL=https://inference.net/whipcode`; Vite/TanStack handle the router
-and asset base, while plain/MDX links use `sitePath`. The Worker serves only the
-static asset binding, with the shared redirects, real 404s and cache policy.
-Run the app's `deploy` command and `scripts/worker-smoke.mjs` for production
-routing validation. No server rendering or backend state is introduced. Existing engineering
+Public docs deploy automatically from `main` to `https://inference.net/whipcode`
+(`whipcode-docs`) and from `development` to `https://inference.cool/whipcode`
+(`whipcode-docs-preview`). `DOCS_ENVIRONMENT=production|preview` selects fixed
+canonical URLs and indexing policy; a nonempty `DOCS_SITE_URL` alone never
+permits indexing. Preview emits noindex metadata and response headers,
+disallow robots and no sitemap; production publishes an article sitemap.
+Default local builds remain root-path noindex previews.
+
+`apps/docs/wrangler.jsonc` records only exact `/whipcode` and `/whipcode/*` routes;
+root websites, assets, robots and sitemaps remain untouched. The independent
+`docs-deploy.yml` workflow validates/builds a target-specific static package
+without credentials, then uploads/activates an exact Worker version using a
+branch-restricted environment's per-Worker Editor token. CI never changes zone
+routes and never deploys from PRs or called release workflows. Deploys serialize
+per branch and skip stale sources. See the app README for bootstrap, recovery
+and local/live `worker-smoke.mjs` checks. Vite/TanStack own the router/asset base;
+plain/MDX links use `sitePath`. No runtime rendering or backend state is added.
+Existing engineering
 docs remain engineering references; migrate user-facing material deliberately
 rather than exposing all of `docs/` or maintaining divergent installation claims.
 
