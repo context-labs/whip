@@ -215,10 +215,24 @@ in
   dependency review, supported-macOS/VoiceOver/IME/manual checks, performance and
   lifecycle budgets, and disabled/old-client/rollback validation. Passing unit or
   development-native fixtures does not complete this rollout milestone.
-- [ ] Desktop publishing CI: explicit desktop releases, CI signing/notarization,
-  verified downloads and update feeds, clean-machine installation and actual
-  update acceptance. See the
-  [research and phased release plan](../.ai-docs/plans/desktop-release/README.md).
+- [ ] Unified development-alpha rollout and Desktop release acceptance. See the
+  [rollout procedure](releases.md#pause-rollout-and-recovery); configured
+  infrastructure does not complete release/install/update acceptance:
+  - [x] Create `whipcode-alpha-releases` and the native
+    `whipcode-alpha-releases.inference.net` domain with minimum TLS 1.2; configure
+    matching signing/publishing feed variables and exact environment allowlists.
+  - [ ] Create/verify alpha-only credentials and public downloads; prove canary
+    denial on stable storage and safely revoke broad old keys. Removing secret
+    copies does not revoke credentials.
+  - [ ] Complete paused branch/bootstrap checks, development integrity rules and
+    first complete `v1.0.1-alpha.N` dispatch per the rollout procedure.
+  - [ ] Accept all 17 candidate files/checksums/attestations, fresh CLI, signed/
+    notarized Desktop/backend/renderer and the one-time existing-Beta reinstall.
+  - [ ] Prove automatic publication on a legitimate development push and actual
+    N→N+1 updates with a second accepted alpha, including clean-machine/minimum-OS/
+    hardware/manual acceptance. CI startup alone is insufficient.
+  - [ ] Reconfirm stable latest/feed and production web/docs sites unchanged;
+    record receipts and remaining manual gates. See [Desktop operations](desktop-releases.md).
 - [x] Canonical desktop whipcode integration: one selected installed executable,
   a shared default `~/.whipcode` home, verified installation payload and explicit
   local connection diagnostics, installation and restart controls. Machine cleanup,

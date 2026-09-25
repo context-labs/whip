@@ -1,12 +1,12 @@
 name: security
 
-# Shared dependency and CodeQL gates for PRs, main, and release callers.
+# Shared dependency and CodeQL gates for PRs, main/development, and release callers.
 on:
   workflow_call:
   pull_request:
-    branches: [main]
+    branches: [main, development]
   push:
-    branches: [main]
+    branches: [main, development]
   schedule:
     - cron: "17 6 * * 1"
 

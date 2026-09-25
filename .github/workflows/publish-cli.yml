@@ -2,7 +2,7 @@ name: releaseWHIP
 
 on:
   push:
-    branches: [main]
+    branches: [development]
   workflow_dispatch:
     inputs:
       channel:
@@ -12,10 +12,10 @@ on:
         default: alpha
         required: true
 
-# ponytail: serialize one whole release; approval can delay alphas and pending pushes
-# may coalesce. Split build/publication locks only if measured queue delay warrants it.
+# ponytail: serialize each release train; newer pending alphas may coalesce,
+# but never interrupt an active release or wait behind stable approval.
 concurrency:
-  group: whipcode-publishing
+  group: whipcode-publishing-${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'alpha' }}
   cancel-in-progress: false
 
 permissions:
@@ -25,12 +25,13 @@ jobs:
   metadata:
     if: >-
       github.repository == 'context-labs/whip' &&
-      github.ref == 'refs/heads/main' && vars.WHIP_RELEASE_ENABLED == 'true'
+      vars.WHIP_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       mode: ${{ steps.version.outputs.mode }}
       source: ${{ steps.version.outputs.source }}
+      source_ref: ${{ steps.version.outputs.source_ref }}
       version: ${{ steps.version.outputs.version }}
       channel: ${{ steps.version.outputs.channel }}
     steps:
@@ -39,25 +40,34 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Admit one clean main source and shared release identity
+      - name: Admit one clean branch source and shared release identity
         id: version
         env:
           SOURCE_SHA: ${{ github.sha }}
           WHIP_RELEASE_BASELINE: ${{ vars.WHIP_RELEASE_BASELINE }}
-          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'alpha' }}
+          WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
+          RELEASE_MODE: ${{ github.event_name == 'push' && 'alpha' || inputs.channel }}
           RUN_NUMBER: ${{ github.run_number }}
-          BASE_VERSION: 1.0.0
+          BASE_VERSION: 1.0.1
         run: |
-          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"
-          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
-          case "$RELEASE_MODE" in
-            alpha) version="$BASE_VERSION-alpha.$RUN_NUMBER"; channel=beta ;;
-            stable) version="$BASE_VERSION"; channel=stable ;;
-            *) exit 1 ;;
+          [[ "$GITHUB_REPOSITORY" == context-labs/whip && "$WHIP_RELEASE_ENABLED" == true ]] || exit 1
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF:$RELEASE_MODE" in
+            push:refs/heads/development:alpha|workflow_dispatch:refs/heads/development:alpha)
+              source_ref=refs/heads/development; version="$BASE_VERSION-alpha.$RUN_NUMBER"; channel=beta ;;
+            workflow_dispatch:refs/heads/main:stable)
+              source_ref=refs/heads/main; version="$BASE_VERSION"; channel=stable ;;
+            *) echo "Unsupported release event/ref/mode" >&2; exit 1 ;;
           esac
-          printf 'tag=v%s\nversion=%s\nmode=%s\nchannel=%s\nsource=%s\n' "$version" "$version" "$RELEASE_MODE" "$channel" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$WHIP_RELEASE_BASELINE" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$BASE_VERSION" =~ ^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          [[ "$RUN_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          source_branch=${source_ref#refs/heads/}
+          git fetch --no-tags origin "$source_ref:refs/remotes/origin/$source_branch"
+          git merge-base --is-ancestor "$WHIP_RELEASE_BASELINE" "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/$source_branch"
+          printf 'tag=v%s\nversion=%s\nmode=%s\nchannel=%s\nsource=%s\nsource_ref=%s\n' "$version" "$version" "$RELEASE_MODE" "$channel" "$SOURCE_SHA" "$source_ref" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: metadata
@@ -254,6 +264,7 @@ jobs:
     env:
       GH_REPO: context-labs/whip
       SOURCE_SHA: ${{ needs.metadata.outputs.source }}
+      SOURCE_REF: ${{ needs.metadata.outputs.source_ref }}
       RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
       RELEASE_MODE: ${{ needs.metadata.outputs.mode }}
       WHIP_RELEASE_ENABLED: ${{ vars.WHIP_RELEASE_ENABLED }}
@@ -278,15 +289,20 @@ jobs:
         with:
           name: release-candidate
           path: candidate
-      - name: Verify complete candidate provenance from this main source
+      - name: Verify complete candidate provenance from the admitted source ref
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          case "$RELEASE_MODE:$SOURCE_REF" in
+            alpha:refs/heads/development|stable:refs/heads/main) ;;
+            *) exit 1 ;;
+          esac
+          [[ "$SOURCE_REF" == "$GITHUB_REF" && "$SOURCE_SHA" == "$GITHUB_SHA" ]] || exit 1
           node apps/desktop/scripts/release-candidate.mjs verify candidate
           for asset in candidate/*; do
             gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" \
               --signer-workflow context-labs/whip/.github/workflows/publish-cli.yml \
-              --signer-digest "$SOURCE_SHA" --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+              --signer-digest "$SOURCE_SHA" --source-ref "$SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done
       - name: Publish one immutable release, then the matching update feed
         env:
