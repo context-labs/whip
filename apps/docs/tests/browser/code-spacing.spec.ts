@@ -27,6 +27,7 @@ for (const width of [390, 1440]) test(`code spacing matches Paper at ${width}px`
     await expect(pre).toHaveCSS('padding', '20px')
     await expect(pre).toHaveCSS('margin', '0px')
     await expect(pre).toHaveCSS('line-height', '20px')
+    await expect(pre.locator('code')).toHaveCSS('font-family', await pre.evaluate(node => getComputedStyle(node).fontFamily))
     const lines = (await pre.textContent())!.replace(/\n$/, '').split('\n').length
     // Content lines plus top/bottom insets: no phantom trailing line or extra vertical margin.
     expect((await pre.boundingBox())!.height).toBe(lines * 20 + 40)
