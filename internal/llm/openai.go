@@ -29,12 +29,15 @@ type Message struct {
 	Continuation ResponseContinuation    `json:"-"`
 	// RawSequence identifies the retained transcript row. Summaries carry
 	// the last covered raw sequence. Runtime-only; never serialized.
-	RawSequence int           `json:"-"`
-	Role        string        `json:"role"`
-	Content     string        `json:"content"`
-	Parts       []ContentPart `json:"-"`
-	ToolCalls   []ToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID  string        `json:"tool_call_id,omitempty"`
+	RawSequence int    `json:"-"`
+	Role        string `json:"role"`
+	Content     string `json:"content"`
+	// ReasoningContent is exposed Chat Completions reasoning, retained
+	// separately from visible text and replayed through tool rounds/resume.
+	ReasoningContent string        `json:"reasoning_content,omitempty"`
+	Parts            []ContentPart `json:"-"`
+	ToolCalls        []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID       string        `json:"tool_call_id,omitempty"`
 	// Name is the function name on role "tool" messages. OpenAI ignores it,
 	// but Moonshot/Kimi requires it ("tool messages need a resolvable tool
 	// name") — without it every tool-using turn 400s.
@@ -154,19 +157,20 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 // fields are omitempty and cleared by stripAuthored before a provider request,
 // so they only ever appear in the persisted session store.
 type messageWire struct {
-	Presentation *TranscriptPresentation `json:"presentation,omitempty"`
-	Continuation ResponseContinuation    `json:"continuation,omitzero"`
-	Role         string                  `json:"role"`
-	Content      any                     `json:"content"`
-	ToolCalls    []ToolCall              `json:"tool_calls,omitempty"`
-	ToolCallID   string                  `json:"tool_call_id,omitempty"`
-	Name         string                  `json:"name,omitempty"`
-	Authored     bool                    `json:"authored,omitempty"`
-	SentAt       *time.Time              `json:"sent_at,omitempty"`
-	Usage        *Usage                  `json:"usage,omitempty"`
-	Model        string                  `json:"model,omitempty"`
-	RewoundFrom  string                  `json:"rewound_from,omitempty"`
-	CallID       string                  `json:"call_id,omitempty"`
+	Presentation     *TranscriptPresentation `json:"presentation,omitempty"`
+	Continuation     ResponseContinuation    `json:"continuation,omitzero"`
+	Role             string                  `json:"role"`
+	Content          any                     `json:"content"`
+	ReasoningContent string                  `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall              `json:"tool_calls,omitempty"`
+	ToolCallID       string                  `json:"tool_call_id,omitempty"`
+	Name             string                  `json:"name,omitempty"`
+	Authored         bool                    `json:"authored,omitempty"`
+	SentAt           *time.Time              `json:"sent_at,omitempty"`
+	Usage            *Usage                  `json:"usage,omitempty"`
+	Model            string                  `json:"model,omitempty"`
+	RewoundFrom      string                  `json:"rewound_from,omitempty"`
+	CallID           string                  `json:"call_id,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
@@ -175,7 +179,8 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	w := messageWire{
 		Continuation: m.Continuation, Presentation: m.Presentation,
 		Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
-		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
+		ReasoningContent: m.ReasoningContent,
+		Name:             m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
 		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID,
 	}
 	if len(m.Parts) > 0 {
@@ -201,6 +206,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	*m = Message{}
 	m.Continuation = raw.Continuation
 	m.Presentation = raw.Presentation
+	m.ReasoningContent = raw.ReasoningContent
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
 	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom, m.CallID = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom, raw.CallID
 	if len(raw.Content) == 0 {
@@ -889,6 +895,7 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	}
 
 	msg := Message{Role: "assistant"}
+	var reasoning strings.Builder
 	var usage Usage      // from the terminal chunk (include_usage); zero if omitted
 	var calls []ToolCall // arrival order; providers may use sparse stream indexes
 	callPositions := make(map[int]int)
@@ -927,6 +934,8 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		}
 		if d.ReasoningContent != "" {
 			emitted = true
+			reasoning.WriteString(d.ReasoningContent)
+			msg.ReasoningContent = reasoning.String()
 			if onThink != nil {
 				onThink(d.ReasoningContent)
 			}

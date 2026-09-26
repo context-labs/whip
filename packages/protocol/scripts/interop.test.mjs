@@ -197,6 +197,33 @@ test('upcoming schedules are optional, typed, and preserve explicit preview evid
   assert.equal(validate('RootSnapshot', { ...snapshot, upcoming_schedules: [missingSlot] }, 'response'), false);
 });
 
+test('transcript messages validate optional exposed reasoning', async () => {
+  const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
+  for (const type of ['RootSnapshot', 'AgentTranscriptResult', 'BoundedTranscriptPage']) {
+    const value = structuredClone(fixtures.find(fixture => fixture.type === type).value);
+    const message = { role: 'assistant', content: 'Retained response' };
+    const entry = { seq: 1, role: message.role, message };
+    if (type === 'AgentTranscriptResult') value.page.messages = [entry];
+    else if (type === 'BoundedTranscriptPage') value.messages = [entry];
+    else value.messages = [message];
+
+    for (const mode of ['request', 'response']) {
+      delete message.reasoning_content;
+      assertValid(type, value, mode);
+      assert.equal(Object.hasOwn(message, 'reasoning_content'), false);
+      for (const reasoning of ['', 'Inspect the failing test before editing.']) {
+        message.reasoning_content = reasoning;
+        assertValid(type, value, mode);
+        assert.equal(message.reasoning_content, reasoning);
+      }
+      for (const reasoning of [null, 42, false, {}, []]) {
+        message.reasoning_content = reasoning;
+        assert.equal(validate(type, value, mode), false, `${type} must reject malformed reasoning in ${mode} mode`);
+      }
+    }
+  }
+});
+
 test('session usage remains valid without optional provenance', async () => {
   const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
   for (const type of ['RootSnapshot', 'AgentTranscriptResult', 'BoundedTranscriptPage', 'CompactionResult', 'StreamEvent']) {

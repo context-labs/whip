@@ -210,6 +210,13 @@ Shell and kernel subprocesses run in managed process groups. This is
 operational containment, not a security sandbox against another hostile
 process already running as the same OS user.
 
+Managed host processes inherit the Go build settings `GOCACHE`, `GOMODCACHE`,
+`GOPATH`, `GOROOT`, `GOTOOLCHAIN`, and `GOFLAGS` captured when the process manager
+starts. This preserves preloaded modules and toolchains in offline environments.
+Explicit child-process settings take precedence over that snapshot. Other Go
+variables, including credential-bearing proxy/auth settings, are not implicitly
+inherited; the allowlist is in `internal/capability/process.go`.
+
 ## Gateway process ownership
 
 The socket-only daemon owns execution; `internal/webgateway` owns HTTP/WS

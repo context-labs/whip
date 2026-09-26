@@ -372,6 +372,10 @@ func allowedBaseEnvironment(name string) bool {
 		"TMPDIR", "TMP", "TEMP", "LANG", "LANGUAGE",
 		"TERM", "COLORTERM", "NO_COLOR":
 		return true
+	case "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT", "GOTOOLCHAIN", "GOFLAGS":
+		// Keep the host's Go toolchain and preloaded caches usable offline.
+		// Do not allow GO* wholesale: proxy/auth settings can carry credentials.
+		return true
 	}
 	return name == buildinfo.Env("HOME") || strings.HasPrefix(name, "LC_")
 }

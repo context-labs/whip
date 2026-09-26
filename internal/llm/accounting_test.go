@@ -357,9 +357,12 @@ func TestStreamRegeneratesPartialOutputWithinBudgetWithNilCallbacks(t *testing.T
 				response.Body = io.NopCloser(io.MultiReader(strings.NewReader(`data: {"choices":[{"delta":`+delta+`}]}`+"\n\n"), accountingBrokenReader{}))
 				return response, nil
 			})
-			_, _, err := client.Stream(context.Background(), Request{Model: "m", MaxTokens: 10, Accounting: &CallAccounting{Budget: budget}}, nil, nil, nil)
+			msg, _, err := client.Stream(context.Background(), Request{Model: "m", MaxTokens: 10, Accounting: &CallAccounting{Budget: budget}}, nil, nil, nil)
 			if err == nil || calls != 1+DefaultRegenerations || len(settled) != calls {
 				t.Fatalf("calls=%d settled=%d err=%v", calls, len(settled), err)
+			}
+			if strings.Contains(delta, "reasoning_content") && msg.ReasoningContent != "thinking" {
+				t.Fatalf("last partial reasoning lost or combined with discarded attempts: %q", msg.ReasoningContent)
 			}
 			for _, result := range settled {
 				if !result.Dispatched || !result.Failed {

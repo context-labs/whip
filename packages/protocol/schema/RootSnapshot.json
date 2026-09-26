@@ -377,6 +377,9 @@
               }
             ]
           },
+          "reasoning_content": {
+            "type": "string"
+          },
           "tool_calls": {
             "type": [
               "null",
