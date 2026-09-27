@@ -934,7 +934,8 @@ func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
 
 // Fork copies a session's stored rows with seq <= uptoSeq (pass len(msgs)
 // for a full copy — one past the last row) into a new session titled title,
-// carrying over cwd/model/provider/goal, and returns the new id. seq equals
+// carrying over cwd/model/provider/goal and the permission mode, and returns
+// the new id. seq equals
 // the conversation index (the system prompt is never persisted). The source
 // session is untouched. The fork also gets a snapshot of active content grants
 // readable by the source root. It shares immutable references, preserving their
@@ -949,8 +950,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort,execution_engine,definition,definition_revision)
-		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort,execution_engine,definition,definition_revision FROM sessions WHERE id=? AND kind='agent'`,
+	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort,permission_mode,execution_engine,definition,definition_revision)
+		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort,permission_mode,execution_engine,definition,definition_revision FROM sessions WHERE id=? AND kind='agent'`,
 		newID, now(), now(), title, srcID, uptoSeq, srcID)
 	if err != nil {
 		return "", err
