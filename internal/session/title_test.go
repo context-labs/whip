@@ -90,8 +90,8 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 			t.Fatal(err)
 		}
 		meta, _, err := store.Load(rootID)
-		if err != nil || meta.Title != want || !utf8.ValidString(meta.Title) {
-			t.Fatalf("persisted title = %q, err = %v", meta.Title, err)
+		if err != nil || meta.Title != "" {
+			t.Fatalf("turn completion initialized title = %q, err = %v", meta.Title, err)
 		}
 	})
 }

@@ -9,7 +9,7 @@ import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
 import type { SessionCatalogPage } from '@whip/protocol';
 import { useQuery } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
-import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning } from 'lucide-react';
+import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning, Archive } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
@@ -310,6 +310,9 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
               </span>
             </Link>}
             </WorkspaceExternalSource>
+            {!session.archived && <IconButton variant="ghost" label={`Archive ${session.title || 'Untitled session'}`} title="Archive chat"
+              onClick={event => { event.preventDefault(); event.stopPropagation(); void actions.archive({ runtimeId, rootId: session.id, title: session.title, archived: session.archived }, true); }}
+              xstyle={[styles.icon, styles.sessionMenu]}><Archive size={14} /></IconButton>}
             <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
           </div></ContextMenu>
         </div>;

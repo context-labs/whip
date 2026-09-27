@@ -54,6 +54,7 @@ type Server struct {
 	listener      net.Listener
 	gatewayStatus protocol.GatewayStatus
 	runtimeID     string
+	unlistenTitle func()
 
 	mu        sync.Mutex
 	clients   map[*serverConn]struct{}
@@ -76,6 +77,9 @@ type serverConn struct {
 	network       bool
 	out           chan []byte
 	inFlight      chan struct{}
+
+	// Guarded by server.mu; true only after the initialize response is written.
+	titleNotifications bool
 
 	mu        sync.Mutex
 	outBytes  int64
@@ -123,12 +127,14 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	if providers == nil {
 		providers = NewProviderService(ctx, strconv.FormatInt(options.Generation, 10))
 	}
-	return &Server{
+	server := &Server{
 		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: providers,
 		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
 		uploads:       newUploadManager(value.store, options.RuntimeDir),
 		gatewayStatus: protocol.GatewayStatus{State: "disabled"},
-	}, nil
+	}
+	server.unlistenTitle = value.listenTitleChanges(server.notifyTitleChanged)
+	return server, nil
 }
 
 func (s *Server) ListenAndServe(paths RuntimePaths) error {
@@ -186,6 +192,7 @@ func (s *Server) Close() error {
 		s.daemon.browserProviders.shutdown()
 		s.lifeMu.Lock()
 		s.closed.Store(true)
+		s.unlistenTitle()
 		s.cancel()
 		if s.listener != nil {
 			err = s.listener.Close()
@@ -250,7 +257,7 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_skill_completion", "host_global_skill_completion", "skill_catalog_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1", "desktop-browser-v2", protocol.NetworkClientCapability}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_skill_completion", "host_global_skill_completion", "skill_catalog_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines", "terminals", "desktop-browser-v1", "desktop-browser-v2", protocol.NetworkClientCapability, protocol.SessionTitleNotificationsCapability}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -270,6 +277,9 @@ func (s *Server) serveTransport(raw messageTransport, network bool) {
 	if !s.goWorker(connection.writeLoop) {
 		return
 	}
+	s.mu.Lock()
+	connection.titleNotifications = slices.Contains(negotiated, protocol.SessionTitleNotificationsCapability)
+	s.mu.Unlock()
 
 	for {
 		_ = raw.SetReadDeadline(time.Now().Add(s.options.ClientIdleTimeout))
@@ -651,6 +661,19 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 	}
 	if params.Scope != string(session.CommandScopeRoot) {
 		return CommandResult{}, errors.New("command scope must be daemon or root")
+	}
+	if params.Operation == "session.archive" || params.Operation == "session.rename" {
+		if root := s.daemon.Live(params.RootID); root == nil {
+			record, err := s.daemon.control.SessionMetadataCommand(s.ctx, session.CommandAdmission{
+				ClientID: connection.client.ClientID, CommandID: params.CommandID, RequestDigest: digest,
+				Payload: session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: params.Operation},
+			}, params.Operation, params.Payload, params.RootID)
+			if !errors.Is(err, errMetadataRootLive) {
+				return s.commandRecordResult(s.ctx, record, err)
+			}
+			// The root opened while this command waited for daemon control.
+			// No command was admitted; route it below outside that actor.
+		}
 	}
 	root, err := s.daemon.Open(params.RootID)
 	if err != nil {

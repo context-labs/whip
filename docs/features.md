@@ -614,6 +614,45 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   inspection and management remain in the session inspector.
 - Process shutdown is root-owned and waits for supervised workers.
 
+## Session naming
+
+- Session creation remains promptless. The first accepted user message with usable
+  text supplies a whitespace-normalized, Unicode-bounded deterministic title before
+  conversation execution. Multipart text follows the same root-input path;
+  attachment-only messages wait for authored text rather than invoking vision. A
+  later execution failure does not undo naming of an already accepted message.
+- Deterministic titles shorter than 20 Unicode characters are kept without an LLM
+  call. At 20 characters or more, automatic naming is enabled by default: one
+  daemon-owned background request uses the compact-model route (or its existing
+  main-model fallback), using only the user text, with a 20-second timeout.
+  Definition `surface.auto_title=false` skips this request but retains the
+  deterministic title. No separate per-session enablement
+  command or inspector control is required.
+- Failure or shutdown retains the deterministic title; there is no retry job or
+  old-session backfill. Duplicate input does not schedule another attempt. Manual
+  rename wins over in-flight generation, and fork names are preserved. Title calls
+  retain normal model-accounting and budget enforcement.
+- Persisted title changes bump the existing catalog revision and emit a negotiated
+  host-level `sessions.title.changed` notification containing only the root ID.
+  Deterministic titles (including short titles), generated titles, manual renames,
+  and newly created forks trigger existing catalog/summary reads without opening
+  the conversation. Active conversations retain the ordered root title event.
+- Notifications are best-effort invalidation hints, not another title cache. SDK
+  catalogs refresh and Desktop/web invalidates that host's tab/sidebar summaries,
+  search, and attention queries. Existing polling intervals and visibility gates
+  remain unchanged as backup; older clients/hosts continue polling. Off-page and
+  disconnected views read current titles when fetched or reconnected.
+- Code: `internal/session/{command,title}.go`,
+  `internal/daemon/{session,agent_session,client_control}.go`. Validation: session
+  `internal/session/title_admission_test.go`, daemon title lifecycle and metadata
+  routing tests (`title_lifecycle_test.go`, `metadata_routing_test.go`), title
+  model-accounting tests, and notification delivery/lifecycle tests in
+  `internal/daemon/title_notifications_test.go`. Client coverage lives in
+  `packages/sdk/test/{client,state}.test.ts` and
+  `packages/app/test/{session-title-notifications,session-tab-titles}.test.ts*`.
+  `apps/web/scripts/session-title-notifications.mjs` verifies real WebSocket
+  delivery and unopened-sidebar/inactive-tab updates in Chromium and Firefox.
+
 ## TypeScript client SDK
 
 - Desktop/web active-turn messages enter a durable queue above the composer.

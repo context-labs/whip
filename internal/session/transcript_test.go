@@ -112,6 +112,17 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 				}
 				cursor = page.NextSeq
 			}
+			if !child {
+				for i := range restoredRaw {
+					if restoredRaw[i].Role == "user" {
+						wantTurn := map[int]int64{0: 1, 4: 2, 6: 3}[i]
+						if restoredRaw[i].Presentation == nil || restoredRaw[i].Presentation.TurnID != rootTurnID(agentID, wantTurn) {
+							t.Fatal("root input lost its turn provenance")
+						}
+						restoredRaw[i].Presentation = raw[i].Presentation
+					}
+				}
+			}
 			want, _ := json.Marshal(raw)
 			got, _ := json.Marshal(restoredRaw)
 			if string(got) != string(want) {

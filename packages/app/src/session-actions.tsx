@@ -17,7 +17,7 @@ export interface SessionActionTarget {
 type Action = 'rename' | 'fork' | 'delete' | 'ssh';
 type Metadata = Awaited<ReturnType<WhipClient['sessions']['get']>>;
 interface Selection { target: SessionActionTarget; hostName: string; client: WhipClient; action: Action; metadata?: Metadata; error?: string; errorType?: 'action' | 'validation' | 'resource' }
-interface Actions { items(target: SessionActionTarget): MenuItem[]; prepare(open: boolean): void }
+interface Actions { items(target: SessionActionTarget): MenuItem[]; prepare(open: boolean): void; archive(target: SessionActionTarget, archived: boolean): Promise<void> }
 const ActionsContext = createContext<Actions | null>(null);
 const aliasKey = (runtimeId: string) => `whip.web.editor-ssh.v1:${runtimeId}`;
 
@@ -141,8 +141,15 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
   }
   async function archive(target: SessionActionTarget, archived: boolean) {
     await perform(async () => {
-      const client = attached(target).client!;
-      await runtime.run(client.session(target.rootId).archive(archived), archived ? 'Archive session' : 'Restore session');
+      const host = attached(target);
+      const client = host.client!;
+      host.list?.setOptimisticArchived(target.rootId, archived);
+      try {
+        await runtime.run(client.session(target.rootId).archive(archived), archived ? 'Archive session' : 'Restore session');
+      } catch (error) {
+        host.list?.setOptimisticArchived(target.rootId, !archived);
+        throw error;
+      }
       toast.add({ title: archived ? 'Session archived' : 'Session restored', description: archived
         ? <Button variant="ghost" onClick={() => void archive(target, false)}>Undo archive</Button>
         : 'This session is back in the sidebar.' });
@@ -156,6 +163,12 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       if (app) await runtime.platform.projectEditors!.open({ app, directory: data.cwd, connectionId: host.id, runtimeId: target.runtimeId, sshAlias: host.profile.target.kind === 'local' ? undefined : alias(target.runtimeId) || undefined });
       else { await runtime.platform.copy(data.cwd); toast.add({ title: 'Directory copied' }); }
     }, target, app ? 'Could not open directory' : 'Could not copy directory');
+  }
+  async function copyId(target: SessionActionTarget) {
+    await perform(async () => {
+      await runtime.platform.copy(target.rootId);
+      toast.add({ title: 'Session ID copied', description: target.rootId });
+    }, target, 'Could not copy session ID');
   }
   const prepare = (open: boolean) => {
     if (!open || !runtime.platform.projectEditors) return;
@@ -181,6 +194,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       { id: 'background', label: 'Open in background tab', disabled, onSelect: () => { try { runtime.tabs.open(target.runtimeId, target.rootId, target.title); } catch (error) { setFailure({ target, title: 'Could not open session tab', error }); } } },
       { id: 'open-in', label: 'Open in', disabled, items: [...native, { id: 'copy-directory', label: 'Copy directory', disabled, onSelect: () => void openDirectory(target) }] },
       { id: 'rename', label: 'Rename', disabled, onSelect: () => void begin(target, 'rename') },
+      { id: 'copy-id', label: 'Copy session ID', disabled: busy || !host, onSelect: () => void copyId(target) },
       { id: 'fork', label: 'Fork', disabled, onSelect: () => void begin(target, 'fork') },
       { id: 'archive', label: target.archived ? 'Restore' : 'Archive', disabled, onSelect: () => void archive(target, !target.archived) },
       { id: 'destructive-separator', label: '', separator: true },
@@ -188,7 +202,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     ];
   }
   const title = selection?.action === 'rename' ? 'Rename session' : selection?.action === 'delete' ? 'Delete this session?' : selection?.action === 'ssh' ? 'SSH for editors' : 'Fork session';
-  return <ActionsContext.Provider value={{ items, prepare }}>{children}
+  return <ActionsContext.Provider value={{ items, prepare, archive }}>{children}
     <Dialog open={!!selection} onOpenChange={open => { if (!open) close(); }} title={title}
       description={selection?.action === 'delete' ? 'This permanently deletes the session, its owned work, and unsent drafts. Running work will stop. Files in the working directory stay on disk.' : selection?.action === 'ssh' ? 'Use an SSH config alias on this computer. The editor handles SSH authentication. This setting applies to this Whip host on this device.' : undefined}
       footer={<><Button onClick={close} disabled={busy}>Close</Button>{selection?.action !== 'fork' && <Button variant={selection?.action === 'delete' ? 'danger' : 'primary'} loading={busy}

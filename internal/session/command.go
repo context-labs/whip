@@ -37,9 +37,10 @@ type CommandRecord struct {
 }
 
 type CommandAdmissionResult struct {
-	Command  CommandRecord
-	EventSeq int64
-	New      bool
+	Command             CommandRecord
+	EventSeq            int64
+	New                 bool
+	TitleInitialization *TitleInitialization
 }
 
 // AdmitCommand compares command identity and request digest and, for a new
@@ -99,6 +100,7 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 		}
 		result.Command.IngressSeq = sequence.InboxSeq
 		result.EventSeq = sequence.EventSeq
+		result.TitleInitialization = sequence.TitleInitialization
 	} else if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ingress_seq),0)+1 FROM commands WHERE scope='daemon'`).Scan(&result.Command.IngressSeq); err != nil {
 		return CommandAdmissionResult{}, err
 	}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -22,6 +24,7 @@ type Control struct {
 	requests   chan controlRequest
 	done       chan struct{}
 	store      *session.Store
+	daemon     *Daemon
 	deletes    chan func()
 	deleteDone chan struct{}
 }
@@ -142,6 +145,115 @@ func (c *Control) ListSessions(ctx context.Context, admission session.CommandAdm
 		}
 		return err
 	})
+	return record, err
+}
+
+var errMetadataRootLive = errors.New("metadata command requires root actor")
+
+// SessionMetadataCommand mutates cold session metadata without reconstructing
+// its runner (the workspace may be gone). The registry check runs on this
+// actor, before admission; callers reroute errMetadataRootLive outside it.
+// Holding the registry lock through the cold mutation excludes concurrent Open.
+func (c *Control) SessionMetadataCommand(ctx context.Context, admission session.CommandAdmission, operation string, payload json.RawMessage, rootID string) (record session.CommandRecord, err error) {
+	titleChanged := false
+	err = c.route(ctx, func(actorCtx context.Context) error {
+		if c.daemon != nil {
+			c.daemon.mu.Lock()
+			defer c.daemon.mu.Unlock()
+			if c.daemon.closing {
+				return ErrClosed
+			}
+			if entry := c.daemon.roots[rootID]; entry != nil {
+				select {
+				case <-entry.ready:
+					if entry.root != nil {
+						select {
+						case <-entry.root.Done():
+						default:
+							return errMetadataRootLive
+						}
+					}
+				default:
+					return errMetadataRootLive
+				}
+			}
+		}
+		// Daemon scope, like session.delete: root admission enqueues an inbox
+		// item, which requires the agent row created only by opening the root.
+		admission.Scope = session.CommandScopeDaemon
+		admission.RootID = ""
+		admission.AgentID = ""
+		admission.Kind = operation
+		admitted, err := c.store.AdmitCommand(actorCtx, admission)
+		if err != nil {
+			return err
+		}
+		record = admitted.Command
+		if !admitted.New {
+			return nil
+		}
+		if err := c.store.SetCommandState(actorCtx, admission.ClientID, admission.CommandID, "running"); err != nil {
+			return c.finishFailure(actorCtx, admission, err, &record)
+		}
+		var output string
+		var eventKind string
+		var event protocol.SessionUpdateEvent
+		switch operation {
+		case "session.archive":
+			var params protocol.ArchiveParams
+			if err := json.Unmarshal(payload, &params); err != nil {
+				return c.finishFailure(actorCtx, admission, err, &record)
+			}
+			if err := c.store.SetArchived(actorCtx, rootID, params.Archived); err != nil {
+				return c.finishFailure(actorCtx, admission, err, &record)
+			}
+			output, err = marshalClientOutput(protocol.ArchiveResult{Archived: params.Archived}, nil)
+			eventKind = "session.archived.updated"
+			event.Archived = &params.Archived
+		case "session.rename":
+			var params protocol.TitleParams
+			if err := json.Unmarshal(payload, &params); err != nil {
+				return c.finishFailure(actorCtx, admission, err, &record)
+			}
+			title := strings.TrimSpace(params.Title)
+			if title == "" {
+				return c.finishFailure(actorCtx, admission, errors.New("session title is required"), &record)
+			}
+			if err := c.store.SetTitle(rootID, title); err != nil {
+				return c.finishFailure(actorCtx, admission, err, &record)
+			}
+			titleChanged = true
+			output, err = marshalClientOutput(protocol.TitleResult{Title: title}, nil)
+			eventKind = "session.title.updated"
+			event.Title = title
+		default:
+			return c.finishFailure(actorCtx, admission, fmt.Errorf("unsupported metadata command %q", operation), &record)
+		}
+		if err == nil {
+			var eventData []byte
+			eventData, err = json.Marshal(event)
+			if err == nil {
+				_, err = c.store.AppendRootEvent(actorCtx, rootID, eventKind, session.RuntimePayload{
+					Data: eventData, MediaType: "application/json", Source: operation,
+				})
+			}
+		}
+		if err != nil {
+			return c.finishFailure(actorCtx, admission, err, &record)
+		}
+		record.Outcome, err = c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "succeeded", session.RuntimePayload{
+			Data: []byte(output), MediaType: "application/json", Source: operation,
+		})
+		if err == nil {
+			record.Status = "succeeded"
+		}
+		return err
+	})
+	// Even an event/command-outcome failure cannot undo the committed title.
+	// route returns ownership only after releasing the registry lock.
+	if titleChanged && c.daemon != nil {
+		c.daemon.notifyTitleChanged(rootID)
+	}
 	return record, err
 }
 

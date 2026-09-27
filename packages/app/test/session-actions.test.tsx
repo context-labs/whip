@@ -11,7 +11,7 @@ vi.mock('@tanstack/react-router', () => ({ useLocation: () => route.location, us
 beforeEach(() => { route.location = { pathname: '/other' }; route.navigate.mockClear(); });
 function Rows({ visible = true }: { visible?: boolean }) {
   const actions = useSessionActions();
-  return visible ? <><button onClick={() => actions.prepare(true)}>Refresh editors</button>{actions.items({ runtimeId: 'remote', rootId: 'same-root', title: 'Truncated…' }).flatMap(item => item.items ?? [item]).map(item => <button key={item.id} disabled={item.disabled} onClick={item.onSelect}>{item.label}</button>)}</> : null;
+  return visible ? <><button onClick={() => actions.prepare(true)}>Refresh editors</button><button onClick={() => void actions.archive({ runtimeId: 'remote', rootId: 'same-root', title: 'Truncated…' }, true)}>Archive hover button</button>{actions.items({ runtimeId: 'remote', rootId: 'same-root', title: 'Truncated…' }).flatMap(item => item.items ?? [item]).map(item => <button key={item.id} disabled={item.disabled} onClick={item.onSelect}>{item.label}</button>)}</> : null;
 }
 function fixture() {
   const metadata = { root_id: 'same-root', title: 'The full title behind the truncated catalog', cwd: '/full/directory', archived: false, history_revision: '42' };
@@ -19,7 +19,8 @@ function fixture() {
   const rename = vi.fn(() => 'rename-command'), fork = vi.fn(() => 'fork-command'), archive = vi.fn(() => 'archive-command'), remove = vi.fn(() => 'delete-command');
   const session = vi.fn(() => ({ rename, fork, archive, delete: remove }));
   const client = { sessions: { get }, session };
-  const host = { id: 'remote-profile', name: 'Remote workstation', client, state: 'connected', profile: { target: { kind: 'url' } } };
+  const list = { setOptimisticArchived: vi.fn() };
+  const host = { id: 'remote-profile', name: 'Remote workstation', client, list, state: 'connected', profile: { target: { kind: 'url' } } };
   const snapshot = { hosts: [host] };
   const run = vi.fn(async () => ({ result: { root_id: 'forked' } }));
   const workspace = { tabs: [], layout: { type: 'pane', id: 'main', tabs: [] }, focusedPaneId: 'main', closed: [] };
@@ -29,7 +30,7 @@ function fixture() {
     forgetSession: vi.fn(), run, report: vi.fn(), reportWorkspace: vi.fn() } as unknown as AppRuntime;
   const tree = (visible = true) => <RuntimeContext.Provider value={runtime}><UIProvider><SessionActionsProvider><Rows visible={visible} /></SessionActionsProvider></UIProvider></RuntimeContext.Provider>;
   const view = render(tree());
-  return { get, metadata, rename, fork, archive, remove, session, host, runtime, run, workspace, rerender: (visible = true) => view.rerender(tree(visible)) };
+  return { get, metadata, rename, fork, archive, remove, session, host, list, runtime, run, workspace, rerender: (visible = true) => view.rerender(tree(visible)) };
 }
 it('Open in new tab opens a fresh selected root chat without session work, while background still reuses', async () => {
   const f = fixture();
@@ -59,6 +60,19 @@ it('Open in new tab permits known offline hosts but disables removed hosts', () 
   expect(f.get).not.toHaveBeenCalled(); expect(f.session).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
   vi.spyOn(f.runtime.connections, 'host').mockReturnValue(undefined); f.rerender();
   expect(screen.getByRole('button', { name: 'Open in new tab', exact: true }).hasAttribute('disabled')).toBe(true);
+});
+
+it('Copy session ID copies the root id, works offline, and reports failures', async () => {
+  const f = fixture();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy session ID', exact: true }));
+  await waitFor(() => expect(f.runtime.platform.copy).toHaveBeenCalledExactlyOnceWith('same-root'));
+  await screen.findByText('Session ID copied');
+  expect(f.get).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
+  f.host.state = 'disconnected'; f.rerender();
+  expect(screen.getByRole('button', { name: 'Copy session ID', exact: true }).hasAttribute('disabled')).toBe(false);
+  vi.spyOn(f.runtime.platform, 'copy').mockRejectedValueOnce(new Error('no clipboard'));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy session ID', exact: true }));
+  expect(await screen.findByText('Could not copy session ID')).toBeTruthy();
 });
 
 it('Open in new tab reports full capacity without navigating', async () => {
@@ -140,6 +154,30 @@ it('archive keeps tabs and drafts, with an Undo that restores the same root', as
   fireEvent.click(await screen.findByRole('button', { name: 'Undo archive' }));
   await waitFor(() => expect(f.archive).toHaveBeenLastCalledWith(false));
   expect(f.session.mock.calls.every(args => args[0] === 'same-root')).toBe(true);
+});
+it('hover archive button archives without a dialog and offers Undo, keeping any open tab', async () => {
+  const f = fixture();
+  route.location = { pathname: '/h/remote/s/same-root' };
+  fireEvent.click(screen.getByRole('button', { name: 'Archive hover button', exact: true }));
+  expect(f.list.setOptimisticArchived).toHaveBeenCalledExactlyOnceWith('same-root', true);
+  expect(await screen.findByText('Session archived')).toBeTruthy();
+  await waitFor(() => expect(f.archive).toHaveBeenCalledExactlyOnceWith(true));
+  expect(screen.queryByText('Delete this session?')).toBeNull();
+  expect(screen.queryByText('Could not archive session')).toBeNull();
+  expect(route.navigate).not.toHaveBeenCalled();
+  expect(f.runtime.forgetSession).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Undo archive' }));
+  await waitFor(() => expect(f.archive).toHaveBeenLastCalledWith(false));
+  expect(f.list.setOptimisticArchived).toHaveBeenLastCalledWith('same-root', false);
+});
+it('a failed archive reverts the optimistic removal', async () => {
+  const f = fixture();
+  f.run.mockRejectedValueOnce(new Error('Archive rejected'));
+  fireEvent.click(screen.getByRole('button', { name: 'Archive hover button', exact: true }));
+  expect(f.list.setOptimisticArchived).toHaveBeenCalledExactlyOnceWith('same-root', true);
+  await screen.findByRole('dialog', { name: 'Could not archive session' });
+  expect(f.list.setOptimisticArchived).toHaveBeenLastCalledWith('same-root', false);
+  expect(screen.queryByText('Session archived')).toBeNull();
 });
 it('browser Copy directory uses full metadata rather than the catalog abbreviation', async () => {
   const f = fixture();

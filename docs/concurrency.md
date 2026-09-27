@@ -4,6 +4,23 @@ whip separates durable ordering from independent execution. One root actor
 serializes state transitions for a session; model calls, kernels, MCP calls,
 and unrelated roots may run concurrently under explicit limits.
 
+## Session title invalidation
+
+Committed title writes notify protocol servers through a small daemon-owned
+listener registry. Its dedicated mutex protects listener registration/snapshots
+only; callbacks run after that mutex and the root-registry/DB locks are released.
+Each Server registers once and unregisters on Close. It snapshots eligible
+connections under its mutex, releases it, and uses existing bounded outbound
+queues. The per-connection writer remains the only socket writer; slow-client
+overflow follows the existing disconnect policy. No title notification spawns a
+worker or owns a durable replay cursor.
+
+Only initialized connections that negotiated `session_title_notifications` receive
+`sessions.title.changed`. The root ID is an invalidation hint, not a title value
+to apply, so dropped or reordered hints are safe. SDK/AppRuntime listeners own
+coalesced refreshes and retire on disposal/detach; polling and reconnect reads
+remain authoritative recovery paths. See [frontend ownership](frontend.md).
+
 ## Root actors
 
 Every client command receives a stable ID and durable ingress sequence before

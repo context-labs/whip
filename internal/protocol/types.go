@@ -13,6 +13,8 @@ import (
 const (
 	Major = 6
 	Minor = 8
+
+	SessionTitleNotificationsCapability = "session_title_notifications"
 )
 
 type ErrorData struct {

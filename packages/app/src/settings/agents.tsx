@@ -168,7 +168,7 @@ function AgentEditor({ client, enabled, initial, modules, capabilities }: { clie
       {choices('capabilities', 'Capabilities', 'Authority the agent receives at session start. Children can only narrow it.', capabilities)}
     </SettingsGroup>
     <SettingsGroup title="Surface">
-      {flag('autoTitle', 'Automatic title', 'Name the session after its first turn.')}
+      {flag('autoTitle', 'Automatic title', 'Name the session from its first message.')}
       {flag('goalLoop', 'Goal loop', 'Allow goal commands that continue the agent until it reports done.')}
     </SettingsGroup>
     <div {...stylex.props(layout.row)}>

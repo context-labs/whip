@@ -1006,14 +1006,6 @@ export const manifest = {
       "result_type": "ArchiveResult"
     },
     {
-      "name": "session.autotitle",
-      "surface": "runtime",
-      "execution": "command",
-      "permission": "root-association",
-      "params_type": "EmptyParams",
-      "result_type": "Empty"
-    },
-    {
       "name": "session.create",
       "surface": "runtime",
       "execution": "command",
@@ -1191,6 +1183,7 @@ export const manifest = {
     "event": "EventNotification",
     "hook.cancel": "ToolCancelParams",
     "hook.invoke": "HookInvokeParams",
+    "sessions.title.changed": "SessionTitleChangedParams",
     "subscription.failed": "SubscriptionFailure",
     "terminal.detached": "TerminalDetachedParams",
     "terminal.exited": "TerminalExitedParams",

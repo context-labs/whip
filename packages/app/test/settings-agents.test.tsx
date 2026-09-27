@@ -109,4 +109,6 @@ it('round-trips a definition through the editor values', () => {
   const document = agentDocument(values);
   expect(document).toEqual({ ...triage, instructions: { ...triage.instructions, project_files: null }, model: triage.model });
   expect(agentValues(coding, true).id).toBe('coding-custom');
+  const optedOut = { ...triage, surface: { ...triage.surface, auto_title: false } };
+  expect(agentDocument(agentValues(optedOut, false)).surface.auto_title).toBe(false);
 });

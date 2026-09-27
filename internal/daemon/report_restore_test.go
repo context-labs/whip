@@ -47,7 +47,7 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 					if err != nil {
 						return Components{}, err
 					}
-					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 				})
 				if err != nil {
 					t.Fatal(err)

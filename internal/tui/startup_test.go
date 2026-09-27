@@ -151,15 +151,15 @@ func TestOnboardingStaysInNormalTUIUntilExplicitFirstSend(t *testing.T) {
 	}
 	var selected daemon.CreateSession
 	var selectedEffort protocol.EffortParams
-	if len(connection.commands) == 4 {
+	if len(connection.commands) == 3 {
 		_ = json.Unmarshal(connection.commands[0].Payload, &selected)
-		_ = json.Unmarshal(connection.commands[3].Payload, &selectedEffort)
+		_ = json.Unmarshal(connection.commands[2].Payload, &selectedEffort)
 	}
 	connection.mu.Unlock()
 	if selected.Model != "z-ai/glm-5.3" || selected.Provider != "openrouter" || selectedEffort.Effort != "max" {
 		t.Fatalf("first session lost selection: %+v %+v", selected, selectedEffort)
 	}
-	if strings.Join(operations, ",") != "session.create,permission.mode,session.autotitle,session.effort" {
+	if strings.Join(operations, ",") != "session.create,permission.mode,session.effort" {
 		t.Fatalf("unexpected preparation/submission order: %v", operations)
 	}
 	_, cmd = m.Update(setupKey("enter"))

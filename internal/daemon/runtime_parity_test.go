@@ -43,7 +43,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 		"session.effort": {`{"effort":"off","persist_default":false}`, false}, "session.effort.get": {`{}`, false},
 		"session.model": {`{"model":"replacement","provider":"provider","persist_default":false}`, false}, "session.model.get": {`{}`, false},
 		"session.list": {`{"limit":10}`, false}, "session.open": {`{"id":"$ROOT"}`, false}, "session.rename": {`{"title":"renamed"}`, false},
-		"session.reload": {`{}`, false}, "session.autotitle": {`{}`, false}, "run.configure": {`{"max_turns":2}`, true},
+		"session.reload": {`{}`, false}, "run.configure": {`{"max_turns":2}`, true},
 		"history.clear": {`{}`, false}, "history.rewind": {`{"cut":2,"expected_revision":"0"}`, false}, "history.compact": {`{}`, true},
 		"history.compact.log": {`{}`, false}, "history.compact.retry": {`{}`, false}, "compaction.configure": {`{}`, false}, "history.user.list": {`{}`, false},
 		"session.preview": {`{"id":"$ROOT"}`, false}, "agents.list": {`{}`, false}, "agent.transcript": {`{"id":"$ROOT"}`, false},

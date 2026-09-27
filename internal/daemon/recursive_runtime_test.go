@@ -76,7 +76,7 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 		if runtimeErr != nil {
 			return Components{}, runtimeErr
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -572,7 +572,7 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)
@@ -907,7 +907,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)

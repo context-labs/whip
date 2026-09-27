@@ -195,6 +195,9 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if respondToTitleRequest(t, w, input) {
+			return
+		}
 		requests <- input
 		call := calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")

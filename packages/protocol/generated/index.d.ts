@@ -3681,6 +3681,10 @@ export interface SessionSummariesResult {
   }[];
 }
 
+export interface SessionTitleChangedParams {
+  root_id: string;
+}
+
 export interface SessionUpdateEvent {
   archived?: null | boolean;
   title?: string;
@@ -4205,6 +4209,7 @@ export interface ContractTypes {
   SessionPreviewResult: SessionPreviewResult;
   SessionSummariesParams: SessionSummariesParams;
   SessionSummariesResult: SessionSummariesResult;
+  SessionTitleChangedParams: SessionTitleChangedParams;
   SessionUpdateEvent: SessionUpdateEvent;
   ShellParams: ShellParams;
   SnapshotParams: SnapshotParams;
@@ -4462,7 +4467,6 @@ export interface RuntimeOperations {
   "schedule.delete": { params: ScheduleDeleteParams; result: ScheduleResult; execution: "command"; permission: "root-association"; sensitive: false };
   "schedule.list": { params: EmptyParams; result: ScheduleListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "session.archive": { params: ArchiveParams; result: ArchiveResult; execution: "command"; permission: "root-association"; sensitive: false };
-  "session.autotitle": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-association"; sensitive: false };
   "session.create": { params: CreateSessionParams; result: RootIDResult; execution: "command"; permission: "host-runtime"; sensitive: false };
   "session.delete": { params: RootParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };
   "session.effort": { params: EffortParams; result: EffortResult; execution: "command"; permission: "root-idle"; sensitive: false };

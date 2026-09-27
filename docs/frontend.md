@@ -646,6 +646,13 @@ SDK client and `SessionListView` for each attached daemon. Components subscribe
 using `useSyncExternalStore` through app hooks or `@whip/sdk/react`. Store
 snapshots remain immutable and referentially stable between changes.
 
+Optimistic intent lives in the SDK view that owns the data, not in component
+state: `SessionListView.setOptimisticArchived` hides or restores a row the
+moment the user acts, and every later server publish reconciles the overlay
+against the fetched catalog (server truth wins, agreeing entries are dropped).
+Callers revert by setting the opposite intent; they never filter server state
+themselves.
+
 Local is the daemon supplied by the browser launch endpoint, or the managed
 This Mac runtime in Electron. Its configuration
 owns the `remote_hosts` registry, shared by browsers using that local daemon:
@@ -1177,6 +1184,27 @@ They require `session_summaries` negotiation and do not open roots. Ordinary
 session listing stays with `SessionListView`; filtered search and host attention
 are separate reads. Do not confuse agent mailbox messages with queued execution
 inputs in the root inbox.
+
+Session titles are daemon-owned metadata. The first accepted authored text supplies
+a deterministic title; eligible titles get one background compact-model request
+without waiting for the conversation turn. The existing `session.title.updated`
+root event updates an observed conversation. Connections negotiating
+`session_title_notifications` also receive `sessions.title.changed` with only a
+`root_id` after committed naming, manual renames, and fork creation. This is a
+best-effort invalidation hint, not a title value to apply.
+
+The SDK `SessionListView` owns its notification listener and reuses its coalesced
+catalog refresh. Desktop/web owns one additional listener per attached client in
+`AppRuntime`, invalidating only that host's existing tab/sidebar summaries, search,
+and attention queries. No per-conversation subscription or second title cache is
+created. Query results still supply tab title hints; notifications never overwrite
+unsent rename drafts. Reconnect replaces listeners; detach and disposal remove them.
+
+All existing polling intervals, observation/visibility gates, page bounds, and
+reconnect/focus recovery stay unchanged. They cover missed notifications and hosts
+without this capability. Off-page sessions get current titles when fetched. Search
+invalidation includes all cached terms for the host, because a rename can change
+result membership, not only visible text.
 
 The SDK owns snapshot/cursor consistency, replay, subscription IDs, duplicate/gap
 checks, resynchronization, and history revisions. It processes every event in

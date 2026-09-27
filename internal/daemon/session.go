@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
@@ -96,6 +98,7 @@ const (
 	workerControl       = "control"
 	workerClientCommand = "client.command"
 	workerStream        = "stream"
+	workerTitle         = "title"
 )
 
 type workerCompletion struct {
@@ -172,6 +175,7 @@ type workerEnvelope struct {
 	at         time.Time
 	client     *clientCommandCompletion
 	stream     *streamEnvelope
+	title      *titleWork
 }
 
 type streamEnvelope struct {
@@ -278,6 +282,7 @@ func (s *supervisor) wait() {
 }
 
 type Session struct {
+	titleChanged     func(string)
 	providers        *ProviderService
 	store            *sessionstore.Store
 	meta             sessionstore.Meta
@@ -314,8 +319,7 @@ type Session struct {
 	clientIntegrations int
 	clientPreparing    bool
 	reloadPending      bool
-	titleAttempted     bool
-	autoTitle          bool
+	titleWork          *titleWork
 	deferredWake       time.Time
 
 	accountingMu      sync.Mutex
@@ -378,14 +382,18 @@ func (s *Session) Submit(ctx context.Context, text string) (*Receipt, error) {
 	if s.meta.Kind != sessionstore.SessionKindAgent {
 		return nil, errors.New("tool-host sessions cannot submit model turns")
 	}
-	return s.enqueue(ctx, "submit", text, true)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (*Receipt, error) {
+		return s.enqueue(actorCtx, "submit", text, true)
+	})
 }
 
 func (s *Session) Steer(ctx context.Context, text string) (*Receipt, error) {
 	if s.meta.Kind != sessionstore.SessionKindAgent {
 		return nil, errors.New("tool-host sessions cannot steer model turns")
 	}
-	return s.enqueue(ctx, "steer", text, true)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (*Receipt, error) {
+		return s.enqueue(actorCtx, "steer", text, true)
+	})
 }
 
 // AdmitCommand binds one stable protocol command to the root actor's durable
@@ -415,6 +423,7 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 			return admittedCommand{}, err
 		}
 		if result.New {
+			s.initializeTitle(result.TitleInitialization)
 			s.notify()
 		}
 		if !wait {
@@ -481,13 +490,20 @@ func (s *Session) enqueue(ctx context.Context, kind, text string, receipt bool) 
 		s.admitMu.RUnlock()
 		return nil, ErrStopped
 	}
+	origin := "internal"
+	if receipt {
+		origin = "client"
+	}
 	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
-		RootID: s.meta.ID, AgentID: s.authority.AgentID, Kind: kind,
+		RootID: s.meta.ID, AgentID: s.authority.AgentID, Kind: kind, Origin: origin,
 		Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: kind},
 	})
 	if err != nil {
 		s.admitMu.RUnlock()
 		return nil, err
+	}
+	if receipt {
+		s.initializeTitle(sequence.TitleInitialization)
 	}
 	var result *Receipt
 	if receipt {
@@ -758,6 +774,8 @@ func (s *Session) handleWorkerEvent(event *workerEnvelope) error {
 		return s.recordStreamEvent(event.stream)
 	case workerScheduleTick:
 		return s.fireDueSchedules(event.at)
+	case workerTitle:
+		s.completeTitle(event.title)
 	case workerTurn:
 		return s.completeTurn(event.completion)
 	}
@@ -1058,9 +1076,6 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	if current.seq > 0 {
 		s.settle(current.seq, Completion{Sequence: current.seq, Output: completion.output, Err: completion.err})
 	}
-	if completion.err == nil {
-		s.maybeGenerateTitle()
-	}
 	s.startPendingReload()
 	return nil
 }
@@ -1072,36 +1087,92 @@ func (s *Session) applyPendingReloadAfterAgent() {
 	})
 }
 
-func (s *Session) maybeGenerateTitle() {
-	if !s.autoTitle || s.titleAttempted || s.meta.Kind != sessionstore.SessionKindAgent || !s.definition.Surface.AutoTitle {
+type titleWork struct {
+	cancel      context.CancelFunc
+	placeholder string
+	title       string
+	err         error
+}
+
+// initializeTitle runs only for the admission that committed the fallback.
+func (s *Session) initializeTitle(initial *sessionstore.TitleInitialization) {
+	if initial == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.supervisor.ctx, 5*time.Second)
+	defer cancel()
+	if err := s.publishTitle(ctx, initial.Title); err != nil {
+		slog.Warn("publish initial session title", "root_id", s.meta.ID, "error", err)
+	}
+	if !s.definition.Surface.AutoTitle || utf8.RuneCountInString(initial.Title) < 20 {
 		return
 	}
 	runner, ok := s.runner.(interface {
-		GenerateTitle(context.Context) (string, llm.Usage, error)
+		GenerateTitle(context.Context, string) (string, llm.Usage, error)
 	})
 	if !ok {
 		return
 	}
-	meta, history, err := s.store.Load(s.meta.ID)
-	if err != nil {
-		return
+	generate := func(ctx context.Context) (string, llm.Usage, error) {
+		return runner.GenerateTitle(ctx, initial.Prompt)
 	}
-	placeholder := sessionstore.ProvisionalTitle(history)
-	if placeholder == "" || meta.Title != placeholder {
-		s.titleAttempted = true
-		return
+	if prepared, ok := s.runner.(interface {
+		prepareTitle(string) func(context.Context) (string, llm.Usage, error)
+	}); ok {
+		generate = prepared.prepareTitle(initial.Prompt)
 	}
-	s.titleAttempted = true
-	s.supervisor.launchWorker("automatic session title", func() {
-		ctx, cancel := context.WithTimeout(s.supervisor.ctx, 20*time.Second)
-		defer cancel()
-		title, _, titleErr := runner.GenerateTitle(ctx)
-		if titleErr == nil {
-			if changed, _ := s.store.SetTitleIf(s.meta.ID, placeholder, title); changed {
-				s.emitSessionUpdate(ctx, "session.title.updated", SessionUpdateEvent{Title: title})
+	modelCtx, stop := context.WithTimeout(s.supervisor.ctx, 20*time.Second)
+	work := &titleWork{cancel: stop, placeholder: initial.Title}
+	s.titleWork = work
+	if !s.supervisor.launchWorker("automatic session title", func() {
+		defer stop()
+		defer func() {
+			if value := recover(); value != nil {
+				work.err = panicError("automatic session title", value)
 			}
-		}
+			s.supervisor.post(workerEnvelope{kind: workerTitle, title: work})
+		}()
+		work.title, _, work.err = generate(modelCtx)
+	}) {
+		stop()
+		s.titleWork = nil
+	}
+}
+
+func (s *Session) completeTitle(work *titleWork) {
+	if work == nil || s.titleWork != work {
+		return // An explicit rename invalidates even a same-value title.
+	}
+	s.titleWork = nil
+	work.cancel()
+	if work.err != nil {
+		slog.Warn("generate session title", "root_id", s.meta.ID, "error", work.err)
+		return
+	}
+	// Persistence has its own deadline, not the spent model-call deadline.
+	ctx, cancel := context.WithTimeout(s.supervisor.ctx, 5*time.Second)
+	defer cancel()
+	changed, err := s.store.SetTitleIfContext(ctx, s.meta.ID, work.placeholder, work.title)
+	if err == nil && changed {
+		err = s.publishTitle(ctx, work.title)
+	}
+	if err != nil {
+		slog.Warn("save generated session title", "root_id", s.meta.ID, "error", err)
+	}
+}
+
+// publishTitle is shared with manual rename; callers commit before publishing.
+func (s *Session) publishTitle(ctx context.Context, title string) error {
+	s.meta.Title = title
+	s.notifyTitleChanged(s.meta.ID)
+	payload, err := json.Marshal(SessionUpdateEvent{Title: title})
+	if err != nil {
+		return err
+	}
+	_, err = s.store.AppendRootEvent(ctx, s.meta.ID, "session.title.updated", sessionstore.RuntimePayload{
+		Data: payload, MediaType: "application/json", Source: "session.title.updated",
 	})
+	return err
 }
 
 func (s *Session) finish(err error) {

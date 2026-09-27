@@ -310,6 +310,26 @@ Disconnecting cancels connection queries and subscriptions, not accepted work.
 Cancellation targets a specific turn so a delayed cancellation cannot affect a
 later turn. Uncertain external effects are interrupted rather than replayed.
 
+Session creation does not take a naming prompt. The first accepted authored text
+initializes the deterministic title and may start one background compact-model
+request, governed by the definition's `surface.auto_title` policy. There is no
+`session.autotitle` opt-in command. `session.rename` remains explicit user intent
+and supersedes pending generation. Title writes retain the `session.title.updated`
+root event and catalog-revision bump. Connections negotiating
+`session_title_notifications` receive this best-effort host-level notification
+after a committed deterministic/generated title, manual rename, or fork creation:
+
+```json
+{"jsonrpc":"2.0","method":"sessions.title.changed","params":{"root_id":"root-id"}}
+```
+
+No root subscription is required. The message carries no title value or stream
+cursor: clients refetch their existing catalog/summary data. It is sent only after
+initialization, has no acknowledgement or replay, and uses existing bounded
+outbound queues. A slow/disconnected client cannot roll back a title write. Keep
+ordinary polling and reconnect reads as backup; peers without negotiated support
+continue polling. See [session naming](features.md#session-naming).
+
 Read operations travel through `query` with `root_id`, `operation` and typed
 `payload`, and do not create command journal entries. `operation.invoke` handles
 explicitly ephemeral operations such as terminal input and MCP attachment.

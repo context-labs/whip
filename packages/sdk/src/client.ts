@@ -4,7 +4,7 @@ import {
   type InitializeResult, type QueryOperation, type QueryResult,
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
   type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
-  type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams,
+  type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams, type SessionTitleChangedParams,
   type BrowserInventoryRequest, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderRevoked,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
@@ -20,8 +20,9 @@ import { webSocket, type Transport, type TransportFactory } from './transport.js
 import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from './util.js';
 
 export type SdkEvent = RootEvent;
-/** Notifications the daemon addresses to one connection: executor leases and terminal attachments. */
+/** Typed notifications the daemon addresses to this connection. */
 export interface Notifications {
+  'sessions.title.changed': SessionTitleChangedParams;
   'browser.inventory': BrowserInventoryRequest;
   'browser.command': BrowserCommand; 'browser.command.cancel': BrowserCommandCancel;
   'browser.provider.revoked': BrowserProviderRevoked;
@@ -186,7 +187,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments', 'session_summaries', 'session_title_notifications', 'execution_engines', ...(this.options.browserProvider ? ['desktop-browser-v1', 'desktop-browser-v2'] : [])],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');

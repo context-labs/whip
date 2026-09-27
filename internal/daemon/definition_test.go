@@ -101,9 +101,6 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
-		t.Fatalf("enable automatic title=%+v", result)
-	}
 	receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
 	if err != nil {
 		t.Fatal(err)
@@ -118,8 +115,8 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(meta.Title, runner.title) {
-		t.Fatalf("title applied: %q", meta.Title)
+	if meta.Title != "Investigate flaky workers" {
+		t.Fatalf("definition opt-out lost deterministic title: %q", meta.Title)
 	}
 }
 

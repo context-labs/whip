@@ -69,7 +69,7 @@ async function firstMessageScenario() {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       assert.equal(body.model, model, 'Title, compaction, and turns must stay on the selected OpenRouter model');
       if (!body.stream) {
-        const naming = body.messages[0].content.startsWith('Name this session.');
+        const naming = body.messages[0].content.startsWith('Name this session based on');
         requests.push({ kind: naming ? 'title' : 'compaction', model: body.model });
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: naming ? title : 'The user asked to calculate 6 * 7. The Starlark tool returned 42.' }, finish_reason: 'stop' }],
@@ -170,9 +170,9 @@ async function firstMessageScenario() {
     const rootId = new URL(page.url()).pathname.split('/s/')[1];
     assert(rootId);
     const root = client.session(rootId);
-    // Naming is opt-in in the web app. Exercise its existing command while
-    // the test holds the stream, before the completed exchange triggers it.
-    assert.equal((await root.command('session.autotitle', {}).result({ signal: AbortSignal.timeout(5000) })).status, 'succeeded');
+    // Naming starts with the first message, independently of this held turn.
+    await expect.poll(() => requests.filter(entry => entry.kind === 'title').length, { timeout: 5000 }).toBe(1);
+    await expect.poll(async () => (await root.snapshot()).meta.title).toBe(title);
     await capture(page, 'desktop-first-message-streaming');
     releaseAnswer();
     await expect(page.getByText(answer, { exact: true }).last()).toBeVisible({ timeout: 15_000 });
@@ -221,7 +221,7 @@ async function firstMessageScenario() {
       draftedBeforeAuthentication: true, draftPreservedThroughAuthentication: true, maskedKeySavedOnHost: true,
       defaultPairConfirmedInUI: true, nativeFolderSelected: true, firstMessageCreatedOneSession: true,
       streamedBeforeCompletion: true, rlmExecRoundTrip: true, titleAndCompactionUseSelectedModel: true,
-      auxiliaryOperations: 'Title opt-in and manual compaction use existing SDK commands; the first prompt is submitted from the renderer UI.',
+      auxiliaryOperations: 'Automatic naming starts from the first renderer-submitted message; manual compaction uses the existing SDK command.',
       reloadPreservesDraft: true, daemonRestartPreservesSessionDefaultsAndPermission: true, requests };
   } finally {
     releaseAnswer?.();

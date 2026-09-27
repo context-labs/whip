@@ -285,7 +285,7 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 						firstModes.LoadOrStore(node.id, node.ExternalPermissionsEnabled())
 						observeRunTurn(runs)(node)
 					})
-					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 				})
 				if err != nil {
 					t.Fatal(err)

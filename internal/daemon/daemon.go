@@ -33,6 +33,9 @@ type Daemon struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 
+	titleMu        sync.Mutex
+	titleListeners map[*titleListener]struct{}
+
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	roots   map[string]*rootEntry
@@ -59,6 +62,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		daemon.providers = providers[0]
 	}
 	daemon.control = newControl(ctx, store)
+	daemon.control.daemon = daemon
 	return daemon, nil
 }
 
@@ -83,12 +87,14 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}
 		return d.opened(entry)
 	}
-	meta, history, err := d.store.Load(rootID)
+	meta, err := d.store.LoadMeta(rootID)
 	if err != nil {
 		return nil, err
 	}
-	rootID = meta.ID
+	return d.openResolved(meta.ID)
+}
 
+func (d *Daemon) openResolved(rootID string) (*Session, error) {
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
@@ -104,7 +110,7 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}
 		return d.opened(entry)
 	}
-	entry = &rootEntry{ready: make(chan struct{})}
+	entry := &rootEntry{ready: make(chan struct{})}
 	d.roots[rootID] = entry
 	d.mu.Unlock()
 
@@ -114,6 +120,14 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 				entry.err = panicError("root construction", value)
 			}
 		}()
+		// Cold metadata mutations hold the registry lock. Reload after
+		// publication so construction cannot use a pre-rename snapshot;
+		// later metadata commands now route to this root instead.
+		meta, history, err := d.store.Load(rootID)
+		if err != nil {
+			entry.err = err
+			return
+		}
 		entry.root, entry.err = d.open(meta, history)
 	}()
 	d.mu.Lock()
@@ -184,6 +198,34 @@ func (d *Daemon) tombstone(rootID string, entry *rootEntry, root *Session) {
 	d.mu.Unlock()
 }
 
+// Live returns the already-open root without reconstructing it. Metadata-only
+// commands use it to skip opening a cold root whose workspace may be gone.
+func (d *Daemon) Live(rootID string) *Session {
+	d.mu.Lock()
+	entry := d.roots[rootID]
+	d.mu.Unlock()
+	if entry == nil {
+		return nil
+	}
+	select {
+	case <-entry.ready:
+	case <-d.ctx.Done():
+		return nil
+	}
+	d.mu.Lock()
+	root := entry.root
+	d.mu.Unlock()
+	if root == nil {
+		return nil
+	}
+	select {
+	case <-root.Done():
+		return nil
+	default:
+		return root
+	}
+}
+
 func (d *Daemon) opened(entry *rootEntry) (*Session, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -251,6 +293,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	}
 	root = newSession(d.store, meta, authority, components, d.factory)
 	root.providers = d.providers
+	root.titleChanged = d.notifyTitleChanged
 	root.executors = d.executors
 	root.browserProviders = d.browserProviders
 	// Bind hooks may reconstruct durable child agents through actor-owned

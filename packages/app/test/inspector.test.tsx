@@ -165,11 +165,11 @@ const agent = (id: string, controls: string[]) => ({
 });
 
 describe('session inspector controls', () => {
-  it('enables automatic titles through the existing one-way daemon action', () => {
+  it('does not expose a per-session automatic title opt-in', () => {
     const f = fixture();
     f.render(<ContextSettings {...f.props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enable automatic titles' }));
-    expect(f.client.submit).toHaveBeenCalledWith('session.autotitle', {}, { rootId: 'root' });
+    expect(screen.queryByRole('button', { name: 'Enable automatic titles' })).toBeNull();
+    expect(f.client.submit).not.toHaveBeenCalled();
   });
   it('keeps retained agent controls disabled while disconnected', () => {
     const f = fixture();

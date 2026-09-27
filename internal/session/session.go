@@ -246,6 +246,8 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 			return err
 		}
 	}
+	// Legacy bulk-history writers have no input admission boundary. The actor
+	// runtime initializes titles at admission instead of using this fallback.
 	title := ProvisionalTitle(msgs)
 	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET updated_at=?, model=?, provider=?, title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
 		now(), model, provider, title, id); err != nil {
@@ -261,27 +263,35 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine,definition,definition_revision FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	meta, err := s.LoadMeta(idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
-	metas, err := scanMetas(rows)
-	if err != nil {
-		return Meta{}, nil, err
-	}
-	switch len(metas) {
-	case 0:
-		return Meta{}, nil, fmt.Errorf("no session matching %q", idOrPrefix)
-	case 1:
-	default:
-		return Meta{}, nil, fmt.Errorf("session id %q is ambiguous", idOrPrefix)
-	}
-	meta := metas[0]
 	msgs, err := s.loadMessages(meta.ID)
 	if err != nil {
 		return Meta{}, nil, err
 	}
 	return meta, msgs, nil
+}
+
+// LoadMeta resolves a session ID or unique prefix without reading its transcript.
+func (s *Store) LoadMeta(idOrPrefix string) (Meta, error) {
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine,definition,definition_revision FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	if err != nil {
+		return Meta{}, err
+	}
+	metas, err := scanMetas(rows)
+	if err != nil {
+		return Meta{}, err
+	}
+	switch len(metas) {
+	case 0:
+		return Meta{}, fmt.Errorf("no session matching %q", idOrPrefix)
+	case 1:
+	default:
+		return Meta{}, fmt.Errorf("session id %q is ambiguous", idOrPrefix)
+	}
+	return metas[0], nil
 }
 
 // loadMessages reads one root session's full message log by exact id after
@@ -922,9 +932,11 @@ func (s *Store) SetTitle(id, title string) error {
 	return err
 }
 
-// SetTitleIf preserves an explicit /rename that races automatic title work.
-func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
-	result, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET title=? WHERE id=? AND title=?`, title, id, current)
+// SetTitleIfContext conditionally retitles a session with the caller's persistence
+// deadline. The caller must separately invalidate work on an explicit rename,
+// including a rename back to the same text. Deleted sessions are a no-op.
+func (s *Store) SetTitleIfContext(ctx context.Context, id, current, title string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE sessions SET title=? WHERE id=? AND title=?`, title, id, current)
 	if err != nil {
 		return false, err
 	}

@@ -130,7 +130,7 @@ type clientGoal struct {
 func isClientOperation(operation string) bool {
 	switch operation {
 	case "inbox.steer", "inbox.remove", "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
-		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.archive", "session.reload", "session.autotitle", "run.configure",
+		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.archive", "session.reload", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"history.compact.log", "history.compact.retry", "compaction.configure",
 		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel", "question.answer",
@@ -1007,13 +1007,19 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		title := strings.TrimSpace(payload.Title)
 		if title == "" {
-			var err error
-			title, err = s.store.ForkTitle(s.meta.Title)
+			source, err := s.store.LoadMeta(s.meta.ID)
+			if err != nil {
+				return "", err
+			}
+			title, err = s.store.ForkTitle(source.Title)
 			if err != nil {
 				return "", err
 			}
 		}
 		id, err := s.store.Fork(s.meta.ID, cut, title)
+		if err == nil {
+			s.notifyTitleChanged(id)
+		}
 		return id, err
 	case "workspace.inspect":
 		if runner, ok := s.runner.(clientWorkspaceRunner); ok {
@@ -1074,9 +1080,6 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "session.model.get":
 		return marshalClientOutput(protocol.ModelResult{Model: s.meta.Model, Provider: s.meta.Provider}, nil)
 
-	case "session.autotitle":
-		s.autoTitle = true
-		return "configured", nil
 	case "session.list":
 		metas, err := s.store.RecentContext(ctx, 50)
 		return marshalClientOutput(metas, err)
@@ -1100,9 +1103,11 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if err := s.store.SetTitle(s.meta.ID, title); err != nil {
 			return "", err
 		}
-		s.meta.Title = title
-		s.emitSessionUpdate(ctx, "session.title.updated", SessionUpdateEvent{Title: title})
-		return title, nil
+		if s.titleWork != nil {
+			s.titleWork.cancel()
+			s.titleWork = nil
+		}
+		return title, s.publishTitle(ctx, title)
 	case "session.archive":
 		if err := s.store.SetArchived(ctx, s.meta.ID, payload.Archived); err != nil {
 			return "", err

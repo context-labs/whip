@@ -452,39 +452,60 @@ func renderMailboxLine(message sessionstore.MailboxMessage, digest sessionstore.
 
 func (session *AgentSession) History() []llm.Message { return session.agent.MessagesSnapshot() }
 
-func (session *AgentSession) GenerateTitle(ctx context.Context) (string, llm.Usage, error) {
-	var userText, assistantText string
-	for _, message := range session.agent.MessagesSnapshot() {
-		if userText == "" && message.Role == "user" && message.Authored {
-			userText = message.TextContent()
-		} else if userText != "" && message.Role == "assistant" && strings.TrimSpace(message.TextContent()) != "" {
-			assistantText = message.TextContent()
-			break
-		}
-	}
-	if userText == "" || assistantText == "" {
-		return "", llm.Usage{}, errors.New("title requires a completed exchange")
-	}
-	client, model := session.agent.CompactClient, session.agent.CompactModel
+func (session *AgentSession) GenerateTitle(ctx context.Context, prompt string) (string, llm.Usage, error) {
+	return session.prepareTitle(prompt)(ctx)
+}
+
+// prepareTitle snapshots the route on the root actor before the request runs.
+// Runtime replacement can retire the old loop without changing this request's
+// client, accounting route, or usage owner. No conversation history is read.
+func (session *AgentSession) prepareTitle(prompt string) func(context.Context) (string, llm.Usage, error) {
+	owner := session.agent
+	client, model := owner.CompactClient, owner.CompactModel
 	if client == nil || model == "" {
-		client, model = session.agent.Client, session.agent.Model
+		client, model = owner.Client, owner.Model
 	}
-	output, usage, err := client.Complete(ctx, llm.Request{
-		Model: model, MaxTokens: 24, Accounting: session.agent.CompactAccounting("title"),
-		Messages: []llm.Message{
-			{Role: "system", Content: "Name this session. Reply with a plain 3-6 word title: no quotes and no trailing period."},
-			{Role: "user", Content: "Request: " + boundedTitleText(userText, 300) + "\nResponse: " + boundedTitleText(assistantText, 200)},
-		},
-	})
-	session.agent.AddUsage(usage)
-	if err != nil {
-		return "", usage, err
+	accounting := owner.CompactAccounting("title")
+	var snapshot llm.Client
+	if client != nil {
+		snapshot = *client
+		// One title attempt, including transport failures. Do not change the
+		// conversation client's retry policy.
+		snapshot.MaxRetries = 1
 	}
-	title := strings.Trim(strings.TrimSpace(output), "\"'.")
-	if title == "" || len(title) > 80 {
-		return "", usage, errors.New("model returned an invalid title")
+	prompt = boundedTitleText(prompt, 300)
+	return func(ctx context.Context) (string, llm.Usage, error) {
+		if prompt == "" || client == nil || model == "" {
+			return "", llm.Usage{}, errors.New("title requires user text and a model route")
+		}
+		output, usage, err := snapshot.Complete(ctx, llm.Request{
+			Model: model, MaxTokens: 24, Accounting: accounting,
+			Messages: []llm.Message{
+				{Role: "system", Content: `Name this session based on the user's message.
+
+Write a concise, specific topic label, usually 2–6 words. Prefer a short noun
+phrase that captures the main subject or intended change. Avoid filler,
+conversational phrasing, and generic words like "discussion", "request", or
+"assistance" when they add no meaning.
+
+Use sentence case: capitalize only the first word, proper nouns, and
+abbreviations. Preserve the spelling and casing of technical identifiers.
+
+Return only the title, with no quotes, markdown, or trailing punctuation.
+Do not answer the user's message.`},
+				{Role: "user", Content: prompt},
+			},
+		})
+		owner.AddUsage(usage)
+		if err != nil {
+			return "", usage, err
+		}
+		title := strings.Trim(strings.TrimSpace(output), "\"'.")
+		if title == "" || len([]rune(title)) > 80 || strings.ContainsAny(title, "\r\n") {
+			return "", usage, errors.New("model returned an invalid title")
+		}
+		return title, usage, nil
 	}
-	return title, usage, nil
 }
 
 func boundedTitleText(value string, limit int) string {

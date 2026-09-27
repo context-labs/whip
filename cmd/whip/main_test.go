@@ -166,7 +166,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 	for _, kind := range []string{"headless", "acp", "tui"} {
 		t.Run(kind, func(t *testing.T) {
-			requests, workingDirectory := promptRequestFixture(t)
+			requests, titles, workingDirectory := promptRequestFixture(t)
 			standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\nSTANDING_BEFORE_EDIT")
 			writePromptRequestFile(t, filepath.Join(workingDirectory, "CLAUDE.md"), "CLAUDE_REQUEST_MARKER")
@@ -180,6 +180,12 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 					writePromptRequestFile(t, standing, standingMarker)
 				}
 				submit("verify prompt environment")
+				if turn == 0 {
+					title := readPromptRequest(t, titles)
+					if len(title.Messages) != 2 || title.Messages[1].Content != "verify prompt environment" {
+						t.Fatalf("title request must contain only the accepted user prompt: %+v", title.Messages)
+					}
+				}
 				request := readPromptRequest(t, requests)
 				if len(request.Messages) < 2 || request.Messages[0].Role != "system" {
 					t.Fatalf("request has no system prompt: %#v", request.Messages)
@@ -202,7 +208,7 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 }
 
 func TestHeadlessSystemOverrideReachesProviderExactly(t *testing.T) {
-	requests, workingDirectory := promptRequestFixture(t)
+	requests, _, workingDirectory := promptRequestFixture(t)
 	writePromptRequestFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "NORMAL_STANDING_RULE")
 	writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "NORMAL_PROJECT_RULE")
 	const override = "Exact user system override.\nKeep this byte-for-byte."
@@ -216,13 +222,15 @@ func TestHeadlessSystemOverrideReachesProviderExactly(t *testing.T) {
 }
 
 func TestHeadlessRejectsIncompleteInstructionsBeforeProvider(t *testing.T) {
-	requests, workingDirectory := promptRequestFixture(t)
+	requests, _, workingDirectory := promptRequestFixture(t)
 	if err := os.Mkdir(filepath.Join(workingDirectory, "AGENTS.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runCapture(t, "", "-quiet", "hello"); err == nil || !strings.Contains(err.Error(), "expected a regular file") {
 		t.Fatalf("invalid applicable rules must fail the run explicitly: %v", err)
 	}
+	// Prompt-only naming may run after admission; the conversation must not run
+	// with incomplete instructions.
 	select {
 	case request := <-requests:
 		t.Fatalf("provider ran with incomplete instructions: %#v", request.Messages)
@@ -230,7 +238,7 @@ func TestHeadlessRejectsIncompleteInstructionsBeforeProvider(t *testing.T) {
 	}
 }
 
-func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
+func promptRequestFixture(t *testing.T) (<-chan llm.Request, <-chan llm.Request, string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	home := t.TempDir()
@@ -241,6 +249,7 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 		t.Fatal(err)
 	}
 	requests := make(chan llm.Request, 8)
+	titles := make(chan llm.Request, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer fixture-file-key" {
 			t.Error("entrypoint did not send its configured file key")
@@ -250,6 +259,10 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 		var request llm.Request
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if respondToTitleRequest(t, w, request) {
+			titles <- request
 			return
 		}
 		select {
@@ -271,7 +284,7 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 		"models":{"test":{"providers":["testprov"],"context":65536,"maxOut":128}}
 	}`, keyPath, server.URL))
 	useTestDaemon(t)
-	return requests, workingDirectory
+	return requests, titles, workingDirectory
 }
 
 func writePromptRequestFile(t *testing.T, path, text string) {

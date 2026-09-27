@@ -315,22 +315,6 @@ function Context(props: InspectorProps) {
           Change workspace
         </Action>
       </Section>
-      <Section
-        title="Automatic session titles"
-        description="Enable the daemon to name this session from its first exchange. This operation enables titles; the current protocol does not expose disabling or reading back this policy."
-      >
-        <Action
-          disabled={!props.connected}
-          run={() =>
-            runtime.run(
-              props.view.session.command('session.autotitle', {}),
-              'Enable automatic titles',
-            )
-          }
-        >
-          Enable automatic titles
-        </Action>
-      </Section>
     </>
   );
 }

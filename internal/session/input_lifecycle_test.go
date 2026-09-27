@@ -14,9 +14,15 @@ import (
 
 func inputTestCommand(t *testing.T, store *Store, rootID, agentID, id, kind string) CommandAdmissionResult {
 	t.Helper()
+	payload := []byte(id)
+	if strings.HasSuffix(kind, ".parts") {
+		payload, _ = json.Marshal(struct {
+			Text string `json:"text"`
+		}{Text: id})
+	}
 	result, err := store.AdmitCommand(t.Context(), CommandAdmission{
 		ClientID: rootID, CommandID: id, Scope: CommandScopeRoot, RootID: rootID,
-		AgentID: agentID, Kind: kind, RequestDigest: id, Payload: RuntimePayload{Data: []byte(id)},
+		AgentID: agentID, Kind: kind, RequestDigest: id, Payload: RuntimePayload{Data: payload},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -345,6 +351,8 @@ func TestRejectTurnInputSettlesInvalidSteerWithoutFailingTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	steer := inputTestCommand(t, store, rootID, rootAgentID, "bad-steer", "steer.parts")
+	// Simulate malformed input retained by an older admission path.
+	exec(t, store, `UPDATE inbox SET payload_inline=? WHERE root_id=? AND seq=?`, []byte("bad-steer"), rootID, steer.Command.IngressSeq)
 	if _, err := store.ClaimSteers(t.Context(), rootID, rootAgentID, turnID); err != nil {
 		t.Fatal(err)
 	}
