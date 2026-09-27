@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +108,7 @@ func TestFinalAnswerFailsTheTurnOnASecondMiss(t *testing.T) {
 	_, err := ag.Turn(t.Context(), "go", Events{CheckFinal: func(string) (bool, error) {
 		checks++
 		if checks > 1 {
-			return false, fmt.Errorf("output_invalid")
+			return false, errors.New("output_invalid")
 		}
 		return true, nil
 	}})
