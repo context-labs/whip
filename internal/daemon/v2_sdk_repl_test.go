@@ -207,7 +207,7 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 		for _, event := range events {
 			if strings.HasPrefix(r.PathValue("step"), "activity-large") {
 				if payload, ok := event.payload.(StreamEvent); ok {
-					root := &Session{store: store, meta: session.Meta{ID: rootID}, supervisor: newSupervisor()}
+					root := &Session{store: store, id: rootID, supervisor: newSupervisor()}
 					err := root.recordStreamEvent(&streamEnvelope{kind: event.kind, event: payload})
 					root.supervisor.cancel()
 					if err != nil {

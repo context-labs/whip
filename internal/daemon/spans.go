@@ -253,8 +253,8 @@ func (s *Session) modelCallSpanStart(agentID, callID string, attempt llm.ModelAt
 		maps.Copy(attrs, runtime.PromptAttrs(agentID, attempt.Purpose))
 	}
 	s.recordSpanStart(sessionstore.SpanRecord{
-		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.ModelCallSpanID(s.id, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: sessionstore.SpanStatusRunning, StartNS: startedAt.UnixNano(),
 		Attrs: sessionstore.SpanAttrs(attrs),
 	})
@@ -451,8 +451,8 @@ func (s *Session) modelCallSpanEnd(agentID, callID string, attempt llm.ModelAtte
 		status = sessionstore.SpanStatusInterrupted
 	}
 	s.recordSpanEnd(sessionstore.SpanRecord{
-		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.ModelCallSpanID(s.id, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: status, EndNS: time.Now().UnixNano(), Attrs: sessionstore.SpanAttrs(attrs),
 	})
 	if runtime, has := s.runtime.(interface{ NoteModelCall(string, string) }); has {
@@ -468,8 +468,8 @@ func (s *Session) questionSpanStart(agentID, questionID, question string) {
 		return
 	}
 	s.recordSpanStart(sessionstore.SpanRecord{
-		ID: sessionstore.WaitSpanID(s.meta.ID, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.WaitSpanID(s.id, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindWait, Name: "question", Status: sessionstore.SpanStatusRunning, StartNS: time.Now().UnixNano(),
 		Attrs: sessionstore.SpanAttrs(map[string]any{"question_id": questionID, "input": sessionstore.SpanExcerpt(question)}),
 	})
@@ -485,8 +485,8 @@ func (s *Session) questionSpanEnd(agentID, questionID, outcome string, closed bo
 		status = sessionstore.SpanStatusCancelled
 	}
 	s.recordSpanEnd(sessionstore.SpanRecord{
-		ID: sessionstore.WaitSpanID(s.meta.ID, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.WaitSpanID(s.id, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindWait, Name: "question", Status: status, EndNS: time.Now().UnixNano(),
 		Attrs: sessionstore.SpanAttrs(map[string]any{"output": sessionstore.SpanExcerpt(outcome)}),
 	})

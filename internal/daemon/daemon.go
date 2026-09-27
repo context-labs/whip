@@ -320,7 +320,7 @@ func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
 	}); ok {
-		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
+		manager.SetProcessOptions(root.store.Processes(), root.id, root.WorkingDirectory(), nil)
 	}
 	if supervised, ok := components.MCP.(interface {
 		SetLauncher(func(string, func()) bool)

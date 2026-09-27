@@ -151,11 +151,10 @@ func TestOpenReloadsMetadataAfterRegistryPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := owner.openResolved(stale.ID)
-	if err != nil {
+	if _, err := owner.openResolved(stale.ID); err != nil {
 		t.Fatal(err)
 	}
-	if meta := <-constructed; meta.Title != "Cold rename" || root.meta.Title != meta.Title {
-		t.Fatalf("constructed stale metadata: factory=%q actor=%q", meta.Title, root.meta.Title)
+	if meta := <-constructed; meta.Title != "Cold rename" {
+		t.Fatalf("constructed stale metadata: factory=%q", meta.Title)
 	}
 }

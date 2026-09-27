@@ -144,7 +144,7 @@ func TestQuickJSCheckpointSurvivesDaemonRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner, root, runtime := openPromptRuntime(t, store, result.RootID, llm.New("http://127.0.0.1:1", "key"))
-	if _, err := store.AdmitAgent(t.Context(), session.AgentAdmission{RootID: root.ID(), ParentAgentID: root.AgentID(), ChildAgentID: "child", Name: "child", Model: "model", Provider: "provider", CWD: root.meta.CWD}); err != nil {
+	if _, err := store.AdmitAgent(t.Context(), session.AgentAdmission{RootID: root.ID(), ParentAgentID: root.AgentID(), ChildAgentID: "child", Name: "child", Model: "model", Provider: "provider", CWD: root.WorkingDirectory()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.restoreChildren(t.Context()); err != nil {
@@ -174,7 +174,7 @@ func TestExecutionEnginesPreserveExactStateCASAndMail(t *testing.T) {
 	for _, engine := range []string{"starlark", "quickjs"} {
 		t.Run(engine, func(t *testing.T) {
 			store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 2, engine)
-			if _, err := store.AdmitAgent(t.Context(), session.AgentAdmission{RootID: root.ID(), ParentAgentID: root.AgentID(), ChildAgentID: "child", Name: "child", Model: "model", Provider: "provider", CWD: root.meta.CWD}); err != nil {
+			if _, err := store.AdmitAgent(t.Context(), session.AgentAdmission{RootID: root.ID(), ParentAgentID: root.AgentID(), ChildAgentID: "child", Name: "child", Model: "model", Provider: "provider", CWD: root.WorkingDirectory()}); err != nil {
 				t.Fatal(err)
 			}
 			if err := runtime.restoreChildren(t.Context()); err != nil {

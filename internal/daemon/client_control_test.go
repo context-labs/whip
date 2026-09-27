@@ -324,6 +324,7 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 		{"goal.from-context", map[string]any{"window": 2}},
 		{"history.rewind", map[string]any{"cut": 1}},
 		{"history.clear", map[string]string{}},
+		{"goal.set", map[string]any{"text": "blocked"}},
 	} {
 		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-%d", i), test.operation, test.payload)
 		if result.Status != "failed" || !strings.Contains(result.Error, "running") {
@@ -336,9 +337,9 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	if _, err := root.Snapshot(snapshotCtx); err != nil {
 		t.Fatalf("snapshot blocked behind shell worker: %v", err)
 	}
-	goal := clientCommand(t, root, "tui", "goal-during-shell", "goal.set", map[string]any{"text": "stay responsive"})
-	if goal.Status != "succeeded" {
-		t.Fatalf("actor command during shell = %+v", goal)
+	probe := clientCommand(t, root, "tui", "effort-during-shell", "session.effort.get", map[string]any{})
+	if probe.Status != "succeeded" {
+		t.Fatalf("actor command during shell = %+v", probe)
 	}
 	receipt, err := root.Submit(t.Context(), "after shell")
 	if err != nil {
@@ -967,7 +968,7 @@ func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	if result := clientCommand(t, root, "tui", "idle-cancel", "cancel", map[string]any{}); result.Status != "failed" || !strings.Contains(result.Error, "turn ID") {
 		t.Fatalf("idle cancel = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.meta.CWD {
+	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.WorkingDirectory() {
 		t.Fatalf("workspace fallback = %+v", result)
 	}
 	if result := clientCommand(t, root, "tui", "mcp-fallback", "mcp.status", map[string]any{}); result.Output != "[]" {

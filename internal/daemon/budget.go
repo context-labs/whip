@@ -12,13 +12,13 @@ import (
 )
 
 func (s *Session) consumeBudgets(ctx context.Context, agentID string, reservations []capability.Reservation, action func() error) error {
-	if err := s.store.ReserveBudget(ctx, s.meta.ID, agentID, reservations); err != nil {
+	if err := s.store.ReserveBudget(ctx, s.id, agentID, reservations); err != nil {
 		return err
 	}
 	if err := action(); err != nil {
-		return errors.Join(err, s.store.ReleaseBudget(context.WithoutCancel(ctx), s.meta.ID, agentID, reservations))
+		return errors.Join(err, s.store.ReleaseBudget(context.WithoutCancel(ctx), s.id, agentID, reservations))
 	}
-	return s.store.ReconcileBudget(context.WithoutCancel(ctx), s.meta.ID, agentID, reservations, nil)
+	return s.store.ReconcileBudget(context.WithoutCancel(ctx), s.id, agentID, reservations, nil)
 }
 
 func durableReservations(bytes int) []capability.Reservation {
@@ -57,7 +57,7 @@ func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, at
 		if err := s.flushPendingAccountingLocked(); err != nil {
 			return sessionstore.ModelCallReservation{}, errors.New("model accounting is unresolved; further calls are paused")
 		}
-		return s.store.AdmitModelCall(actorCtx, s.meta.ID, agentID, attempt)
+		return s.store.AdmitModelCall(actorCtx, s.id, agentID, attempt)
 	})
 	if err != nil {
 		return llm.ModelPermit{}, err
@@ -84,7 +84,7 @@ func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, at
 			settleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			var err error
-			settled, err = s.store.SettleModelCall(settleCtx, s.meta.ID, reservation.ID, result)
+			settled, err = s.store.SettleModelCall(settleCtx, s.id, reservation.ID, result)
 			if err != nil {
 				if errors.Is(err, sessionstore.ErrModelCallConflict) {
 					return err
@@ -120,7 +120,7 @@ func (s *Session) flushPendingAccountingLocked() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for id, result := range s.pendingAccounting {
-		if _, err := s.store.SettleModelCall(ctx, s.meta.ID, id, result); err != nil {
+		if _, err := s.store.SettleModelCall(ctx, s.id, id, result); err != nil {
 			return err
 		}
 		delete(s.pendingAccounting, id)
@@ -129,7 +129,7 @@ func (s *Session) flushPendingAccountingLocked() error {
 }
 
 func (s *Session) publishModelAccounting(ctx context.Context) {
-	accounting, err := s.store.ModelAccounting(ctx, s.meta.ID, "", true)
+	accounting, err := s.store.ModelAccounting(ctx, s.id, "", true)
 	if err == nil {
 		s.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
 			kind: "stream.accounting", event: StreamEvent{Accounting: &accounting},
@@ -145,12 +145,12 @@ func (s *Session) modelAccountingNotice(agentID, text string) {
 
 func (s *Session) InspectBudgets(ctx context.Context, callerAgentID, targetAgentID string) ([]sessionstore.BudgetState, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.BudgetState, error) {
-		return s.store.InspectBudgetsFor(actorCtx, s.meta.ID, callerAgentID, targetAgentID)
+		return s.store.InspectBudgetsFor(actorCtx, s.id, callerAgentID, targetAgentID)
 	})
 }
 
 func (s *Session) CapBudget(ctx context.Context, callerAgentID, targetAgentID string, kind sessionstore.BudgetKind, limit int64) (sessionstore.BudgetState, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.BudgetState, error) {
-		return s.store.CapBudget(actorCtx, s.meta.ID, callerAgentID, targetAgentID, kind, limit)
+		return s.store.CapBudget(actorCtx, s.id, callerAgentID, targetAgentID, kind, limit)
 	})
 }

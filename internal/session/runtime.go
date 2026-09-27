@@ -265,8 +265,6 @@ type RootTurnCommit struct {
 	WorkspaceRef      string
 	ClearGoal         bool
 	GoalContinuation  string
-	Model             string
-	Provider          string
 	Status            string
 	Error             string
 	Outcome           RuntimePayload
@@ -730,8 +728,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=?,model=?,provider=? WHERE id=?`,
-		stamp, commit.Model, commit.Provider, commit.RootID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=? WHERE id=?`, stamp, commit.RootID); err != nil {
 		return err
 	}
 	if status == "succeeded" {

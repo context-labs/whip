@@ -77,8 +77,8 @@ func (session *AgentSession) executionEngine() string {
 	if session.runtime != nil {
 		return session.runtime.engine
 	}
-	if session.root != nil && session.root.meta.ExecutionEngine != "" {
-		return session.root.meta.ExecutionEngine
+	if session.root != nil && session.root.engine != "" {
+		return session.root.engine
 	}
 	return rlm.EngineStarlark
 }

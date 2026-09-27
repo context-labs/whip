@@ -112,7 +112,6 @@ func TestRootInputRecoveryPreservesOnlyUnclaimedModelCommands(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
-					Model: "model", Provider: "provider",
 					RootID: rootID, AgentID: rootAgentID, InboxSeq: command.Command.IngressSeq,
 					Messages: []llm.Message{{Role: "assistant", Content: "finished " + command.Command.CommandID}},
 					Outcome:  RuntimePayload{Data: []byte("finished")},
@@ -294,7 +293,6 @@ func TestClaimSteersRequiresExactActiveTurnAndRollsBackBatch(t *testing.T) {
 		t.Fatalf("duplicate boundary claim = %+v, %v", more, err)
 	}
 	if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
-		Model: "model", Provider: "provider",
 		RootID: rootID, AgentID: rootAgentID, InboxSeq: initial.Command.IngressSeq,
 		AcknowledgedInbox: []int64{first.Command.IngressSeq, second.Command.IngressSeq},
 	}); err != nil {
@@ -380,7 +378,6 @@ func TestRejectTurnInputSettlesInvalidSteerWithoutFailingTurn(t *testing.T) {
 		t.Fatalf("duplicate rejection = %v", err)
 	}
 	if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
-		Model: "model", Provider: "provider",
 		RootID: rootID, AgentID: rootAgentID, InboxSeq: initial.Command.IngressSeq,
 		Messages: []llm.Message{{Role: "assistant", Content: "valid work completed"}},
 	}); err != nil {
@@ -408,7 +405,7 @@ func TestRootCommitSettlesUnacknowledgedSteerClaimsOnly(t *testing.T) {
 			queued := inputTestCommand(t, store, rootID, rootAgentID, "unclaimed", "steer")
 			if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
 				RootID: rootID, AgentID: rootAgentID, InboxSeq: initial.Command.IngressSeq,
-				Status: status, Model: "model", Provider: "provider",
+				Status: status,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -465,8 +462,8 @@ func TestTurnCommitRejectsUnclaimedAndStaleInboxAcknowledgements(t *testing.T) {
 				if recipient == "root" {
 					err = store.CommitRootTurn(t.Context(), RootTurnCommit{
 						RootID: rootID, AgentID: agentID, InboxSeq: initial.InboxSeq,
-						AcknowledgedInbox: []int64{acknowledged}, Model: "model", Provider: "provider",
-						Messages: []llm.Message{{Role: "assistant", Content: "must not persist"}},
+						AcknowledgedInbox: []int64{acknowledged},
+						Messages:          []llm.Message{{Role: "assistant", Content: "must not persist"}},
 					})
 				} else {
 					err = store.FinishAgentTurn(t.Context(), rootID, agentID, AgentTurnCommit{
@@ -503,7 +500,7 @@ func TestRootTurnCommitRequiresCorrelatedCommandStillRunning(t *testing.T) {
 			before := inputRootSnapshot(t, store, rootID)
 			if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
 				RootID: rootID, AgentID: rootAgentID, InboxSeq: command.Command.IngressSeq,
-				Model: "model", Provider: "provider", Outcome: RuntimePayload{Data: []byte("must not persist")},
+				Outcome: RuntimePayload{Data: []byte("must not persist")},
 			}); err == nil {
 				t.Fatal("turn completed a command that was not running")
 			}
@@ -582,7 +579,6 @@ func TestCorruptInputIsClaimedAndSettledWithoutStrandingAgent(t *testing.T) {
 						if recipient == "root" {
 							err = store.CommitRootTurn(t.Context(), RootTurnCommit{
 								RootID: rootID, AgentID: agentID, InboxSeq: seq, Status: status,
-								Model: "model", Provider: "provider",
 							})
 						} else {
 							var acknowledged []int64
