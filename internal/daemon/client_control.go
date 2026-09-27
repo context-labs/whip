@@ -1046,7 +1046,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.emitSessionUpdate(ctx, "session.cwd.updated", SessionUpdateEvent{WorkingDir: path})
 		return path, nil
 	case "session.effort.get":
-		return daemonEffortLabel(s.effort), nil
+		return s.effort, nil
 	case "session.effort":
 		requested := strings.TrimSpace(payload.Effort)
 		if requested == "" {
@@ -1063,12 +1063,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if err := s.store.SetEffort(s.id, requested); err != nil {
 			return "", err
 		}
-		level := requested
-		if level == "off" {
-			level = ""
-		}
 		if setter, ok := s.runner.(interface{ SetEffort(string) }); ok {
-			setter.SetEffort(level)
+			setter.SetEffort(requested)
 		}
 		s.effort = requested
 		if payload.PersistDefault {
@@ -1078,7 +1074,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 
 		s.emitSessionUpdate(ctx, "session.effort.updated", SessionUpdateEvent{Effort: requested, EffortChanged: true})
-		return daemonEffortLabel(requested), nil
+		return requested, nil
 	case "session.model.get":
 		return marshalClientOutput(protocol.ModelResult{Model: s.model, Provider: s.provider}, nil)
 
@@ -1567,13 +1563,6 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 	return model + " @ " + provider, nil
 }
 
-func daemonEffortLabel(level string) string {
-	if level == "" {
-		return "off"
-	}
-	return level
-}
-
 func validateEffort(model, provider, requested string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -1583,7 +1572,7 @@ func validateEffort(model, provider, requested string) error {
 }
 
 func validateConfiguredEffort(cfg *config.Config, model, provider, requested string) error {
-	if requested == "off" || requested == "" {
+	if requested == "off" {
 		return nil
 	}
 	known := slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}, requested)
@@ -1608,10 +1597,6 @@ func validateConfiguredEffort(cfg *config.Config, model, provider, requested str
 }
 
 func compatibleEffort(model, provider, current string) string {
-	runtimeLevel := current
-	if runtimeLevel == "off" {
-		runtimeLevel = ""
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return current
@@ -1625,7 +1610,7 @@ func compatibleEffort(model, provider, current string) string {
 		return current
 	}
 	info := catalog.Find(apiID)
-	if info == nil || slices.Contains(append([]string{""}, info.ReasoningEfforts...), runtimeLevel) {
+	if info == nil || slices.Contains(append([]string{"off"}, info.ReasoningEfforts...), current) {
 		return current
 	}
 	return "off"

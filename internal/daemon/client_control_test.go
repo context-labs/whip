@@ -1114,7 +1114,7 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		result := clientCommand(t, root, "tui", "effort-off", "session.effort", map[string]any{"effort": "off", "persist_default": true})
 		meta, _, loadErr := store.Load(rootID)
 		cfg, configErr := config.Load()
-		if result.Status != "succeeded" || runner.effort != "" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
+		if result.Status != "succeeded" || runner.effort != "off" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
 			t.Fatalf("off result=%+v runner=%q meta=%q default=%q load=%v config=%v", result, runner.effort, meta.Effort, cfg.DefaultEffort, loadErr, configErr)
 		}
 	})

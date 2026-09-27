@@ -168,7 +168,7 @@ func createDefinitionRoot(t *testing.T, store *session.Store, definition string)
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", create.Definition, create.DefinitionRevision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRegisteredDefinitionRunsAndResolves(t *testing.T) {
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", create.Definition, create.DefinitionRevision)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -262,7 +262,7 @@ func TestWorkspaceSkillsCompletePinnedNamedChildDefinition(t *testing.T) {
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "test", CommandID: "create", Scope: session.CommandScopeDaemon, RequestDigest: "create"}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "test", "create", session.SessionKindAgent, cwd, "model", "provider", "prompt", "starlark", definition.ID, "v1")
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "test", "create", session.SessionKindAgent, cwd, "model", "provider", "", "prompt", "starlark", definition.ID, "v1")
 	if err != nil {
 		t.Fatal(err)
 	}

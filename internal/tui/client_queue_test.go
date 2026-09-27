@@ -320,28 +320,30 @@ func TestSessionMetadataEventsUpdateHeaderRouteAndContext(t *testing.T) {
 		t.Fatal("session metadata event was not handled")
 	}
 	if m.sessTitle != "renamed" || m.modelName != "next-model" || m.provName != "next-provider" ||
-		m.displayModelID() != "api-next" || m.displayEffort() != "" || m.displayContextLimit() != 256 ||
+		m.displayModelID() != "api-next" || m.displayEffort() != "off" || m.displayContextLimit() != 256 ||
 		m.clientView.workingDir != "/tmp/project" {
 		t.Fatalf("metadata was not reduced: title=%q route=%s@%s id=%q effort=%q context=%d cwd=%q",
 			m.sessTitle, m.modelName, m.provName, m.displayModelID(), m.displayEffort(), m.displayContextLimit(), m.clientView.workingDir)
 	}
 }
 
-func TestSnapshotDistinguishesInheritedEffortFromExplicitOff(t *testing.T) {
+// The daemon stores a concrete effort ("off" or a level) from creation, so the
+// TUI shows the saved value verbatim instead of re-deriving a default.
+func TestSnapshotShowsSavedEffortVerbatim(t *testing.T) {
 	m := &model{
 		cfg: &config.Config{DefaultEffort: "high"}, input: newInput(),
 		agentMessages: map[string][]llm.Message{},
 		clientView:    clientPresentation{agentPresentations: map[string][]session.SnapshotEvent{}},
 	}
-	snapshot := session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root", Model: "model", Provider: "provider"}}
+	snapshot := session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root", Model: "model", Provider: "provider", Effort: "low"}}
 	m.applyClientSnapshot(snapshot)
-	if m.displayEffort() != "high" {
-		t.Fatalf("inherited effort=%q, want high", m.displayEffort())
+	if m.displayEffort() != "low" {
+		t.Fatalf("saved effort=%q, want low", m.displayEffort())
 	}
 	snapshot.Cursor++
 	snapshot.Meta.Effort = "off"
 	m.applyClientSnapshot(snapshot)
-	if m.displayEffort() != "" {
+	if m.displayEffort() != "off" {
 		t.Fatalf("explicit off effort=%q", m.displayEffort())
 	}
 }

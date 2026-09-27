@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
@@ -250,6 +251,18 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	definition, hasDefinition, err := DefinitionFor(d.ctx, d.store, meta)
 	if err != nil {
 		return nil, err
+	}
+	if meta.Kind == session.SessionKindAgent && meta.Effort == "" {
+		// Rows saved before efforts were resolved at creation follow the same
+		// rule once, so the runner and every reader share one concrete value.
+		cfg, err := config.Load()
+		if err != nil {
+			cfg = config.Default()
+		}
+		meta.Effort = resolveEffort(cfg, meta.Model, meta.Provider, "", definition.Model.Effort)
+		if err := d.store.SetEffort(meta.ID, meta.Effort); err != nil {
+			return nil, err
+		}
 	}
 	authority, err := d.store.EnsureRootAuthority(d.ctx, meta.ID, rootGrants(definition, hasDefinition))
 	if err != nil {

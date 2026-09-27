@@ -18782,7 +18782,7 @@ return errors === 0;
 }
 
 export const CreateSessionParams = validate57;
-const schema58 = {"type":"object","properties":{"execution_engine":{"type":"string"},"definition":{"type":"string"},"kind":{"type":"string"},"cwd":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"},"permission_mode":{"type":"string"}},"$id":"https://whip.dev/protocol/v6/CreateSessionParams","$schema":"http://json-schema.org/draft-07/schema#","title":"CreateSessionParams","required":["kind","cwd","model","provider"],"additionalProperties":false};
+const schema58 = {"type":"object","properties":{"execution_engine":{"type":"string"},"definition":{"type":"string"},"kind":{"type":"string"},"cwd":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"},"effort":{"type":"string"},"permission_mode":{"type":"string"}},"$id":"https://whip.dev/protocol/v6/CreateSessionParams","$schema":"http://json-schema.org/draft-07/schema#","title":"CreateSessionParams","required":["kind","cwd","model","provider"],"additionalProperties":false};
 
 function validate57(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v6/CreateSessionParams" */;
@@ -18830,7 +18830,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!(((((((key0 === "execution_engine") || (key0 === "definition")) || (key0 === "kind")) || (key0 === "cwd")) || (key0 === "model")) || (key0 === "provider")) || (key0 === "permission_mode"))){
+if(!((((((((key0 === "execution_engine") || (key0 === "definition")) || (key0 === "kind")) || (key0 === "cwd")) || (key0 === "model")) || (key0 === "provider")) || (key0 === "effort")) || (key0 === "permission_mode"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -18913,9 +18913,9 @@ vErrors.push(err10);
 errors++;
 }
 }
-if(data.permission_mode !== undefined){
-if(typeof data.permission_mode !== "string"){
-const err11 = {instancePath:instancePath+"/permission_mode",schemaPath:"#/properties/permission_mode/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.effort !== undefined){
+if(typeof data.effort !== "string"){
+const err11 = {instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err11];
 }
@@ -18925,14 +18925,26 @@ vErrors.push(err11);
 errors++;
 }
 }
-}
-else {
-const err12 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.permission_mode !== undefined){
+if(typeof data.permission_mode !== "string"){
+const err12 = {instancePath:instancePath+"/permission_mode",schemaPath:"#/properties/permission_mode/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err12];
 }
 else {
 vErrors.push(err12);
+}
+errors++;
+}
+}
+}
+else {
+const err13 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
 }
 errors++;
 }

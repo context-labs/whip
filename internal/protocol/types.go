@@ -12,7 +12,7 @@ import (
 
 const (
 	Major = 6
-	Minor = 8
+	Minor = 9
 
 	SessionTitleNotificationsCapability = "session_title_notifications"
 )

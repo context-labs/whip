@@ -165,21 +165,6 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	}
 }
 
-func TestResolvedRuntimeEffortPreservesExplicitOffAndInheritance(t *testing.T) {
-	catalogs := map[string]config.Catalog{"provider": {
-		Models: []config.ModelInfoLite{{ID: "model", ReasoningEfforts: []string{"low", "high"}}},
-	}}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "off", "high"); got != "" {
-		t.Fatalf("explicit off resolved to %q", got)
-	}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "", "high"); got != "high" {
-		t.Fatalf("inherited effort resolved to %q", got)
-	}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "low", "high"); got != "low" {
-		t.Fatalf("session override resolved to %q", got)
-	}
-}
-
 func TestRunDaemonRejectsInvalidArguments(t *testing.T) {
 	if err := daemonCLI([]string{"unexpected"}); err == nil {
 		t.Fatal("hidden daemon accepted positional arguments")

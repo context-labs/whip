@@ -8,6 +8,11 @@ import (
 // encodeChatRequest limits provider-specific changes to exact preset roots.
 // A custom proxy keeps the generic wire contract, even with a familiar hostname.
 func (c *Client) encodeChatRequest(req Request) ([]byte, error) {
+	// "off" is the explicit no-reasoning level everywhere else in whip; the
+	// wire contract expresses it by omitting the parameter.
+	if req.ReasoningEffort == "off" {
+		req.ReasoningEffort = ""
+	}
 	switch c.BaseURL {
 	case "https://api.cerebras.ai/v1", "https://api.groq.com/openai/v1", "https://api.deepseek.com",
 		"https://api.fireworks.ai/inference/v1", "https://api.together.ai/v1", "https://api.deepinfra.com/v1/openai":
