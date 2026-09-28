@@ -18,8 +18,11 @@ type ModelProps = Pick<InspectorProps, 'view' | 'root' | 'connected'>;
 type CatalogResult = Awaited<ReturnType<ModelProps['view']['session']['client']['providers']['catalogs']>>['result'];
 type CatalogModel = NonNullable<CatalogResult>['catalogs'][string]['models'] extends (infer M)[] | null ? M : never;
 
+// '' is a draft-only value: no explicit choice, so the daemon resolves the
+// definition's or configured default against the model at creation. Saved
+// sessions never carry it; 'off' is a real level meaning no reasoning.
 const effortLabels: Record<string, string> = {
-  off: 'Default', none: 'Default', minimal: 'Minimal', low: 'Low',
+  '': 'Default', off: 'Off', none: 'Off', minimal: 'Minimal', low: 'Low',
   medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
 };
 

@@ -114,8 +114,10 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const route = providers.inventory.data?.providers?.find(item => item.id === provider);
   const ready = tab.model ? !!route?.status.available && !route.status.disabled : selection?.ready === true;
   const levels = modelEfforts(catalogModels(catalog.data?.result, provider), model);
-  const requestedEffort = tab.effort ?? configuration.data?.default_effort ?? 'off';
-  const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'off');
+  // '' shows as "Default": no explicit choice, so create omits effort and the
+  // daemon resolves the definition's or configured default against the model.
+  const configuredDefault = configuration.data?.default_effort ?? '';
+  const effort = tab.effort ?? (configuredDefault && levels.includes(configuredDefault) ? configuredDefault : '');
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
   const requiresUpdate = !!providers.inventory.data && !selection;
   const executionEngine = tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
@@ -250,11 +252,11 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <PermissionModeControl value={permission} inherited={tab.permissionMode === undefined} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
         {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data?.result} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
-          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : 'off' })}
+          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : undefined })}
           onSessionOptions={() => setShowOptions(true)} />
           : providers.inventory.isPending ? <PickerSkeletons count={2} />
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
-        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
+        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={['', ...levels]} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort: effort || undefined })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
           disabled={disabled || !permissionAvailable || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
       </div>
