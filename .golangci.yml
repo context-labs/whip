@@ -135,10 +135,10 @@ linters:
       # false-positive on chromedp/rod plumbing.
       - path: internal/browser
         linters: [noctx, bodyclose]
-      # internal/config's whole job is reading whip-owned config paths; the
+      # internal/legacy/config's whole job is reading whip-owned config paths; the
       # trust decision is package-wide, stated once here instead of a G304
       # //nolint at every os.ReadFile.
-      - path: internal/config
+      - path: internal/legacy/config
         linters: [gosec]
         text: G304
 

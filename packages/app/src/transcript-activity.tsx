@@ -1,5 +1,5 @@
 import type { DeepReadonly, ExecutionCell } from '@whip/sdk/state';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import { useState } from 'react';
 import { Button, CodeBlock } from '@whip/ui';
 import { ArrowUpRight, Bot, Brain, ChevronRight, CircleAlert, FilePenLine, FileSearch, FileText, Globe, Terminal } from 'lucide-react';

@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 type browserInventoryPending struct {

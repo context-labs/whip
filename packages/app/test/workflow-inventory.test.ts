@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
 it('classifies every registered operation in the web workflow inventory', () => {
-  const manifest = JSON.parse(readFileSync('packages/protocol/schema/manifest.json', 'utf8')) as {
+  const manifest = JSON.parse(readFileSync('packages/legacy-protocol/schema/manifest.json', 'utf8')) as {
     operations: { surface: string; name: string }[];
   };
   const inventory = readFileSync('.ai-docs/plans/web-app/WORKFLOW-INVENTORY.md', 'utf8');

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // ServerConfig is whip's normalized MCP server definition. Claude-style
@@ -474,7 +474,7 @@ func whipConfigPath() string {
 }
 
 // FromConfigMap converts whip's config-file MCP block (identical field
-// shape, defined in internal/config to keep that package a leaf) into
+// shape, defined in internal/legacy/config to keep that package a leaf) into
 // normalized server configs.
 func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
 	if len(in) == 0 {

@@ -1,4 +1,4 @@
-import type { BrowserInventoryRequest, BrowserInventoryResultParams, BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams } from '@whip/protocol';
+import type { BrowserInventoryRequest, BrowserInventoryResultParams, BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams } from '@whip/legacy-protocol';
 import type { BrowserTabState } from './browser-types';
 
 export type BrowserAgentScope = BrowserCommand['scope'];

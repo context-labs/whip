@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 var connectDaemon = func(ctx context.Context, clientKind, clientID string, cursors map[string]int64) (daemon.RootConnection, error) {

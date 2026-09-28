@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // loadPersistedScratch follows the same migration preference as the kernel:

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	bubbletea "charm.land/bubbletea/v2"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 // submitClientCLI parses terminal syntax before constructing the wire payload.

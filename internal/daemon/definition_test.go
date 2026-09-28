@@ -14,10 +14,10 @@ import (
 
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func juniorDeveloperDocument(t *testing.T) json.RawMessage {

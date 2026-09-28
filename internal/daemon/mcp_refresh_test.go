@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 func refreshTestSession(t *testing.T) *Session {

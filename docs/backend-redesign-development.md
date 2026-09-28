@@ -1,9 +1,10 @@
 # Backend redesign development
 
-This is the phase 0 working loop for [the redesign plan](backend-redesign-plan.md).
-The new domain/runtime has not been implemented yet. These gates initially use
-selected existing packages and the existing real-runtime SDK fixture. Replace
-that wiring as the corresponding phases land; it is not a compatibility layer.
+This is the working loop for [the redesign plan](backend-redesign-plan.md).
+Phase 1 adds the new domain, SQLite store, host configuration and initial v4
+contract described in [backend-domain.md](backend-domain.md). Runtime/SDK adoption
+starts in Phase 2. The existing real-runtime SDK fixture remains an explicit
+legacy reference until that slice replaces it.
 
 ## Start working
 
@@ -16,7 +17,9 @@ task check:change
 ```
 
 The integration branch is `codex/backend-redesign`. Open implementation PRs
-against that branch. Keep each PR focused on a behavior or invariant. Current
+against that branch, or stack a phase PR on its pending predecessor. The redesign
+workflow also runs for PRs into phase branches. Keep each PR focused on a behavior
+or invariant. Current
 production gates on `main` and `development` remain unchanged.
 
 | Command | Purpose |
@@ -39,9 +42,11 @@ configuration choice, not a prerequisite for CI.
 list for fast, build, vet, race and analysis checks:
 
 - `internal/content`: retained immutable content and access primitives.
-- `internal/agentdef`: template validation behavior to carry into the new domain.
-- `internal/protocol`: current generator/interoperability baseline.
-- `internal/session`: current storage invariants, until replaced in phase 1.
+- `internal/session`: pure durable values, pinned definitions and configuration resolution.
+- `internal/store`: fresh schema, uniform root/child records and atomic transitions.
+- `internal/config`: explicit fresh host files and credential references.
+- `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
+- `cmd/whip-contract`: deterministic v4 generation and fixture validation.
 
 All tests in these packages are active. Add new domain/store/runtime packages as
 they land. Remove old packages only when their retained guarantees have been
@@ -53,7 +58,8 @@ before provider construction, queued child input across restart, settlement
 failure without provider replay, and accounting-lock ordering. They are temporary
 reference checks, not a requirement to preserve actors or child-specific APIs.
 
-The TypeScript protocol, SDK and SDK examples are active. The new fixture test
+Both TypeScript contract packages, the retained SDK and SDK examples are active.
+The fixture test
 uses both Unix sockets and WebSocket. Full web/desktop/mobile/TUI/ACP suites
 remain milestone obligations in phases 5–6. A shared contract change must expand
 checks to every client already ported to that contract.
@@ -110,6 +116,7 @@ Lint uses the repository's existing configuration and reports findings on code
 changed since a frozen baseline revision. That baseline does not advance as
 phases land. Five inherited findings are recorded below rather than suppressed
 in source.
+Those files now live in internal/legacy/session, outside the new active core.
 Vulnerability checks have no baseline exclusion. Newly added packages have no
 baseline code to exclude.
 
@@ -184,6 +191,70 @@ These are first-run measurements for the separate cache keys, not claimed warm
 CI timings. The hosted gate includes the race-instrumented SDK fixture.
 
 Phase 0 is complete in [PR #197](https://github.com/context-labs/whip/pull/197).
-No replacement runtime or schema is implemented by this phase. The next phase
-starts with domain ownership and fresh persistence, updating this active scope as
-each new package becomes buildable.
+No replacement runtime or schema was implemented by Phase 0.
+
+## Phase 1 behavior ownership and evidence
+
+The old session/config/protocol packages and v3 TypeScript contract were moved
+to explicit legacy locations without aliases. The retained runtime and clients
+still build against them. New core import tests prohibit reaching that runtime,
+its managers, or legacy packages.
+
+| Former active area | Phase 1 replacement or later obligation |
+| --- | --- |
+| Root and child storage, input acceptance, transcript commits | New store constraint, rollback, retry, root/child history and restart tests |
+| Agent definition defaults and validation | New session canonical revisions, local schema validation, deep ownership and clear/inherit tests |
+| v3 schema generator | New v4 generator and Go/TypeScript interchange; v3 checks remain for unported clients |
+| Actor restore/title generation | Old actor behavior is retired; title metadata is revisioned here, model helper accounting and restore behavior belong to Phase 3 |
+| Legacy child budgets, mail, grants and shared state | Phase 4 acceptance; no claim that Phase 1 replaces those guarantees |
+| Checkpoints, process/workspace resources and broader client behavior | Phases 3–6; retained fixture and selected daemon regressions still run |
+
+The new SQLite tests use disposable files and independent connections. They
+inject failed receipt, transcript, configuration and deletion writes, check
+rollback, then retry successfully. They cover foreign-schema rejection without
+modification, concurrent initialization, topology/active-turn constraints,
+configuration capture, bounded pages, stop/cancel/recovery and deletion receipts.
+Host tests cover atomic concurrent initialization, strict files, environment
+references and default changes that leave stored sessions intact. Contract
+fixtures exercise actual Go JSON and TypeScript re-encoding with counters above
+2^53, explicit clearing and invalid payloads; standalone validators run under
+Node's prohibition on dynamic code generation.
+
+Local validation on macOS arm64, Go 1.27.0 and Node 24.14.1:
+
+| Check | Result |
+| --- | --- |
+| Whole retained/new backend build | go build ./... passed |
+| Warm fast gate | Passed, 0.30 seconds |
+| Full phase gate | Passed, 35.58 seconds; active race/shuffle tests, both contracts, 466 SDK tests, examples, real-runtime restart fixture and four named daemon regressions |
+| Analysis | No lint findings or reachable vulnerabilities in the active scope |
+| Concurrent fresh initialization | 100 repeated runs under the race detector passed |
+| Generated v4 contract | TypeScript compilation, three CSP-safe interop tests, Go fixture validation and deterministic drift passed |
+| Patch/workflow validation | git diff --check and actionlint passed |
+
+The first complete run found intermittent SQLITE_BUSY during concurrent
+initialization. WAL setup now retries only its idempotent PRAGMA within a bounded,
+context-cancellable wait. A held-reader test proves timeout and later success;
+admission/claim/finish transactions are never automatically replayed.
+
+| Phase 1 acceptance | Evidence |
+| --- | --- |
+| Fresh identity/config, no legacy readers | TestFreshIdentityAndForeignSchema, TestConcurrentInitialization, TestExplicitFreshHostAndAtomicInitialization, TestCoreImportBoundaries |
+| Root uniqueness, same-tree parents, no cycles, one active turn | TestTopologyAndRevisionConstraints, TestIndependentConnectionsSerializeClaimsAndDuplicateAdmission |
+| Uniform root/child persistence and history | TestConfigurationCaptureAndUniformHistory |
+| Pinned definitions and independent values | TestDefinitionRevisionAndResolutionIsolation, TestDefinitionCanonicalSchemaOrdering, TestDefinitionAndHostEditsDoNotChangeRetainedSessions |
+| Single authorities and captured configuration, no stored credentials | schema.sql, TestConfigurationCaptureAndUniformHistory, TestCredentialsRemainHostReferences, backend-domain.md ownership table |
+| Atomic admission/claims and rollback, database-only construction | TestAtomicAdmissionClaimFinishAndRetry, TestTreeConfigurationAndDeletionRollback, TestCoreImportBoundaries |
+| Retry/interruption/cancellation/deletion semantics | TestStopCancelRecoveryAndDeletion, TestClosedStoreRecoveryRetainsQueuedWork and backend-domain.md transitions |
+
+The new persistence contract is ready for the Phase 2 runner/RPC/SDK slice.
+No claim is made that the existing SDK or applications already use this store.
+The [hosted Phase 1 run](https://github.com/context-labs/whip/actions/runs/36368729721)
+passed the phase gate on revision 76505c4ca7ef60ba324f4b75d3184351a8cb47de:
+167 seconds on Linux and 202 seconds on macOS. Analysis passed too. These are
+hosted gate measurements with restored dependency caches and newly compiled
+relocated packages, not the local warm measurements above.
+
+Phase 1 is complete in [PR #199](https://github.com/context-labs/whip/pull/199),
+stacked on Phase 0's PR #197. The final documentation commit is checked by the
+same workflow; the PR records the current head's result.

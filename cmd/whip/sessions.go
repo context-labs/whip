@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // `whipcode sessions` — list stored sessions, newest first. The scriptable

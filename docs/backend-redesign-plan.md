@@ -1,6 +1,7 @@
 # Whip backend redesign and delivery plan
 
-Status: phase 0 complete and validated in PR #197; phases 1–7 have not started.
+Status: phases 0 and 1 complete and validated in PRs #197 and #199;
+phases 2–7 have not started.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -69,6 +70,7 @@ requirements for the replacement.
 
 The names below establish responsibilities. Exact Go fields and SQL columns are
 settled in phase 1 before dependent implementations grow around them.
+The implemented Phase 1 contract is [backend-domain.md](backend-domain.md).
 
 | Concept | Owns | Authoritative storage |
 | --- | --- | --- |
@@ -438,21 +440,31 @@ resolution, host config and fresh schema. Establish transaction APIs and the
 state machines that later code will use. Write the initial wire shapes and
 generation fixtures. Choose the first provider and engine for phase 3.
 
+Implementation: internal/session, internal/store, internal/config and
+internal/protocol, with the v4 generator in cmd/whip-contract and packages/protocol.
+The old storage/config/protocol and its clients are explicitly isolated under
+legacy paths until the Phase 2 runtime/SDK cutover. They are not imported by the
+new core. Phase 3 starts with OpenAI-compatible chat completions and Starlark.
+
 Acceptance:
 
-- [ ] Fresh storage/config initializes deterministically with a new identity and
+- [x] Fresh storage/config initializes deterministically with a new identity and
       no dependency on legacy readers or migrations.
-- [ ] Root uniqueness, parent/tree consistency, cycle prevention and active-turn
+- [x] Root uniqueness, parent/tree consistency, cycle prevention and active-turn
       uniqueness have meaningful validation/constraint tests.
-- [ ] Root and child use the same records, transcript source and persistence API.
-- [ ] Built-ins and registered definitions have pinned revisions; resolving and
+- [x] Root and child use the same records, transcript source and persistence API.
+- [x] Built-ins and registered definitions have pinned revisions; resolving and
       changing one session cannot mutate another through aliased maps/slices.
-- [ ] Each durable field has one authority; configuration update/capture rules
+- [x] Each durable field has one authority; configuration update/capture rules
       are explicit. Secrets and live resource handles stay outside session rows.
-- [ ] Transaction tests cover atomic admission/claims and rollback using real
+- [x] Transaction tests cover atomic admission/claims and rollback using real
       SQLite. Store construction does not create process/workspace managers.
-- [ ] Admission, retry, interruption, cancellation and deletion semantics are
+- [x] Admission, retry, interruption, cancellation and deletion semantics are
       documented sufficiently to implement phases 2–4 without guessing.
+
+Evidence for every criterion, measured feedback times and hosted validation are
+recorded in [the development guide](backend-redesign-development.md#phase-1-behavior-ownership-and-evidence).
+The next increment is Phase 2's scripted-provider runtime/RPC/SDK slice.
 
 ### Phase 2 — Deliver the first working slice
 

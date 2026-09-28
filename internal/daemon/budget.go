@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 func (s *Session) consumeBudgets(ctx context.Context, agentID string, reservations []capability.Reservation, action func() error) error {

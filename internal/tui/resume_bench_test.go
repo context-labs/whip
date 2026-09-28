@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // benchTranscript builds a realistic resumed conversation: n exchanges, each

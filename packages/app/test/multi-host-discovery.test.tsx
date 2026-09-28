@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AnchorHTMLAttributes, ReactNode } from 'react';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { SessionCatalogPage, HostAttentionResult } from '@whip/protocol';
+import type { SessionCatalogPage, HostAttentionResult } from '@whip/legacy-protocol';
 import type { AppRuntime } from '../src/runtime';
 import type { HostConnection } from '../src/hosts';
 import { RuntimeContext } from '../src/context';

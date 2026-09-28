@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func TestDefinitionRegistryAcrossTransports(t *testing.T) {

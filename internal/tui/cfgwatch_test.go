@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // /theme auto must resolve from the ACTUAL detected terminal background, not

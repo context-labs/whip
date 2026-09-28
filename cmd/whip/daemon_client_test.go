@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func runtimeDBPath(home string) string { return filepath.Join(home, "runtime-v2", "sessions.db") }

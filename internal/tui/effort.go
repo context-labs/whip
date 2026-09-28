@@ -3,7 +3,7 @@ package tui
 import (
 	"slices"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // defaultEfforts are the fallback levels when the provider doesn't advertise

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 // Span writes are observational: they never fail the work they describe. A

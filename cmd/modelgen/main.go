@@ -24,8 +24,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/config/modelsdev"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
 	"github.com/context-labs/whip/internal/openaiauth"
 )
 
@@ -44,7 +44,7 @@ type options struct {
 func main() {
 	o := options{}
 	flag.StringVar(&o.input, "input", "", "read upstream JSON from a local file instead of downloading")
-	flag.StringVar(&o.snapshot, "out", "internal/config/modelsdev/catalog.json", "bundled snapshot path")
+	flag.StringVar(&o.snapshot, "out", "internal/legacy/config/modelsdev/catalog.json", "bundled snapshot path")
 	flag.StringVar(&o.environment, "environment-out", "apps/desktop/src/provider-environment.ts", "generated desktop environment path")
 	flag.BoolVar(&o.check, "check", false, "validate existing snapshot and generated artifacts without network access")
 	flag.Parse()

@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { MCPBrandIconsParams, MCPImportApplyParams, MCPImportCandidatesResult } from '@whip/protocol';
+import type { MCPBrandIconsParams, MCPImportApplyParams, MCPImportCandidatesResult } from '@whip/legacy-protocol';
 import type { MCPImportCandidate } from '../src/mcp-import';
 
 export const candidate = (name: string, state: MCPImportCandidate['state'], source = 'codex', extra: Partial<MCPImportCandidate> = {}): MCPImportCandidate =>

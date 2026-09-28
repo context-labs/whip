@@ -3,7 +3,7 @@ import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueries } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/protocol';
+import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { Button, ContextMenu, Dialog, IconButton, Input, Menu, Select, type DialogProps } from '@whip/ui';
 import { Code2, CornerDownLeft, MoreHorizontal, Search } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

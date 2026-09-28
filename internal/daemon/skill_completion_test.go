@@ -13,9 +13,9 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/rlm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func writeCompletionSkill(t *testing.T, root, directory, name, description, extra string) {

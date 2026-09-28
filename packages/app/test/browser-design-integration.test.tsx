@@ -2,7 +2,7 @@ import { webcrypto } from 'node:crypto';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import type { TransportFactory, TransportHandlers } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';

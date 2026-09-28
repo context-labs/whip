@@ -18,7 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // The REPL panel is a mode of the opencode right sidebar (ctrl+x r or /repl)

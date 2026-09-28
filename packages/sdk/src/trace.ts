@@ -1,4 +1,4 @@
-import type { SpanPage, SpanRecord } from '@whip/protocol';
+import type { SpanPage, SpanRecord } from '@whip/legacy-protocol';
 import type { DeepReadonly, SessionViewSnapshot } from './state.js';
 
 /**

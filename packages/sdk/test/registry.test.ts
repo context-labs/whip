@@ -6,7 +6,7 @@ import {
   type CommandOperation, type ContractTypes, type EphemeralOperation,
   type InitializeResult, type QueryOperation, type RpcMethod, type RpcMethods,
   type RuntimeOperation, type RuntimeOperations,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import type { RecoveryRecord } from '../src/command.js';
 import type { TransportFactory } from '../src/transport.js';
@@ -20,7 +20,7 @@ interface WireRequest {
 
 // This test reads the actual Go-produced fixture artifact. It runs after tsc, so
 // the relative path is from packages/sdk/build/test rather than this source file.
-const fixtures = JSON.parse(await readFile(new URL('../../../protocol/schema/fixtures.json', import.meta.url), 'utf8')) as { type: keyof ContractTypes; value: unknown }[];
+const fixtures = JSON.parse(await readFile(new URL('../../../legacy-protocol/schema/fixtures.json', import.meta.url), 'utf8')) as { type: keyof ContractTypes; value: unknown }[];
 function fixture<T extends keyof ContractTypes>(type: T): ContractTypes[T] {
   const value: unknown = structuredClone(fixtures.find(item => item.type === type)?.value);
   assertValid(type, value);

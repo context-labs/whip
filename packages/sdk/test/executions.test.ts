@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import { executionRows, type ExecutionCell, type HistoryView, type SessionViewSnapshot } from '../src/state.js';
 import { emptyExecutionEvidence, executionCode, observeExecution, reconcileExecutions, seedExecutions, settleExecutions, type ExecutionEvidence } from '../src/executions.js';
 

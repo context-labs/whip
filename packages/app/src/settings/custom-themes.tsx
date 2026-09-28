@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
-import type { Resolved } from '@whip/protocol';
+import type { Resolved } from '@whip/legacy-protocol';
 import { Button, Combobox, Dialog, Field, useTheme } from '@whip/ui';
 import { FileJson, Upload } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

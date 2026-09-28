@@ -6,7 +6,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWhipConnection, useSessionListView } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
 import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
-import type { SessionCatalogPage } from '@whip/protocol';
+import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { useQuery } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
 import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning, Archive } from 'lucide-react';

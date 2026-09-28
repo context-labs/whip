@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/go-rod/rod/lib/cdp"
 )
 

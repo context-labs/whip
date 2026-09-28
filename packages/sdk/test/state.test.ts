@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { BoundedTranscriptPage, RootSnapshot, SpanPage, StreamEvent } from '@whip/protocol';
+import type { BoundedTranscriptPage, RootSnapshot, SpanPage, StreamEvent } from '@whip/legacy-protocol';
 import type { CallOptions, SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
 import { createSessionListView, createSessionView, executionRows, inboxItems } from '../src/state.js';

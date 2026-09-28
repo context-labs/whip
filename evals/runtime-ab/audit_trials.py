@@ -409,7 +409,7 @@ def audit(directories, build):
     effort_path = build / "reasoning-effort-audit.json"
     effort = read_json(effort_path)
     source_hashes = read_json(build / "source-files.json")
-    source_names = set(effort["source_hashes_match_frozen_binary"]) | {"internal/daemon/agent_session.go", "internal/daemon/recursive_runtime.go", "internal/llm/accounting.go", "internal/session/event.go"}
+    source_names = set(effort["source_hashes_match_frozen_binary"]) | {"internal/daemon/agent_session.go", "internal/daemon/recursive_runtime.go", "internal/llm/accounting.go", "internal/legacy/session/event.go"}
     source_matches = {name: (ROOT / name).is_file() and digest(ROOT / name) == source_hashes.get(name) for name in sorted(source_names)}
     descriptors = {engine: read_json(build / (engine + "-descriptor.json")) for engine in ("starlark", "quickjs")}
     studies = []
@@ -427,7 +427,7 @@ def audit(directories, build):
         "format_version": 1, "generated_at": datetime.now(timezone.utc).isoformat(),
         "audit_script_sha256": digest(Path(__file__)),
         "result_evidence_helper_sha256": digest(Path(__file__).with_name("result_evidence.py")),
-        "event_retention_reconstruction": {"source": "internal/session/event.go", "frozen_event_retention": 10000, "criteria": "A missing positive event sequence must precede an exact 10,000-row contiguous final root event window. Reference/object metadata, unrevoked root grant, full body size and SHA-256 must still verify. These recoveries have explicit after_pruning statuses; unproven absence remains unavailable, and differing retained events remain mismatches."},
+        "event_retention_reconstruction": {"source": "internal/legacy/session/event.go", "frozen_event_retention": 10000, "criteria": "A missing positive event sequence must precede an exact 10,000-row contiguous final root event window. Reference/object metadata, unrevoked root grant, full body size and SHA-256 must still verify. These recoveries have explicit after_pruning statuses; unproven absence remains unavailable, and differing retained events remain mismatches."},
         "reasoning_effort_source_audit": {"path": str(effort_path), "sha256": digest(effort_path), "current_sources_match_frozen_manifest": source_matches, "stored_empty_effort": effort["stored_empty_effort"], "scope": "Configured high applies to ordinary root/child turns and final-answer requests. Frozen AgentSession.complete and Agent compaction requests omit effort; the provider default is unknown. Recorded auxiliary purposes are reported separately.", "engine_inheritance": "Frozen RecursiveRuntime passes the root engine to every child kernel and rejects spawn engine arguments. Per-agent result-v2 and checkpoint engine fields provide empirical corroboration when retained.", "max_tokens": "Frozen llm.runAttempt records requested MaxTokens in attempt and admitted MaxTokens in the ledger row; budget admission can shrink the output cap."},
         "summary": {"source_inference_validated_against_frozen_manifest": all(source_matches.values()), "completed_trials_audited": len(all_trials), "model_calls": sum(t.get("accounting", {}).get("model_calls", 0) for t in all_trials), "trials_with_violations": sum(bool(t["violations"]) for t in all_trials), "violation_counts": dict(sorted(counts.items())), "retained_descendants": sum(t.get("agents", {}).get("retained_descendants", 0) for t in all_trials), "checkpoint_blobs_verified": sum(t.get("checkpoints", {}).get("blob_verified_count", 0) for t in all_trials)},
         "studies": studies,

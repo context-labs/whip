@@ -3,7 +3,7 @@ package daemon
 import (
 	"errors"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 // Available providers are inert, connection-bound candidates. A durable approved

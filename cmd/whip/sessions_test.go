@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // unusableHome points WHIPCODE_HOME at a path nested inside a regular file, so

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams } from '@whip/protocol';
+import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams } from '@whip/legacy-protocol';
 import type { BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserTarget, BrowserEvent } from '@whip/app/desktop-bridge';
 import { BrowserManager } from './browser-manager';
 import { ScopedBrowserDebugger } from './browser-cdp';

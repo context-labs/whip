@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // otlpPushBatchBytes keeps each pushed request under the 4 MiB body cap that

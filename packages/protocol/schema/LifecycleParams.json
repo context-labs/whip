@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": [
+        "active",
+        "stopped"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/LifecycleParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LifecycleParams",
+  "required": [
+    "session_id",
+    "lifecycle"
+  ],
+  "additionalProperties": false
+}

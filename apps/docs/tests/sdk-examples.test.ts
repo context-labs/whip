@@ -41,7 +41,7 @@ it('typechecks every published SDK example against the actual source API', async
       paths: {
         '@whip/sdk': ['packages/sdk/src/index.ts'],
         '@whip/sdk/*': ['packages/sdk/src/*.ts'],
-        '@whip/protocol': ['packages/protocol/generated/index.d.ts'],
+        '@whip/legacy-protocol': ['packages/legacy-protocol/generated/index.d.ts'],
       },
     })
     const diagnostics = ts.getPreEmitDiagnostics(program)

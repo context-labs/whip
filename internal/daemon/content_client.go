@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func (c *Client) ReadContent(ctx context.Context, params protocol.ContentReadParams) (protocol.ContentReadResult, error) {

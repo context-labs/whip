@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { MCPImportApplyResult, MCPImportCandidatesResult } from '@whip/protocol';
+import type { MCPImportApplyResult, MCPImportCandidatesResult } from '@whip/legacy-protocol';
 import { Button, Checkbox } from '@whip/ui';
 import { Check } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

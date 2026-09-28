@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func questionPending(multiple bool) session.LifecycleEvent {

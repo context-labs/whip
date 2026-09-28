@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // Live check of discovery against the developer's configured HTTP servers.

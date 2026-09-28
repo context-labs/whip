@@ -1,4 +1,4 @@
-import { assertValid } from '@whip/protocol';
+import { assertValid } from '@whip/legacy-protocol';
 import type { CallOptions, SdkEvent, WhipClient } from './client.js';
 import { asError, WhipError, abortError } from './errors.js';
 import { byteLength, withSignal } from './util.js';

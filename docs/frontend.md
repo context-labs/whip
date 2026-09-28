@@ -88,9 +88,14 @@ All JavaScript packages are private ESM npm workspaces with one root lockfile.
 Use Node 24. Exact installed versions belong to the package manifests and
 `package-lock.json`; do not copy a historical plan's version list into a new setup.
 
+During the backend redesign, the SDK and product clients use
+`@whip/legacy-protocol`. Adoption of the new `@whip/protocol` v4 contract begins
+in Phase 2; see [the backend domain contract](backend-domain.md) for its ownership
+and persistence rules. The package map below describes the retained clients.
+
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |
-| `@whip/protocol` — `packages/protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |
+| `@whip/legacy-protocol` — `packages/legacy-protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |
 | `@whip/sdk` — `packages/sdk` | Attachment, transports, typed services, durable commands, recovery, subscriptions | Protocol; optional `/state`, `/react`, and `/node` entry points |
 | `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
@@ -2691,7 +2696,7 @@ Useful starting files:
 | Tabs and routing | [session-tab-routing.ts](../packages/app/src/session-tab-routing.ts), [session-tab-strip.tsx](../packages/app/src/session-tab-strip.tsx), [UI workspace tabs](../packages/ui/src/workspace-tabs.tsx) |
 | UI component and visual roles | [UI README](../packages/ui/README.md), [tokens.stylex.ts](../packages/ui/src/tokens.stylex.ts), [stories](../packages/ui/stories) |
 | Theme behavior | [themes.tsx](../packages/ui/src/themes.tsx), [theme-contrast.ts](../packages/ui/src/theme-contrast.ts), [theme generator](../cmd/themegen) |
-| New protocol/SDK capability | [SDK README](../packages/sdk/README.md), [protocol reference](protocol-v2.md), [registry.go](../internal/protocol/registry.go) |
+| New protocol/SDK capability | [SDK README](../packages/sdk/README.md), [protocol reference](protocol-v2.md), [registry.go](../internal/legacy/protocol/registry.go) |
 
 ## Development and validation
 

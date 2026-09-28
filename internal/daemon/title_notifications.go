@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/context-labs/whip/internal/protocol"
+import "github.com/context-labs/whip/internal/legacy/protocol"
 
 type titleListener struct {
 	notify func(string)

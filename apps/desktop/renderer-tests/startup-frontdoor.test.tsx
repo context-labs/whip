@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import type { TransportFactory, TransportHandlers } from '@whip/sdk';
 import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '@whip/app/platform';
 import { mountApplication } from '../../web/src/bootstrap';

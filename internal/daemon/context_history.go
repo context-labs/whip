@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 // historyView freezes the upper sequence, including the immutable journal

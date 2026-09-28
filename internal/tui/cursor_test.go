@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // The terminal cursor sits on the textarea caret inside the input rectangle,

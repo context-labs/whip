@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as flush } from 'node:timers/promises';
-import type { BrowserCommand, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderEventParams } from '@whip/protocol';
+import type { BrowserCommand, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderEventParams } from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import type { BrowserProviderBridge } from '../src/browser.js';
 import { transportFixture, type FixtureRequest, type FixtureConnection } from './transport-fixture.js';

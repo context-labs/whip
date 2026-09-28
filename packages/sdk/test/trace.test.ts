@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SpanPage, SpanRecord } from '@whip/protocol';
+import type { SpanPage, SpanRecord } from '@whip/legacy-protocol';
 import type { SessionViewSnapshot } from '../src/state.js';
 import { boundTraceEvidence, emptyTraceEvidence, mergeSpanPage, observeSpan, serverNowMs, toTraceSpan, traceRoots, traceSpans } from '../src/trace.js';
 

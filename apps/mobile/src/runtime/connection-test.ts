@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { fetch } from 'expo/fetch';
 import { createWhipClient, WhipError, type WhipClient } from '@whip/sdk';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import { serverOrigin } from './address';
 
 export type ConnectionStage = 'https' | 'websocket' | 'sessions';

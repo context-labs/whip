@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/rlm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func TestRecursiveAgentReceiptsWithLargeMCPGrants(t *testing.T) {

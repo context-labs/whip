@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "config_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted"
+      ]
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/Turn",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Turn",
+  "required": [
+    "id",
+    "session_id",
+    "config_revision",
+    "state",
+    "failure",
+    "started_at",
+    "finished_at"
+  ],
+  "additionalProperties": false
+}

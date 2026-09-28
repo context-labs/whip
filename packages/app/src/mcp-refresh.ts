@@ -1,4 +1,4 @@
-import type { MCPRefreshResult } from '@whip/protocol';
+import type { MCPRefreshResult } from '@whip/legacy-protocol';
 
 /** Discovery completion is not a promise that every server is connected. */
 export function mcpRefreshNotice(result: MCPRefreshResult | undefined): string {

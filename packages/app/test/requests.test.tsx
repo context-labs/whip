@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import {expect, it, vi} from 'vitest';
 import {UIProvider} from '@whip/ui';
 import type {Session} from '@whip/sdk';
-import type {RootSnapshot} from '@whip/protocol';
+import type {RootSnapshot} from '@whip/legacy-protocol';
 import {PendingRequests} from '../src/requests';
 import {RuntimeContext} from '../src/context';
 import type {AppRuntime} from '../src/runtime';

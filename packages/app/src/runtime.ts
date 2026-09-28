@@ -13,7 +13,7 @@ import {
   createSessionView,
   type SessionView,
 } from '@whip/sdk/state';
-import type { CommandOperation } from '@whip/protocol';
+import type { CommandOperation } from '@whip/legacy-protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { isSessionTab, SessionTabs, welcomeDraftKey } from './session-tabs';

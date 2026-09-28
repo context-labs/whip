@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/context-labs/whip/internal/protocol"
-	sessionstore "github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 // questionWaiter is one open user.ask: the question.pending payload (which

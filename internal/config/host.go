@@ -1,0 +1,193 @@
+// Package config owns explicit host files and provider routes, never session
+// persistence. Loading a host does not resolve credentials or start a runtime.
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+
+	"github.com/context-labs/whip/internal/session"
+)
+
+const (
+	FileName = "host.json"
+	Version  = 1
+)
+
+var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+type Provider struct {
+	Kind          string `json:"kind"`
+	BaseURL       string `json:"base_url"`
+	CredentialEnv string `json:"credential_env"`
+}
+type Host struct {
+	Version   int                   `json:"version"`
+	Providers map[string]Provider   `json:"providers"`
+	Defaults  session.Configuration `json:"defaults"`
+	Engine    session.Engine        `json:"engine"`
+	Policy    session.TreePolicy    `json:"policy"`
+}
+
+// Default is intentionally unconfigured. Model/provider selection is required
+// before resolving a runnable session; initialization invents no credentials.
+func Default() Host {
+	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Policy: session.DefaultTreePolicy()}
+}
+
+func (h Host) Validate() error {
+	if h.Version != Version {
+		return fmt.Errorf("%w: unsupported host version %d", session.ErrInvalid, h.Version)
+	}
+	if err := h.Engine.Validate(); err != nil {
+		return err
+	}
+	if err := h.Policy.Validate(); err != nil {
+		return err
+	}
+	if len(h.Providers) > 128 {
+		return fmt.Errorf("%w: too many provider routes", session.ErrInvalid)
+	}
+	for name, provider := range h.Providers {
+		if err := session.ValidateID(name); err != nil {
+			return err
+		}
+		route, err := url.Parse(provider.BaseURL)
+		if err != nil || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
+			route.User != nil || route.RawQuery != "" || route.Fragment != "" || provider.Kind != "openai-chat" {
+			return fmt.Errorf("%w: invalid provider route %q", session.ErrInvalid, name)
+		}
+		if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {
+			return fmt.Errorf("%w: invalid credential environment reference", session.ErrInvalid)
+		}
+	}
+	if h.Defaults.Model == (session.ModelSelection{}) {
+		// Validate declarations while permitting the deliberate unconfigured state.
+		value := h.Defaults.Clone()
+		value.Model = session.ModelSelection{Provider: "unconfigured", Name: "unconfigured"}
+		return value.Validate()
+	}
+	if _, ok := h.Providers[h.Defaults.Model.Provider]; !ok {
+		return fmt.Errorf("%w: default provider route is absent", session.ErrInvalid)
+	}
+	return h.Defaults.Validate()
+}
+
+// Credential resolves an environment reference only when the execution layer
+// constructs a client. Passing the lookup keeps tests and callers explicit.
+func (p Provider) Credential(lookup func(string) (string, bool)) (string, error) {
+	if p.CredentialEnv == "" {
+		return "", nil
+	}
+	if lookup == nil {
+		return "", fmt.Errorf("%w: credential lookup is required", session.ErrInvalid)
+	}
+	value, ok := lookup(p.CredentialEnv)
+	if !ok || value == "" {
+		return "", fmt.Errorf("credential environment variable %q is unset", p.CredentialEnv)
+	}
+	return value, nil
+}
+
+func Load(directory string) (Host, error) {
+	if directory == "" {
+		return Host{}, fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
+	}
+	//nolint:gosec // The host explicitly selects its configuration directory; the filename is fixed.
+	file, err := os.Open(filepath.Join(directory, FileName))
+	if err != nil {
+		return Host{}, err
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, session.MaxDocumentBytes+1))
+	if err != nil {
+		return Host{}, err
+	}
+	if len(raw) > session.MaxDocumentBytes {
+		return Host{}, fmt.Errorf("%w: host configuration exceeds size limit", session.ErrInvalid)
+	}
+	var host Host
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&host); err != nil {
+		return Host{}, fmt.Errorf("decode host configuration: %w", err)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return Host{}, fmt.Errorf("%w: trailing host configuration data", session.ErrInvalid)
+	}
+	if err := host.Validate(); err != nil {
+		return Host{}, err
+	}
+	return host, nil
+}
+
+// Initialize publishes one complete default file, or loads the existing file.
+// The directory is explicit; old filenames and installed runtimes are ignored.
+func Initialize(directory string) (Host, error) {
+	if directory == "" {
+		return Host{}, fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
+	}
+	if err := write(directory, Default(), true); err != nil && !errors.Is(err, os.ErrExist) {
+		return Host{}, err
+	}
+	return Load(directory)
+}
+func Save(directory string, host Host) error { return write(directory, host, false) }
+func write(directory string, host Host, onlyNew bool) (err error) {
+	if directory == "" {
+		return fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
+	}
+	if err := host.Validate(); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(host, "", "  ")
+	if err != nil {
+		return err
+	}
+	if len(raw)+1 > session.MaxDocumentBytes {
+		return fmt.Errorf("%w: host configuration exceeds size limit", session.ErrInvalid)
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(directory, ".host-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if removeErr := os.Remove(file.Name()); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = errors.Join(err, removeErr)
+		}
+	}()
+	if _, err := file.Write(append(raw, '\n')); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err := file.Sync(); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	target := filepath.Join(directory, FileName)
+	if onlyNew {
+		err = os.Link(file.Name(), target)
+	} else {
+		err = os.Rename(file.Name(), target)
+	}
+	if err != nil {
+		return err
+	}
+	//nolint:gosec // Open the caller-selected host directory to sync the configuration file publication.
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	return errors.Join(dir.Sync(), dir.Close())
+}

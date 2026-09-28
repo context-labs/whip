@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/brandicon"
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // RuntimeConfiguration contains settings safe to send to clients. Credentials

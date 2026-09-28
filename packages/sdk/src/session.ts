@@ -1,7 +1,7 @@
 import type {
   CommandOperation, RuntimeOperations, QueryOperation, EphemeralOperation,
   CreateSessionParams, SessionCatalogParams, SubmitPayload, HistoryPageParams, MailboxPageParams,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import type { CommandOptions } from './command.js';
 import { Turn, permissionEvent, questionEvent, type PermissionEvent, type QuestionEvent, type RunOptions } from './turn.js';

@@ -3,7 +3,7 @@ package daemon
 import (
 	"context"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 // invoke never persists ephemeral credentials or terminal input. A lost reply

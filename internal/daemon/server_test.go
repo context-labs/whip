@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func TestServerServesWithUnresumableSessionAndRecoversAfterRepair(t *testing.T) {

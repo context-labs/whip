@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // A rejected effort save must leave the runner, the saved row and every

@@ -1,35 +1,17 @@
-# WHIP protocol v5 contracts
+# WHIP v4 contract
 
-This package contains generated TypeScript declarations, Draft-07 JSON Schema,
-and Ajv validators for the Go protocol registry. It has no UI or transport state.
-Use Node 24 and `npm ci`; regenerate with `npm run generate` and verify types,
-Go-produced interoperability fixtures, and drift with `npm run check`.
+Go DTOs in internal/protocol own these generated schemas, TypeScript declarations,
+and standalone validators. Run npm run generate in this workspace; npm run check
+checks types, Go/TypeScript interchange, CSP-safe validation and generation drift.
 
-```ts
-import { assertValid, type SubscribeParams } from '@whip/protocol';
+Counters are nonnegative int64 decimal strings. Root and child sessions use the
+same shape; a root has parent_id: null. Patches replace whole fields: omission or
+null inherits, empty maps clear, and output: { schema: null } clears structured
+output. Configuration contains logical model names, never provider credentials.
+Result collections can be null when the Go value is nil; SDK readers normalize
+them to empty collections. Patch null remains distinct from an empty map.
 
-const params: SubscribeParams = {
-  root_id: 'root-id',
-  subscription_id: 'view-id',
-  cursor: '9007199254740993',
-};
-assertValid('SubscribeParams', params);
-```
-
-The registry manifest records the request/result contract, execution ownership,
-and existing permission requirements for each RPC and runtime operation.
-Runtime operations travel inside `command.submit` or `query`; the latter never
-journals work. A command's RPC request ID is separate from its durable command
-ID. Client IDs provide retry namespaces and are not authenticated identities.
-The wire major is 5. Required archive metadata and catalog cursor status are
-incompatible with earlier majors; clients and daemons reject them at initialization.
-
-Do not coerce decimal strings into JavaScript numbers. Binary fields use base64;
-JSON payloads remain JSON. Permission decisions use ordinary unsigned payloads.
-Never persist provider credentials or terminal input in a client
-retry queue. A dropped connection does not cancel an accepted command.
-
-Generated files are checked in for consumers. Edit `internal/protocol` rather
-than these files, then regenerate. The daemon validates against the same Go
-schema builder before admitting operations. Snapshot and command result
-payloads must also be validated against the result type named in the registry.
+These are initial Phase 1 declarations. Runtime handlers and SDK adoption arrive
+in Phase 2. Current applications still use @whip/legacy-protocol; v4 does not
+translate or accept that contract. Operation names in the manifest describe the
+new surface and do not claim that handlers are already serving it.

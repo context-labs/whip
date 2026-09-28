@@ -138,7 +138,7 @@ fb61707 docs: handoff doc for the context-cost work
   row (opened on `OnToolCall`) closes instead of sticking at "⋯".
 
 ### Item 7 — usage accounting: accurate totals, counted once
-`internal/agent/agent.go`, `internal/agent/subagent.go`, `internal/session/session.go`, `internal/tui/tui.go`
+`internal/agent/agent.go`, `internal/agent/subagent.go`, `internal/legacy/session/session.go`, `internal/tui/tui.go`
 - `Agent.usage` = this agent's **own** requests (turns + its compaction
   summaries). `Agent.subUsage` = a per-model ledger (`"model @ provider"` →
   `llm.Usage`) of every subagent under it. `TotalUsage()` = own + subs.

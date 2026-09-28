@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	sessionstore "github.com/context-labs/whip/internal/session"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 const (

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // The busy spinner animates: Update arms a tick loop when a turn is running,

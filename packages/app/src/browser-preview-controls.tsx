@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/protocol';
+import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { Button, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
 import { PanelsTopLeft } from 'lucide-react';
 import { scale, typography } from '@whip/ui/tokens.stylex';

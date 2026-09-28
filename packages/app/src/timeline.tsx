@@ -20,7 +20,7 @@ import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/stream
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import type { DeepReadonly, HistoryView } from '@whip/sdk/state';
-import type { RootSnapshot, StreamEvent } from '@whip/protocol';
+import type { RootSnapshot, StreamEvent } from '@whip/legacy-protocol';
 import { Button, CodeBlock, CopyButton, Dialog, IconButton, Menu, Spinner } from '@whip/ui';
 import {
   ChevronRight,

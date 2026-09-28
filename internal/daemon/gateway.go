@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/context-labs/whip/internal/protocol"
+import "github.com/context-labs/whip/internal/legacy/protocol"
 
 // SetGatewayStatus publishes managed-child discovery without owning a listener.
 // The process owner must clear readiness before stopping or replacing the child.

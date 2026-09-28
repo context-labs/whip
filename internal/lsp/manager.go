@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // diagWait caps how long a write/edit tool call blocks for diagnostics

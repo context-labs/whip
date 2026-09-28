@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // scriptedModel answers each provider request with the next scripted text and

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // These routes exist only in the opt-in isolated fixture frontend, never in a

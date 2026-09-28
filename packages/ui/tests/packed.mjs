@@ -15,7 +15,7 @@ const consumer = resolve(directory, 'consumer');
 await mkdir(artifacts); await mkdir(consumer);
 try {
   const archives = {};
-  for (const name of ['protocol', 'sdk', 'ui', 'app']) {
+  for (const name of ['legacy-protocol', 'sdk', 'ui', 'app']) {
     const {stdout} = await exec('npm', ['pack', '--json', '--pack-destination', artifacts], {cwd: resolve(repo, `packages/${name}`), maxBuffer: 1024 * 1024});
     const [archive] = JSON.parse(stdout);
     archives[`@whip/${name}`] = `file:${resolve(artifacts, archive.filename)}`;

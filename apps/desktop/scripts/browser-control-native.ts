@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
-import type { BrowserCommand } from '@whip/protocol';
+import type { BrowserCommand } from '@whip/legacy-protocol';
 import type { BrowserAgentIdentity, BrowserAgentScope, BrowserAgentResult, BrowserInventory, BrowserAgentEvent } from '@whip/app/desktop-bridge';
 import { BrowserManager } from '../src/browser-manager';
 import { BrowserControl } from '../src/browser-control';

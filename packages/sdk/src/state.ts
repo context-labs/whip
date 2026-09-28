@@ -1,7 +1,7 @@
 import type {
   BoundedTranscriptPage, LifecycleEvent, RootCollectionPage, RootSnapshot,
   SessionCatalogPage, StreamEvent,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import type { SdkEvent, WhipClient } from './client.js';
 import type { Session } from './session.js';
 import { asError, WhipError } from './errors.js';

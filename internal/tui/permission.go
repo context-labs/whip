@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // permDialog is presentation state for a daemon-owned permission request.

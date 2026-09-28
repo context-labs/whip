@@ -11,9 +11,9 @@
     "apps/*"
   ],
   "scripts": {
-    "generate": "npm run generate -w @whip/protocol",
+    "generate": "npm run generate -w @whip/protocol && npm run generate -w @whip/legacy-protocol",
     "build": "npm run build -w @whip/sdk",
-    "check": "npm run check -w @whip/protocol && npm run check -w @whip/sdk && npm run build -w @whip/client-example",
+    "check": "npm run check -w @whip/protocol && npm run check -w @whip/legacy-protocol && npm run check -w @whip/sdk && npm run build -w @whip/client-example",
     "test": "npm run test -w @whip/sdk",
     "acceptance": "npm run build && npm run build -w @whip/agents-example && node packages/sdk/scripts/acceptance.mjs",
     "test:browser": "npm run build && node packages/sdk/scripts/browser-smoke.mjs",

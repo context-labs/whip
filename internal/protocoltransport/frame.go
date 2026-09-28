@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 const MaxFrameSize = 1 << 20

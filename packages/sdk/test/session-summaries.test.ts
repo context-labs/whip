@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SessionSummariesResult } from '@whip/protocol';
+import type { SessionSummariesResult } from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import { transportFixture } from './transport-fixture.js';
 

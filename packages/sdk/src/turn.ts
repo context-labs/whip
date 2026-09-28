@@ -1,4 +1,4 @@
-import type { CommandResult, StreamEvent, SubmitPayload } from '@whip/protocol';
+import type { CommandResult, StreamEvent, SubmitPayload } from '@whip/legacy-protocol';
 import type { SdkEvent } from './client.js';
 import type { CommandHandle } from './command.js';
 import { DeliveryUncertainError, WhipError, abortError, asError } from './errors.js';

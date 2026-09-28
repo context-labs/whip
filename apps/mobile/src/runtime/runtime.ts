@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { createWhipClient, RpcError, WhipError, isTerminal, type WhipClient, type CommandHandle, type CommandOutcome, type RecoveryRecord } from '@whip/sdk';
 import { createSessionListView, createSessionView, type SessionView, type SessionListView } from '@whip/sdk/state';
 import { SubmittedInputs } from '@whip/app/presentation';
-import type { CommandOperation, RuntimeOperations } from '@whip/protocol';
+import type { CommandOperation, RuntimeOperations } from '@whip/legacy-protocol';
 import { serverOrigin } from './address';
 import type { CommandIntent, Draft, MobileStorage } from './storage';
 import { defaultAppearance, appearanceRecord, type Appearance, type AppearanceRecord } from '../theme/preferences';

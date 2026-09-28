@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // modelItem is one selectable model@provider route.

@@ -8,7 +8,7 @@ import type {
   QueryOperation,
   RootSnapshot,
   RuntimeOperations,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import { Alert, Button, CodeBlock } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';

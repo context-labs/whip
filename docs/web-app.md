@@ -336,7 +336,7 @@ configuration.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check that the gateway is running and the daemon is compatible. The daemon must
-match the protocol major in `internal/protocol/types.go` and support the gateway's
+match the protocol major in `internal/legacy/protocol/types.go` and support the gateway's
 `network-client-v1` handshake. An incompatible daemon requires an intentional
 upgrade using its original distribution and home. Stopping it interrupts active
 work; do not reset a compatible database for a protocol or origin mismatch.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // importFixture lays out one server per interesting state across all four

@@ -1,4 +1,4 @@
-import type { SessionCatalogPage } from '@whip/protocol';
+import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import type { DeepReadonly } from '@whip/sdk/state';
 
 export const sidebarStorageKey = 'whip.web.sidebar.v1';

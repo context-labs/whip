@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // DefinitionSource reads registered definitions. *session.Store implements it;

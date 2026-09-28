@@ -7,9 +7,9 @@ import (
 	"sync"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
 )
 

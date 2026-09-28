@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func (s *Session) QueryClient(ctx context.Context, operation string, payload json.RawMessage) (string, error) {

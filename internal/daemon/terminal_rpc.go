@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/terminal"
 	"github.com/context-labs/whip/internal/tools/bashrun"
 )

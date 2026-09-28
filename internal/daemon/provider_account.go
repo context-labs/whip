@@ -7,10 +7,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 type (

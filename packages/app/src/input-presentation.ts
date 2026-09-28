@@ -1,5 +1,5 @@
 import type { DeepReadonly } from '@whip/sdk/state';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import type { CommandOutcome } from '@whip/sdk';
 
 export interface SubmittedInput {

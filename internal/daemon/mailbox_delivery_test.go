@@ -13,8 +13,8 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 

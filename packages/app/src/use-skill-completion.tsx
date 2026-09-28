@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { HostSkillCompletionParams } from '@whip/protocol';
+import type { HostSkillCompletionParams } from '@whip/legacy-protocol';
 import { Button, useTextareaSuggestions } from '@whip/ui';
 import { ErrorNotice } from './error-feedback';
 import { insertSkill, skillTrigger, type SkillTrigger } from './skill-completion';

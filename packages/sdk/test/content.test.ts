@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import type { ContentHandle } from '@whip/protocol';
+import type { ContentHandle } from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import { ContentReference } from '../src/content.js';
 import { decodeBase64, encodeBase64 } from '../src/util.js';

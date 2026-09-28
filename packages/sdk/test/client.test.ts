@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { manifest, type InitializeResult } from '@whip/protocol';
+import { manifest, type InitializeResult } from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import type { Transport, TransportFactory, TransportHandlers } from '../src/transport.js';
 

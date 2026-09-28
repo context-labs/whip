@@ -6,7 +6,7 @@ import (
 
 	bubbletea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func TestMCPPermissionShowsArgumentsBeyondFirstLine(t *testing.T) {
