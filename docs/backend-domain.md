@@ -196,8 +196,8 @@ runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
 
-The new runtime implements the OpenAI-compatible Chat Completions and API
-Responses adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
+The new runtime implements the OpenAI-compatible Chat Completions, API Responses
+and ChatGPT subscription adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
 not a hardcoded commercial model or credentials. The remaining provider families
 and product integrations are still being ported.
 
@@ -236,7 +236,40 @@ sizes are checked before loading blobs. Private bytes count toward ordinary requ
 limits, so excess follows normal compaction. Compaction helpers receive only the
 canonical visible history and discard their own continuation. Public history,
 search, attempts, operations, RPC and guest context reads never include opaque
-provider state. Subscription authentication is a separate pending port.
+provider state.
+
+Host routes may also select `openai-codex`. That host declaration requires empty
+`base_url` and `credential_env`: the subscription adapter owns its fixed endpoint,
+and the host's independent `openaiauth.Manager` owns account credentials. The
+command constructs one manager, resolves credentials lazily at preparation, and
+joins its refresh work after runtime shutdown. API and scripted routes do not
+read subscription credentials. No credential enters a session, request snapshot,
+operation result or public history.
+
+An unspecified output cap resolves to the pinned model-specific natural ceiling
+before generic host defaults. The subscription endpoint has no wire output cap;
+unknown model ceilings and explicitly smaller caps fail before credential
+capture. Context bounds remain explicit host declarations. Missing prices stay
+unknown rather than becoming free or borrowing an API rate; finite budgets
+refuse requests whose exposure cannot be bounded.
+
+Captures contain account credentials and login generation. Logout or any login
+installation invalidates prepared work; token rotation within a login does not.
+The runner rechecks after reservation, then the adapter checks again before HTTP.
+These checks are not an atomic transaction with the network. Before ledger
+dispatch, refusal releases the unused reservation. After ledger dispatch it
+retains conservative failed/unknown evidence while sending no HTTP request.
+A completed 401 must settle before one refresh can produce another separately
+reserved attempt. Request body, model, route, prices and digest remain frozen;
+uncertainty, settlement failure or a second rejection cannot trigger another
+refresh. Redirects are refused, and recognized hard quota errors are permanent.
+
+Subscription private continuation binds to fixed route, account and model,
+surviving token rotation and restart for newly authorized requests. A different
+account/model uses visible transcript reconstruction. Helpers receive no opaque
+state. Public login/status/logout, device-flow onboarding and account catalogs
+remain client-adoption work; this adapter is not a live-provider availability
+verification.
 
 ## Verification and remaining scope
 

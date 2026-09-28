@@ -785,8 +785,11 @@ after accounting settles. Indivisible oversized exchanges still fail explicitly.
 and derived session cache keys. API Responses now uses the same recorded-attempt
 path and stores bounded private continuation with immutable assistant messages.
 Replay requires the same route, credential, model and visible message parts;
-helpers and public history never receive opaque continuation. Subscription execution,
-stateless model helpers and captured sampling remain required. Legacy uncertain
+helpers and public history never receive opaque continuation. Subscription model
+execution and host-owned credential lifecycle now use the same recorded attempts,
+with fixed routing, generation checks and one settled 401 refresh. Public account
+onboarding remains Phase 6 work. Stateless model helpers and captured sampling
+remain required. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.
 This progress does not narrow Phases 5–7.
