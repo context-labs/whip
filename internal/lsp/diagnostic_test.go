@@ -69,14 +69,14 @@ func TestReportSiblings(t *testing.T) {
 		edited:    editedDiags,
 		"/w/b.go": {{Severity: SeverityWarning, Message: "warn only"}},
 	}
-	if got := Report(edited, editedDiags, sib); strings.Contains(got, "introduced errors") {
+	if got := Report(edited, editedDiags, sib); strings.Contains(got, "cached errors") {
 		t.Errorf("warning-only sibling must not be reported: %q", got)
 	}
 
 	// One erroring sibling: singular wording, block included.
 	sib["/w/b.go"] = []Diagnostic{{Line: 2, Col: 3, Severity: SeverityError, Message: "b broke"}}
 	got = Report(edited, editedDiags, sib)
-	if !strings.Contains(got, `<diagnostics file="/w/b.go">`) || !strings.Contains(got, "errors in file; fix them too") {
+	if !strings.Contains(got, `<diagnostics file="/w/b.go">`) || !strings.Contains(got, "errors in another file") {
 		t.Errorf("single sibling: %q", got)
 	}
 
@@ -85,7 +85,7 @@ func TestReportSiblings(t *testing.T) {
 		sib[p] = []Diagnostic{{Line: 1, Col: 1, Severity: SeverityError, Message: "broke " + p}}
 	}
 	got = Report(edited, editedDiags, sib)
-	if !strings.Contains(got, "introduced errors in 6 other files, 5 shown") {
+	if !strings.Contains(got, "cached errors in 6 other files, 5 shown") {
 		t.Errorf("overflow wording: %q", got)
 	}
 	if n := strings.Count(got, "<diagnostics file="); n != maxSiblingFiles+1 {

@@ -12,6 +12,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
+)
+
+const (
+	maxFrameBytes  = 1 << 20
+	maxHeaderBytes = 8 << 10
 )
 
 // This file is the LSP/JSON-RPC wire layer: Content-Length framed messages
@@ -49,12 +55,15 @@ type diagHandler func(uri string, version int, diags []Diagnostic)
 // write locks. Shutdown is a close-to-broadcast on `dead`, which resolves
 // every pending request with an error.
 type client struct {
-	stdin  io.Writer
-	out    chan []byte // frames to write; pump owns stdin
-	pend   sync.Map    // id (string form) -> chan rpcResponse, capacity 1
-	nextID atomic.Int64
-	dead   chan struct{} // closed once when the connection dies/closes
-	onDiag diagHandler
+	stdin     io.Writer
+	out       chan []byte // frames to write; pump owns stdin
+	pend      sync.Map    // id (string form) -> chan rpcResponse, capacity 1
+	nextID    atomic.Int64
+	dead      chan struct{} // closed once when the connection dies/closes
+	closeOnce sync.Once
+	workers   sync.WaitGroup
+	stdout    io.Reader
+	onDiag    diagHandler
 }
 
 type rpcResponse struct {
@@ -65,24 +74,31 @@ type rpcResponse struct {
 func newClient(stdin io.Writer, stdout io.Reader, onDiag diagHandler) *client {
 	c := &client{
 		stdin:  stdin,
-		out:    make(chan []byte, 64),
+		out:    make(chan []byte, 8),
 		dead:   make(chan struct{}),
 		onDiag: onDiag,
+		stdout: stdout,
 	}
-	go c.readLoop(stdout)
-	go c.writeLoop()
+	c.workers.Go(func() { c.readLoop(stdout) })
+	c.workers.Go(c.writeLoop)
 	return c
 }
 
 // shutdown stops the write pump. The read loop exits on stdout EOF (process
 // death); both broadcast on `dead`.
 func (c *client) shutdown() {
-	select {
-	case <-c.dead:
-	default:
+	c.closeOnce.Do(func() {
 		close(c.dead)
-	}
+		if stream, ok := c.stdin.(io.Closer); ok {
+			_ = stream.Close()
+		}
+		if stream, ok := c.stdout.(io.Closer); ok {
+			_ = stream.Close()
+		}
+	})
 }
+
+func (c *client) wait() { c.workers.Wait() }
 
 // isDead reports whether the connection has been torn down.
 func (c *client) isDead() bool {
@@ -141,8 +157,8 @@ func (c *client) readLoop(r io.Reader) {
 				} `json:"diagnostics"`
 			}
 			if err := json.Unmarshal(msg.Params, &p); err == nil && c.onDiag != nil {
-				diags := make([]Diagnostic, len(p.Diagnostics))
-				for i, d := range p.Diagnostics {
+				diags := make([]Diagnostic, min(len(p.Diagnostics), maxPerFile+1))
+				for i, d := range p.Diagnostics[:len(diags)] {
 					diags[i] = Diagnostic{
 						Line:     d.Range.Start.Line + 1,
 						Col:      d.Range.Start.Character + 1,
@@ -171,18 +187,23 @@ func (c *client) readLoop(r io.Reader) {
 // readFrame reads one Content-Length framed message body.
 func readFrame(br *bufio.Reader) ([]byte, error) {
 	length := -1
+	headers := 0
 	for {
-		line, err := br.ReadString('\n')
+		raw, err := br.ReadSlice('\n')
 		if err != nil {
 			return nil, err
 		}
-		line = strings.TrimRight(line, "\r\n")
+		headers += len(raw)
+		if headers > maxHeaderBytes {
+			return nil, errors.New("language server headers exceed 8 KiB")
+		}
+		line := strings.TrimRight(string(raw), "\r\n")
 		if line == "" {
 			break // end of headers
 		}
 		if v, ok := strings.CutPrefix(line, "Content-Length: "); ok {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n < 0 {
+			if err != nil || n < 0 || n > maxFrameBytes || length >= 0 {
 				return nil, fmt.Errorf("bad Content-Length %q", v)
 			}
 			length = n
@@ -206,20 +227,47 @@ const writeTimeout = 5 * time.Second
 // send enqueues one framed message. The writer pump owns stdin; if the
 // buffer stays full past writeTimeout the server is wedged and the client is
 // torn down — callers never block past that.
-func (c *client) send(msg rpcMessage) {
+func (c *client) send(msg rpcMessage) { _ = c.sendContext(context.Background(), msg) }
+
+func (c *client) sendContext(ctx context.Context, msg rpcMessage) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	msg.JSONRPC = "2.0"
 	body, err := json.Marshal(msg)
 	if err != nil {
-		return
+		return err
+	}
+	if len(body) > maxFrameBytes {
+		return errors.New("language server frame exceeds 1 MiB")
 	}
 	frame := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
 	payload := append([]byte(frame), body...)
+	timer := time.NewTimer(writeTimeout)
+	defer timer.Stop()
 	select {
 	case c.out <- payload:
+		return nil
 	case <-c.dead:
-	case <-time.After(writeTimeout):
+		return errors.New("language server connection closed")
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		c.shutdown()
+		return errors.New("language server write timed out")
 	}
+}
+
+func diagnosticText(text string) string {
+	text = strings.ToValidUTF8(text, "�")
+	if len(text) <= maxMsgLen {
+		return text
+	}
+	text = text[:maxMsgLen]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text + "…"
 }
 
 // request issues a JSON-RPC request and waits for the response, bounded by
@@ -241,7 +289,9 @@ func (c *client) request(ctx context.Context, method string, params, result any)
 		return errors.New("lsp server connection closed")
 	default:
 	}
-	c.send(rpcMessage{ID: idRaw, Method: method, Params: paramsRaw})
+	if err := c.sendContext(ctx, rpcMessage{ID: idRaw, Method: method, Params: paramsRaw}); err != nil {
+		return err
+	}
 
 	select {
 	case res := <-ch:
@@ -261,9 +311,13 @@ func (c *client) request(ctx context.Context, method string, params, result any)
 
 // notify sends a notification (no response expected).
 func (c *client) notify(method string, params any) {
+	_ = c.notifyContext(context.Background(), method, params)
+}
+
+func (c *client) notifyContext(ctx context.Context, method string, params any) error {
 	paramsRaw, err := json.Marshal(params)
 	if err != nil {
-		return
+		return err
 	}
-	c.send(rpcMessage{Method: method, Params: paramsRaw})
+	return c.sendContext(ctx, rpcMessage{Method: method, Params: paramsRaw})
 }
