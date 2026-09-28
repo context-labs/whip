@@ -15,7 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 const coding: Definition = {
   id: 'coding',
   instructions: { persona: 'You are a coding agent.', rules: 'Rules.', project_files: ['CLAUDE.md'], skill_discovery: true, standing_instructions: true },
-  modules: ['context', 'files', 'shell', 'agents', 'user'], capabilities: ['read', 'write', 'shell', 'mcp'],
+  modules: ['context', 'files', 'shell', 'browser', 'computer', 'models', 'agents', 'messages', 'mcp', 'state', 'artifacts', 'schedules', 'permissions', 'user'], capabilities: ['read', 'write', 'shell', 'browser', 'computer', 'mcp'],
   model: { model: '', provider: '', effort: '' }, compaction: { model: '', provider: '', threshold: 0 }, mcp: { servers: null },
   tools: null, output: null, children: {}, surface: { auto_title: true, goal_loop: true }, hooks: null,
 };
@@ -41,13 +41,20 @@ it('lists built-in and registered agents and registers a new data-only definitio
   const f = fixture(); f.render();
   const rows = await screen.findAllByRole('listitem', {}, { timeout: 3000 });
   expect(rows.map(row => row.textContent)).toEqual([expect.stringContaining('codingBuilt in'), expect.stringContaining('support-triageRegistered by app · revision bbbbbbbbbbbb')]);
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
+  await screen.findByRole('dialog', { name: 'New agent' });
+  await waitFor(() => expect(globalThis.document.activeElement).toBe(screen.getByLabelText('Agent Name')));
   const modules = await screen.findByRole('group', { name: 'Host modules' }, { timeout: 3000 });
   await within(modules).findByRole('checkbox', { name: 'shell' }, { timeout: 3000 });
   const capabilities = screen.getByRole('group', { name: 'Capabilities' });
-  fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'release-notes' } });
+  fireEvent.change(screen.getByLabelText('Agent Name'), { target: { value: 'release-notes' } });
   fireEvent.change(screen.getByLabelText('Persona'), { target: { value: 'You write release notes.' } });
   fireEvent.change(screen.getByLabelText('Rules'), { target: { value: 'Operating rules:\n- Cite commits.' } });
+  expect(screen.queryByLabelText('Project files')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'More options' }));
   fireEvent.change(screen.getByLabelText('Project files'), { target: { value: 'CHANGELOG.md, docs/releases.md' } });
+  fireEvent.click(screen.getByRole('switch', { name: 'Goal loop' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More options' }));
   fireEvent.click(within(modules).getByRole('checkbox', { name: 'context' }));
   fireEvent.click(within(modules).getByRole('checkbox', { name: 'files' }));
   fireEvent.click(within(capabilities).getByRole('checkbox', { name: 'read' }));
@@ -61,20 +68,26 @@ it('lists built-in and registered agents and registers a new data-only definitio
   expect(document.capabilities).toEqual(['read']);
   expect(document.tools).toBeNull();
   expect(document.hooks).toBeNull();
-  expect(document.surface).toEqual({ auto_title: true, goal_loop: false });
+  expect(document.surface).toEqual({ auto_title: true, goal_loop: true });
   await waitFor(() => expect(f.list).toHaveBeenCalledTimes(2));
+  // The modal dialog hides the background list; close it before reading the refreshed rows.
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await waitFor(() => expect(within(screen.getByRole('list', { name: 'Agent definitions' })).getAllByRole('listitem')).toHaveLength(3));
 });
 
 it('validates locally before registering and shows the daemon rejection otherwise', async () => {
   const f = fixture(); f.render();
+  fireEvent.click(await screen.findByRole('button', { name: 'New agent' }));
+  await screen.findByRole('dialog', { name: 'New agent' });
+  await waitFor(() => expect(globalThis.document.activeElement).toBe(screen.getByLabelText('Agent Name')));
   const modules = await screen.findByRole('group', { name: 'Host modules' }, { timeout: 3000 });
   await within(modules).findByRole('checkbox', { name: 'shell' }, { timeout: 3000 });
-  fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'Bad Id' } });
+  fireEvent.change(screen.getByLabelText('Agent Name'), { target: { value: 'Bad Id' } });
   fireEvent.click(within(modules).getByRole('checkbox', { name: 'context' }));
   fireEvent.click(screen.getByRole('button', { name: 'Register agent' }));
-  expect(await screen.findByText(/Use a lowercase id/)).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'coding' } });
+  expect(await screen.findByText(/Use a lowercase name/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Agent Name'), { target: { value: 'coding' } });
   fireEvent.click(screen.getByRole('button', { name: 'Register agent' }));
   expect(await screen.findByText(/reserved for a built-in definition/)).toBeTruthy();
   expect(f.register).toHaveBeenCalledOnce();
@@ -84,16 +97,21 @@ it('opens a registered agent for editing and copies a built-in under a new id', 
   const f = fixture(); f.render();
   const rows = await screen.findAllByRole('listitem', {}, { timeout: 3000 });
   fireEvent.click(within(rows[1]).getByRole('button', { name: 'Edit' }));
-  await screen.findByRole('heading', { name: 'Edit support-triage' });
-  expect((screen.getByLabelText('Agent id') as HTMLInputElement).value).toBe('support-triage');
+  await screen.findByRole('dialog', { name: 'Edit support-triage' });
+  expect((screen.getByLabelText('Agent Name') as HTMLInputElement).value).toBe('support-triage');
+  await waitFor(() => expect(globalThis.document.activeElement).toBe(screen.getByLabelText('Agent Name')));
   expect((screen.getByLabelText('Persona') as HTMLTextAreaElement).value).toBe('You triage tickets.');
   const modules = await screen.findByRole('group', { name: 'Host modules' }, { timeout: 3000 });
   await within(modules).findByRole('checkbox', { name: 'shell' }, { timeout: 3000 });
   expect(within(modules).getByRole('checkbox', { name: 'files' }).getAttribute('aria-checked')).toBe('true');
   expect(within(modules).getByRole('checkbox', { name: 'shell' }).getAttribute('aria-checked')).toBe('false');
+  // Close the edit dialog before opening a copy from the list; the modal hides the background rows.
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   fireEvent.click(within(rows[0]).getByRole('button', { name: 'Copy to new agent' }));
-  await screen.findByRole('heading', { name: 'Edit coding-custom' });
-  expect((screen.getByLabelText('Agent id') as HTMLInputElement).value).toBe('coding-custom');
+  await screen.findByRole('dialog', { name: 'Edit coding-custom' });
+  expect((screen.getByLabelText('Agent Name') as HTMLInputElement).value).toBe('coding-custom');
+  await waitFor(() => expect(globalThis.document.activeElement).toBe(screen.getByLabelText('Agent Name')));
   expect(f.get).toHaveBeenCalledWith('support-triage', 'b'.repeat(64));
   expect(f.get).toHaveBeenCalledWith('coding', undefined);
 });

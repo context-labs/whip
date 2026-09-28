@@ -11,7 +11,12 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-const provisionalTitleRunes = 64
+// Titles stay bounded so sidebar rows and tooltips stay readable, but long
+// enough that action labels ("Archive <title>", "Actions for <title>") keep
+// their meaning instead of clipping to an ellipsis at sentence length. The cap
+// matches the catalog query's 128-rune substr budget (catalog_page.go), so a
+// stored title never gets cut a second time on the way to the UI.
+const provisionalTitleRunes = 128
 
 // TitleInitialization is returned only by the admission that committed the
 // initial title. Prompt contains authored text, never expanded attachments.

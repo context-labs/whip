@@ -376,10 +376,11 @@ configuration. A configured route alone does not mean an account is connected.
 Sign-in preserves current model defaults. Select an advertised subscription
 model explicitly, for example `/model gpt-5.5 openai-codex`. The new-session
 and conversation model menus include discovered models and identify the provider
-for each choice, including when API and subscription routes share a model name. To use the
-subscription for titles and compaction as well, select it under Settings →
-Agents & execution → Context compaction. Existing compaction settings still
-apply independently to every conversation.
+for each choice, including when API and subscription routes share a model name.
+Automatic compaction and titles follow the conversation's subscription route.
+Existing saved custom compaction routes remain separate overrides; reset Summary
+model to Automatic under Settings → Agents & execution → Context compaction to
+follow the conversation again.
 
 The adapter uses streamed Responses with `store:false`. Text, images on
 advertised vision models, reasoning summaries, and `rlm_exec` tool round trips
@@ -498,11 +499,36 @@ a charge or the route is known to be free.
 
 ## Compaction model
 
-Compaction summarizes with a separate, cheaper model:
-`compactModel`/`compactProvider` in config, defaulting to
-`deepseek-v4-flash-0731` (`config.DefaultCompactModel`), falling back to the
-conversation's own model. `/compact <model> [provider]` picks the summarizer
-by hand. Mechanics: [agent-loop.md](agent-loop.md#compaction).
+Compaction is **Automatic** by default: each agent summarizes older active
+context using its own conversation model and provider. It needs no additional
+provider connection and does not delete the raw transcript. Automatic session
+titles use the same route selection.
+
+An empty or omitted `compactModel` selects Automatic; `compactProvider` is then
+ignored. Existing explicitly saved models, including the former DeepSeek default,
+remain custom overrides. In Settings → Agents & execution, use **Advanced
+compaction settings** to select a custom model/provider together from the existing
+catalog picker, or reset to Automatic. Settings saves are revision-checked and
+apply when a runtime is created or reloaded; the session inspector can apply the
+host defaults and reload its idle session. `/compact <model> [provider]` also
+selects a custom summarizer.
+
+`compactPct: 0` (or omitted) means Automatic, currently **50%** of the conversation
+model's context window. Custom thresholds accept integers from **10–90%**. This
+controls when to summarize, not a compression ratio. Older saved out-of-range
+values remain loadable and use their existing clamped effective threshold; new
+edits must use the supported range. Provider-reported prompt usage drives the
+trigger, with an estimate when usage is unavailable. If the context window is
+unknown, only reactive context-limit recovery applies.
+
+A custom route that cannot be resolved falls back to the conversation route.
+Compaction also checks a custom route's known context capacity before sending the
+summary. Runtime fallback is bounded and only follows a definite safe rejection,
+not uncertain completion, partial output, cancellation, or accounting/budget
+failure. Both attempted routes retain normal accounting. A notice explains a
+fallback, and the successful summary's trace records the actual model/provider
+and fallback reason. Automatic never selects another vendor or ranks models by
+price. Mechanics: [agent-loop.md](agent-loop.md#context-focusing).
 
 ## Read next
 

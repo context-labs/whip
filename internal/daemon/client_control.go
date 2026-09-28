@@ -296,11 +296,14 @@ func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error)
 	end := r.beginCommandTrace(ctx, "compact", "history.compact", "/compact")
 	summary, cutoff, info, err := r.agent.CompactNow(ctx)
 	rawCutoff := agent.RawCompactionCutoff(before, cutoff)
+	if info.Fallback != "" && r.emit != nil {
+		r.emit("stream.notice", StreamEvent{Text: info.Fallback})
+	}
 	if err == nil || llm.IsCompletedAccountingError(err) {
 		r.mu.Lock()
 		callID := r.turn.LastModelCallID
 		r.mu.Unlock()
-		r.recordCompactionOutput(ctx, callID, summary, rawCutoff)
+		r.recordCompactionOutput(ctx, callID, summary, rawCutoff, info.Fallback)
 	}
 	end(summary, err)
 	return clientCompaction{
@@ -489,13 +492,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 			var err error
 			if operation == "compaction.configure" {
 				cfg, _, patchErr := config.UpdateVersioned("", func(cfg *config.Config) error {
-					cfg.CompactModel, cfg.CompactProvider = action.Model, action.Provider
-					if action.Model == "" {
-						cfg.CompactProvider = ""
-						return nil
-					}
-					_, _, _, err := cfg.Resolve(cfg.CompactModel, cfg.CompactProvider)
-					return err
+					return s.providers.configureCompaction(cfg, action.Model, action.Provider)
 				})
 				err = patchErr
 				if err == nil {

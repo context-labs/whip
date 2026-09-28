@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } fro
 import { Link } from '@tanstack/react-router';
 import { useQueries } from '@tanstack/react-query';
 import type { SessionCatalogPage } from '@whip/protocol';
-import { Button, ContextMenu, Dialog, IconButton, Input, Menu, Select, type DialogProps } from '@whip/ui';
+import { Button, ContextMenu, Dialog, IconButton, Input, Menu, type DialogProps } from '@whip/ui';
 import { Code2, CornerDownLeft, MoreHorizontal, Search } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
@@ -24,7 +24,6 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
   const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const { hosts } = useAppState();
   useSessionTabs();
-  const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
   const [cursors, setCursors] = useState<Record<string, SessionCatalogPage['next_cursor']>>({});
@@ -32,7 +31,8 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const resultId = useId();
-  const visibleHosts = useMemo(() => hosts.filter(host => !filter || host.id === filter), [hosts, filter]);
+  // ponytail: search always spans every host; no host filter.
+  const visibleHosts = hosts;
   // Observe catalog revisions to refresh search without a second list poller.
   const catalogs = useMemo(() => {
     let snapshot = visibleHosts.map(host => host.list?.getSnapshot());
@@ -111,8 +111,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
             event.preventDefault(); results.current?.querySelector<HTMLAnchorElement>(`[data-search-index="${current}"] a`)?.click();
           }
         }} />
-    </div>{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
-      onValueChange={value => { setFilter(value); setSelected(undefined); }} />}</div>}>
+    </div></div>}>
     <div ref={results} id={resultId} {...stylex.props(styles.results)} aria-label="Session search results" aria-busy={loading}>
       {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
       {groups.map(group => {
@@ -150,7 +149,6 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
           {cursors[runtimeId] && <Button variant="ghost" onClick={() => cursor(runtimeId, undefined)}>First results{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
         </section>;
       })}
-      {!groups.length && <p role="status" {...stylex.props(styles.notice)}>No hosts selected.</p>}
     </div>
     <span role="status" {...stylex.props(layout.srOnly)}>{active ? `${active.session.title || 'Untitled session'} on ${active.host.name}, result ${current + 1} of ${items.length}` : ''}</span>
   </Dialog>;

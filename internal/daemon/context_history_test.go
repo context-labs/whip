@@ -268,6 +268,11 @@ func TestCurrentTurnHistorySurvivesCompactionAndCommitsOnce(t *testing.T) {
 	if len(rows.Messages) != 4 || rows.Messages[0].Message.Content != original {
 		t.Fatalf("journal rows=%d", len(rows.Messages))
 	}
+	for _, row := range rows.Messages {
+		if row.Message.Role == "assistant" && (row.Message.SentAt == nil || row.Message.SentAt.IsZero()) {
+			t.Fatalf("root journal lost assistant recording timestamp: %+v", row)
+		}
+	}
 	// A fork reads the same original from its own durable source after reopen.
 	fork, err := store.Fork(root.ID(), rows.ThroughSeq, "fork")
 	if err != nil {

@@ -29,10 +29,19 @@ the complete history or oversized input. `context.inspect/search/read` lets a
 cell retrieve only relevant spans. This keeps large corpora out of every model
 request without making them inaccessible.
 
-Proactive compaction runs when estimated context crosses the configured
-fraction of the model window. A provider context-limit error may trigger one
-reactive compaction and retry. Compaction summaries and raw-history cutoffs
-are committed with the root turn.
+Proactive compaction runs when the provider-reported prompt usage (or a token
+estimate when usage is unavailable) crosses the configured fraction of the
+conversation model's window. Automatic uses 50%; custom host thresholds accept
+10–90%. A provider context-limit error may trigger one reactive compaction and
+retry. Compaction summaries and raw-history cutoffs are committed with the turn.
+
+The default summarizer is the agent's own conversation model/provider, including
+children with a different model. A custom host or definition route may override
+it. A missing custom route or insufficient known context capacity falls back to
+the conversation route; a definite safe provider rejection can also trigger one
+fallback. Uncertain completion, partial output, cancellation, and accounting or
+budget failures never trigger a second route. Notices and the summary's trace
+make fallback visible. See [compaction settings](models-providers.md#compaction-model).
 
 A single provider call failing does not fail the turn. A stream that sends
 nothing for the stall timeout (120 s on OpenAI-compatible chat streams, 300 s

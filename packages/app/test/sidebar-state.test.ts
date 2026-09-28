@@ -1,7 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { emptySidebarState, newSessionSearch, readSidebarState, setDirectoryCollapsed, sidebarMaxWidth, sidebarRows, sidebarWidth } from '../src/sidebar-state';
+import { emptySidebarState, newSessionSearch, readSidebarState, setDirectoryCollapsed, sidebarMaxWidth, sidebarRows, sidebarWidth, mixedSidebarRows, sidebarRowKey } from '../src/sidebar-state';
 
 const session = (id: string, cwd: string, pinned = false) => ({ id, cwd, pinned, title: id, kind: 'root', model: '', provider: '', updated_at: '', truncated: false });
+describe('mixed directory projection', () => {
+  const updated = (id: string, cwd: string, date: string, pinned = false) => ({ ...session(id, cwd, pinned), updated_at: date });
+  it('orders by the newest loaded update, without letting pins reorder directories or session rows', () => {
+    const hosts = [
+      { runtimeId: 'local', items: [updated('pin', '/older', '2026-01-01', true), updated('new', '/repo', '2026-03-01'), updated('old', '/repo', '2026-01-01')] },
+      { runtimeId: 'remote', items: [updated('r', '/repo', '2026-02-01')] },
+    ];
+    const rows = mixedSidebarRows(hosts);
+    expect(rows.filter(row => row.kind === 'directory').map(row => [row.runtimeId, row.cwd])).toEqual([['local', '/repo'], ['remote', '/repo'], ['local', '/older']]);
+    expect(rows.filter(row => row.kind === 'session').map(row => row.session.id)).toEqual(['new', 'old', 'r', 'pin']);
+    expect(mixedSidebarRows([...hosts].reverse())).toEqual(rows);
+  });
+  it('scopes collisions, collapse and expansion to exact runtime/path tuples', () => {
+    const items = Array.from({ length: 15 }, (_, index) => updated(String(index), '/repo', '2026-01-01', index === 0));
+    const rows = mixedSidebarRows([{ runtimeId: 'a', items, collapsed: ['/repo'] }, { runtimeId: 'b', items, limits: new Map([['/repo', 14]]) }]);
+    expect(rows.filter(row => row.kind === 'session')).toHaveLength(14);
+    expect(rows.filter(row => row.kind === 'directory')).toHaveLength(2);
+    expect(new Set(rows.map(row => row.key)).size).toBe(rows.length);
+    expect(sidebarRowKey('directory', 'a:b', 'c')).not.toBe(sidebarRowKey('directory', 'a', 'b:c'));
+    expect(rows.find(row => row.kind === 'more')).toMatchObject({ runtimeId: 'b', visibleCount: 14, expanded: false });
+  });
+  it('breaks ties deterministically, leaves invalid timestamps last and retains path disambiguation', () => {
+    const hosts = [{ runtimeId: 'z', items: [updated('1', '', 'bad'), updated('2', '/repo/main', '2026-01-01'), updated('3', '/worktrees/main', '')] },
+      { runtimeId: 'a', items: [updated('1', '/repo/main', '2026-01-01')] }];
+    const rows = mixedSidebarRows(hosts).filter(row => row.kind === 'directory');
+    expect(rows.slice(0, 2).map(row => row.runtimeId)).toEqual(['a', 'z']);
+    expect(rows.map(row => row.label)).toEqual(['main', 'main · repo', 'Other sessions', 'main · worktrees']);
+    expect(mixedSidebarRows(hosts)).toEqual(mixedSidebarRows([...hosts].reverse()));
+  });
+});
+
 describe('directory navigation projection', () => {
   it('groups exact directories in catalog order without merging worktrees or resolving paths', () => {
     const items = [session('pinned', '/repo/main', true), session('recent', '/worktrees/main'), session('older', '/repo/main'), session('unknown', ''), session('relative', './repo/main')];

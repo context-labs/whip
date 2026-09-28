@@ -237,8 +237,11 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			enabled := *p.BrandIcons
 			c.BrandIcons = &enabled
 		}
-		if p.CompactPercent != nil && (*p.CompactPercent < 0 || *p.CompactPercent > 100) {
-			return errors.New("invalid compaction percentage")
+		if p.CompactPercent != nil && *p.CompactPercent != c.CompactPct {
+			percent := *p.CompactPercent
+			if percent != 0 && (percent < 10 || percent > 90) {
+				return errors.New("compaction percentage must be 0 (automatic) or between 10 and 90")
+			}
 		}
 		if p.GoalMaxRounds != nil && *p.GoalMaxRounds < 0 {
 			return errors.New("invalid goal round limit")
@@ -268,11 +271,17 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			}
 			c.DefaultPermissionMode = mode
 		}
-		if p.CompactModel != nil {
-			c.CompactModel = *p.CompactModel
-		}
-		if p.CompactProvider != nil {
-			c.CompactProvider = *p.CompactProvider
+		if p.CompactModel != nil || p.CompactProvider != nil {
+			model, provider := c.CompactModel, c.CompactProvider
+			if p.CompactModel != nil {
+				model = *p.CompactModel
+			}
+			if p.CompactProvider != nil {
+				provider = *p.CompactProvider
+			}
+			if err := s.configureCompaction(c, model, provider); err != nil {
+				return err
+			}
 		}
 		if p.CompactPercent != nil {
 			c.CompactPct = *p.CompactPercent
@@ -310,6 +319,24 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		}
 	}
 	return runtimeConfiguration(c, revision), nil
+}
+
+// configureCompaction validates new custom selections without revalidating an
+// unchanged saved override when a settings form resends it.
+func (s *ProviderService) configureCompaction(c *config.Config, model, provider string) error {
+	if model == "" {
+		c.CompactModel, c.CompactProvider = "", ""
+		return nil
+	}
+	if model == c.CompactModel && provider == c.CompactProvider {
+		return nil
+	}
+	selection := s.providerSelection(c, s.CatalogsFor(c), model, provider)
+	if !selection.Ready {
+		return errors.New("select a compaction model available on a connected provider")
+	}
+	c.CompactModel, c.CompactProvider = selection.Model, selection.Provider
+	return nil
 }
 
 func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup) (RuntimeConfiguration, error) {

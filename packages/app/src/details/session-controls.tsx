@@ -6,6 +6,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
+import { CompactionSettings, compactionError, compactionPatch, type CompactionValues } from '../compaction-settings';
 import { describeRule, splitGlobalRule } from '../permission-scope';
 import {
   Action,
@@ -390,15 +391,18 @@ export function Compaction(props: InspectorProps) {
     enabled: props.connected,
     gcTime: 0,
   });
-  const [draft, setDraft] = useState<{ revision: string; model: string; provider: string }>();
-  const model = draft?.model ?? configuration.data?.compact_model ?? '';
-  const provider = draft?.provider ?? configuration.data?.compact_provider ?? '';
-  const edit = (field: 'model' | 'provider', value: string) => {
+  const [draft, setDraft] = useState<{ revision: string; base: CompactionValues; value: CompactionValues }>();
+  const [applying, setApplying] = useState(false);
+  const defaults: CompactionValues = {
+    compact_model: configuration.data?.compact_model ?? '',
+    compact_provider: configuration.data?.compact_provider ?? '',
+    compact_percent: configuration.data?.compact_percent ?? 0,
+  };
+  const value = draft?.value ?? defaults;
+  const base = draft?.base ?? defaults;
+  const edit = (next: CompactionValues) => {
     if (!configuration.data) return;
-    setDraft({
-      ...(draft ?? { revision: configuration.data.revision, model, provider }),
-      [field]: value,
-    });
+    setDraft({ revision: draft?.revision ?? configuration.data.revision, base, value: next });
   };
   const [offset, setOffset] = useState(0);
   const idle = !Object.keys(props.root.active_turns ?? {}).length;
@@ -407,7 +411,7 @@ export function Compaction(props: InspectorProps) {
     <>
       <Section
         title="Compaction"
-        description="Compaction reduces model context while retaining raw transcript history. It does not undo files."
+        description="These are shared host defaults, not a live session override. Applying them saves the host settings and reloads this session only while it is idle."
       >
         <Action
           disabled={!props.connected || !idle}
@@ -415,37 +419,25 @@ export function Compaction(props: InspectorProps) {
         >
           Compact now
         </Action>
-        <Field
-          label="Compaction model"
-          description="Blank restores WHIP’s built-in compaction model. This updates shared host defaults and reloads this idle session."
-        >
-          <Input
-            value={model}
-            disabled={!configuration.data}
-            onChange={(event) => edit('model', event.target.value)}
-          />
-        </Field>
-        <Field label="Compaction provider">
-          <Input
-            value={provider}
-            disabled={!configuration.data}
-            onChange={(event) => edit('provider', event.target.value)}
-          />
-        </Field>
+        {(configuration.data || draft) && <CompactionSettings client={props.view.session.client} value={value} base={base}
+          disabled={!props.connected || applying} onChange={edit} />}
         <Action
-          disabled={!props.connected || !idle || !configuration.data}
+          disabled={!props.connected || !idle || !configuration.data || applying || !!compactionError(value, base)}
           run={async () => {
-            await props.view.session.client.configuration.update({
-              revision: draft?.revision ?? configuration.data!.revision,
-              compact_model: model,
-              compact_provider: model ? provider : '',
-            });
-            await runtime.run(
-              props.view.session.command('session.reload', {}),
-              'Reload compaction settings',
-            );
-            setDraft(undefined);
-            await configuration.refetch();
+            setApplying(true);
+            try {
+              await props.view.session.client.configuration.update({
+                revision: draft?.revision ?? configuration.data!.revision,
+                ...compactionPatch(value, base),
+              });
+              await runtime.run(
+                props.view.session.command('session.reload', {}),
+                'Reload compaction settings',
+              );
+              setDraft(undefined);
+              await configuration.refetch();
+              void runtime.queries.invalidateQueries({ queryKey: ['runtime-configuration', props.view.session.client.getSnapshot().info?.runtime_id] });
+            } finally { setApplying(false); }
           }}
         >
           Apply compaction defaults
@@ -459,7 +451,7 @@ export function Compaction(props: InspectorProps) {
         )}
         <Button
           variant="ghost"
-          disabled={!props.connected}
+          disabled={!props.connected || applying}
           onClick={() => {
             setDraft(undefined);
             void configuration.refetch();

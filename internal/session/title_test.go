@@ -11,7 +11,7 @@ import (
 )
 
 func TestProvisionalTitle(t *testing.T) {
-	long := strings.Repeat("界", 65)
+	long := strings.Repeat("界", provisionalTitleRunes+1)
 	tests := []struct {
 		name     string
 		messages []llm.Message
@@ -22,8 +22,8 @@ func TestProvisionalTitle(t *testing.T) {
 			{Role: "user", Content: "injected"},
 			{Role: "user", Content: "  authored\n title  ", Authored: true},
 		}, want: "authored title"},
-		{name: "exact boundary", messages: []llm.Message{{Role: "user", Content: strings.Repeat("界", 64), Authored: true}}, want: strings.Repeat("界", 64)},
-		{name: "truncates by rune", messages: []llm.Message{{Role: "user", Content: long, Authored: true}}, want: strings.Repeat("界", 63) + "…"},
+		{name: "exact boundary", messages: []llm.Message{{Role: "user", Content: strings.Repeat("界", provisionalTitleRunes), Authored: true}}, want: strings.Repeat("界", provisionalTitleRunes)},
+		{name: "truncates by rune", messages: []llm.Message{{Role: "user", Content: long, Authored: true}}, want: strings.Repeat("界", provisionalTitleRunes-1) + "…"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -39,8 +39,8 @@ func TestProvisionalTitle(t *testing.T) {
 }
 
 func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
-	input := strings.Repeat("界", 65)
-	want := strings.Repeat("界", 63) + "…"
+	input := strings.Repeat("界", provisionalTitleRunes+1)
+	want := strings.Repeat("界", provisionalTitleRunes-1) + "…"
 
 	t.Run("Save", func(t *testing.T) {
 		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))

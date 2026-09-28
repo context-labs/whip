@@ -40,6 +40,9 @@ func TestModelAccountingPreservesAnswerAndUnexecutedTools(t *testing.T) {
 	if len(journal) != 3 || journal[1].Content != answer || len(journal[1].ToolCalls) != 1 || journal[2].ToolCallID != "pending" || !strings.Contains(journal[2].Content, "Not executed") {
 		t.Fatalf("journal=%+v", journal)
 	}
+	if journal[1].SentAt == nil || journal[1].SentAt.IsZero() || journal[2].SentAt != nil {
+		t.Fatalf("preserved answer/tool timestamps = %+v", journal)
+	}
 }
 
 func TestModelAccountingFinalAdmissionCannotBypassBudget(t *testing.T) {

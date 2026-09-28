@@ -128,12 +128,6 @@ func (m Model) ContextWindow() int {
 	return m.MaxTokens
 }
 
-// DefaultCompactModel is the built-in compaction-model default: the
-// deepseek-v4-flash route wired into the default inference.net config. An
-// empty compactModel resolves to this at apply time, falling back to the
-// conversation's model when it's not in the user's config.
-const DefaultCompactModel = "deepseek-v4-flash-0731"
-
 // DefaultCompactPct is the built-in compaction threshold: compact once the
 // estimated context use crosses this percent of the model's context window.
 // 50% keeps compaction deterministic instead of letting the context bloat.
@@ -146,8 +140,8 @@ type Config struct {
 	DefaultModel          string              `json:"defaultModel"`
 	DefaultProvider       string              `json:"defaultProvider,omitempty"` // override the model's first provider
 	DefaultEffort         string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel          string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider       string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactModel          string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = each conversation's own model and provider
+	CompactProvider       string              `json:"compactProvider,omitempty"` // custom model provider; ignored when CompactModel is empty
 	CompactPct            int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
 	Theme                 string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
 	Sidebar               *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
@@ -631,7 +625,6 @@ func keys[V any](m map[string]V) string {
 func Default() *Config {
 	return &Config{
 		DefaultModel: "kimi-k3-fast",
-		CompactModel: DefaultCompactModel,
 		MCPImport: &MCPImport{
 			Claude: &MCPImportSource{Enabled: new(false)},
 			Codex:  &MCPImportSource{Enabled: new(false)},

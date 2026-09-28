@@ -1356,6 +1356,8 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	child.Temperature, child.TopP = parent.Temperature, parent.TopP
 	child.CompactClient, child.CompactModel, child.CompactThreshold = parent.CompactClient, parent.CompactModel, parent.CompactThreshold
 	child.CompactPricing, child.CompactProvider = parent.CompactPricing, parent.CompactProvider
+	child.CompactContextLimit, child.CompactMaxTokens = parent.CompactContextLimit, parent.CompactMaxTokens
+	child.CompactFallback = parent.CompactFallback
 	child.WorkingDir = parent.WorkingDir
 	child.ResolveModel = parent.ResolveModel
 	return child, child.ModelName, child.Provider, nil

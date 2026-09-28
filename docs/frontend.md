@@ -1296,6 +1296,17 @@ Provider onboarding, tokens, machine keys, and shared configuration writes remai
 host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
+
+Compaction settings are automatic-first. An empty summary model means each
+conversation uses its own model/provider; zero threshold means Automatic (50%),
+not disabled. Existing saved model overrides remain custom. Show the effective
+threshold in the summary rows and put overrides in the shared Collapsible. Custom
+summary selection reuses CatalogModelPicker so model/provider are one choice, not
+independent text inputs; custom thresholds use 10–90%. The host settings and idle
+session inspector share this selection contract and preserve revision-checked
+drafts. They describe saved defaults, not a live effective route. Actual summary
+model/provider and any compaction fallback are read from the existing call trace;
+do not add a second client routing resolver or history store.
 `settings/provider-connections.tsx` reads the inexpensive `provider.list`
 inventory, scoped to the execution host, independently of model discovery.
 Opening setup and explicit Settings Refresh use the ephemeral `provider.discover`
@@ -1566,7 +1577,11 @@ execution also hosts the agent editor (`settings/agents.tsx`): it lists the
 host's definitions from `definitions.list`, derives the module and capability
 catalog from the built-in coding definition, builds the canonical document with
 the SDK's `defineAgent`, and registers it; registering an existing id adds a
-revision and never changes running sessions. The welcome page's Agent picker
+revision and never changes running sessions. Creation, copying and editing use
+the same compact dialog: stacked UI Fields, responsive module/capability Fieldsets,
+and a More options disclosure for project discovery and session flags. Keep
+authority choices visible; do not reuse the full-page SettingsRow layout inside
+this form. The welcome page's Agent picker
 reads the same query (`definitions.ts`) and sends `definition` with
 `session.create`; hosts that do not advertise the registry hide the picker. Every category
 uses the Settings heading and shared groups; no category shows the Attention
@@ -1740,9 +1755,12 @@ adds no live region, requests, retained history, or SDK event reconciliation.
 changes are coalesced to at most 30 parses/second, with stable unchanged block
 ASTs and a 512-document / 2 MiB source cache. This is not an incremental parser.
 Conservative trailing inline delimiter completion affects display only. One
-response-copy footer uses original retained assistant prose before display splits;
-reasoning, tool output and mailbox deliveries are excluded. Partial history reads
-say **Copy visible response**, with the existing 256K-character bound. Selected
+response footer uses original retained assistant prose before display splits for
+copying; reasoning, tool output and mailbox deliveries are excluded. Partial
+history reads say **Copy visible response**, with the existing 256K-character
+bound. The same projection owns its last assistant timestamp and committed
+history endpoint; folded tool-result sequences remain part of that endpoint.
+Unknown or incomplete endpoints do not expose history mutations. Selected
 Markdown blocks preserve their DOM until selection ends, then display the latest
 source; other blocks continue streaming. Code decoration receives original token
 offsets and never changes its source or copy semantics.
@@ -1959,8 +1977,22 @@ User messages use right-aligned, theme-derived bubbles. Timestamps and existing
 copy/history actions appear below the bubble on hover or keyboard focus; touch
 keeps the controls available. Show recorded `sent_at` values when supplied, and
 never invent timestamps for historical messages that lack them.
-Agent responses omit a repeated author heading and show one left-aligned copy
-control in the completed response footer, with no per-paragraph copy control.
+Agent responses omit a repeated author heading and show one left-aligned
+history-menu/copy/time footer per completed response, mirroring the user footer,
+not per paragraph or tool step. Its controls follow the same hover, focus,
+open-menu, and touch behavior without moving the transcript. Assistant `sent_at` is recorded once on the
+execution host when the message enters the journal, survives reload/fork, and
+never enters provider requests. The footer uses the last assistant timestamp,
+formats time in the viewer's locale, and exposes the full date accessibly.
+
+**Fork from here** includes the selected response. **Rewind to here…** confirms
+before removing later conversation and restoring tracked files where supported.
+The committed response endpoint includes trailing tool results: fork uses its
+inclusive sequence, rewind the next sequence. Commands retain the existing
+root-only scope, expected-history-revision guards, and local errors. Rewind is
+unavailable during running root work or at the latest endpoint; disconnected,
+child, and uncertain-endpoint footers do not show an empty history menu. User
+message actions retain their existing behavior.
 
 A large image attachment must not replace its message with a “Read stored message”
 button. Mounted user/assistant rows automatically fetch referenced transcript
@@ -2105,24 +2137,39 @@ reveals/focuses the window, dialogs guard the action, and no web hotkey is insta
 ### Saved-session navigation
 
 [`session-sidebar.tsx`](../packages/app/src/session-sidebar.tsx) projects the SDK's
-bounded per-host catalogs into host sections, virtual directory headers and compact
-session rows in one scroll area. Group within each host by exact `cwd`: worktrees remain separate, directories with matching names show
-a distinguishing parent suffix, and full paths remain available in labels and
-titles. Groups follow their first catalog occurrence; sessions retain server
-pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
-existing page/cache limits. Each directory initially shows at most seven sessions;
-More reveals seven additional loaded sessions per click. Only once all loaded
-sessions in the directory are visible does Less replace More; Less resets to seven.
-Expansion is local to the mounted host list (up to 64 directory preferences);
-route navigation reveals an older selected session by expanding its directory.
-Sidebar labels never lease root views.
+bounded per-host catalogs into one virtualized **Projects** list shared by desktop
+and web. Group by verified runtime identity and exact cwd: worktrees remain
+separate, matching names on one host show a distinguishing parent suffix, and
+full paths are available on focus/hover. Local and remote directories interleave
+by their newest loaded session update, with stable identity tie breaks; sessions
+inside each directory retain server pin/recency order. Directory headings are
+text-only, with a disclosure caret on hover/focus. Remote directories carry a
+host label and connection mark. Their compact, theme-native details popover shows
+host/status, a secondary connection address (SSH user/host/port where applicable,
+omitted when identical to the host name), a wrapping path, and left-aligned
+reconnect/server management actions. Duplicate display names expose their full
+disambiguated identity in the details, without row truncation. Local folders omit host metadata
+unless unavailable. Temporary disconnects retain SDK-stale rows but never live
+activity indicators; explicit Disconnect still disposes the catalog.
+
+Only loaded pages are grouped. Host-labelled Load more controls retain independent
+SDK cursors and page/cache limits; directory More is disclosure, not a fetch.
+Each directory initially shows at most seven sessions. More reveals seven
+additional loaded sessions per click; Less appears only when all are shown and
+resets to seven. Expansion is mounted state (64 directories per host), released
+when that host detaches. Exact host/path collapse retains the existing bounded v1
+window preferences. Only route navigation reveals an older selected session;
+polling never undoes a deliberate collapse. Host-scoped keys also own hover,
+scroll anchors, actions and drag sources. Catalog snapshots are observed directly,
+not mirrored into Query or component state. Summary requests are partitioned by
+host and include only rendered/overscan rows. Sidebar labels never lease root views.
 
 New session, Search sessions and Settings are the top destinations; execution-host
 management stays at the end of the scrollable content. The brand/window controls
-and New session remain pinned; Search, Settings, host sections, and Servers share
+and New session remain pinned; Search, Settings, directory groups, and Servers share
 one scroll area. A theme-derived hairline and 12 px soft fade appear below the
 pinned header only after scrolling, with a reduced-motion-aware opacity transition.
-Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
+Only directory groups collapse; there are no host headings. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
 agent, current activity and scoped actions. Chat, REPL and trace/span views use
 this same component, including loading and unavailable states. It owns the
 fixed-position Chat / REPL / Trace single-selection view controls and a separate
@@ -2338,6 +2385,12 @@ an optional typed `xstyle` extension where appropriate. Base UI `render` and
 `mergeProps` preserve composition. Keep interactive siblings separate; a tab link
 cannot contain its own close/menu button. App-specific data fetching belongs in
 app controllers/hooks, not in UI controls.
+
+Shared Dialog/AlertDialog scrolling belongs to the UI component's Base UI
+viewport: popups use natural content height and move as a whole over a fixed
+backdrop. Short dialogs remain centered; tall dialogs retain the former top
+spacing. Sheet and explicitly bounded picker compositions keep their own internal
+scrolling. Consumers should not add wrappers to implement default dialog scrolling.
 
 Use `stylex.create` and `stylex.props` for authored visuals and import shared
 variables from `@whip/ui/tokens.stylex`. The `.stylex` suffix is required for
@@ -2742,6 +2795,8 @@ node apps/web/scripts/snapshot-refresh.mjs
 node apps/web/scripts/session-tabs.mjs
 node apps/web/scripts/workspace-layout.mjs
 node apps/web/scripts/sidebar.mjs
+node apps/web/scripts/agents.mjs # isolated agent-editor fixture; no daemon needed
+node apps/web/scripts/directory-sidebar.mjs
 node apps/web/scripts/session-search.mjs
 node apps/web/scripts/performance.mjs
 # Actual Safari on macOS, distinct from Playwright WebKit:

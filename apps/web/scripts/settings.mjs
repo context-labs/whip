@@ -46,6 +46,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await composer.fill('Keep this unsent draft while changing settings.');
     const before = await page.evaluate(() => sessionStorage.getItem('whip.web.workspace.v3'));
     await page.locator('#whip-settings-link').click();
+    await category('Appearance').click();
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
     await expect(page.locator('#whip-session-navigation')).toHaveCount(0);
     await expect(page.getByRole('tablist')).toHaveCount(0);
@@ -108,6 +109,43 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
       await category(label).click();
       await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: /^Attention ·/ })).toHaveCount(0);
+      if (label === 'Agents & execution') {
+        await expect(page.locator('#compact_model')).toContainText('Automatic');
+        await expect(page.locator('#compact_percent')).toContainText('50%');
+        await expect(page.getByRole('button', { name: 'Custom summary model', exact: true })).toBeHidden();
+        await page.getByRole('button', { name: 'Advanced compaction settings', exact: true }).click();
+        await select('Summary model mode', 'Custom');
+        await page.getByRole('button', { name: 'Custom summary model', exact: true }).click();
+        await page.getByRole('option', { name: 'settings-model · openrouter', exact: true }).click();
+        await select('Compaction timing', 'Custom');
+        const percentage = page.getByRole('spinbutton', { name: 'Context window percentage', exact: true });
+        await percentage.fill('65');
+        await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Save host defaults', exact: true })).toBeDisabled();
+        let savedCompaction = JSON.parse((await readFile(join(fixture.directory, 'home', 'config.json'), 'utf8')).replace(/^\/\/[^\n]*\n/gm, ''));
+        assert.equal(savedCompaction.compactModel, 'settings-model');
+        assert.equal(savedCompaction.compactProvider, 'openrouter');
+        assert.equal(savedCompaction.compactPct, 65);
+        await auditServers('main');
+        await page.locator('#compact_model').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(results, engine + '-compaction-custom.png') });
+        await select('Summary model mode', 'Automatic');
+        await select('Compaction timing', 'Automatic · 50%');
+        await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Save host defaults', exact: true })).toBeDisabled();
+        savedCompaction = JSON.parse((await readFile(join(fixture.directory, 'home', 'config.json'), 'utf8')).replace(/^\/\/[^\n]*\n/gm, ''));
+        assert.equal(savedCompaction.compactModel ?? '', '');
+        assert.equal(savedCompaction.compactProvider ?? '', '');
+        assert.equal(savedCompaction.compactPct ?? 0, 0);
+        await page.getByRole('button', { name: 'Advanced compaction settings', exact: true }).click();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.locator('#compact_model')).toContainText('Automatic');
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Compaction settings overflow on mobile');
+        await page.locator('#compact_model').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(results, engine + '-compaction-automatic-narrow.png') });
+        await page.setViewportSize({ width: 1440, height: 1080 });
+        checks.push('automatic compaction, connected custom model/provider, threshold, reset, and mobile reflow');
+      }
       if (label === 'Servers') {
         await expect(page.getByRole('heading', { name: 'Servers', exact: true })).toHaveCount(1);
         await expect(page.getByRole('textbox', { name: 'Server address' })).toHaveCount(0);
@@ -185,6 +223,11 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.getByRole('option', { name: 'Claude Code Dark', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'claude-code');
     await page.screenshot({ path: join(results, `${engine}-appearance-dark.png`) });
+    await category('Agents & execution').click();
+    await expect(page.locator('#compact_model')).toContainText('Automatic');
+    await page.locator('#compact_model').scrollIntoViewIfNeeded();
+    await auditServers('main');
+    await page.screenshot({ path: join(results, engine + '-compaction-automatic-dark.png') });
     await category('Servers').click();
     await auditServers('main');
     await page.screenshot({ path: join(results, `${engine}-servers-dark.png`) });

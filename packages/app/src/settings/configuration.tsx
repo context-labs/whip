@@ -12,11 +12,12 @@ import { PermissionModeControl } from '../permission-mode';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 import { useSettingsEdits } from './unsaved';
+import { CompactionSettings, compactionError, compactionPatch, type CompactionValues } from '../compaction-settings';
 
 type Category = 'providers' | 'execution';
 const providerFields = ['default_model', 'default_provider', 'default_effort', 'default_permission_mode'] as const;
 const executionFields = ['default_execution_engine', 'compact_model', 'compact_provider', 'compact_percent', 'goal_max_rounds', 'max_retries', 'import_claude', 'import_codex'] as const;
-type Values = Pick<RuntimeConfiguration, typeof providerFields[number] | typeof executionFields[number]>;
+type Values = Omit<Pick<RuntimeConfiguration, typeof providerFields[number] | typeof executionFields[number]>, 'compact_percent'> & CompactionValues;
 function values(config: RuntimeConfiguration): Values {
   return {
     default_model: config.default_model, default_provider: config.default_provider, default_effort: config.default_effort,
@@ -28,14 +29,14 @@ function values(config: RuntimeConfiguration): Values {
 }
 
 /** Each editor may write only its owned fields, even when another category has changed. */
-export function configurationPatch(category: Category, value: Values, revision: string): ConfigurationUpdate {
+export function configurationPatch(category: Category, value: Values, base: RuntimeConfiguration): ConfigurationUpdate {
   if (category === 'providers') return {
-    revision, default_model: value.default_model, default_provider: value.default_provider, default_effort: value.default_effort,
+    revision: base.revision, default_model: value.default_model, default_provider: value.default_provider, default_effort: value.default_effort,
     ...(value.default_permission_mode === undefined ? {} : { default_permission_mode: value.default_permission_mode }),
   };
   return {
     default_execution_engine: value.default_execution_engine,
-    revision, compact_model: value.compact_model, compact_provider: value.compact_provider, compact_percent: value.compact_percent,
+    revision: base.revision, ...compactionPatch(value, base),
     goal_max_rounds: value.goal_max_rounds, max_retries: value.max_retries, import_claude: value.import_claude, import_codex: value.import_codex,
   };
 }
@@ -81,13 +82,14 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
       request.current = controller;
       const queryKey = ['runtime-configuration', client.getSnapshot().info?.runtime_id];
       try {
-        if (category === 'execution' && (!Number.isInteger(value.compact_percent) || value.compact_percent < 0 || value.compact_percent > 100
-          || !Number.isInteger(value.goal_max_rounds) || value.goal_max_rounds < 0 || !Number.isInteger(value.max_retries) || value.max_retries < 0)) {
+        if (category === 'execution' && (!Number.isInteger(value.goal_max_rounds) || value.goal_max_rounds < 0 || !Number.isInteger(value.max_retries) || value.max_retries < 0)) {
           setErrorType('validation');
-          setError('Use whole numbers: compaction from 0 to 100%, and non-negative goal rounds and retries.');
+          setError('Use non-negative whole numbers for goal rounds and retries.');
           return;
         }
-        const result = await client.configuration.update(configurationPatch(category, value, base.revision), { signal: controller.signal });
+        const compactError = category === 'execution' ? compactionError(value, base) : undefined;
+        if (compactError) { setErrorType('validation'); setError(compactError); return; }
+        const result = await client.configuration.update(configurationPatch(category, value, base), { signal: controller.signal });
         if (controller.signal.aborted) return;
         runtime.queries.setQueryData(queryKey, result);
         setBase(result); form.reset(values(result)); saved.current = true;
@@ -106,6 +108,7 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
   const provider = useStore(form.store, state => state.values.default_provider) || defaultProvider || '';
   const models = catalogModels(catalog.data?.result, provider);
   const efforts = modelEfforts(models, model);
+  const currentValues = useStore(form.store, state => state.values);
   const dirty = useStore(form.store, state => !state.isDefaultValue);
   const submitting = useStore(form.store, state => state.isSubmitting);
   useSettingsEdits({
@@ -114,19 +117,14 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
     discard: () => { setBase(config); form.reset(values(config)); setError(''); },
     save: async () => { saved.current = false; await form.handleSubmit(); return saved.current; },
   });
-  const textField = (name: 'compact_model' | 'compact_provider', label: string, description: string) => <form.Field key={name} name={name}>{field =>
+  const numberField = (name: 'goal_max_rounds' | 'max_retries', label: string, description: string) => <form.Field key={name} name={name}>{field =>
     <SettingRow id={name} label={label} description={description}>
-      <Input aria-label={label} xstyle={settingsSection.control} disabled={!enabled || submitting} value={field.state.value}
-        onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.value)} />
-    </SettingRow>}
-  </form.Field>;
-  const numberField = (name: 'compact_percent' | 'goal_max_rounds' | 'max_retries', label: string, description: string, max?: number) => <form.Field key={name} name={name}>{field =>
-    <SettingRow id={name} label={label} description={description}>
-      <Input aria-label={label} xstyle={settingsSection.control} type="number" min={0} max={max} step={1} disabled={!enabled || submitting}
+      <Input aria-label={label} xstyle={settingsSection.control} type="number" min={0} step={1} disabled={!enabled || submitting}
         value={Number.isNaN(field.state.value) ? '' : field.state.value} onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.valueAsNumber)} />
     </SettingRow>}
   </form.Field>;
-  return <form {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
+  // Validate only edited compaction values; native min/max would block untouched legacy defaults.
+  return <form noValidate {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
     {category === 'providers' ? <SettingsGroup title="Defaults for new work">
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
         <CatalogModelPicker label="Default model" settings model={model} provider={provider} catalog={catalog.data?.result}
@@ -160,9 +158,12 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
         </SettingRow>}</form.Field>
       </SettingsGroup>
       <SettingsGroup title="Context compaction">
-        {textField('compact_model', 'Compaction model', 'Model used to summarize conversation context.')}
-        {textField('compact_provider', 'Compaction provider', 'Provider used for context compaction.')}
-        {numberField('compact_percent', 'Compaction threshold', 'Percentage of the context window at which compaction begins.', 100)}
+        <CompactionSettings client={client} value={currentValues} base={base} disabled={!enabled || submitting}
+          onChange={next => {
+            form.setFieldValue('compact_model', next.compact_model);
+            form.setFieldValue('compact_provider', next.compact_provider);
+            form.setFieldValue('compact_percent', next.compact_percent);
+          }} />
       </SettingsGroup>
       <SettingsGroup title="Execution limits">
         {numberField('goal_max_rounds', 'Goal round limit', 'Maximum rounds for goal-driven work.')}

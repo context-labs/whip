@@ -36,7 +36,7 @@ func TestTitleInitializedAtAdmission(t *testing.T) {
 		name, kind, payload, prompt, title string
 	}{
 		{"text", "submit", "  Fix\n  the bug  ", "  Fix\n  the bug  ", "Fix the bug"},
-		{"unicode", "steer", strings.Repeat("界", 65), strings.Repeat("界", 65), strings.Repeat("界", 63) + "…"},
+		{"unicode", "steer", strings.Repeat("界", provisionalTitleRunes+1), strings.Repeat("界", provisionalTitleRunes+1), strings.Repeat("界", provisionalTitleRunes-1) + "…"},
 		{"multipart", "submit.parts", `{"text":"Fix","parts":[{"type":"text","text":"the bug"},{"type":"image_url","image_url":{"url":"ignored"}}],"attachments":[{"kind":"text","name":"ignored.txt"}]}`, "Fix\nthe bug", "Fix the bug"},
 		{"parts only", "steer.parts", `{"parts":[{"type":"text","text":"First"},{"type":"text","text":"second"}]}`, "First\nsecond", "First second"},
 	} {

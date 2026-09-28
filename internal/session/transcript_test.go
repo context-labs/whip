@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -61,6 +62,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			image := llm.ContentPart{Type: "image_url", W: 17, H: 29, ImageURL: &struct {
 				URL string `json:"url"`
 			}{URL: "data:image/png;base64,aW1hZ2U="}}
+			stamp := time.Date(2025, 6, 1, 14, 30, 0, 123, time.UTC)
 			raw := []llm.Message{
 				{Role: "user", Content: "original instruction", Authored: true, Parts: []llm.ContentPart{{Type: "text", Text: "original instruction"}, image}},
 				{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Function: struct {
@@ -68,11 +70,11 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 					Arguments string `json:"arguments"`
 				}{Name: "exec", Arguments: `{"code":"print('precise args')"}`}}}},
 				{Role: "tool", ToolCallID: "call-1", Name: "exec", Content: strings.Repeat("large result Ω ", 200000)},
-				{Role: "assistant", Content: "first answer"},
+				{Role: "assistant", Content: "first answer", SentAt: &stamp},
 				{Role: "user", Content: "second instruction"},
 				{Role: "assistant", Content: "second answer"},
 				{Role: "user", Content: "third instruction"},
-				{Role: "assistant", Content: "third answer"},
+				{Role: "assistant", Content: "third answer", SentAt: &stamp},
 			}
 			raw[1].Continuation = llm.ResponseContinuation{AccountID: "account", Model: "model", Items: `[{"type":"reasoning","encrypted_content":"opaque-model-state"}]`}
 			transcriptCommit(t, store, rootID, agentID, 1, raw[:4])
@@ -136,6 +138,9 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			}
 			if err != nil || len(view) != 3 || !strings.Contains(view[0].Content, "second summary") || view[0].RawSequence != 6 || view[1].RawSequence != 7 || view[2].Content != "third answer" {
 				t.Fatalf("derived view = %+v, %v", view, err)
+			}
+			if view[0].SentAt != nil || view[1].SentAt != nil || view[2].SentAt == nil || !view[2].SentAt.Equal(stamp) {
+				t.Fatalf("compaction/restoration changed timestamps: %+v", view)
 			}
 		})
 	}

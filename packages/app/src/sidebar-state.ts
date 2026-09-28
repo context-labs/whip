@@ -86,6 +86,39 @@ export function sidebarRows(items: readonly Session[], collapsed: readonly strin
   return rows;
 }
 
+export type HostSidebarRow = SidebarRow & { runtimeId: string; cwd: string; directoryKey: string };
+export const sidebarRowKey = (kind: SidebarRow['kind'], runtimeId: string, id: string) => JSON.stringify([kind, runtimeId, id]);
+
+/** Mix directories, not sessions: each daemon still owns its catalog's pin/recency order. */
+export function mixedSidebarRows(hosts: readonly {
+  runtimeId: string;
+  items: readonly Session[];
+  collapsed?: readonly string[];
+  limits?: ReadonlyMap<string, number>;
+}[]): HostSidebarRow[] {
+  const groups: { key: string; updated: number; rows: HostSidebarRow[] }[] = [];
+  for (const host of hosts) {
+    const latest = new Map<string, number>();
+    for (const session of host.items) {
+      const updated = Date.parse(session.updated_at);
+      if (Number.isFinite(updated)) latest.set(session.cwd, Math.max(latest.get(session.cwd) ?? -Infinity, updated));
+    }
+    let group: typeof groups[number] | undefined;
+    for (const row of sidebarRows(host.items, host.collapsed, host.limits)) {
+      const cwd = row.kind === 'session' ? row.session.cwd : row.cwd;
+      const directoryKey = sidebarRowKey('directory', host.runtimeId, cwd);
+      if (row.kind === 'directory') {
+        group = { key: directoryKey, updated: latest.get(cwd) ?? -Infinity, rows: [] };
+        groups.push(group);
+      }
+      group!.rows.push({ ...row, cwd, runtimeId: host.runtimeId, directoryKey,
+        key: sidebarRowKey(row.kind, host.runtimeId, row.kind === 'session' ? row.session.id : cwd) });
+    }
+  }
+  return groups.sort((a, b) => (a.updated === b.updated ? 0 : a.updated > b.updated ? -1 : 1)
+    || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).flatMap(group => group.rows);
+}
+
 export function newSessionSearch(search: Record<string, unknown>): { new?: 1; cwd?: string; runtimeId?: string } {
   const runtimeId = typeof search.runtimeId === 'string' && search.runtimeId.length > 0 && search.runtimeId.length <= 256 && !/[\u0000-\u001f]/.test(search.runtimeId) ? search.runtimeId : undefined;
   const cwd = runtimeId && typeof search.cwd === 'string' && search.cwd.length > 0 && search.cwd.length <= 4096 && !/[\u0000-\u001f]/.test(search.cwd) ? search.cwd : undefined;

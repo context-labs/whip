@@ -193,6 +193,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID, PartID: session.toolPresentationID(id)})
 		}
 		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
+		events.OnCompactFallback = func(reason string) { emit("stream.notice", StreamEvent{Text: reason}) }
 		events.OnUsage = func(usage llm.Usage) {
 			emit("stream.usage", StreamEvent{Usage: &UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage}})
 		}
@@ -205,7 +206,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		})
 		callID := session.turn.LastModelCallID
 		session.mu.Unlock()
-		session.recordCompactionOutput(ctx, callID, summary, rawCutoff)
+		session.recordCompactionOutput(ctx, callID, summary, rawCutoff, info.Fallback)
 	}
 	var output string
 	if len(parts) > 0 {

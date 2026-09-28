@@ -407,7 +407,7 @@ func (node *AgentSession) beginCommandTrace(ctx context.Context, name, command, 
 // returned, so it is the agent's most recently settled call, and its span has
 // already ended; hence the patch. The compactions table keeps the summary for
 // recovery exactly as before.
-func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, summary string, rawCutoff int) {
+func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, summary string, rawCutoff int, fallback string) {
 	if node.root == nil || callID == "" || summary == "" {
 		return
 	}
@@ -415,9 +415,11 @@ func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, su
 	defer cancel()
 	value, err := node.root.store.InternContent(ctx, node.root.ID(), "prompt.summary", []byte(summary))
 	if err == nil {
-		err = node.root.store.PatchSpanAttrs(ctx, node.root.ID(), sessionstore.ModelCallSpanID(node.root.ID(), callID), map[string]any{
-			"output_ref": value.ReferenceID, "output_bytes": int(value.Size), "raw_cutoff": rawCutoff,
-		})
+		attrs := map[string]any{"output_ref": value.ReferenceID, "output_bytes": int(value.Size), "raw_cutoff": rawCutoff}
+		if fallback != "" {
+			attrs["compaction_fallback"] = fallback
+		}
+		err = node.root.store.PatchSpanAttrs(ctx, node.root.ID(), sessionstore.ModelCallSpanID(node.root.ID(), callID), attrs)
 	}
 	if err != nil {
 		config.LogEvent("trace", fmt.Sprintf("compaction output of call %s: %v", callID, err))

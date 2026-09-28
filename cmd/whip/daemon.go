@@ -152,32 +152,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			resolved, _, resolveErr := resolveRuntimeModel(currentCfg, model, provider, providers)
 			return resolved, resolveErr
 		}
-		// Compaction defaults: the definition first, then host configuration.
-		compactName, compactProvider := definition.Compaction.Model, definition.Compaction.Provider
-		if compactName == "" {
-			compactName, compactProvider = runtimeCfg.CompactModel, runtimeCfg.CompactProvider
-		}
-		if compactName == "" {
-			compactName = config.DefaultCompactModel
-		}
-		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, compactProvider, providers); resolveErr == nil {
-			ag.CompactClient = compact.Client
-			ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
-			ag.CompactPricing = compact.Pricing
-		} else {
-			// Summaries fall back to the conversation's own model. Say so:
-			// silently folding on an expensive reasoning model cost a session
-			// 160 s per fold before anyone noticed the cheap model was unused.
-			config.LogEvent("compaction.fallback", fmt.Sprintf("compact model %q (provider %q) unavailable, summaries run on the conversation model: %v", compactName, compactProvider, resolveErr))
-		}
-		ag.CompactThreshold = definition.Compaction.Threshold
-		if ag.CompactThreshold == 0 {
-			compactPct := runtimeCfg.CompactPct
-			if compactPct == 0 {
-				compactPct = config.DefaultCompactPct
-			}
-			ag.CompactThreshold = float64(min(max(compactPct, 10), 90)) / 100
-		}
+		configureRuntimeCompaction(ag, runtimeCfg, definition.Compaction, providers)
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
 		// The definition names the servers it uses; everything else the host
@@ -283,6 +258,43 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
 	}
+}
+
+// configureRuntimeCompaction leaves Automatic on the conversation's actual route.
+func configureRuntimeCompaction(
+	ag *agent.Agent,
+	cfg *config.Config,
+	defaults agentdef.CompactionDefaults,
+	providers *daemon.ProviderService,
+) {
+	ag.CompactThreshold = defaults.Threshold
+	if ag.CompactThreshold == 0 {
+		percent := cfg.CompactPct
+		if percent == 0 {
+			percent = config.DefaultCompactPct
+		}
+		ag.CompactThreshold = float64(min(max(percent, 10), 90)) / 100
+	}
+	model, provider := defaults.Model, defaults.Provider
+	if model == "" {
+		model, provider = cfg.CompactModel, cfg.CompactProvider
+	}
+	if model == "" {
+		return
+	}
+	compact, _, err := resolveRuntimeModel(cfg, model, provider, providers)
+	if err != nil {
+		ag.CompactFallback = "Custom summarizer unavailable; using this conversation’s model."
+		config.LogEvent("compaction.fallback", fmt.Sprintf(
+			"compact model %q (provider %q) unavailable, summaries run on the conversation model: %v",
+			model, provider, err,
+		))
+		return
+	}
+	ag.CompactClient = compact.Client
+	ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
+	ag.CompactPricing = compact.Pricing
+	ag.CompactContextLimit, ag.CompactMaxTokens = compact.ContextLimit, compact.MaxTokens
 }
 
 // resolveRuntimeModel snapshots the actual endpoint and its catalog rates together.

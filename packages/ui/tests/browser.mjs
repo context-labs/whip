@@ -98,6 +98,105 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({state: 'hidden'});
   report.checks.push('nested dialogs and focus dismissal');
+  // Default popups scroll as one surface; bounded pickers and sheets opt into inner scrolling.
+  for (const {width, height, theme} of [
+    {width: 1080, height: 960, theme: 'light'},
+    {width: 1440, height: 1200, theme: 'dark'},
+    {width: 390, height: 640, theme: 'light'},
+    {width: 390, height: 640, theme: 'dark'},
+  ]) {
+    await page.setViewportSize({width, height});
+    await page.goto(story('dialog-scrolling', theme));
+    await page.evaluate(() => document.fonts.ready);
+    const popup = page.getByRole('dialog', {name: 'Scrolling example', exact: true});
+    const viewport = popup.locator('..');
+    await page.getByRole('button', {name: 'Open short example'}).click();
+    const short = await popup.boundingBox();
+    expect(Math.abs(short.y - (height - short.height) / 2)).toBeLessThan(2);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', {name: 'Open short example'})).toBeFocused();
+
+    const trigger = page.getByRole('button', {name: 'Open tall example'});
+    await trigger.click();
+    const tall = await popup.boundingBox();
+    const offset = Math.max(16, (height - Math.min(height * 0.85, 860)) / 2);
+    expect(Math.abs(tall.y - offset)).toBeLessThan(2);
+    expect(tall.height).toBeGreaterThan(height);
+    expect(await popup.evaluate(node => getComputedStyle(node).overflowY)).toBe('visible');
+    expect(await viewport.evaluate(node => node.scrollTop)).toBe(0);
+    const documentScroll = await page.evaluate(() => window.scrollY);
+    await page.screenshot({path: resolve(results, 'dialog-' + theme + '-' + width + '-top.png')});
+
+    // Nested confirmation sits above the parent and keeps its dismissal/focus contract.
+    await popup.getByRole('button', {name: 'Open confirmation'}).click();
+    const confirmation = page.getByRole('alertdialog');
+    const confirmationBox = await confirmation.boundingBox();
+    expect(Math.abs(confirmationBox.y - (height - confirmationBox.height) / 2)).toBeLessThan(2);
+    await page.mouse.click(4, 4);
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole('button', {name: 'Cancel', exact: true}).click();
+    await expect(popup.getByRole('button', {name: 'Open confirmation'})).toBeFocused();
+
+    // Wheel over the popup and then the empty backdrop area must move the same viewport.
+    await page.mouse.move(width / 2, height / 2);
+    await page.mouse.wheel(0, 240);
+    await expect.poll(() => viewport.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    const firstScroll = await viewport.evaluate(node => node.scrollTop);
+    await page.mouse.move(4, height / 2);
+    await page.mouse.wheel(0, 240);
+    await expect.poll(() => viewport.evaluate(node => node.scrollTop)).toBeGreaterThan(firstScroll);
+    const scrolled = await popup.boundingBox();
+    const scrollTop = await viewport.evaluate(node => node.scrollTop);
+    expect(Math.abs(scrolled.height - tall.height)).toBeLessThan(1);
+    expect(Math.abs(scrolled.y - (tall.y - scrollTop))).toBeLessThan(2);
+    expect(await popup.evaluate(node => node.scrollTop)).toBe(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(documentScroll);
+
+    await viewport.evaluate(node => {node.scrollTop = node.scrollHeight;});
+    const bottom = await popup.boundingBox();
+    expect(Math.abs(height - bottom.y - bottom.height - offset)).toBeLessThan(2);
+    await expect(popup.getByRole('button', {name: 'Finish example'})).toBeInViewport();
+    await page.screenshot({path: resolve(results, 'dialog-' + theme + '-' + width + '-bottom.png')});
+    await page.mouse.wheel(0, 400);
+    expect(await page.evaluate(() => window.scrollY)).toBe(documentScroll);
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+
+    await trigger.click();
+    expect(await viewport.evaluate(node => node.scrollTop)).toBe(0);
+    // Native focus navigation must bring the footer into view without a custom scroll handler.
+    await popup.getByRole('button', {name: 'Close', exact: true}).focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(popup.getByRole('button', {name: 'Finish example'})).toBeFocused();
+    await expect(popup.getByRole('button', {name: 'Finish example'})).toBeInViewport();
+    await page.mouse.click(4, 4);
+    await expect(popup).toBeHidden();
+
+    await page.getByRole('button', {name: 'Open bounded example'}).click();
+    const bounded = await popup.boundingBox();
+    expect(Math.abs(bounded.height - Math.min(560, height - 48))).toBeLessThan(2);
+    const body = popup.getByRole('button', {name: 'Open confirmation'}).locator('..');
+    await body.evaluate(node => {node.scrollTop = 240;});
+    expect(await body.evaluate(node => node.scrollTop)).toBe(240);
+    expect(await viewport.evaluate(node => node.scrollTop)).toBe(0);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', {name: 'Open sheet example'}).click();
+    const sheet = await popup.boundingBox();
+    expect(sheet.y).toBe(0);
+    expect(sheet.height).toBe(height);
+    expect(sheet.x + sheet.width).toBe(width);
+    await popup.evaluate(node => {node.scrollTop = 240;});
+    expect(await popup.evaluate(node => node.scrollTop)).toBe(240);
+    expect(await viewport.evaluate(node => node.scrollTop)).toBe(0);
+    expect((await popup.boundingBox()).y).toBe(0);
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
+  report.checks.push('dialog viewport scrolling, stable height/top offset, bottom spacing, nested focus, bounded pickers and sheets in light/dark desktop/narrow layouts');
+  await page.setViewportSize({width: 1080, height: 960});
+  await page.goto(story('overlay-states', 'dark'));
+  await page.waitForFunction(() => document.getElementById('storybook-root')?.dataset.playComplete === 'true');
   const commandTrigger = page.getByRole('button', {name: 'Find command', exact: true});
   const commandSearch = page.getByRole('combobox', {name: 'Search commands'});
   const commandDialog = page.getByRole('dialog', {name: 'Commands', exact: true});

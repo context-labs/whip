@@ -137,6 +137,18 @@ Available modules are summarized in [tools.md](tools.md).
   bounded summary.
 - `context.inspect/search/read` returns source metadata and byte spans.
 - Proactive and reactive compaction protect the provider context window.
+  Automatic uses each agent's conversation model/provider, with no auxiliary
+  account requirement. An omitted model and zero threshold mean Automatic (50%);
+  existing saved custom routes are preserved. Host settings and the idle-session
+  inspector reuse the catalog model/provider picker; custom thresholds accept
+  10–90%. Missing or too-small custom routes and definite safe request rejections
+  can fall back to the conversation route, with a notice and the actual route and
+  reason on the summary's trace. Cancellation, uncertain completion, partial
+  output and accounting/budget failures never cause a second-route replay.
+  See [compaction settings](models-providers.md#compaction-model),
+  `cmd/whip/daemon.go`, `internal/agent/agent.go`,
+  `packages/app/src/settings/configuration.tsx`, and their configuration,
+  compaction-fallback and settings regression tests.
 - Large values are immutable, content-addressed, and separately authorized.
 
 The deterministic evaluation expands a corpus above 500 KB and proves the
@@ -633,8 +645,9 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   later execution failure does not undo naming of an already accepted message.
 - Deterministic titles shorter than 20 Unicode characters are kept without an LLM
   call. At 20 characters or more, automatic naming is enabled by default: one
-  daemon-owned background request uses the compact-model route (or its existing
-  main-model fallback), using only the user text, with a 20-second timeout.
+  daemon-owned background request uses the automatic conversation route or saved
+  custom compaction route (with its setup fallback), using only the user text,
+  with a 20-second timeout.
   Definition `surface.auto_title=false` skips this request but retains the
   deterministic title. No separate per-session enablement
   command or inspector control is required.
@@ -815,6 +828,7 @@ behavior to its owning code and repeatable validation.
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
 | Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
+| One completed-agent-response footer with recorded local time, bounded Markdown copy, and root-only Fork from here / Rewind to here actions that keep the selected response | `packages/app/src/{conversation-rows,chat-activity-rows}.ts`, `{timeline,conversation}.tsx`; `internal/agent/agent.go`, `internal/llm/openai.go` | App response grouping/timeline/history-action tests; agent timestamp/provider-filtering and daemon endpoint tests; `apps/web/scripts/user-messages.mjs` (Chromium/Firefox date, clipboard failure/retry, keyboard/touch, themes, inclusive fork/rewind and reload) |
 | Errors owned by application, host, session, turn, execution, submission, resource, action or validation, each with one canonical display | [Ownership rules](frontend.md#error-ownership-and-canonical-displays), `packages/app/src/error-feedback.tsx`; latest turn outcome only, recorded execution failures retained | `local-errors.test.tsx`, `welcome-recovery.test.tsx`, error ownership browser fixture |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
@@ -1247,8 +1261,12 @@ WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
 worktrees distinct, preserves pin/recency order, and shows seven sessions per folder
 by default. More reveals seven additional loaded sessions at a time; once all are
 visible, Less resets the folder to seven. It offers New session, Search
-sessions and Settings. Hosts have separate headings and connection status within
-one sidebar. Directory + preselects its source host and folder in the Local/Remote
+sessions and Settings. Local and remote directories interleave by their newest
+loaded session update in one virtualized Projects list, with no host headings.
+Project headings are text-only. Remote directories show a host name and connection
+status, with compact identity/path details and left-aligned server actions. Exact runtime/path keys isolate collapse, scroll,
+activity and actions; transient disconnects retain stale rows, explicit detach
+clears them. Host-labelled pagination keeps independent catalog limits. Directory + preselects its source host and folder in the Local/Remote
 creation form; it does not create work until submitted. Search opens a centered
 dialog with host labels/filter, recent sessions, debounced host search, independent
 bounded paging, partial errors and arrow/Enter navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
@@ -1268,7 +1286,7 @@ Code: `packages/app/src/session-sidebar.tsx`, `sidebar-state.ts`,
 `sidebar-layout.tsx`, `welcome.tsx`, and `session-tab-routing.ts`.
 Tests: `sidebar-state.test.ts`, `sidebar-layout.test.tsx`,
 `sidebar-creation.test.tsx`, `session-tab-routing.test.ts`, and the isolated
-production-browser workflow `apps/web/scripts/sidebar.mjs`.
+production-browser workflows `apps/web/scripts/sidebar.mjs` and `directory-sidebar.mjs`.
 
 
 ## Multiple execution hosts in the web workspace

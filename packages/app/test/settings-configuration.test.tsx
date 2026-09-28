@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -26,7 +26,7 @@ function fixture() {
     server = { ...server, ...patch, revision: 'v2' };
     return server;
   });
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: { openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
+  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: { openrouter: { available: true }, subscription: { available: true }, offline: { available: false }, unknown: {} }, catalogs: { offline: { models: [{ id: 'offline-model' }] }, unknown: { models: [{ id: 'unknown-model' }] }, openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
   const state = { commands: [] };
   const runtime = { queries, report: vi.fn(), getSnapshot: () => state, subscribe: () => () => {} } as unknown as AppRuntime;
   function wrapper(children: ReactNode) { return <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>; }
@@ -54,7 +54,7 @@ it('saves only execution-owned fields and retains model defaults from the host',
   fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
-  expect(f.update).toHaveBeenCalledExactlyOnceWith({ revision: 'v1', default_execution_engine: 'starlark', compact_model: 'small-a', compact_provider: 'inference', compact_percent: 75, goal_max_rounds: 8, max_retries: 4, import_claude: true, import_codex: false }, { signal: expect.any(AbortSignal) });
+  expect(f.update).toHaveBeenCalledExactlyOnceWith({ revision: 'v1', default_execution_engine: 'starlark', goal_max_rounds: 8, max_retries: 4, import_claude: true, import_codex: false }, { signal: expect.any(AbortSignal) });
   expect((f.queries.getQueryData(['runtime-configuration', 'host-a']) as RuntimeConfiguration).default_model).toBe('model-a');
 });
 
@@ -171,7 +171,7 @@ it('classifies invalid defaults as validation and preserves the draft without wr
   const f = fixture(); const view = f.render('execution');
   fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '-1' } });
   fireEvent.submit(view.container.querySelector('form')!);
-  await screen.findByText('Use whole numbers: compaction from 0 to 100%, and non-negative goal rounds and retries.');
+  await screen.findByText('Use non-negative whole numbers for goal rounds and retries.');
   expect(view.container.querySelector('[data-error-type="validation"]')).not.toBeNull();
   expect(f.update).not.toHaveBeenCalled();
   expect(f.runtime.report).not.toHaveBeenCalled();
@@ -262,4 +262,102 @@ it('disables permission changes while disconnected or saving', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await waitFor(() => expect(f.update).toHaveBeenCalledTimes(1));
   expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+});
+
+async function chooseCompactionMode(label: string, option: string) {
+  fireEvent.click(screen.getByRole('combobox', { name: label, exact: true }));
+  await userEvent.click(await screen.findByRole('option', { name: option, exact: true }));
+}
+
+it('keeps automatic compaction simple and only loads connected custom routes on demand', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: '', compact_percent: 0 });
+  f.render('execution');
+  const group = await screen.findByRole('region', { name: 'Context compaction' });
+  expect(within(group).getByText('Automatic · conversation model and provider')).toBeDefined();
+  expect(within(group).getByText('Automatic · 50%')).toBeDefined();
+  expect(within(group).getByText('Older active context is summarized. Full conversation history remains available.')).toBeDefined();
+  expect(within(group).queryByRole('combobox')).toBeNull();
+  expect(f.client.providers.catalogs).not.toHaveBeenCalled();
+  fireEvent.click(within(group).getByRole('button', { name: 'Advanced compaction settings' }));
+  expect(f.client.providers.catalogs).not.toHaveBeenCalled();
+  await chooseCompactionMode('Summary model mode', 'Custom');
+  fireEvent.click(screen.getByRole('button', { name: 'Custom summary model' }));
+  expect(await screen.findByRole('option', { name: 'model-a · subscription' })).toBeDefined();
+  expect(screen.queryByRole('option', { name: 'offline-model · offline' })).toBeNull();
+  expect(screen.queryByRole('option', { name: 'unknown-model · unknown' })).toBeNull();
+  fireEvent.click(screen.getByRole('option', { name: 'model-a · subscription' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: 'model-a', compact_provider: 'subscription' });
+  expect(screen.getByText('Custom · model-a · subscription')).toBeDefined();
+  expect(screen.queryByRole('textbox', { name: /provider/i })).toBeNull();
+});
+
+it('retains a saved deepseek override until Automatic explicitly clears both fields', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_model: 'deepseek-v3.2', compact_provider: 'inference' });
+  f.render('execution');
+  expect(await screen.findByText('Custom · deepseek-v3.2 · inference')).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
+  expect(screen.getByRole('combobox', { name: 'Summary model mode' }).textContent).toBe('Custom');
+  await chooseCompactionMode('Summary model mode', 'Automatic');
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: '', compact_provider: '' });
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_percent');
+});
+
+it.each(['', '0', '9', '91', '10.5'])('rejects custom threshold %j without writing', async threshold => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 });
+  const view = f.render('execution');
+  fireEvent.click(await screen.findByRole('button', { name: 'Advanced compaction settings' }));
+  await chooseCompactionMode('Compaction timing', 'Custom');
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Context window percentage' }), { target: { value: threshold } });
+  fireEvent.submit(view.container.querySelector('form')!);
+  await waitFor(() => expect(view.container.querySelector('[data-error-type="validation"]')).not.toBeNull());
+  expect(f.update).not.toHaveBeenCalled();
+  expect(screen.getByRole('spinbutton', { name: 'Context window percentage' }).getAttribute('aria-invalid')).toBe('true');
+});
+
+it.each([10, 90])('saves custom threshold %i and can reset to Automatic', async threshold => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 });
+  f.render('execution');
+  fireEvent.click(await screen.findByRole('button', { name: 'Advanced compaction settings' }));
+  await chooseCompactionMode('Compaction timing', 'Custom');
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Context window percentage' }), { target: { value: String(threshold) } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0].compact_percent).toBe(threshold);
+  await chooseCompactionMode('Compaction timing', 'Automatic · 50%');
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await waitFor(() => expect(f.update).toHaveBeenCalledTimes(2));
+  expect(f.update.mock.calls[1]![0].compact_percent).toBe(0);
+});
+
+it.each([[5, 10], [95, 90], [-2, 10]])('shows the effective legacy threshold for %i without rewriting it', async (raw, effective) => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: raw });
+  const view = f.render('execution');
+  expect(await screen.findByText('Custom · ' + effective + '%')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
+  expect(view.container.querySelector('form')).toHaveProperty('noValidate', true);
+  expect((screen.getByRole('spinbutton', { name: 'Context window percentage' }) as HTMLInputElement).checkValidity()).toBe(false);
+  expect(screen.getByText('Saved value: ' + raw + '%. The effective threshold is ' + effective + '%; saving other settings keeps the saved value.')).toBeDefined();
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Retry limit' }), { target: { value: '4' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_percent');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_model');
+  expect((f.queries.getQueryData(['runtime-configuration', 'host-a']) as RuntimeConfiguration).compact_percent).toBe(raw);
+});
+
+it('ignores a provider-only legacy override until an explicit Automatic reset', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: 'inference', compact_percent: 0 });
+  f.render('execution');
+  expect(await screen.findByText('Automatic · conversation model and provider')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
+  await chooseCompactionMode('Summary model mode', 'Custom');
+  await chooseCompactionMode('Summary model mode', 'Automatic');
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: '', compact_provider: '' });
 });
