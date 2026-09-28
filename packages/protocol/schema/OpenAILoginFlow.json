@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "authorizing",
+        "succeeded",
+        "setup_required",
+        "failed",
+        "cancelled",
+        "expired",
+        "interrupted"
+      ]
+    },
+    "verification_url": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^https://auth[.]openai[.]com/codex/device$"
+    },
+    "user_code": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,64}$"
+    },
+    "expires_at": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "account-time"
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/OpenAILoginFlow",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenAILoginFlow",
+  "required": [
+    "id",
+    "state",
+    "verification_url",
+    "user_code",
+    "expires_at",
+    "failure"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "state": {
+        "not": {
+          "enum": [
+            "authorizing"
+          ]
+        }
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "user_code": {
+        "type": "null"
+      },
+      "verification_url": {
+        "type": "null"
+      }
+    }
+  }
+}

@@ -624,6 +624,7 @@ export interface DefinitionRef {
 export interface DeleteResult {
   deleted: boolean;
 }
+export interface EmptyParams {}
 export interface FormulateGoalParams {
   identity: {
     client_id: string;
@@ -1630,6 +1631,39 @@ export interface ModelAttemptsResult {
         finished_at: null | string;
       }[];
 }
+export interface OpenAIAccountStatus {
+  auth_state: "signed_out" | "stored" | "sign_in_required" | "unavailable";
+  route_state: "configured" | "missing" | "conflict" | "unavailable";
+  account_id: null | string;
+  email: null | string;
+  plan: null | string;
+  expires_at: null | string;
+  failure: null | string;
+}
+export interface OpenAIFlowParams {
+  flow_id: string;
+}
+export interface OpenAIFlowsResult {
+  /**
+   * @maxItems 64
+   */
+  items: {
+    id: string;
+    state: "authorizing" | "succeeded" | "setup_required" | "failed" | "cancelled" | "expired" | "interrupted";
+    verification_url: null | string;
+    user_code: null | string;
+    expires_at: null | string;
+    failure: null | string;
+  }[];
+}
+export interface OpenAILoginFlow {
+  id: string;
+  state: "authorizing" | "succeeded" | "setup_required" | "failed" | "cancelled" | "expired" | "interrupted";
+  verification_url: null | string;
+  user_code: null | string;
+  expires_at: null | string;
+  failure: null | string;
+}
 export type Part =
   | {
       text: string;
@@ -1688,7 +1722,20 @@ export interface RPCError {
   code: number;
   message: string;
   kind:
-    "INVALID" | "NOT_FOUND" | "CONFLICT" | "BUSY" | "LIMIT" | "STOPPED" | "CLOSED" | "IDENTITY" | "METHOD" | "INTERNAL";
+    | "INVALID"
+    | "NOT_FOUND"
+    | "CONFLICT"
+    | "BUSY"
+    | "LIMIT"
+    | "STOPPED"
+    | "CLOSED"
+    | "IDENTITY"
+    | "METHOD"
+    | "ACCOUNT_CREDENTIALS"
+    | "ACCOUNT_SETUP"
+    | "ACCOUNT_CONFIGURATION"
+    | "ACCOUNT_LOGOUT"
+    | "INTERNAL";
 }
 export interface ReadCompletionParams {
   parent_id: string;
@@ -1864,6 +1911,10 @@ export type Response = {
       | "CLOSED"
       | "IDENTITY"
       | "METHOD"
+      | "ACCOUNT_CREDENTIALS"
+      | "ACCOUNT_SETUP"
+      | "ACCOUNT_CONFIGURATION"
+      | "ACCOUNT_LOGOUT"
       | "INTERNAL";
   };
 } & {
@@ -2895,6 +2946,7 @@ export interface ContractTypes {
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
+  EmptyParams: EmptyParams;
   FormulateGoalParams: FormulateGoalParams;
   GetStateParams: GetStateParams;
   Goal: Goal;
@@ -2935,6 +2987,10 @@ export interface ContractTypes {
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
+  OpenAIAccountStatus: OpenAIAccountStatus;
+  OpenAIFlowParams: OpenAIFlowParams;
+  OpenAIFlowsResult: OpenAIFlowsResult;
+  OpenAILoginFlow: OpenAILoginFlow;
   Part: Part;
   Permission: Permission;
   PermissionsParams: PermissionsParams;
@@ -2994,6 +3050,13 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "accounts.openai.begin": { params: EmptyParams; result: OpenAILoginFlow };
+  "accounts.openai.get": { params: OpenAIFlowParams; result: OpenAILoginFlow };
+  "accounts.openai.list": { params: EmptyParams; result: OpenAIFlowsResult };
+  "accounts.openai.cancel": { params: OpenAIFlowParams; result: OpenAILoginFlow };
+  "accounts.openai.status": { params: EmptyParams; result: OpenAIAccountStatus };
+  "accounts.openai.setup": { params: EmptyParams; result: OpenAIAccountStatus };
+  "accounts.openai.logout": { params: EmptyParams; result: OpenAIAccountStatus };
   "goals.formulate": { params: FormulateGoalParams; result: Admission };
   "goals.formulation": { params: GoalFormulationParams; result: GoalFormulation };
   "goals.create": { params: CreateGoalParams; result: GoalAdmission };

@@ -29,11 +29,18 @@ declarations += [
   '',
 ].join('\n');
 
-// Embed a browser-native exact-counter validator; consumers never compile code.
+// Embed browser-native format checks; consumers never compile code. Account
+// timestamps retain nanoseconds as strings; Date is used only for calendar validity.
+function accountTime(value) {
+  if (!/^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]{0,8}[1-9])?Z$/.test(value)) return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 19) === value.slice(0, 19);
+}
 const formats = _`{counter: {type: 'string', validate: value =>
-  /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n}}`;
+  /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n}, 'account-time': {type: 'string', validate: ${_([accountTime.toString()])}}}`;
 const ajv = new Ajv({ strict: false, allErrors: true, code: { source: true, esm: true, lines: true, formats } });
 ajv.addFormat('counter', { type: 'string', validate: value => /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n });
+ajv.addFormat('account-time', { type: 'string', validate: accountTime });
 const exports = {};
 for (const [name, schema] of Object.entries(schemas)) {
   ajv.addSchema(schema);

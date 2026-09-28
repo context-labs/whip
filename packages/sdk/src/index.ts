@@ -33,6 +33,37 @@ export class Client {
     return decodeResponse(method, id, response);
   }
 
+  /** Accepted login belongs to this host. Recover a lost acknowledgement with listOpenAILogins/getOpenAILogin. */
+  beginOpenAILogin(options: CallOptions = {}): Promise<Operations['accounts.openai.begin']['result']> {
+    return this.call('accounts.openai.begin', {}, options);
+  }
+
+  getOpenAILogin(flowID: string, options: CallOptions = {}): Promise<Operations['accounts.openai.get']['result']> {
+    return this.call('accounts.openai.get', { flow_id: flowID }, options);
+  }
+
+  listOpenAILogins(options: CallOptions = {}): Promise<Operations['accounts.openai.list']['result']> {
+    return this.call('accounts.openai.list', {}, options);
+  }
+
+  cancelOpenAILogin(flowID: string, options: CallOptions = {}): Promise<Operations['accounts.openai.cancel']['result']> {
+    return this.call('accounts.openai.cancel', { flow_id: flowID }, options);
+  }
+
+  /** Local stored-credential and route evidence; this never refreshes credentials or verifies connectivity. */
+  openAIAccountStatus(options: CallOptions = {}): Promise<Operations['accounts.openai.status']['result']> {
+    return this.call('accounts.openai.status', {}, options);
+  }
+
+  /** Retry route setup using saved credentials; defaults and custom routes remain unchanged. */
+  setupOpenAIAccount(options: CallOptions = {}): Promise<Operations['accounts.openai.setup']['result']> {
+    return this.call('accounts.openai.setup', {}, options);
+  }
+
+  logoutOpenAIAccount(options: CallOptions = {}): Promise<Operations['accounts.openai.logout']['result']> {
+    return this.call('accounts.openai.logout', {}, options);
+  }
+
   /** Keep this requestID and exact payload until admission is known, including after a lost acknowledgement. */
   submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID) }, options);

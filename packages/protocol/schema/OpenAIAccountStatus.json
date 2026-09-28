@@ -1,0 +1,71 @@
+{
+  "type": "object",
+  "properties": {
+    "auth_state": {
+      "type": "string",
+      "enum": [
+        "signed_out",
+        "stored",
+        "sign_in_required",
+        "unavailable"
+      ]
+    },
+    "route_state": {
+      "type": "string",
+      "enum": [
+        "configured",
+        "missing",
+        "conflict",
+        "unavailable"
+      ]
+    },
+    "account_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    },
+    "email": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,320}$"
+    },
+    "plan": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,128}$"
+    },
+    "expires_at": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "account-time"
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/OpenAIAccountStatus",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenAIAccountStatus",
+  "required": [
+    "auth_state",
+    "route_state",
+    "account_id",
+    "email",
+    "plan",
+    "expires_at",
+    "failure"
+  ],
+  "additionalProperties": false
+}

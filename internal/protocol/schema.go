@@ -20,6 +20,14 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"accounts.openai.begin", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAILoginFlow]()},
+		{"accounts.openai.get", reflect.TypeFor[OpenAIFlowParams](), reflect.TypeFor[OpenAILoginFlow]()},
+		{"accounts.openai.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIFlowsResult]()},
+		{"accounts.openai.cancel", reflect.TypeFor[OpenAIFlowParams](), reflect.TypeFor[OpenAILoginFlow]()},
+		{"accounts.openai.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIAccountStatus]()},
+		{"accounts.openai.setup", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIAccountStatus]()},
+		{"accounts.openai.logout", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIAccountStatus]()},
+
 		{"goals.formulate", reflect.TypeFor[FormulateGoalParams](), reflect.TypeFor[Admission]()},
 		{"goals.formulation", reflect.TypeFor[GoalFormulationParams](), reflect.TypeFor[GoalFormulation]()},
 		{"goals.create", reflect.TypeFor[CreateGoalParams](), reflect.TypeFor[GoalAdmission]()},
@@ -113,12 +121,13 @@ func Types() map[string]reflect.Type {
 
 func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
-		reflect.TypeFor[ID]():              {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
-		reflect.TypeFor[Counter]():         {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
-		reflect.TypeFor[json.RawMessage](): {},
-		reflect.TypeFor[Part]():            partSchema("text", "content", "tool_call", "tool_result"),
-		reflect.TypeFor[ToolCall]():        toolCallSchema(),
-		reflect.TypeFor[ToolResult]():      toolResultSchema(),
+		reflect.TypeFor[AccountTimestamp](): {Type: "string", Format: "account-time"},
+		reflect.TypeFor[ID]():               {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
+		reflect.TypeFor[Counter]():          {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
+		reflect.TypeFor[json.RawMessage]():  {},
+		reflect.TypeFor[Part]():             partSchema("text", "content", "tool_call", "tool_result"),
+		reflect.TypeFor[ToolCall]():         toolCallSchema(),
+		reflect.TypeFor[ToolResult]():       toolResultSchema(),
 	}})
 	if err != nil {
 		return nil, err
@@ -173,6 +182,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
+		accountSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},
