@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 func run(t *testing.T, name, args string) string {

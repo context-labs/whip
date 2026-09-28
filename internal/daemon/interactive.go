@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/context-labs/whip/internal/tools/bashrun"
+	"github.com/context-labs/whip/internal/bashrun"
 )
 
 type daemonInteractiveRunner struct {

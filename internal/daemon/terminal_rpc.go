@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/terminal"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // maxTerminalCwdBytes matches the host directory operations' path bound.

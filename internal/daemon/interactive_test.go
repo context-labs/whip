@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 func TestDaemonInteractiveRunnerForwardsBytesAndOrdersEvents(t *testing.T) {
