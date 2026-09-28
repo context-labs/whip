@@ -2643,7 +2643,8 @@ passed: store race175.402s, runtime179.862s, process118.085s, runner17.896s,
 RPC20.170s, protocol7.033s and remaining package races, generated contracts and
 SDK checks. The integrated v4 fixture passed25.417s, retained fixture2.893s and
 daemon regressions2.725s. Analysis found zero lint issues and no reachable
-vulnerabilities. Hosted validation is pending; logs use `/tmp/whip-forks-{phase,analysis}.log` and
+vulnerabilities. Hosted Linux/macOS/analysis checks subsequently passed at
+`3577b5848` in run36496511586; logs use `/tmp/whip-forks-{phase,analysis}.log` and
 `/tmp/whip-fork-public-{focused,race,fixture,contract,sdk,lint}.log`.
 
 
@@ -2691,3 +2692,47 @@ passed25.449s, retained fixture2.886s and daemon regressions2.745s. Analysis fou
 zero lint issues and no reachable vulnerabilities. Hosted validation is pending.
 Logs use `/tmp/whip-inference-accounts-{phase,analysis}.log` and
 `/tmp/whip-inference-public-{race,boundaries,contract,sdk,fixture,lint}.log`.
+
+
+## Durable scoped workspace snapshots and restore
+
+Inference.net onboarding is published in draft
+[PR241](https://github.com/context-labs/whip/pull/241) at `11443df57`, stacked on
+[PR240](https://github.com/context-labs/whip/pull/240). The workspace increment
+integrates core `3ae273938` as `bb37bc70a` and public leaf `984972272` as `37ed0004c`.
+Fresh schema advances to34; config11/development protocol4 are unchanged. The
+active gate adds `internal/workspace` with explicit import-boundary checks.
+
+Human workspace actions have their own SQL ledger, with no fake turn/cell
+identities. Exact request retries resolve before current lifecycle/path checks.
+Atomic idle-owner claims block ordinary execution admission while the external
+workflow runs. Capture records a private Git object before CAS pin publication;
+restore overlays only captured directory paths, with explicit tracked/untracked/
+later-file/staging limitations. Worktree/gitdir/scope identities and expected pins
+are revalidated. Pins survive restore and must be released before owner deletion.
+Claimed restart and partial failures stay uncertain and never automatically replay.
+Process groups, cross-runtime writer lock, output bounds and joined shutdown
+replace unowned Git subprocesses. Human/other-session writers remain independent.
+
+Six RPC/SDK methods expose action/snapshot metadata and bounded pages without
+private paths/objects. Production process acceptance drops capture/restore/release
+acknowledgements, observes exact actions, verifies scoped overlay, restarts with
+SIGKILL and retries after owner deletion. Canonical docs distinguish workspace
+restore from conversation rewind and state the limits truthfully.
+
+Core race/shuffle passed session5.310s/store174.634s/workspace4.587s. Runtime
+behavior tests passed177.983s; an initial sole import-allowlist failure was corrected
+and its focused race passed1.543s. Final focused runtime race10.805s and adapter
+race4.827s passed, as did build/vet/Linux adapter build/pinned lint. Public focused
+races passed protocol2.999s/RPC4.516s/store7.349s/runtime14.264s, with final protocol/
+RPC retest1.276s/4.020s after lint-only changes. Generated interchange/drift,
+16 SDK tests, build/vet/lint and full production fixture28.127s passed; the workspace
+stage took2.094s. Parent reviewed core and public surfaces; the earlier path-output
+fix preserves trailing-space directory names and exact Git ref matching.
+Integrated phase/analysis gates passed: store race177.643s, runtime186.105s,
+process112.211s, workspace10.358s, RPC21.497s and all other active-package
+races, generated contracts and SDK checks. The production fixture passed26.587s
+(workspace1.251s), retained fixture3.161s and daemon regressions2.771s. Analysis
+reported zero lint issues and no reachable vulnerabilities. Hosted validation is
+pending. Logs use `/tmp/whip-workspace-{phase,analysis}.log`. Product-client adoption, automatic titles
+and the other unresolved Phase5 families remain work; Phases6–7 are not complete.
