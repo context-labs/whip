@@ -162,7 +162,7 @@ func TestResponsesCompletedItemsAndFailures(t *testing.T) {
 		{name: "oversized framing", body: ":" + strings.Repeat("x", maxResponseBytes)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			response, err := decodeResponsesStream(t.Context(), strings.NewReader(tc.body), strings.Repeat("a", 64), map[string]bool{"execute": true}, nil)
+			response, err := decodeResponsesStream(t.Context(), strings.NewReader(tc.body), strings.Repeat("a", 64), map[string]bool{"execute": true}, nil, false)
 			if tc.valid {
 				if err != nil || response.Continuation == nil || len(response.Parts) != 2 {
 					t.Fatalf("response=%+v error=%v", response, err)

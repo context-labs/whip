@@ -72,6 +72,12 @@ type Prepared struct {
 	Snapshot    session.ModelRequestSnapshot
 	Execute     func(context.Context, func(Chunk)) (Response, error)
 	MaxAttempts int
+	// BeforeDispatch revalidates ephemeral authority after reservation. Failure
+	// releases the undispatched reservation; it never contacts the provider.
+	BeforeDispatch func(context.Context) error
+	// RefreshCredentials is an optional replacement for the same frozen request,
+	// invoked once only after a confirmed 401 has been durably settled.
+	RefreshCredentials func(context.Context) (Prepared, error)
 	// ContextWindowTokens is optional host policy for context planning, not a
 	// measured request size or the durable input reservation bound.
 	ContextWindowTokens *int64

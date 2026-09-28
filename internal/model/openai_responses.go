@@ -43,7 +43,7 @@ func encodeResponses(request Request, scope string, maxTokens int64) ([]byte, er
 		if err := session.ValidateMessage(message.Role, message.Parts); err != nil {
 			return nil, err
 		}
-		if saved := message.Continuation; message.Role == session.Assistant && saved != nil && saved.Scope == scope {
+		if saved := message.Continuation; (request.Purpose == "" || request.Purpose == "turn") && message.Role == session.Assistant && saved != nil && saved.Scope == scope {
 			if err := saved.Validate(); err != nil {
 				return nil, errors.New("saved provider continuation is invalid")
 			}
@@ -134,7 +134,10 @@ func encodeResponses(request Request, scope string, maxTokens int64) ([]byte, er
 	}
 	wire := map[string]any{
 		"model": request.Selection.Name, "instructions": strings.Join(instructions, "\n\n"), "input": input,
-		"tools": functions, "stream": true, "store": false, "include": []string{"reasoning.encrypted_content"}, "max_output_tokens": maxTokens,
+		"tools": functions, "stream": true, "store": false, "include": []string{"reasoning.encrypted_content"},
+	}
+	if maxTokens > 0 {
+		wire["max_output_tokens"] = maxTokens
 	}
 	if request.Selection.Effort != "" && request.Selection.Effort != "off" {
 		wire["reasoning"] = map[string]string{"effort": request.Selection.Effort, "summary": "auto"}
@@ -229,7 +232,7 @@ func decodeResponsesUsage(raw json.RawMessage) (session.ModelUsage, *int64, *str
 	return decodeChatUsage(translated)
 }
 
-func executeResponses(ctx context.Context, client *http.Client, url, credential, scope string, body []byte, allowed map[string]bool, emit func(Chunk)) (Response, error) {
+func executeResponses(ctx context.Context, client *http.Client, url string, auth responseAuth, scope string, body []byte, allowed map[string]bool, emit func(Chunk)) (Response, error) {
 	if err := ctx.Err(); err != nil {
 		return Response{}, err
 	}
@@ -239,9 +242,8 @@ func executeResponses(ctx context.Context, client *http.Client, url, credential,
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream, application/json")
-	if credential != "" {
-		request.Header.Set("Authorization", "Bearer "+credential)
-	}
+	auth.setHeaders(request)
+
 	response, err := client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -252,7 +254,7 @@ func executeResponses(ctx context.Context, client *http.Client, url, credential,
 	defer func() { _ = response.Body.Close() }()
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode >= 200 && response.StatusCode < 300 && strings.EqualFold(mediaType, "text/event-stream") {
-		return decodeResponsesStream(ctx, response.Body, scope, allowed, emit)
+		return decodeResponsesStream(ctx, response.Body, scope, allowed, emit, auth.accountID != "")
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
@@ -278,12 +280,19 @@ func executeResponses(ctx context.Context, client *http.Client, url, credential,
 		if contextLimit {
 			message = fmt.Sprintf("provider rejected request context (HTTP %d)", status)
 		}
-		return result, &CallError{
+		failure := &CallError{
 			StatusCode: status, ContextLimit: contextLimit, Message: message, RetryAfter: retryAfter(response.Header.Get("Retry-After")),
 			Retryable: status == http.StatusTooManyRequests || status == http.StatusInternalServerError || status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout,
 		}
+		if auth.accountID != "" {
+			failure.AuthRejected = status == http.StatusUnauthorized && !strings.EqualFold(mediaType, "text/event-stream")
+			if message := subscriptionDiagnostic(raw); message != "" {
+				failure.Message, failure.Retryable, failure.AuthRejected = message, false, false
+			}
+		}
+		return result, failure
 	}
-	state := responsesStream{response: result, scope: scope, allowed: allowed, emit: emit, calls: map[int]*responseStreamCall{}}
+	state := responsesStream{response: result, subscription: auth.accountID != "", scope: scope, allowed: allowed, emit: emit, calls: map[int]*responseStreamCall{}}
 	if err := state.complete(raw); err != nil {
 		return state.response, err
 	}

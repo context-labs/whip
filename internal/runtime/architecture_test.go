@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/runtime", "./internal/rpc", "./internal/client")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/openaiauth", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/runtime", "./internal/rpc", "./internal/client")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -19,7 +19,9 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	const prefix = "github.com/context-labs/whip/internal/"
 	allowed := map[string]map[string]bool{
-		"model": {"session": true}, "runner": {"session": true, "model": true},
+		"model": {"session": true, "openaiauth": true}, "runner": {"session": true, "model": true},
+		// Credentials remain a host-owned leaf, independent of session execution.
+		"openaiauth":  {},
 		"tool":        {"session": true, "capability": true},
 		"instruction": {"session": true, "skills": true},
 		"skills":      {"buildinfo": true},

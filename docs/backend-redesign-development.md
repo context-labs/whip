@@ -1843,3 +1843,45 @@ remain pending at this checkpoint in
 [run 36473179604](https://github.com/context-labs/whip/actions/runs/36473179604).
 Goals are not yet implemented, so the combined goals/schedules acceptance
 criterion and the rest of Phases 5–7 remain open.
+
+## Subscription model and runner boundary
+
+The `openai-codex` model adapter now shares Responses encoding/decoding and the
+ordinary recorded-attempt loop. One host-owned credential manager supplies
+ephemeral captures. A guard after reservation rejects stale captures before
+ledger dispatch and releases the unused reservation. A second guard immediately
+before HTTP prevents requests after a later login change. If the ledger already
+recorded dispatch, that later refusal conservatively retains failed/unknown
+accounting; it never invents provider zeroes or sends the request again.
+
+A complete 401 settles first. One credential refresh can then replace only the
+credential closure, preserving body, digest, route, prices and model; the next
+request receives its own attempt and reservation within the existing attempt
+limit. A second 401, cancelled/failed refresh, uncertain response or settlement
+failure stops dispatch. Recognized hard quota failures remain permanent even
+when optional reset metadata is malformed. Safe diagnostics retain no raw
+provider body or token.
+
+The fixed subscription endpoint omits a wire output cap. Known retained model
+names reserve the pinned natural 128000-token ceiling; unknown names and smaller
+explicit caps fail before credential capture. This is retained wire-policy
+evidence, not a claim of live model availability. Unknown subscription prices
+remain unknown, so finite spend limits fail closed. Private continuation binds
+to fixed route, account and model. Token rotation and same-account re-login can
+retain that immutable evidence for new authorized requests; login generation
+still invalidates previously prepared work. Helper calls use visible content
+only.
+
+The isolated slice `6f8625f19`, integrated as `d86bdc093`, passed full model/runner
+race/shuffle suites three times, vet and pinned lint. Final tests after hard-quota
+parsing refinement passed again. Integrated model/runner/auth race suites passed
+in 3.284s/6.735s/2.053s, `task check:fast` passed, and `task check:analysis`
+reported zero lint issues and no reachable vulnerabilities. The architecture
+gate now permits model to use the independent auth leaf and checks that the auth
+package imports no other internal subsystem. Logs are
+`/tmp/whip-subscription-core-{race,fast,analysis}.log`.
+
+This checkpoint does not complete subscription support: host-config resolution,
+command-owned manager lifetime and real-runtime acceptance are the next slice.
+Public authentication/onboarding and client model catalogs remain Phase 6 work.
+Config/schema/protocol versions are unchanged by the model/runner slice.

@@ -627,6 +627,69 @@ Compaction implementation decisions:
   skip them. Before introducing omissions, provide bounded own-history metadata,
   exact reads and search against a fixed raw-history boundary.
 
+Goal implementation decisions (work remains open):
+
+- A stable goal ID identifies immutable text and continuation allowance. Its row
+  owns revision, state and consumed continuations. The current goal derives from
+  the latest successfully created per-session ordinal, including a terminal
+  goal; there is no second mutable current-goal pointer. At most one goal is
+  armed or paused. Replacing text creates a new ID. Deletion retains an identity
+  tombstone and clears text.
+- Creation supplies an expected current ID/revision, or null when no goal has
+  ever been selected. Resolve exact ID/digest retries before current state/CAS
+  checks; retrying an old goal cannot select it again. Replacing an open goal,
+  cancelling its unclaimed inputs, and optionally admitting the first ordinary
+  prompt commit together. Queue/write-limit failure rolls back the creation.
+  Do not widen ordinary input receipts into a generic command ledger.
+- Initial, resumed and automatic goal work uses ordinary inputs with explicit
+  goal provenance. Resume has an ordinary request identity and expected goal
+  revision; it never resets consumed continuations. Omitted allowance defaults
+  to 100 additional continuations; explicit zero allows an initial run with no
+  automatic continuation. Exhaustion requires a new goal ID for a new allowance.
+  Admission/replacement/resume retain the existing busy-session restriction.
+- Each ordinary prompt turn, including human or mail work, captures the armed
+  goal identity/revision. Claiming an old goal-owned input cannot bind it to a
+  replacement. Successful Finish either applies an exact completion intent or
+  atomically admits one continuation and advances its durable count. Exhaustion,
+  interruption, failure and cancellation pause continuation explicitly; restart
+  never resets the allowance or replays an uncertain active turn. Semantic queue
+  rejection pauses the goal while preserving successful turn settlement.
+- `GoalsEnabled` is captured session configuration, copied from the definition.
+  It is eligibility, never a grant. Typed `goals.complete` uses normal operation
+  admission and a tree-scoped grant, with additional captured-own-goal checks.
+  Its successful operation is the completion intent; no duplicate intent table
+  is needed. Finish requires success, valid final output and the unchanged goal.
+  Root permission interaction and child delegation follow ordinary rules.
+  The legacy `GOAL_MET` text heuristic is retired.
+- Cancelling a goal prevents future continuation and cancels its unclaimed
+  inputs. It requests cancellation only for its active goal-owned input; a human
+  turn that merely captured that goal remains independently owned. Cancellation
+  targets the stable goal ID, so it does not require a revision that may advance
+  while the user is stopping it. Disabling goals prevents future admissions and
+  must leave pending work visibly paused rather than repeatedly unclaimable.
+- Formulation from context is a maintenance input with a captured raw-history
+  window and main model selection. It creates no conversation messages, cells,
+  mail delivery or ordinary preview. Use the same helper-attempt loop as
+  compaction and discard private provider continuation. Settle billing and the
+  immutable candidate together; successful CAS can create the goal and first
+  ordinary input in that transaction. A local savepoint around activation keeps
+  billed candidate evidence while rolling back semantic CAS/capacity rejection.
+  Real SQL errors roll back settlement and permit SQL-only retries.
+- Formulation acceptance and maintenance-turn outcome are distinct. A crash
+  after acceptance but before Finish leaves one accepted goal/input and an
+  interrupted helper turn; recovery preserves the accepted work. An immutable
+  origin-attempt association proves acceptance even after goal replacement or
+  deletion. Rejected candidates never enter the goals table. Exact settlement
+  replay cannot activate a previously rejected candidate when capacity returns.
+
+Deliver goal records/admission first, then turn capture/continuation and typed
+completion, then formulation and client integration. Acceptance must cover real
+transaction rollback, retries after later state changes, authority, output
+failure, cancellation timing, durable continuation limits, restart, both engines
+and SDK acceptance/outcome distinction. These decisions deliberately replace
+legacy in-memory round resets and automatic rearming after failure; they are not
+claims that goal support is already implemented.
+
 Acceptance:
 
 - [ ] Each retained capability is implemented, or its explicit retirement is

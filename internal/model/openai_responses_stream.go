@@ -18,14 +18,15 @@ type responseStreamCall struct {
 }
 
 type responsesStream struct {
-	response Response
-	scope    string
-	allowed  map[string]bool
-	emit     func(Chunk)
-	chunks   int
-	text     strings.Builder
-	calls    map[int]*responseStreamCall
-	items    []json.RawMessage
+	response     Response
+	subscription bool
+	scope        string
+	allowed      map[string]bool
+	emit         func(Chunk)
+	chunks       int
+	text         strings.Builder
+	calls        map[int]*responseStreamCall
+	items        []json.RawMessage
 }
 
 func (s *responsesStream) chunk(value Chunk) error {
@@ -93,10 +94,20 @@ func (s *responsesStream) consume(raw []byte) (bool, error) {
 			if json.Unmarshal(event.Response, &response) == nil {
 				s.response.Usage, s.response.ReportedCostNanoUSD, s.response.UsageNote = decodeResponsesUsage(response.Usage)
 			}
+			if s.subscription {
+				if message := subscriptionDiagnostic(event.Response); message != "" {
+					return false, streamError(message)
+				}
+			}
 			return false, streamError("provider response did not complete; tool calls were discarded")
 		}
 		return true, s.complete(event.Response)
 	case "error":
+		if s.subscription {
+			if message := subscriptionDiagnostic(raw); message != "" {
+				return false, streamError(message)
+			}
+		}
 		return false, streamError("provider returned a stream error; outcome is unknown")
 	}
 	return false, nil
@@ -114,6 +125,11 @@ func (s *responsesStream) complete(raw json.RawMessage) error {
 	s.response.Usage, s.response.ReportedCostNanoUSD, s.response.UsageNote = decodeResponsesUsage(envelope.Usage)
 	var status string
 	if json.Unmarshal(envelope.Status, &status) != nil || status != "completed" {
+		if s.subscription {
+			if message := subscriptionDiagnostic(raw); message != "" {
+				return streamError(message)
+			}
+		}
 		return streamError("provider response did not complete; tool calls were discarded")
 	}
 	output := envelope.Output
@@ -185,8 +201,8 @@ func (s *responsesStream) complete(raw json.RawMessage) error {
 
 // Responses uses response.completed as its boundary. [DONE] alone never proves
 // completion. Provisional deltas cannot become executable transcript parts.
-func decodeResponsesStream(ctx context.Context, reader io.Reader, scope string, allowed map[string]bool, emit func(Chunk)) (Response, error) {
-	state := responsesStream{scope: scope, allowed: allowed, emit: emit, calls: map[int]*responseStreamCall{}}
+func decodeResponsesStream(ctx context.Context, reader io.Reader, scope string, allowed map[string]bool, emit func(Chunk), subscription bool) (Response, error) {
+	state := responsesStream{subscription: subscription, scope: scope, allowed: allowed, emit: emit, calls: map[int]*responseStreamCall{}}
 	scanner := bufio.NewScanner(io.LimitReader(reader, maxResponseBytes+1))
 	scanner.Buffer(make([]byte, 4096), maxResponseBytes+2)
 	scanner.Split(splitStreamLine)
