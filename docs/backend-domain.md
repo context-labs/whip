@@ -217,9 +217,19 @@ blocks the intent. An already authorized successful operation remains evidence
 after later revocation; goal cancellation or replacement still defeats completion.
 The legacy `GOAL_MET` text heuristic is not used.
 
-This increment implements the internal execution boundary. Runtime/guest commands,
-public RPC/SDK controls and formulation remain pending; there is no public goal
-start command until those controls are connected.
+Runtime controls and `goals.create/current/get/resume/cancel` expose these same
+store transitions. The SDK's matching methods retain no goal state. Creation
+returns an optional ordinary admission whose receipt belongs to the reserved
+`goal` client namespace; inspect it using its full returned identity. Caller-owned
+resume receipts use the SDK's ordinary recover/wait helpers. A create retry can
+return a superseded goal with `current: false`, or a deletion tombstone, without
+changing selection. Current selection alone never implies the goal is armed.
+
+Both guest engines expose typed `goals.complete` through the normal operation
+dispatcher. Its success accepts an intent; clients observe the goal and terminal
+turn independently to determine whether completion actually committed. Aborting
+client observation does not cancel goal execution. Formulation from context and
+product-client adoption remain pending.
 
 ## Content boundary
 

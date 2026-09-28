@@ -208,6 +208,21 @@ authority or an absolute host path.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 
+The v4 goal API exposes immutable objectives with revisioned lifecycle and a
+durable continuation allowance. `currentGoal` can return a completed, cancelled
+or paused record; inspect `state` rather than treating selection as activity.
+Keep the caller-generated goal ID and exact create payload for uncertain retries,
+including the expected prior ID/revision. A retry returns the original goal and
+does not select it again. Initial goal work uses the returned receipt's full
+identity in the reserved `goal` namespace; `client.wait(requestID)` instead uses
+the client's own identity and applies to explicit resume requests. Disconnection
+or aborted observation does not cancel work. Explicit cancellation targets the
+goal's stable ID and only its exact active goal-owned turn, leaving a human turn
+that merely captured the goal independently owned. A successful guest completion
+operation accepts an intent; only successful final turn settlement completes the
+unchanged goal. Do not create a client-side continuation loop or decrement the
+server's allowance locally.
+
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |
 | `@whip/legacy-protocol` — `packages/legacy-protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |

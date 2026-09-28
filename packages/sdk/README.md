@@ -38,6 +38,39 @@ cursors. The client keeps no transcript cache or second execution state machine.
 Retries have separate attempt IDs, a shared logical-call ID, and a link to the
 completed response. Unknown usage/cost is `null`, independently of known zero.
 
+Goal controls use the same durable input and turn lifecycle. Keep the goal ID
+and exact creation payload before sending:
+
+```ts
+const admitted = await client.createGoal({
+  session_id: sessionID,
+  expected_current: null, // Or the current goal's { id, revision } when replacing.
+  spec: { text: 'Complete the migration', max_continuations: '10' },
+  start: true,
+}, goalID);
+if (admitted.initial) {
+  const status = await client.call('receipts.get', admitted.initial.receipt.identity);
+}
+const { goal } = await client.currentGoal(sessionID);
+```
+
+Initial work belongs to the reserved `goal` receipt namespace. Observe its full
+returned identity with `receipts.get`; `client.wait(requestID)` and `recover`
+use your own client identity. Explicit `resumeGoal(sessionID, {id, revision},
+requestID)` returns a caller-owned admission, so ordinary `wait`/`recover` apply.
+Resume never resets consumed continuations. Omitted `max_continuations` means
+100 additional runs; `'0'` allows the initial run without automatic continuation.
+
+`getGoal` reads a stable ID, and `currentGoal` reads the latest created record,
+including terminal states. Retrying an old creation does not select it again:
+check `current`, nullable `goal`, and `deleted_at` in the result. `cancelGoal`
+uses the stable ID and requests cancellation only of its exact active goal-owned
+turn. An independently submitted human turn can continue after goal cancellation.
+`goals_enabled` is captured configuration, not an authority grant. Guest
+`goals.complete` requires ordinary scoped permission and accepts only a completion
+intent; the unchanged goal completes when that turn successfully settles valid
+output. Clients must not infer goal completion from the operation result alone.
+
 Use `content.put` with `{session_id, reference_id, media_type, data_base64}` to
 upload up to 4 MiB. Generate and retain a unique reference ID before sending;
 retrying it with the same owner, bytes and media type returns the same reference.

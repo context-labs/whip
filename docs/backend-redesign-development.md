@@ -2122,3 +2122,35 @@ passed with zero lint issues and no reachable vulnerabilities. Logs are
 `/tmp/whip-scheduler-fairness-race.log` and
 `/tmp/whip-scheduler-fairness-analysis.log`. The integrated fast gate also passed
 (`/tmp/whip-scheduler-fairness-fast.log`); hosted validation of this repair is pending.
+
+
+## Public goal controls and authorized completion
+
+Integrated isolated commit `ec67684f8` as `a45cfb708`. Runtime and generated
+RPC/SDK controls expose create, current, get, resume and cancel through the same
+durable store transitions. Both guest engines dispatch `goals.complete` through
+ordinary authority and operation settlement. Its accepted result is an intent;
+only successful final turn settlement can complete the unchanged goal.
+
+The SDK process fixture now has a named goals stage. It covers exact/default
+allowances, stale creation replay without reselection, disabled eligibility,
+lost initial acknowledgement followed by SIGKILL, unclaimed-input cleanup,
+dispatched interruption without replay, explicit resume without allowance reset,
+and root/child completion through both engines after one continuation. Runtime
+tests additionally cover one-use permission consumption, ancestor revocation,
+accepted intent followed by invalid output, and cancellation that distinguishes
+a goal-owned turn from an independently submitted human turn. Completed goal
+evidence and transcript remain stable across restart.
+
+The SDK guide and canonical frontend/domain guides explain the receipt boundary:
+initial work uses the returned reserved `goal` identity; caller-owned resume
+work uses ordinary SDK wait/recovery. Clients keep neither a second goal state
+machine nor a continuation loop. Current selection is not synonymous with armed.
+
+Integrated fast, contract interchange/drift, SDK checks and the production SDK
+process fixture passed (16.439s for the full fixture). Focused goal race/shuffle
+tests passed across runtime, RPC and protocol. Integrated analysis reported zero
+lint issues and no reachable vulnerabilities. Evidence is in
+`/tmp/whip-goal-api-{fast,contract,sdk,fixture,race,analysis}.log`.
+Fresh config8/schema28/protocol development major4 are unchanged. Hosted
+validation is pending. Goal formulation and product-client adoption remain open.
