@@ -40,6 +40,76 @@ export const manifest = {
       "result": "OpenAIAccountStatus"
     },
     {
+      "name": "accounts.inference.begin",
+      "params": "EmptyParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.get",
+      "params": "InferenceFlowParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.list",
+      "params": "EmptyParams",
+      "result": "InferenceFlowsResult"
+    },
+    {
+      "name": "accounts.inference.cancel",
+      "params": "InferenceFlowParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.team",
+      "params": "InferenceTeamParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.project",
+      "params": "InferenceProjectParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.create_project",
+      "params": "InferenceCreateProjectParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.retry",
+      "params": "InferenceFlowParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.rotate",
+      "params": "EmptyParams",
+      "result": "InferenceFlow"
+    },
+    {
+      "name": "accounts.inference.status",
+      "params": "EmptyParams",
+      "result": "InferenceAccountStatus"
+    },
+    {
+      "name": "accounts.inference.setup",
+      "params": "EmptyParams",
+      "result": "InferenceAccountStatus"
+    },
+    {
+      "name": "accounts.inference.logout",
+      "params": "EmptyParams",
+      "result": "InferenceLogoutResult"
+    },
+    {
+      "name": "accounts.inference.cleanup",
+      "params": "EmptyParams",
+      "result": "InferenceCleanupResult"
+    },
+    {
+      "name": "accounts.inference.retry_cleanup",
+      "params": "EmptyParams",
+      "result": "InferenceCleanupResult"
+    },
+    {
       "name": "goals.formulate",
       "params": "FormulateGoalParams",
       "result": "Admission"

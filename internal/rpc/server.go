@@ -13,21 +13,30 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/account"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
 )
 
+// HostServices are borrowed command-owned authorities, separate from sessions.
+type HostServices struct {
+	OpenAI    *account.Service
+	Inference *inferenceaccount.Service
+	Config    *config.Authority
+}
+
 type Server struct {
 	runtime  *runtime.Runtime
-	accounts *account.Service
+	host     HostServices
 	listener *net.UnixListener
 	serving  atomic.Bool
 }
 
 // Listen uses the private directory whose execution lock the runtime holds.
 // Runtime.Open already removed any dead owner's socket under that lock.
-func Listen(r *runtime.Runtime, accounts *account.Service) (*Server, error) {
+func Listen(r *runtime.Runtime, host HostServices) (*Server, error) {
 	path := r.SocketPath()
 	if len(path) > 100 {
 		return nil, errors.New("runtime socket path exceeds 100 bytes; choose a shorter directory")
@@ -40,7 +49,7 @@ func Listen(r *runtime.Runtime, accounts *account.Service) (*Server, error) {
 		_ = listener.Close()
 		return nil, err
 	}
-	return &Server{runtime: r, accounts: accounts, listener: listener}, nil
+	return &Server{runtime: r, host: host, listener: listener}, nil
 }
 func (s *Server) Close() error { return s.listener.Close() }
 
@@ -113,7 +122,7 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 			err = fmt.Errorf("%w: initialize is required", session.ErrInvalid)
 		} else {
 			requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			result, err = Dispatch(requestCtx, s.runtime, s.accounts, request.Method, request.Params)
+			result, err = Dispatch(requestCtx, s.runtime, s.host, request.Method, request.Params)
 			cancel()
 		}
 		response := protocol.Response{JSONRPC: "2.0", ID: request.ID}

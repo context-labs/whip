@@ -68,8 +68,42 @@ func accountSchema(schema *jsonschema.Schema, t reflect.Type) {
 	case reflect.TypeFor[OpenAIFlowsResult]():
 		schema.Properties["items"].Type, schema.Properties["items"].Types = "array", nil
 		schema.Properties["items"].MaxItems = new(64)
+	case reflect.TypeFor[InferenceFlow]():
+		bounds = map[string]int{"user_code": 64, "team_id": 256, "project_id": 256, "failure": 512}
+		for _, field := range []string{"teams", "projects"} {
+			schema.Properties[field].Type, schema.Properties[field].Types = "array", nil
+			schema.Properties[field].MaxItems = new(256)
+		}
+		schema.If = &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"state": {Not: &jsonschema.Schema{Enum: []any{"authorizing"}}}}}
+		schema.Then = &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"user_code": {Type: "null"}, "verification_url": {Type: "null"}}}
+	case reflect.TypeFor[InferenceTeam](), reflect.TypeFor[InferenceProject]():
+		bounds = map[string]int{"id": 256}
+		schema.Properties["name"].Pattern = `^[^\x00-\x1f\x7f]{0,512}$`
+		if slug := schema.Properties["slug"]; slug != nil {
+			slug.Pattern = `^[^\x00-\x1f\x7f]{0,256}$`
+		}
+	case reflect.TypeFor[InferenceAccountStatus]():
+		bounds = map[string]int{"user_id": 256, "email": 1024, "team_id": 256, "team_name": 512, "project_id": 256, "project_name": 512, "failure": 512}
+	case reflect.TypeFor[InferenceCleanup]():
+		bounds = map[string]int{"team_id": 256, "key_id": 256, "failure": 512}
+	case reflect.TypeFor[InferenceFlowsResult](), reflect.TypeFor[InferenceCleanupResult]():
+		if t == reflect.TypeFor[InferenceCleanupResult]() {
+			bounds = map[string]int{"failure": 512}
+		}
+		schema.Properties["items"].Type, schema.Properties["items"].Types = "array", nil
+		schema.Properties["items"].MaxItems = new(64)
+	case reflect.TypeFor[InferenceLogoutResult]():
+		bounds = map[string]int{"local_failure": 512, "cleanup_failure": 512}
+		schema.Properties["cleanup"].Type, schema.Properties["cleanup"].Types = "array", nil
+		schema.Properties["cleanup"].MaxItems = new(64)
 	}
 	for field, limit := range bounds {
-		schema.Properties[field].Pattern = `^[^\x00-\x1f\x7f]{1,` + strconv.Itoa(limit) + `}$`
+		// Split long bounds for Go's repeat limit. Keeping this in the pattern
+		// also leaves standalone browser validators free of runtime imports.
+		pattern := `^[^\x00-\x1f\x7f]{1,` + strconv.Itoa(min(limit, 1000)) + `}`
+		if limit > 1000 {
+			pattern += `[^\x00-\x1f\x7f]{0,` + strconv.Itoa(limit-1000) + `}`
+		}
+		schema.Properties[field].Pattern = pattern + `$`
 	}
 }

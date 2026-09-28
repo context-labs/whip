@@ -1291,6 +1291,167 @@ export interface HostOperationsResult {
         finished_at: null | string;
       }[];
 }
+export interface InferenceAccountStatus {
+  management_state: "absent" | "stored" | "expired" | "unavailable";
+  inference_state: "absent" | "stored" | "unavailable";
+  route_state: "missing" | "configured" | "conflict" | "unavailable";
+  user_id: null | string;
+  email: null | string;
+  expires_at: null | string;
+  team_id: null | string;
+  team_name: null | string;
+  project_id: null | string;
+  project_name: null | string;
+  failure: null | string;
+  cleanup_pending: boolean;
+}
+export interface InferenceCleanupResult {
+  /**
+   * @maxItems 64
+   */
+  items: {
+    id: string;
+    expires_at: string;
+    team_id: null | string;
+    key_id: null | string;
+    key_state: "absent" | "pending" | "archived";
+    session_state: "absent" | "pending" | "retained" | "signed_out";
+    failure: null | string;
+  }[];
+  failure: null | string;
+}
+export interface InferenceCreateProjectParams {
+  flow_id: string;
+  name: string;
+}
+export interface InferenceFlow {
+  id: string;
+  kind: null | string;
+  state:
+    | "authorizing"
+    | "choose_team"
+    | "loading_projects"
+    | "choose_project"
+    | "creating_project"
+    | "provisioning"
+    | "persistence_required"
+    | "setup_required"
+    | "cleanup_required"
+    | "succeeded"
+    | "failed"
+    | "uncertain"
+    | "cancelled"
+    | "expired"
+    | "interrupted";
+  verification_url: null | string;
+  user_code: null | string;
+  expires_at: null | string;
+  /**
+   * @maxItems 256
+   */
+  teams: {
+    id: string;
+    name: string;
+    slug: string;
+  }[];
+  /**
+   * @maxItems 256
+   */
+  projects: {
+    id: string;
+    name: string;
+  }[];
+  team_id: null | string;
+  project_id: null | string;
+  failure: null | string;
+}
+export interface InferenceFlowParams {
+  flow_id: string;
+}
+export interface InferenceFlowsResult {
+  /**
+   * @maxItems 64
+   */
+  items: {
+    id: string;
+    kind: null | string;
+    state:
+      | "authorizing"
+      | "choose_team"
+      | "loading_projects"
+      | "choose_project"
+      | "creating_project"
+      | "provisioning"
+      | "persistence_required"
+      | "setup_required"
+      | "cleanup_required"
+      | "succeeded"
+      | "failed"
+      | "uncertain"
+      | "cancelled"
+      | "expired"
+      | "interrupted";
+    verification_url: null | string;
+    user_code: null | string;
+    expires_at: null | string;
+    /**
+     * @maxItems 256
+     */
+    teams: {
+      id: string;
+      name: string;
+      slug: string;
+    }[];
+    /**
+     * @maxItems 256
+     */
+    projects: {
+      id: string;
+      name: string;
+    }[];
+    team_id: null | string;
+    project_id: null | string;
+    failure: null | string;
+  }[];
+}
+export interface InferenceLogoutResult {
+  status: {
+    management_state: "absent" | "stored" | "expired" | "unavailable";
+    inference_state: "absent" | "stored" | "unavailable";
+    route_state: "missing" | "configured" | "conflict" | "unavailable";
+    user_id: null | string;
+    email: null | string;
+    expires_at: null | string;
+    team_id: null | string;
+    team_name: null | string;
+    project_id: null | string;
+    project_name: null | string;
+    failure: null | string;
+    cleanup_pending: boolean;
+  };
+  local_failure: null | string;
+  cleanup_failure: null | string;
+  /**
+   * @maxItems 64
+   */
+  cleanup: {
+    id: string;
+    expires_at: string;
+    team_id: null | string;
+    key_id: null | string;
+    key_state: "absent" | "pending" | "archived";
+    session_state: "absent" | "pending" | "retained" | "signed_out";
+    failure: null | string;
+  }[];
+}
+export interface InferenceProjectParams {
+  flow_id: string;
+  project_id: string;
+}
+export interface InferenceTeamParams {
+  flow_id: string;
+  team_id: string;
+}
 export interface InitializeParams {
   major: number;
   expected_runtime_id?: null | string;
@@ -1950,6 +2111,7 @@ export interface RPCError {
     | "ACCOUNT_SETUP"
     | "ACCOUNT_CONFIGURATION"
     | "ACCOUNT_LOGOUT"
+    | "ACCOUNT_MANAGEMENT"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -2139,6 +2301,7 @@ export type Response = {
       | "ACCOUNT_SETUP"
       | "ACCOUNT_CONFIGURATION"
       | "ACCOUNT_LOGOUT"
+      | "ACCOUNT_MANAGEMENT"
       | "INTERNAL";
   };
 } & {
@@ -3258,6 +3421,15 @@ export interface ContractTypes {
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  InferenceAccountStatus: InferenceAccountStatus;
+  InferenceCleanupResult: InferenceCleanupResult;
+  InferenceCreateProjectParams: InferenceCreateProjectParams;
+  InferenceFlow: InferenceFlow;
+  InferenceFlowParams: InferenceFlowParams;
+  InferenceFlowsResult: InferenceFlowsResult;
+  InferenceLogoutResult: InferenceLogoutResult;
+  InferenceProjectParams: InferenceProjectParams;
+  InferenceTeamParams: InferenceTeamParams;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   Input: Input;
@@ -3349,6 +3521,20 @@ export interface Operations {
   "accounts.openai.status": { params: EmptyParams; result: OpenAIAccountStatus };
   "accounts.openai.setup": { params: EmptyParams; result: OpenAIAccountStatus };
   "accounts.openai.logout": { params: EmptyParams; result: OpenAIAccountStatus };
+  "accounts.inference.begin": { params: EmptyParams; result: InferenceFlow };
+  "accounts.inference.get": { params: InferenceFlowParams; result: InferenceFlow };
+  "accounts.inference.list": { params: EmptyParams; result: InferenceFlowsResult };
+  "accounts.inference.cancel": { params: InferenceFlowParams; result: InferenceFlow };
+  "accounts.inference.team": { params: InferenceTeamParams; result: InferenceFlow };
+  "accounts.inference.project": { params: InferenceProjectParams; result: InferenceFlow };
+  "accounts.inference.create_project": { params: InferenceCreateProjectParams; result: InferenceFlow };
+  "accounts.inference.retry": { params: InferenceFlowParams; result: InferenceFlow };
+  "accounts.inference.rotate": { params: EmptyParams; result: InferenceFlow };
+  "accounts.inference.status": { params: EmptyParams; result: InferenceAccountStatus };
+  "accounts.inference.setup": { params: EmptyParams; result: InferenceAccountStatus };
+  "accounts.inference.logout": { params: EmptyParams; result: InferenceLogoutResult };
+  "accounts.inference.cleanup": { params: EmptyParams; result: InferenceCleanupResult };
+  "accounts.inference.retry_cleanup": { params: EmptyParams; result: InferenceCleanupResult };
   "goals.formulate": { params: FormulateGoalParams; result: Admission };
   "goals.formulation": { params: GoalFormulationParams; result: GoalFormulation };
   "goals.create": { params: CreateGoalParams; result: GoalAdmission };

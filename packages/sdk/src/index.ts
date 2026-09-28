@@ -33,6 +33,70 @@ export class Client {
     return decodeResponse(method, id, response);
   }
 
+  /** Accepted login belongs to the host. Recover lost delivery with list/get; never replay begin automatically. */
+  beginInferenceLogin(options: CallOptions = {}): Promise<Operations['accounts.inference.begin']['result']> {
+    return this.call('accounts.inference.begin', {}, options);
+  }
+
+  getInferenceLogin(flowID: string, options: CallOptions = {}): Promise<Operations['accounts.inference.get']['result']> {
+    return this.call('accounts.inference.get', { flow_id: flowID }, options);
+  }
+
+  listInferenceLogins(options: CallOptions = {}): Promise<Operations['accounts.inference.list']['result']> {
+    return this.call('accounts.inference.list', {}, options);
+  }
+
+  cancelInferenceLogin(flowID: string, options: CallOptions = {}): Promise<Operations['accounts.inference.cancel']['result']> {
+    return this.call('accounts.inference.cancel', { flow_id: flowID }, options);
+  }
+
+  selectInferenceTeam(flowID: string, teamID: string, options: CallOptions = {}): Promise<Operations['accounts.inference.team']['result']> {
+    return this.call('accounts.inference.team', { flow_id: flowID, team_id: teamID }, options);
+  }
+
+  selectInferenceProject(flowID: string, projectID: string, options: CallOptions = {}): Promise<Operations['accounts.inference.project']['result']> {
+    return this.call('accounts.inference.project', { flow_id: flowID, project_id: projectID }, options);
+  }
+
+  /** Explicit remote mutation. An uncertain result requires account inspection before another creation. */
+  createInferenceProject(flowID: string, name: string, options: CallOptions = {}): Promise<Operations['accounts.inference.create_project']['result']> {
+    return this.call('accounts.inference.create_project', { flow_id: flowID, name }, options);
+  }
+
+  /** Retries a known recoverable step without reminting an uncertain remote key or project. */
+  retryInferenceLogin(flowID: string, options: CallOptions = {}): Promise<Operations['accounts.inference.retry']['result']> {
+    return this.call('accounts.inference.retry', { flow_id: flowID }, options);
+  }
+
+  /** Explicit key rotation. Recover lost delivery with list/get; never automatically start another rotation. */
+  rotateInferenceKey(options: CallOptions = {}): Promise<Operations['accounts.inference.rotate']['result']> {
+    return this.call('accounts.inference.rotate', {}, options);
+  }
+
+  /** Local management, inference-key, and route evidence; this does not verify provider readiness. */
+  inferenceAccountStatus(options: CallOptions = {}): Promise<Operations['accounts.inference.status']['result']> {
+    return this.call('accounts.inference.status', {}, options);
+  }
+
+  /** Install the canonical route using stored credentials. Leaves model defaults unchanged. */
+  setupInferenceAccount(options: CallOptions = {}): Promise<Operations['accounts.inference.setup']['result']> {
+    return this.call('accounts.inference.setup', {}, options);
+  }
+
+  /** Revoke local authority first and report remote cleanup separately. */
+  logoutInferenceAccount(options: CallOptions = {}): Promise<Operations['accounts.inference.logout']['result']> {
+    return this.call('accounts.inference.logout', {}, options);
+  }
+
+  listInferenceCleanup(options: CallOptions = {}): Promise<Operations['accounts.inference.cleanup']['result']> {
+    return this.call('accounts.inference.cleanup', {}, options);
+  }
+
+  /** Explicitly retry retained cleanup. Expired cleanup evidence cannot establish remote success. */
+  retryInferenceCleanup(options: CallOptions = {}): Promise<Operations['accounts.inference.retry_cleanup']['result']> {
+    return this.call('accounts.inference.retry_cleanup', {}, options);
+  }
+
   /** Accepted login belongs to this host. Recover a lost acknowledgement with listOpenAILogins/getOpenAILogin. */
   beginOpenAILogin(options: CallOptions = {}): Promise<Operations['accounts.openai.begin']['result']> {
     return this.call('accounts.openai.begin', {}, options);

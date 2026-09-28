@@ -322,3 +322,62 @@ test('lost account begin acknowledgement requires explicit flow recovery, never 
   assert.equal((await client.getOpenAILogin(found.items[0].id)).id, flow.id);
   assert.deepEqual(calls, ['accounts.openai.begin', 'accounts.openai.list', 'accounts.openai.get']);
 });
+
+test('Inference account helpers preserve explicit choices and independent credential states', async () => {
+  const id = 'AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const expiry = '2500-01-02T03:04:05.123456789Z';
+  const flow = { id, kind: 'login', state: 'choose_team', verification_url: null, user_code: null, expires_at: expiry, teams: [{ id: 'two', name: 'Two', slug: 'two' }], projects: [], team_id: null, project_id: null, failure: null };
+  const status = { management_state: 'expired', inference_state: 'stored', route_state: 'configured', user_id: 'user', email: null, expires_at: expiry, team_id: 'two', team_name: 'Two', project_id: 'second', project_name: null, failure: null, cleanup_pending: true };
+  const cleanup = { items: [{ id, expires_at: expiry, team_id: 'two', key_id: 'key', key_state: 'pending', session_state: 'retained', failure: 'Cleanup remains unconfirmed' }], failure: 'Remote cleanup remains unconfirmed' };
+  const calls = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    const op = request.method.split('.').at(-1);
+    if (op === 'status' || op === 'setup') return success(request, structuredClone(status));
+    if (op === 'list') return success(request, { items: [structuredClone(flow)] });
+    if (op === 'cleanup' || op === 'retry_cleanup') return success(request, structuredClone(cleanup));
+    if (op === 'logout') return success(request, { status, local_failure: null, cleanup_failure: 'Cleanup remains unconfirmed', cleanup: cleanup.items });
+    return success(request, structuredClone(flow));
+  }, { clientID: 'inference-account' });
+  await client.beginInferenceLogin();
+  assert.equal((await client.getInferenceLogin(id)).expires_at, expiry);
+  assert.equal((await client.listInferenceLogins()).items.length, 1);
+  await client.selectInferenceTeam(id, 'two');
+  assert.deepEqual(calls.at(-1).params, { flow_id: id, team_id: 'two' });
+  await client.selectInferenceProject(id, 'second');
+  assert.deepEqual(calls.at(-1).params, { flow_id: id, project_id: 'second' });
+  await client.createInferenceProject(id, 'Explicit project');
+  assert.deepEqual(calls.at(-1).params, { flow_id: id, name: 'Explicit project' });
+  await client.retryInferenceLogin(id);
+  await client.cancelInferenceLogin(id);
+  await client.rotateInferenceKey();
+  assert.deepEqual(await client.inferenceAccountStatus(), status);
+  assert.deepEqual(await client.setupInferenceAccount(), status);
+  assert.ok((await client.logoutInferenceAccount()).cleanup_failure);
+  assert.deepEqual(await client.listInferenceCleanup(), cleanup);
+  assert.deepEqual(await client.retryInferenceCleanup(), cleanup);
+  const before = calls.length;
+  await assert.rejects(client.selectInferenceTeam(id, ''), TypeError);
+  await assert.rejects(client.selectInferenceProject(id, 'control\n'), TypeError);
+  await assert.rejects(client.createInferenceProject(id, 'a'.repeat(513)), TypeError);
+  await assert.rejects(client.getInferenceLogin('invalid'), TypeError);
+  assert.equal(calls.length, before);
+});
+
+test('Inference remote creation uncertainty never triggers automatic replay', async () => {
+  const id = 'AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const interrupted = { id, kind: null, state: 'interrupted', verification_url: null, user_code: null, expires_at: null, teams: [], projects: [], team_id: null, project_id: null, failure: null };
+  const calls = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request.method);
+    if (request.method === 'accounts.inference.get') return success(request, interrupted);
+    throw new DeliveryError('acknowledgement lost');
+  }, { clientID: 'inference-recovery' });
+  await assert.rejects(client.beginInferenceLogin(), DeliveryError);
+  await assert.rejects(client.createInferenceProject(id, 'Explicit project'), DeliveryError);
+  await assert.rejects(client.rotateInferenceKey(), DeliveryError);
+  assert.deepEqual(calls, ['accounts.inference.begin', 'accounts.inference.create_project', 'accounts.inference.rotate']);
+  assert.deepEqual(await client.getInferenceLogin(id), interrupted);
+});

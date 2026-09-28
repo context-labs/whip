@@ -381,7 +381,7 @@ Maintain one compact table here as families are addressed:
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
-| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Explicit env/file/command/no-auth API sources implemented. Pasted/named-key setup, team/project/key flows, catalogs, readiness and product clients remain | 5–6 in progress |
+| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Explicit env/file/command/no-auth API sources and bounded Inference.net device/team/project/key flows with public RPC/SDK implemented. Pasted/named-key setup, catalogs, readiness and product clients remain | 5–6 in progress |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
 | Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | Public rewind passes local and hosted gates; bounded fork core, imported runner context and RPC/SDK pass local phase/analysis gates and process acceptance. Fork hosted validation pending; workspace restore remains | 5 in progress |
 | Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Retained `daemon/definition_test.go`, `tools_test.go`, agents SDK/examples; replacement pending | 5 |
@@ -940,8 +940,9 @@ stalls now terminate as uncertain without replay, preserving known accounting.
 Reasoning deltas now flow through the existing bounded runtime/RPC/SDK preview,
 share its byte budget and disappear at the attempt boundary without persistence
 or replay into context. Host ChatGPT account flows now use command-owned
-credentials and revisioned route setup through public RPC/SDK controls. Other
-accounts, catalogs/readiness and product-client adoption remain open. Stateless
+credentials and revisioned route setup through public RPC/SDK controls. Inference.net now has bounded host-owned device/team/project/key flows,
+local-first logout and independent retained cleanup projections through RPC/SDK.
+Catalogs/readiness, provider presets/setup and product-client adoption remain open. Stateless
 model helpers now use that same recorded-attempt path. Captured sampling belongs to the complete model
 selection, including explicit zero and provider-default null values. Existing
 per-route sampling fallback is retired: host defaults, definitions and overrides

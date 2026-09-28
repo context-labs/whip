@@ -1,0 +1,178 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(login|rotation)$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "authorizing",
+              "choose_team",
+              "loading_projects",
+              "choose_project",
+              "creating_project",
+              "provisioning",
+              "persistence_required",
+              "setup_required",
+              "cleanup_required",
+              "succeeded",
+              "failed",
+              "uncertain",
+              "cancelled",
+              "expired",
+              "interrupted"
+            ]
+          },
+          "verification_url": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"
+          },
+          "user_code": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,64}$"
+          },
+          "expires_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "account-time"
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[^\\x00-\\x1f\\x7f]{0,512}$"
+                },
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[^\\x00-\\x1f\\x7f]{0,256}$"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "slug"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 256
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[^\\x00-\\x1f\\x7f]{0,512}$"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 256
+          },
+          "team_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "project_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "verification_url",
+          "user_code",
+          "expires_at",
+          "teams",
+          "projects",
+          "team_id",
+          "project_id",
+          "failure"
+        ],
+        "additionalProperties": false,
+        "if": {
+          "properties": {
+            "state": {
+              "not": {
+                "enum": [
+                  "authorizing"
+                ]
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "user_code": {
+              "type": "null"
+            },
+            "verification_url": {
+              "type": "null"
+            }
+          }
+        }
+      },
+      "maxItems": 64
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InferenceFlowsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InferenceFlowsResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

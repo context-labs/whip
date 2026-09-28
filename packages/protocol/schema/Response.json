@@ -40,6 +40,7 @@
             "ACCOUNT_SETUP",
             "ACCOUNT_CONFIGURATION",
             "ACCOUNT_LOGOUT",
+            "ACCOUNT_MANAGEMENT",
             "INTERNAL"
           ]
         }

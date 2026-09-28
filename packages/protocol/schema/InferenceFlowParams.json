@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "flow_id": {
+      "type": "string",
+      "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InferenceFlowParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InferenceFlowParams",
+  "required": [
+    "flow_id"
+  ],
+  "additionalProperties": false
+}

@@ -377,15 +377,36 @@ publication and directory confirmation before first use. Visible replacements
 invalidate earlier captures even if durability confirmation fails. Known local
 publication failures retry persistence without minting another key. Logout revokes
 local captures before removal; unresolved removal blocks use until explicit retry.
-The independent manager and execution binding are implemented; Inference.net
-onboarding, team/project/key HTTP flows and public controls remain separate work.
+The command also owns one `inferenceaccount.Service`, borrowing this manager and
+the revisioned host configuration authority. Device authorization, team/project
+selection, explicit project creation and key rotation are bounded host flows,
+independent of SQL session receipts. The pinned control-plane client has no cookie
+jar or redirects; responses, choices, flow count and durations are bounded. A
+lost acknowledgement is recovered by list/get. A prior-process ID reports
+interrupted, and an uncertain remote creation is never retried automatically.
+
+Newly approved management credentials cannot inherit another account's machine
+key. Known credential publication retries persist the saved result without
+reminting; setup installs only the exact managed gateway and changes no defaults.
+Key replacement is durable before old-key archival. Management expiry remains
+independent from machine-key validity. Safe status distinguishes both local
+credential lifetimes from declared route availability, without proving network
+readiness.
+
+Logout first revokes local authority, then reports remote key/session cleanup
+separately. Cleanup retries retain only the exact previous authority and cannot
+borrow a newer account. Local persistence failure remains explicit even after
+remote cleanup succeeds. Flows and cleanup each retain at most 64 entries for
+15 minutes within the current process. Expiry/restart is lost evidence, never
+proof of remote success. RPC borrows these command-owned services through
+`HostServices`; clients expose explicit calls without a second account manager.
 
 The new runtime implements the OpenAI-compatible Chat Completions, API Responses
 and ChatGPT subscription adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
 not a hardcoded commercial model or credentials. These cover the retained
 inference protocols. ChatGPT account onboarding now has host-owned RPC/SDK
-controls; other provider accounts, presets, catalogs, readiness and product
-integrations are still being ported.
+controls, as does Inference.net onboarding; presets, catalogs, readiness and
+product integrations are still being ported.
 
 Chat requests omit `reasoning_effort` when the captured selection is `off`.
 Their `prompt_cache_key` comes from the session ID, so it is stable across turns

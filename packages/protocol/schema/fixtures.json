@@ -5,6 +5,172 @@
     "valid": true
   },
   {
+    "type": "RPCError",
+    "value": {
+      "code": -32024,
+      "message": "Management authorization is required",
+      "kind": "ACCOUNT_MANAGEMENT"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceFlowParams",
+    "value": {
+      "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceTeamParams",
+    "value": {
+      "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "team_id": "team"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceProjectParams",
+    "value": {
+      "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "project_id": "project"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceCreateProjectParams",
+    "value": {
+      "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "name": "Explicit project"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceFlow",
+    "value": {
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "kind": "login",
+      "state": "authorizing",
+      "verification_url": "https://inference.net/device/approve?user_code=PUBLIC-CODE",
+      "user_code": "PUBLIC-CODE",
+      "expires_at": "2026-09-27T12:00:00.123456Z",
+      "teams": [],
+      "projects": [],
+      "team_id": null,
+      "project_id": null,
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceFlow",
+    "value": {
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "kind": null,
+      "state": "interrupted",
+      "verification_url": null,
+      "user_code": null,
+      "expires_at": null,
+      "teams": [],
+      "projects": [],
+      "team_id": null,
+      "project_id": null,
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceFlowsResult",
+    "value": {
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceAccountStatus",
+    "value": {
+      "management_state": "absent",
+      "inference_state": "absent",
+      "route_state": "missing",
+      "user_id": null,
+      "email": null,
+      "expires_at": null,
+      "team_id": null,
+      "team_name": null,
+      "project_id": null,
+      "project_name": null,
+      "failure": null,
+      "cleanup_pending": false
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceAccountStatus",
+    "value": {
+      "management_state": "expired",
+      "inference_state": "stored",
+      "route_state": "configured",
+      "user_id": "user",
+      "email": "person@example.test",
+      "expires_at": "2500-01-02T03:04:05.123456789Z",
+      "team_id": "team",
+      "team_name": null,
+      "project_id": "project",
+      "project_name": null,
+      "failure": null,
+      "cleanup_pending": true
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceCleanupResult",
+    "value": {
+      "items": [
+        {
+          "id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+          "expires_at": "2026-09-27T12:00:00.123456Z",
+          "team_id": "team",
+          "key_id": "key",
+          "key_state": "pending",
+          "session_state": "retained",
+          "failure": "Remote cleanup remains unconfirmed"
+        }
+      ],
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceCleanupResult",
+    "value": {
+      "items": [],
+      "failure": "Remote cleanup remains unconfirmed"
+    },
+    "valid": true
+  },
+  {
+    "type": "InferenceLogoutResult",
+    "value": {
+      "status": {
+        "management_state": "absent",
+        "inference_state": "absent",
+        "route_state": "configured",
+        "user_id": null,
+        "email": null,
+        "expires_at": null,
+        "team_id": null,
+        "team_name": null,
+        "project_id": null,
+        "project_name": null,
+        "failure": null,
+        "cleanup_pending": false
+      },
+      "local_failure": null,
+      "cleanup_failure": null,
+      "cleanup": []
+    },
+    "valid": true
+  },
+  {
     "type": "OpenAIFlowParams",
     "value": {
       "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"
