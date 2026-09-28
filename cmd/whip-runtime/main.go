@@ -96,10 +96,7 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	configured.InferenceAuth = inference
-	authority, err := config.NewAuthority(*directory)
-	if err != nil {
-		return err
-	}
+	authority := r.HostConfiguration()
 	accounts, err := account.New(ctx, auth, authority)
 	if err != nil {
 		return err

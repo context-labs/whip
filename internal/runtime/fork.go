@@ -12,8 +12,15 @@ func (r *Runtime) Fork(ctx context.Context, request session.ForkRequest) (sessio
 	if err := r.Err(); err != nil {
 		return session.ForkResult{}, err
 	}
+	if result, found, err := r.store.ForkRetry(ctx, request); found || err != nil {
+		return result, err
+	}
+	current, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return session.ForkResult{}, err
+	}
 	return r.store.Fork(ctx, request, session.ForkDefaults{
-		Resources: r.host.Resources,
+		Resources: current.Host.Resources,
 		Budgets:   session.DefaultWriteBudgets(),
 	})
 }
