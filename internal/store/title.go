@@ -87,7 +87,7 @@ func initializeTitle(ctx context.Context, tx *sql.Tx, owner session.Session, inp
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO automatic_title_decisions(tree_id,session_id,config_revision,expected_revision,eligible,snapshot,created_at) VALUES(?,?,?,?,?,?,?)`,
-		value.TreeID, value.SessionID, value.ConfigRevision, value.ExpectedRevision, value.Reason == "eligible", raw, value.CreatedAt.UnixNano())
+		value.TreeID, value.SessionID, value.ConfigRevision, value.ExpectedRevision, value.Reason == "eligible", raw, value.CreatedAt.UnixMicro())
 	return err
 }
 

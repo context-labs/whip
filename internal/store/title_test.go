@@ -361,3 +361,24 @@ func TestAutomaticTitleLedgerRejectsWrongPurposeModelAndAdditionalAttempts(t *te
 		t.Fatal("invalid candidate bypassed validation or lost billing", err)
 	}
 }
+
+func TestAutomaticTitleQueueUsesSharedAdmissionClock(t *testing.T) {
+	s := fresh(t)
+	root := titleOwner(t, s, true)
+	titleAdmission(t, s, root, "first", "An authored source long enough to request a title")
+	finishMailTest(t, s, claim(t, s, root.ID).Turn.ID, session.Succeeded)
+	decision, err := s.AutomaticTitleDecision(t.Context(), root.TreeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := titleOwner(t, s, false)
+	titleAdmission(t, s, later, "later", "A later ordinary prompt")
+	page, err := s.QueuedSessions(t.Context(), QueueCursor{}, 1)
+	if err != nil || len(page) != 1 || page[0].SessionID != root.ID || page[0].ReadyAt != decision.CreatedAt.UnixMicro() {
+		t.Fatal("title intent must use the same admission clock as ordinary queued inputs", page, decision, err)
+	}
+	next, err := s.QueuedSessions(t.Context(), page[0], 1)
+	if err != nil || len(next) != 1 || next[0].SessionID != later.ID {
+		t.Fatal(next, err)
+	}
+}

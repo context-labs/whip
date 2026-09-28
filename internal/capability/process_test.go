@@ -501,3 +501,40 @@ func replaceEnvironment(env []string, name, value string) []string {
 	}
 	return append(env, prefix+value)
 }
+
+func TestProcessCancellationJoinsConcurrentFork(t *testing.T) {
+	m := NewProcessManager()
+	t.Cleanup(func() { _ = m.Close() })
+	directory := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p, err := m.Start(ctx, "forking", "/bin/sh", []string{"-c", "echo started > started; /bin/sleep 30"}, ProcessOptions{
+		Cwd: directory, Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		if _, err := os.Stat(filepath.Join(directory, "started")); err == nil {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("forking leader did not start")
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	select {
+	case <-p.groupDone:
+		if p.Wait() == nil {
+			t.Fatal("cancelled child succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context cancellation left a concurrently forked descendant running")
+	}
+}
