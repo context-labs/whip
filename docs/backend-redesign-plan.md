@@ -1,6 +1,6 @@
 # Whip backend redesign and delivery plan
 
-Status: phase 0 in progress; phases 1–7 have not started.
+Status: phase 0 complete and validated in PR #197; phases 1–7 have not started.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -402,7 +402,7 @@ complete with a passing check or recorded manual evidence.
 
 | Phase | Deliverable | Depends on | Status |
 | --- | --- | --- | --- |
-| 0 | Baseline, feedback gates and fixture foundation | None | In progress |
+| 0 | Baseline, feedback gates and fixture foundation | None | Complete; [evidence](backend-redesign-development.md#baseline-and-phase-0-evidence) |
 | 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
 | 2 | Working database → runtime → protocol → SDK slice | 1 | Pending |
 | 3 | One provider, one engine, execution and recovery | 2 | Pending |
@@ -423,7 +423,7 @@ Acceptance:
 - [x] Baseline identity and actual check results are recorded, including any
       pre-existing failures. No unrun check is described as passing.
 - [x] Active targets and the initial behavior/test inventory are explicit.
-- [ ] Fast/change/phase tasks run locally; CI runs on integration-branch PRs and
+- [x] Fast/change/phase tasks run locally; CI runs on integration-branch PRs and
       fails visibly when a required check is deliberately broken.
 - [x] Hook behavior is lightweight; broader validation is available explicitly.
 - [x] Fixture startup/shutdown is repeatable in disposable storage, with bounded

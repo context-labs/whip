@@ -106,9 +106,10 @@ The `redesign` aggregate requires every job to succeed, including after failure
 or cancellation. It has no percentage-coverage gate. The existing production CI
 and coverage floor remain intact.
 
-Lint uses the repository's existing configuration and a frozen baseline revision,
-so all findings introduced throughout the redesign are required to be fixed.
-Five inherited findings are recorded below rather than suppressed in source.
+Lint uses the repository's existing configuration and reports findings on code
+changed since a frozen baseline revision. That baseline does not advance as
+phases land. Five inherited findings are recorded below rather than suppressed
+in source.
 Vulnerability checks have no baseline exclusion. Newly added packages have no
 baseline code to exclude.
 
@@ -148,6 +149,7 @@ Go code and does not change their semantics merely to clear the lint baseline.
 | --- | --- |
 | `task check:fast` | Passed; approximately 10 seconds initially, 0.52 seconds through the hook with warm test caches |
 | `task check:phase` (includes `check:change`) | Passed; 170.04 seconds, including race checks, SDK/examples and real-runtime crash/restart |
+| `WHIP_SDK_RACE=1 task check:fixture` | Passed; 10.68 seconds, including SDK build and the race-instrumented daemon |
 | `task check:analysis` | Passed; 4.46 seconds with warm tool caches, no new lint findings or reachable vulnerabilities |
 | Deliberate failing test in `internal/content` | `check:fast` failed with the expected marker in 0.71 seconds; test removed and branch hook passed |
 | Manual fixture launcher, `--minutes=1` | Started, created SQLite, exited successfully on SIGTERM and removed its temporary directory; 1.67 seconds |
@@ -157,13 +159,13 @@ Go code and does not change their semantics merely to clear the lint baseline.
 Logs and timings are under the ignored local `test-results/redesign/` directory.
 The existing daemon restore failure remains outside the initial active gate and
 is tracked above. These measurements do not include cold dependency downloads.
-Remote CI and required-check enforcement are the remaining phase 0 acceptance.
+Required-check enforcement, failure propagation and the restored hosted phase
+run are verified below.
 
 The [remote canary run](https://github.com/context-labs/whip/actions/runs/36364503714)
 deliberately introduced `TestRedesignGateCanary`. The test failed in both OS jobs,
 analysis passed, and the required `redesign` aggregate failed. `gh pr checks 197
---required` reported that failed context. The temporary test was then removed;
-the restored full phase gate must pass before phase 0 closes.
+--required` reported that failed context. The temporary test was then removed.
 
 The [first restored run](https://github.com/context-labs/whip/actions/runs/36364784940)
 exposed a too-small timeout: the complete storage race suite exceeded three
@@ -172,3 +174,16 @@ SQLite. It had passed locally in 135 seconds. The race step now allows ten
 minutes per package, still under the job's twenty-minute limit. No tests or race
 instrumentation were dropped; the fast gate is unchanged. Hosted timing must be
 measured separately from the local warm measurements above.
+
+The [restored hosted run](https://github.com/context-labs/whip/actions/runs/36365373490)
+passed on revision `faecb7913994360f4254a924fb41a1249ff179b2`: Linux, macOS,
+analysis and the required `redesign` aggregate all succeeded. The phase command
+took 424 seconds on Linux and 359 seconds on macOS. Including setup and cache
+upload, the jobs took 538 and 554 seconds respectively; analysis took 189 seconds.
+These are first-run measurements for the separate cache keys, not claimed warm
+CI timings. The hosted gate includes the race-instrumented SDK fixture.
+
+Phase 0 is complete in [PR #197](https://github.com/context-labs/whip/pull/197).
+No replacement runtime or schema is implemented by this phase. The next phase
+starts with domain ownership and fresh persistence, updating this active scope as
+each new package becomes buildable.
