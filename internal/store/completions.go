@@ -198,12 +198,12 @@ func (s *Store) PublishCompletion(ctx context.Context, parent, child session.Ses
 	return result, err
 }
 
-func completionBody(value session.Completion, evidence string) (string, error) {
+func completionBody(value session.Completion) (string, error) {
 	limit := 160
 	if value.Mode == session.ReportInline {
 		limit = 4 << 10
 	}
-	notice := session.CompletionNotice{CompletionMetadata: value.CompletionMetadata, EvidenceRef: evidence}
+	notice := session.CompletionNotice{CompletionMetadata: value.CompletionMetadata}
 	notice.Preview, notice.TextTruncated = childText(value.Text, limit)
 	if value.Failure != nil {
 		failure, truncated := childText(*value.Failure, 1024)
@@ -226,13 +226,13 @@ func completionBody(value session.Completion, evidence string) (string, error) {
 }
 
 func completionMail(ctx context.Context, tx *sql.Tx, value session.Completion, evidence string) (session.MailMetadata, error) {
-	body, err := completionBody(value, evidence)
+	body, err := completionBody(value)
 	if err != nil {
 		return session.MailMetadata{}, err
 	}
 	source := session.MailSource{Kind: "completion", ID: string(value.ChildID)}
 	current, err := scanMail(tx.QueryRowContext(ctx, mailSelect+" WHERE m.source_kind='completion' AND m.source_id=? AND m.recipient_id=? AND m.deleted_at IS NULL AND m.state='pending' AND r.revision=m.revision ORDER BY m.created_at DESC LIMIT 1", value.ChildID, value.ParentID))
-	spec := session.MailSpec{RecipientID: value.ParentID, Delivery: session.MailQueued, Subject: "Child completion", Body: body}
+	spec := session.MailSpec{RecipientID: value.ParentID, Delivery: session.MailQueued, Subject: "Child completion", Body: body, EvidenceRef: &evidence}
 	if err == nil {
 		spec.ID, spec.AvailableAt = current.ID, &current.AvailableAt
 		mail, err := replaceMail(ctx, tx, spec, current)

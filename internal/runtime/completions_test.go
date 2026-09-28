@@ -143,20 +143,21 @@ func TestCompletionPendingPagingPublicationRestartAndChildDeletion(t *testing.T)
 		t.Fatal(err)
 	}
 	var notice session.CompletionNotice
-	if err := json.Unmarshal([]byte(mail.Body), &notice); err != nil || !notice.TextTruncated || len(notice.Preview) > 4096 || notice.EvidenceRef != "completion_"+string(metadata.TurnID) {
+	if err := json.Unmarshal([]byte(mail.Body), &notice); err != nil || !notice.TextTruncated || len(notice.Preview) > 4096 || mail.EvidenceRef == nil || *mail.EvidenceRef != "completion_"+string(metadata.TurnID) {
 		t.Fatalf("completion notice=%+v %v", notice, err)
 	}
-	if actual := artifactBytesTest(t, r, parent, notice.EvidenceRef); !bytes.Equal(actual, raw) {
+	evidenceRef := *mail.EvidenceRef
+	if actual := artifactBytesTest(t, r, parent, evidenceRef); !bytes.Equal(actual, raw) {
 		t.Fatal("published evidence differs from exact pending snapshot")
 	}
-	reference, _, err := r.ReadContentRange(t.Context(), parent.ID, notice.EvidenceRef, 0, 1)
+	reference, _, err := r.ReadContentRange(t.Context(), parent.ID, evidenceRef, 0, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, request := range []struct {
 		owner session.SessionID
 		id    string
-	}{{stranger.ID, notice.EvidenceRef}, {parent.ID, reference.Digest}, {metadata.ChildID, notice.EvidenceRef}} {
+	}{{stranger.ID, evidenceRef}, {parent.ID, reference.Digest}, {metadata.ChildID, evidenceRef}} {
 		if _, _, err := r.ReadContentRange(t.Context(), request.owner, request.id, 0, 1); !errors.Is(err, store.ErrNotFound) {
 			t.Fatal("artifact escaped owner reference", err)
 		}
@@ -177,7 +178,7 @@ func TestCompletionPendingPagingPublicationRestartAndChildDeletion(t *testing.T)
 		t.Fatal(err)
 	}
 	r = openTest(t, directory, model.Scripted{})
-	if actual := artifactBytesTest(t, r, parent, notice.EvidenceRef); !bytes.Equal(actual, raw) {
+	if actual := artifactBytesTest(t, r, parent, evidenceRef); !bytes.Equal(actual, raw) {
 		t.Fatal("startup collection lost published evidence")
 	}
 }
@@ -333,7 +334,7 @@ func TestCompletionEvidenceThroughBothEnginesAndScopedDispatcher(t *testing.T) {
 				}
 				remaining -= size
 			}
-			for _, capability := range []string{"agents.pending_reports", "agents.read_report", "artifacts.read"} {
+			for _, capability := range []string{"agents.pending_reports", "agents.read_report", "mail.list", "artifacts.read"} {
 				if _, err := r.CreateGrant(t.Context(), session.Grant{ID: session.GrantID("grant_" + strings.ReplaceAll(capability, ".", "_")), SessionID: parent.ID, Capability: capability, Resource: string(parent.TreeID)}); err != nil {
 					t.Fatal(err)
 				}
@@ -344,7 +345,9 @@ func TestCompletionEvidenceThroughBothEnginesAndScopedDispatcher(t *testing.T) {
 if len(listed["items"]) != 1 or listed["items"][0]["child_id"] != %q: fail("wrong pending child")
 pending=agents.read_report(child_id=%q,turn_id=%q,offset="0",length=65536)
 if pending["data"] != %q or pending["next_offset"] != None: fail("truncated pending evidence")
-published=artifacts.read(id=%q,offset="0",length=65536)
+reports=mail.list()
+if len(reports["items"]) != 1 or reports["items"][0]["evidence_ref"] != %q: fail("missing completion attachment")
+published=artifacts.read(id=reports["items"][0]["evidence_ref"],offset="0",length=65536)
 if published["data"] != %q or published["next_offset"] != None: fail("truncated published evidence")
 print("completion-evidence-ok")`, pending.ChildID, pending.ChildID, pending.TurnID, pendingBase64, id, publishedBase64)
 			if engine == session.QuickJS {
@@ -352,7 +355,9 @@ print("completion-evidence-ok")`, pending.ChildID, pending.ChildID, pending.Turn
 if(listed.items.length!==1||listed.items[0].child_id!==%q) throw Error("wrong pending child");
 var pending=await agents.read_report({child_id:%q,turn_id:%q,offset:"0",length:65536});
 if(pending.data!==%q||pending.next_offset!==null) throw Error("truncated pending evidence");
-var published=await artifacts.read({id:%q,offset:"0",length:65536});
+var reports=await mail.list({});
+if(reports.items.length!==1||reports.items[0].evidence_ref!==%q) throw Error("missing completion attachment");
+var published=await artifacts.read({id:reports.items[0].evidence_ref,offset:"0",length:65536});
 if(published.data!==%q||published.next_offset!==null) throw Error("truncated published evidence");
 print("completion-evidence-ok");`, pending.ChildID, pending.ChildID, pending.TurnID, pendingBase64, id, publishedBase64)
 			}
@@ -365,7 +370,7 @@ print("completion-evidence-ok");`, pending.ChildID, pending.ChildID, pending.Tur
 				t.Fatalf("inspection failed: %+v runtime=%v", admission.Turn, r.Err())
 			}
 			operations, err := r.Operations(t.Context(), admission.Turn.ID, "", 100)
-			if err != nil || len(operations) != 3 {
+			if err != nil || len(operations) != 4 {
 				t.Fatalf("inspection bypassed ledger: %+v %v", operations, err)
 			}
 			for _, operation := range operations {

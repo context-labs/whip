@@ -129,7 +129,10 @@ func TestDetachedChildSurvivesParentCompletionAndReportsExplicitCancellation(t *
 			if err := json.Unmarshal([]byte(mail.Body), &notice); err != nil {
 				t.Fatal(err)
 			}
-			reference, raw, err := r.ReadContentRange(t.Context(), parent.Session.ID, notice.EvidenceRef, 0, 64<<10)
+			if mail.EvidenceRef == nil {
+				t.Fatal("cancellation report omitted its evidence attachment")
+			}
+			reference, raw, err := r.ReadContentRange(t.Context(), parent.Session.ID, *mail.EvidenceRef, 0, 64<<10)
 			if err != nil || reference.SessionID != parent.Session.ID || reference.Size != int64(len(raw)) {
 				t.Fatalf("missing parent-owned cancellation evidence: %+v %v", reference, err)
 			}

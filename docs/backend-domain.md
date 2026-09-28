@@ -835,9 +835,12 @@ runtime open. Automatic reports consume no logical-write allowance.
 Host `completions.list/read` and guest `agents.pending_reports/read_report` inspect
 pending snapshots; each read pins a child and exact turn token. Superseded or
 published tokens return conflict so readers re-list. Evidence reads page JSON bytes
-at up to 64 KiB; metadata lists exclude full text. Published mail contains an
-`evidence_ref` owned by the parent, readable via host `content.read` or scoped guest
-`artifacts.read`. Neither route acknowledges mail. Deleting the child retains
+at up to 64 KiB; metadata lists exclude full text. Published mail uses the same
+revision-owned `MailMetadata.evidence_ref` as authored attachments, pointing to
+the existing parent-owned content without creating another alias. Its JSON body
+contains outcome metadata and bounded previews; the digest retains the attachment
+reference independently of body truncation. Read it via host `content.read` or
+scoped guest `artifacts.read`. Neither route acknowledges mail. Deleting the child retains
 pending and published parent evidence; deleting the parent removes its slots and
 owned content references. A full retained mailbox or content allowance can leave
 delivery pending indefinitely; no history is silently evicted to make room.
