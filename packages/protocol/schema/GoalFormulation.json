@@ -1,0 +1,126 @@
+{
+  "type": "object",
+  "properties": {
+    "input_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "goal_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "expected_current": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "id",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "max_continuations": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "start": {
+          "type": "boolean"
+        },
+        "tail_messages": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "enum": [
+                0
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 100
+            }
+          ]
+        }
+      },
+      "required": [
+        "goal_id",
+        "expected_current",
+        "start"
+      ],
+      "additionalProperties": false
+    },
+    "after_sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "through_sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "turn_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "text": {
+      "type": "string"
+    },
+    "accepted": {
+      "type": "boolean"
+    },
+    "rejection": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/GoalFormulation",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoalFormulation",
+  "required": [
+    "input_id",
+    "session_id",
+    "request",
+    "after_sequence",
+    "through_sequence",
+    "turn_id",
+    "attempt_id",
+    "text",
+    "accepted",
+    "rejection",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

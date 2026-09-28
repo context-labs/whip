@@ -20,6 +20,8 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"goals.formulate", reflect.TypeFor[FormulateGoalParams](), reflect.TypeFor[Admission]()},
+		{"goals.formulation", reflect.TypeFor[GoalFormulationParams](), reflect.TypeFor[GoalFormulation]()},
 		{"goals.create", reflect.TypeFor[CreateGoalParams](), reflect.TypeFor[GoalAdmission]()},
 		{"goals.current", reflect.TypeFor[SessionParams](), reflect.TypeFor[CurrentGoalResult]()},
 		{"goals.get", reflect.TypeFor[GoalParams](), reflect.TypeFor[Goal]()},
@@ -171,6 +173,12 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
+		if t == reflect.TypeFor[GoalFormulationRequest]() {
+			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
+				{Type: "integer", Enum: []any{0}},
+				{Type: "integer", Minimum: new(2.0), Maximum: new(100.0)},
+			}}
+		}
 		if t == reflect.TypeFor[Configuration]() {
 			schema.Properties["compaction"].Properties["threshold_percent"].Minimum = new(1.0)
 		}
@@ -193,7 +201,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			prompt.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"prompt"}}
 			compact := schema.CloneSchemas()
 			compact.Type, compact.Types = "object", nil
-			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact"}}
+			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact", "goal_formulation"}}
 			compact.Properties["parts"] = &jsonschema.Schema{Type: "array", MaxItems: new(0), Items: partSchema("text", "content")}
 			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact}}
 			if nullable {

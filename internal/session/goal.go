@@ -68,8 +68,9 @@ func (s GoalState) Open() bool { return s == GoalArmed || s == GoalPaused }
 // Goal owns an immutable objective and allowance. Current selection is derived
 // from creation order, including terminal goals; revision never selects a goal.
 type Goal struct {
-	CompletionTurnID      *TurnID      `json:"completion_turn_id"`
-	CompletionOperationID *OperationID `json:"completion_operation_id"`
+	OriginFormulationAttemptID *ModelAttemptID `json:"origin_formulation_attempt_id"`
+	CompletionTurnID           *TurnID         `json:"completion_turn_id"`
+	CompletionOperationID      *OperationID    `json:"completion_operation_id"`
 	GoalRef
 	SessionID         SessionID `json:"session_id"`
 	Spec              GoalSpec  `json:"spec"`

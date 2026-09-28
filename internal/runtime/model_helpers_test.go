@@ -534,7 +534,7 @@ models.call(prompt="must not run")`
 					t.Error(err)
 				}
 			})
-			r.runner, err = runner.New(provider, r.store, modelHelperBrokenAccounting{r.store}, r, r, r, r, r.store)
+			r.runner, err = runner.New(provider, r.store, modelHelperBrokenAccounting{r.store}, r, r, r, r, r.store, r.store)
 			if err != nil {
 				t.Fatal(err)
 			}

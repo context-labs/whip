@@ -53,7 +53,7 @@ func TestMailBoundaryFollowsAllToolResultsBeforeNextModelRequest(t *testing.T) {
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
 	})
-	r, err := New(provider, transcript, transcript, nil, mailExecutor{events: &events}, nil, mail, nil)
+	r, err := New(provider, transcript, transcript, nil, mailExecutor{events: &events}, nil, mail, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestMailObservationFailureDoesNotMasqueradeAsNoMail(t *testing.T) {
 	})
 	r, err := New(provider, transcript, transcript, nil, nil, nil, mailFunc(func(context.Context, session.TurnID) ([]session.Message, error) {
 		return nil, failure
-	}), nil)
+	}), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -380,7 +380,7 @@ Maintain one compact table here as families are addressed:
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
-| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement implemented; formulation remains | 5 in progress |
+| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
 | Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | Subscription credential manager implemented; public onboarding, API credential sources, Inference.net team/project/key lifecycle, catalogs and readiness remain | 5–6 pending |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
@@ -691,17 +691,21 @@ transaction rollback, retries after later state changes, authority, output
 failure, cancellation timing, durable continuation limits, restart, both engines
 and SDK acceptance/outcome distinction. These decisions deliberately replace
 legacy in-memory round resets and automatic rearming after failure; they are not
-claims that goal support is already implemented.
+claims of legacy behavioral equivalence.
 
 The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
 pause and authorized completion settlement are now implemented internally. Fresh
-config is 9 and schema 29. Generated input and turn projections preserve goal
+config is 9 and schema 30. Generated input and turn projections preserve goal
 provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
 creation, inspection, resume, cancellation and authorized completion intents.
-Both-engine and process acceptance cover the controls. Formulation from context
-and product-client adoption remain open.
+Both-engine and process acceptance cover the controls. Formulation now has the
+same helper attempt loop, atomic billing/candidate/activation settlement, bounded
+captured raw source, public maintenance receipts and immutable candidate reads.
+The SDK process scenario covers root/child ownership, lost acknowledgements,
+rejected activation, automatic initial input and dispatched crash recovery.
+Hosted formulation validation and product-client adoption remain open.
 
 Stateless model-helper implementation decisions:
 
@@ -761,6 +765,49 @@ children, retries, positional failures and a SIGKILL after one batch item settle
 restart retains billing and does not replay the batch. Hosted validation of this
 integrated increment remains pending.
 
+
+Automatic-title implementation decisions (work remains open):
+
+- Preserve immediate fallback naming on the first accepted authored root text:
+  normalize whitespace, cap at 64 runes, and use only authored text rather than
+  attachment expansion. Attachment-only roots remain eligible for later text.
+  Children, schedules, mail, goals, existing history and forks never initiate it.
+  An explicit title or manual clear owns naming permanently, including same-value
+  writes and rename-away/back. Short text (under 20 runes) needs no model call.
+- Record one immutable initialization decision per tree in the admission
+  transaction. Capture the eligible source (first 300 normalized runes), copied
+  automatic-title policy and configuration revision. Do not reconstruct intent
+  from later history or keep a mutable background-job cache. Manual ownership
+  and ineligible initialization also need a durable decision so later inputs or
+  restart do not silently re-arm generation.
+- Admit an eligible title helper as a deterministic ordinary maintenance input
+  when queue capacity permits. Do not consume an extra slot inside human
+  admission and reject the user's prompt at a queue limit of one. Reuse the
+  shared runner/attempt ledger with one provider attempt, a 20-second deadline,
+  no history, tools, instruction capture, mail, goals or private continuation.
+  Capture the compaction-model override or main-model fallback, including effort
+  and sampling. Billing and a bounded candidate settle atomically with the
+  conditional tree-title update; SQL failure retries settlement only.
+- The tree title remains the only selected value. Immutable attempt-linked result
+  evidence records whether the metadata revision comparison applied it. Manual
+  metadata changes, including pin/archive replacement, supersede the late title
+  through the existing whole-tree revision. Do not imply title-only conflict
+  semantics without introducing a separate explicit title-edit intent.
+- These are deliberate changes to retained timing and recovery: generated naming
+  runs at a session boundary, preserving the one-active-turn invariant, whereas
+  legacy naming could finish concurrently with the foreground turn. Unclaimed
+  intent can execute after restart; interrupted or attempted work never auto-
+  replays. Foreground cancellation does not cancel independent queued naming.
+  Use the route's captured output ceiling and validate one line of at most
+  80 runes, rather than pretending every adapter can enforce the legacy 24-token
+  hint. Subscription routes cannot enforce that small request cap.
+- Acceptance must cover admission rollback and exact retry, 19/20-rune and
+  Unicode boundaries, attachment-only restart, queue-capacity one, frozen route
+  and source, invalid/failed single attempts, manual same-value/clear precedence,
+  billing/CAS lost acknowledgements, pre-dispatch versus dispatched crashes,
+  deletion/shutdown joins and absence of conversation side effects. Phase 6 must
+  retain unopened/off-page title refresh through host/catalog revision
+  invalidation, without a second mutable title authority.
 
 Fork, rewind and workspace implementation decisions (work remains open):
 
@@ -825,12 +872,15 @@ Acceptance:
 - [ ] Compaction preserves raw transcript history and records exact boundaries.
       Fork/rewind defines conversation, checkpoint and external workspace effects
       and prevents stale client history from being silently applied.
-- [ ] Goals/schedules admit ordinary inputs; due work is handled according to
+- [x] Goals/schedules admit ordinary inputs; due work is handled according to
       policy even when its session worker is not already loaded.
       Schedules now have exact ordinary-input provenance, atomic cursor/charge
       admission, bounded client-independent polling, stopped-owner/restart and
-      both-engine ownership coverage. Goal work remains separate; this combined
-      acceptance item stays open until its goal obligations are satisfied.
+      both-engine ownership coverage. Goals use the same durable admission path,
+      captured turn ownership, continuation settlement and restart behavior;
+      formulation uses ordinary maintenance receipts. Store/runtime/RPC/SDK and
+      full local phase acceptance pass. Hosted formulation validation remains
+      pending; product-client adoption belongs to phase 6.
 - [ ] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
 - [ ] Executor disconnect, required/optional hooks, tool schemas and output

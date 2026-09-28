@@ -245,6 +245,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
     await stage('goals', () => goalAcceptance(runtime, client, createParams, evidence));
+    await stage('goal formulation', () => goalFormulationAcceptance(runtime, client, createParams, evidence));
     await stage('budgets', () => budgetAcceptance(client, createParams, evidence));
     await stage('logical write allowances', () => writeAllowanceAcceptance(runtime, client, createParams, evidence));
     await stage('mail', () => mailAcceptance(runtime, client, createParams, evidence));
@@ -2456,4 +2457,153 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
     assert.equal((await client.call('sessions.history', { session_id: saved.owner, after: '0', limit: 100 }, deadline())).items.length, saved.messages);
   }
   evidence.push({ goals: { defaults, old, recovered, completed, roundLimit, retired, interrupted, stopped, resumed, exhausted, requests: requests.length } });
+}
+
+
+async function goalFormulationAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const formulations = [];
+  let blocked = false;
+  const server = http.createServer(async (request, response) => {
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push(body);
+    const system = body.messages.find(item => item.role === 'system')?.content ?? '';
+    const helper = system.startsWith('Formulate one clear, actionable goal');
+    if (helper) {
+      const source = JSON.parse(body.messages.filter(item => item.role === 'user').map(item => item.content).join(''));
+      formulations.push({ body, source });
+      if (JSON.stringify(source).includes('crash-formulation')) { blocked = true; return; }
+    }
+    const message = { role: 'assistant', content: helper ? 'Complete the recorded objective with verified evidence.' : 'Recorded source response.' };
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 1, cost: helper ? 0.000000001 : 0 } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const path = join(runtime.directory, 'state', 'host.json');
+  await runtime.stop();
+  const previous = await readFile(path, 'utf8');
+  const history = owner => client.call('sessions.history', { session_id: owner, after: '0', limit: 100 }, deadline());
+  const attempts = turn => client.call('turns.attempts', { turn_id: turn, limit: 100 }, deadline());
+  const saved = [];
+  try {
+    const host = JSON.parse(previous);
+    host.providers.formulation = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['starlark', 'quickjs'].map(engine => [engine, { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 2 }])),
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 }); await runtime.start(null);
+    const create = engine => client.call('trees.create', {
+      ...createParams, engine, overrides: { report_mode: 'message', model: { provider: 'formulation', name: engine, effort: 'low', temperature: 0, top_p: 0.5 } },
+    }, deadline());
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await create(engine);
+      const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: `${engine} child objective` }], grant_ids: [] }, `formulation-child-${engine}`, deadline());
+      await client.wait(`formulation-child-${engine}`, deadline());
+      await client.submit(root.id, [{ type: 'text', text: `${engine} root objective` }], `formulation-seed-${engine}`, deadline());
+      await client.wait(`formulation-seed-${engine}`, deadline());
+      for (const owner of [root, child.session]) {
+        const before = await history(owner.id);
+        const requestID = `formulation-${owner.id}`;
+        const params = { session_id: owner.id, request: { goal_id: `goal-${owner.id}`, expected_current: null, max_continuations: '9007199254740993', start: false, tail_messages: 2 } };
+        let admitted;
+        if (owner.id === root.id) {
+          const proxy = join(runtime.directory, 'formulation-drop.sock');
+          const close = await dropAcknowledgement(proxy, runtime.info.socket, requestID, value => { admitted = value; });
+          try {
+            const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+            await assert.rejects(unreliable.formulateGoal(params, requestID, deadline()), DeliveryError);
+          } finally { await close(); }
+        } else admitted = await client.formulateGoal(params, requestID, deadline());
+        assert.equal(admitted.input.kind, 'goal_formulation');
+        assert.deepEqual(admitted.input.parts, []);
+        const done = await client.wait(requestID, deadline());
+        assert.equal(done.turn.state, 'succeeded');
+        assert.equal(done.turn.kind, 'goal_formulation');
+        assert.equal(done.turn.goal, null);
+        const ledger = await attempts(done.turn.id);
+        assert.equal(ledger.items.length, 1);
+        const attempt = ledger.items[0];
+        assert.equal(attempt.request.purpose, 'goal_formulation');
+        assert.equal(attempt.message_id, null);
+        assert.equal(attempt.cost_nano_usd, '1');
+        const candidate = await client.getGoalFormulation(owner.id, attempt.id, deadline());
+        assert.equal(candidate.accepted, true);
+        assert.equal(candidate.rejection, null);
+        assert.equal(candidate.after_sequence, '0');
+        assert.equal(candidate.through_sequence, '2');
+        assert.equal(candidate.request.start, false);
+        assert.equal(candidate.request.max_continuations, '9007199254740993');
+        const goal = (await client.currentGoal(owner.id, deadline())).goal;
+        assert.equal(goal.origin_formulation_attempt_id, attempt.id);
+        assert.equal(goal.spec.text, candidate.text);
+        assert.equal(goal.spec.max_continuations, '9007199254740993');
+        assert.deepEqual((await history(owner.id)).items, before.items);
+        assert.deepEqual((await client.call('turns.operations', { turn_id: done.turn.id, limit: 100 }, deadline())).items, []);
+        const retry = await client.formulateGoal(params, requestID, deadline());
+        assert.equal(retry.input.id, admitted.input.id);
+        await assert.rejects(client.formulateGoal({ ...params, request: { ...params.request, start: true } }, requestID, deadline()), error => error.kind === 'CONFLICT');
+        await assert.rejects(client.getGoalFormulation(owner.id === root.id ? child.session.id : root.id, attempt.id, deadline()), error => error.kind === 'NOT_FOUND');
+        await client.cancelGoal(owner.id, goal.id, deadline());
+        assert.deepEqual(await client.getGoalFormulation(owner.id, attempt.id, deadline()), candidate);
+        const rejectedID = `rejected-${owner.id}`;
+        await client.formulateGoal({ session_id: owner.id, request: { goal_id: rejectedID, expected_current: null, start: false } }, rejectedID, deadline());
+        const rejected = await client.wait(rejectedID, deadline());
+        assert.equal(rejected.turn.state, 'failed');
+        const rejectedAttempt = (await attempts(rejected.turn.id)).items[0];
+        assert.equal(rejectedAttempt.state, 'succeeded');
+        assert.equal(rejectedAttempt.cost_nano_usd, '1');
+        const rejection = await client.getGoalFormulation(owner.id, rejectedAttempt.id, deadline());
+        assert.equal(rejection.accepted, false); assert.ok(rejection.rejection); assert.ok(rejection.text);
+        assert.equal((await client.currentGoal(owner.id, deadline())).goal.id, goal.id);
+        assert.deepEqual((await history(owner.id)).items, before.items);
+        if (owner.id !== root.id) {
+          await client.call('sessions.delete', { session_id: owner.id }, deadline());
+          assert.ok((await client.formulateGoal(params, requestID, deadline())).receipt.deleted_at);
+        }
+        saved.push({ owner: owner.id, attempt: attempt.id, candidate });
+        evidence.push({ goalFormulation: { engine, done, ledger, candidate, rejection } });
+      }
+    }
+    const { root: starting } = await create('starlark');
+    await client.submit(starting.id, [{ type: 'text', text: 'Start a formulated objective.' }], 'formulation-start-seed', deadline());
+    await client.wait('formulation-start-seed', deadline());
+    await client.formulateGoal({ session_id: starting.id, request: { goal_id: 'formulated-start', expected_current: null, max_continuations: '0', start: true } }, 'formulation-start', deadline());
+    const started = await client.wait('formulation-start', deadline());
+    assert.equal(started.turn.state, 'succeeded');
+    const paused = await until(() => client.getGoal(starting.id, 'formulated-start', deadline()), goal => goal.state === 'paused');
+    const startedHistory = await history(starting.id);
+    assert.equal(startedHistory.items.filter(item => item.role === 'user' && item.parts[0]?.text === 'Work on the goal.').length, 1);
+    assert.equal(paused.continuations_used, '0');
+    assert.ok(startedHistory.items.every(item => item.turn_id !== started.turn.id));
+
+    const { root: crashing } = await create('quickjs');
+    await client.submit(crashing.id, [{ type: 'text', text: 'crash-formulation objective' }], 'formulation-crash-seed', deadline());
+    await client.wait('formulation-crash-seed', deadline());
+    const crashParams = { session_id: crashing.id, request: { goal_id: 'formulated-crash', expected_current: null, start: true } };
+    await client.formulateGoal(crashParams, 'formulation-crash', deadline());
+    const running = await until(() => client.recover('formulation-crash', deadline()), value => value.turn?.state === 'running');
+    await until(async () => blocked, Boolean);
+    const beforeRestart = requests.length;
+    await runtime.stop('SIGKILL'); await runtime.start(null);
+    assert.equal((await client.wait('formulation-crash', deadline())).turn.state, 'interrupted');
+    const uncertain = (await attempts(running.turn.id)).items[0];
+    assert.equal(uncertain.state, 'uncertain'); assert.equal(uncertain.cost_nano_usd, null);
+    assert.equal((await client.currentGoal(crashing.id, deadline())).goal, null);
+    await assert.rejects(client.getGoalFormulation(crashing.id, uncertain.id, deadline()), error => error.kind === 'NOT_FOUND');
+    assert.equal((await client.formulateGoal(crashParams, 'formulation-crash', deadline())).turn.id, running.turn.id);
+    for (const value of saved) assert.deepEqual(await client.getGoalFormulation(value.owner, value.attempt, deadline()), value.candidate);
+    assert.equal(requests.length, beforeRestart, 'restart or inspection replayed formulation');
+    assert.equal(formulations.length, 10);
+    for (const { body, source } of formulations) {
+      assert.ok(!body.tools?.length);
+      assert.equal(body.temperature, 0); assert.equal(body.top_p, 0.5); assert.equal(body.reasoning_effort, 'low');
+      assert.deepEqual(source.map(item => item.Role), ['user', 'assistant']);
+    }
+    evidence.push({ goalFormulationRecovery: { started, paused, uncertain, calls: formulations.length } });
+  } finally {
+    await runtime.stop(); await writeFile(path, previous, { mode: 0o600 });
+    server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
 }

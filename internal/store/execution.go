@@ -355,7 +355,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			}
 		}
 
-		if result.Turn.Kind != session.CompactInput {
+		if result.Turn.Kind == session.PromptInput {
 			if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
 				return err
 			}
@@ -415,8 +415,8 @@ func validDraft(draft session.MessageDraft) error {
 }
 
 func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft session.MessageDraft) (session.Message, error) {
-	if turn.Kind == session.CompactInput {
-		return session.Message{}, fmt.Errorf("%w: compaction cannot author transcript messages", session.ErrInvalid)
+	if turn.Kind != session.PromptInput {
+		return session.Message{}, fmt.Errorf("%w: maintenance cannot author transcript messages", session.ErrInvalid)
 	}
 	if err := validDraft(draft); err != nil {
 		return session.Message{}, err
@@ -555,7 +555,7 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			} else if err := reconcileCalls(ctx, tx, current, "turn ended"); err != nil {
 				return err
 			}
-			if state == session.Succeeded && current.Kind != session.CompactInput {
+			if state == session.Succeeded && current.Kind == session.PromptInput {
 				if err := acknowledgeMail(ctx, tx, id); err != nil {
 					return err
 				}

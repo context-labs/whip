@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "goals.formulate",
+      "params": "FormulateGoalParams",
+      "result": "Admission"
+    },
+    {
+      "name": "goals.formulation",
+      "params": "GoalFormulationParams",
+      "result": "GoalFormulation"
+    },
+    {
       "name": "goals.create",
       "params": "CreateGoalParams",
       "result": "GoalAdmission"

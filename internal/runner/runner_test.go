@@ -69,7 +69,7 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "already completed"}}}, nil
-	}), transcript, transcript, nil, nil, nil, nil, nil)
+	}), transcript, transcript, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestMalformedUsageDoesNotEraseCompletedOutput(t *testing.T) {
 	transcript := &flakyTranscript{}
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(-1))}}, nil
-	}), transcript, transcript, nil, nil, nil, nil, nil)
+	}), transcript, transcript, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestAttemptElapsedEvidenceExcludesSQLRetriesAndSurvivesFailure(t *testing.T
 					calls++
 					time.Sleep(1500 * time.Microsecond)
 					return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(99))}}, tc.err
-				}), transcript, transcript, nil, nil, nil, nil, nil)
+				}), transcript, transcript, nil, nil, nil, nil, nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -206,7 +206,7 @@ func TestResolvedInstructionsStayFrozenThroughEffectsCorrectionAndReplan(t *test
 			return model.Response{}, errors.New("unexpected ordinary replay")
 		}
 	})
-	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestInstructionFailurePreventsProviderDispatch(t *testing.T) {
 		calls++
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "must not run"}}}, nil
 	})
-	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

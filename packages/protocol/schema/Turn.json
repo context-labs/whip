@@ -35,7 +35,8 @@
       "type": "string",
       "enum": [
         "prompt",
-        "compact"
+        "compact",
+        "goal_formulation"
       ]
     },
     "config_revision": {

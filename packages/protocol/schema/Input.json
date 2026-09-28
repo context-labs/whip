@@ -198,7 +198,8 @@
         "kind": {
           "type": "string",
           "enum": [
-            "compact"
+            "compact",
+            "goal_formulation"
           ]
         },
         "parts": {

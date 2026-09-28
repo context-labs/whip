@@ -27,6 +27,16 @@ func goalAdmission(value store.GoalAdmission) protocol.GoalAdmission {
 
 func dispatchGoal(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "goals.formulate":
+		return decode(raw, func(p protocol.FormulateGoalParams) (any, error) {
+			value, err := r.FormulateGoal(ctx, session.RequestIdentity{ClientID: string(p.Identity.ClientID), RequestID: string(p.Identity.RequestID)}, session.SessionID(p.SessionID), p.Request.Domain())
+			return admission(value), err
+		})
+	case "goals.formulation":
+		return decode(raw, func(p protocol.GoalFormulationParams) (any, error) {
+			value, err := r.GoalFormulation(ctx, session.SessionID(p.SessionID), session.ModelAttemptID(p.AttemptID))
+			return protocol.GoalFormulationFromDomain(value), err
+		})
 	case "goals.create":
 		return decode(raw, func(p protocol.CreateGoalParams) (any, error) {
 			var expected *session.GoalRef

@@ -16,14 +16,15 @@ type GoalSpec struct {
 }
 type Goal struct {
 	GoalRef
-	SessionID             ID       `json:"session_id"`
-	Spec                  GoalSpec `json:"spec"`
-	State                 string   `json:"state" enum:"armed,paused,completed,cancelled,superseded"`
-	ContinuationsUsed     Counter  `json:"continuations_used"`
-	StopReason            *string  `json:"stop_reason"`
-	CompletionTurnID      *ID      `json:"completion_turn_id"`
-	CompletionOperationID *ID      `json:"completion_operation_id"`
-	CreatedAt             string   `json:"created_at" format:"date-time"`
+	SessionID                  ID       `json:"session_id"`
+	Spec                       GoalSpec `json:"spec"`
+	State                      string   `json:"state" enum:"armed,paused,completed,cancelled,superseded"`
+	ContinuationsUsed          Counter  `json:"continuations_used"`
+	StopReason                 *string  `json:"stop_reason"`
+	OriginFormulationAttemptID *ID      `json:"origin_formulation_attempt_id"`
+	CompletionTurnID           *ID      `json:"completion_turn_id"`
+	CompletionOperationID      *ID      `json:"completion_operation_id"`
+	CreatedAt                  string   `json:"created_at" format:"date-time"`
 }
 type CreateGoalParams struct {
 	SessionID       ID          `json:"session_id"`
@@ -62,6 +63,9 @@ func (r GoalRef) Domain() session.GoalRef {
 
 func GoalFromDomain(value session.Goal) Goal {
 	result := Goal{ID: ID(value.ID), Revision: Counter(value.Revision), SessionID: ID(value.SessionID), Spec: GoalSpec{Text: value.Spec.Text, MaxContinuations: Counter(value.Spec.MaxContinuations)}, State: string(value.State), ContinuationsUsed: Counter(value.ContinuationsUsed), StopReason: value.StopReason, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	if value.OriginFormulationAttemptID != nil {
+		result.OriginFormulationAttemptID = new(ID(*value.OriginFormulationAttemptID))
+	}
 	if value.CompletionTurnID != nil {
 		result.CompletionTurnID = new(ID(*value.CompletionTurnID))
 	}

@@ -87,7 +87,7 @@ func TestOutputCorrectionFollowsCommittedResponseAndDoesNotRedispatch(t *testing
 		}
 		return model.Response{Parts: valid}, nil
 	})
-	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, nil)
+	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestOutputSecondMismatchFailsAndCorrectionDoesNotLeakBetweenTurns(t *testin
 			text = `"valid"`
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: text}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, nil)
+	}), ledger, ledger, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestOutputCancellationDoesNotDispatchCorrection(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: `false`}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, nil)
+	}), ledger, ledger, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestOutputContractsAllowToolsBeforeFinalButNeverDuringCorrection(t *testing
 				}
 				return model.Response{Parts: []session.Part{{Type: "text", Text: "null"}}}, nil
 			})
-			r, err := New(provider, ledger, ledger, nil, mailExecutor{events: &tools}, nil, nil, nil)
+			r, err := New(provider, ledger, ledger, nil, mailExecutor{events: &tools}, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,7 +213,7 @@ func TestOutputUnconfiguredOrClearedDoesNotAddPolicy(t *testing.T) {
 				return model.Response{}, errors.New("cleared schema left instructions")
 			}
 			return model.Response{Parts: []session.Part{{Type: "text", Text: "ordinary prose"}}}, nil
-		}), ledger, ledger, nil, nil, nil, nil, nil)
+		}), ledger, ledger, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

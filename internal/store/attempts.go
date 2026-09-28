@@ -92,6 +92,14 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if turn.Kind == session.CompactInput && p.Request.Purpose != "compaction" {
 			return fmt.Errorf("%w: compact input requires a compaction model request", session.ErrInvalid)
 		}
+		if (turn.Kind == session.GoalFormulationInputKind) != (p.Request.Purpose == session.GoalFormulationPurpose) {
+			return fmt.Errorf("%w: formulation purpose requires its maintenance input", session.ErrInvalid)
+		}
+		if turn.Kind == session.GoalFormulationInputKind {
+			if err := validateGoalFormulationAttempt(ctx, tx, turn, p.Request); err != nil {
+				return err
+			}
+		}
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
 			return err
 		}
@@ -240,6 +248,11 @@ func (s *Store) DispatchModelAttempt(ctx context.Context, id session.ModelAttemp
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
 			return err
 		}
+		if turn.Kind == session.GoalFormulationInputKind {
+			if err := validateGoalFormulationAttempt(ctx, tx, turn, attempt.Request); err != nil {
+				return err
+			}
+		}
 		if attempt.OperationID != nil {
 			if err := validateHelperOperation(ctx, tx, turn, *attempt.OperationID, *attempt.BatchIndex, attempt.Request.MaxOutputTokens); err != nil {
 				return err
@@ -288,7 +301,7 @@ func (s *Store) SettleModelAttempt(ctx context.Context, id session.ModelAttemptI
 }
 
 func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, outcome session.ModelAttemptResult, message *session.MessageDraft) (session.ModelAttempt, error) {
-	if (attempt.Request.Purpose == "compaction" || attempt.OperationID != nil) && message != nil {
+	if (attempt.Request.Purpose == "compaction" || attempt.Request.Purpose == session.GoalFormulationPurpose || attempt.OperationID != nil) && message != nil {
 		return session.ModelAttempt{}, fmt.Errorf("%w: a helper response is not a transcript message", session.ErrInvalid)
 	}
 	var messageID *session.MessageID

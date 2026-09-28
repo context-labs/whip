@@ -197,7 +197,7 @@ type Input struct {
 	ID        ID                  `json:"id"`
 	SessionID ID                  `json:"session_id"`
 	Source    string              `json:"source" enum:"user,agent,schedule,goal"`
-	Kind      string              `json:"kind" enum:"prompt,compact"`
+	Kind      string              `json:"kind" enum:"prompt,compact,goal_formulation"`
 	Parts     []Part              `json:"parts"`
 	State     string              `json:"state" enum:"queued,claimed,cancelled"`
 	TurnID    *ID                 `json:"turn_id"`
@@ -208,7 +208,7 @@ type Turn struct {
 	Goal           *GoalRef `json:"goal"`
 	ID             ID       `json:"id"`
 	SessionID      ID       `json:"session_id"`
-	Kind           string   `json:"kind" enum:"prompt,compact"`
+	Kind           string   `json:"kind" enum:"prompt,compact,goal_formulation"`
 	ConfigRevision Counter  `json:"config_revision"`
 	State          string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
 	Failure        *string  `json:"failure"`

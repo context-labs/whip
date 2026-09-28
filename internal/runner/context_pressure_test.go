@@ -122,7 +122,7 @@ func TestProactivePostFinalUsesSettledOrdinaryUsageAndCapturedHelper(t *testing.
 				}
 				return prepared, nil
 			})
-			r, err := New(provider, ledger, ledger, nil, nil, preview, nil, ledger)
+			r, err := New(provider, ledger, ledger, nil, nil, preview, nil, ledger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +173,7 @@ func TestProactiveNoSourceRechecksAfterNewExchangeThenStalls(t *testing.T) {
 		}
 		return prepared, nil
 	})
-	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestProactiveFirstFinalWithoutReplaceableSourceSucceeds(t *testing.T) {
 		}
 		return prepared, err
 	})
-	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestProactiveCorrectionPreservesDurableEffectsAndSingleCorrection(t *testin
 		}
 		return prepared, nil
 	})
-	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestProactivePostFinalFailureRetainsAnswerAndNeverRedispatches(t *testing.T
 					}
 					return prepared, err
 				})
-				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -366,7 +366,7 @@ func TestCapturedHelperSelectionAppliesToEveryCompactionTrigger(t *testing.T) {
 					}
 					return prepared, nil
 				})
-				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -407,7 +407,7 @@ func TestOrdinaryRouteChangeInvalidatesReportedOccupancy(t *testing.T) {
 		}
 		return prepared, err
 	})
-	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestProactiveUnknownWindowDoesNotHydrateFinalProjection(t *testing.T) {
 		calls++
 		return model.Response{Parts: []session.Part{{Type: "content", ReferenceID: "final_image"}}, Usage: session.ModelUsage{Input: new(int64(60000))}}, nil
 	})
-	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +449,7 @@ func TestProactiveTinySourceCannotBeatRequiredSummaryEnvelope(t *testing.T) {
 		}
 		return prepared, err
 	})
-	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+	r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestProactivePreservesValidatedInputAcrossOrdinaryRetry(t *testing.T) {
 			}
 			return prepared, err
 		})
-		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

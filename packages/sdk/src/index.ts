@@ -58,6 +58,16 @@ export class Client {
     return this.call('goals.create', { ...params, goal_id: goalID }, options);
   }
 
+  /** Keep requestID and the exact payload on retries; use recover/wait for ordinary admission and turn outcome. */
+  formulateGoal(params: Omit<Operations['goals.formulate']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Admission> {
+    return this.call('goals.formulate', { ...params, identity: this.identity(requestID) }, options);
+  }
+
+  /** Historical acceptance belongs to this candidate, even if its maintenance turn later failed or was interrupted. */
+  getGoalFormulation(sessionID: string, attemptID: string, options: CallOptions = {}): Promise<Operations['goals.formulation']['result']> {
+    return this.call('goals.formulation', { session_id: sessionID, attempt_id: attemptID }, options);
+  }
+
   currentGoal(sessionID: string, options: CallOptions = {}): Promise<Operations['goals.current']['result']> {
     return this.call('goals.current', { session_id: sessionID }, options);
   }
