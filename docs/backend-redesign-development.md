@@ -1740,3 +1740,30 @@ vulnerability analysis. Later focused tests also cover whitespace-formatted
 empty terminal output, malformed status with independently valid accounting,
 and exact message ID/phase replay; these changes do not alter the successful
 SDK wire path. No generated public contract change is needed for private state.
+
+Integration with the Chat profiles and ancestor-instruction work passed
+`WHIP_SDK_RACE=1 task check:phase`: store race 80.408s, runtime race 90.827s,
+process engine race 99.359s, full v4 SDK fixture 119.183s, retained process
+fixture 4.534s and selected retained daemon regressions 2.649s. The Responses
+SDK stage passed in 9.107s, including the live route change without restarting
+its REPL; the ancestor-instruction stage passed in 7.007s. The earlier worker
+memory failure did not recur in this combined run. All acceptance scenarios and
+production memory limits remain unchanged.
+
+The first combined phase run caught an ancestor-config test asserting the old
+literal version 5 after Responses advanced the fresh config to version 6. The
+test now verifies the current version and rejects the immediately previous one.
+That failed run is not counted as acceptance. The final full gate above includes
+the correction. Full analysis passed with zero lint issues and no reachable
+vulnerabilities; a later scoped config lint also passed after the test edit.
+Current fresh schema is 25; the public protocol remains development major 4.
+Hosted validation of this Responses increment remains pending.
+
+The preceding Chat wire-profile revision `fc8360949` passed Linux, macOS,
+analysis and the aggregate redesign gate in
+[run 36468457638](https://github.com/context-labs/whip/actions/runs/36468457638).
+Ancestor revision `a8952622a` has passed hosted analysis; its Linux and macOS
+checks in [run 36470031266](https://github.com/context-labs/whip/actions/runs/36470031266)
+were still running at this integration checkpoint. Subscription authentication,
+stateless helpers, sampling and the other Phase 5–7 acceptance criteria remain
+open.

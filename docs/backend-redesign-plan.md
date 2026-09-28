@@ -376,8 +376,8 @@ Maintain one compact table here as families are addressed:
 | Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 implemented |
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
-| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; initial durable compaction and raw-history access implemented, advanced context policy pending | 3 complete; 5 pending |
-| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles implemented; Responses/continuation, subscription generation guards, captured sampling and stateless helpers/batch remain | 5 in progress |
+| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
+| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles and Responses/private continuation implemented; subscription generation guards, captured sampling and stateless helpers/batch remain | 5 in progress |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
@@ -667,7 +667,10 @@ acceptance, including fork/rewind, remains open.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission
-and derived session cache keys. Responses continuation, subscription execution,
+and derived session cache keys. API Responses now uses the same recorded-attempt
+path and stores bounded private continuation with immutable assistant messages.
+Replay requires the same route, credential, model and visible message parts;
+helpers and public history never receive opaque continuation. Subscription execution,
 stateless model helpers and captured sampling remain required. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.

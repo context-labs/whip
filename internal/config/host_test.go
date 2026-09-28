@@ -249,7 +249,7 @@ func TestHostProjectRootsExplicitPublicationAndBounds(t *testing.T) {
 		t.Fatal("registry validation must not inspect the filesystem", err)
 	}
 	loaded, err := Load(directory)
-	if err != nil || loaded.Version != 5 || !reflect.DeepEqual(loaded.ProjectRoots, host.ProjectRoots) || loaded.Defaults.Instructions.ProjectRoot == nil || *loaded.Defaults.Instructions.ProjectRoot != "missing" {
+	if err != nil || loaded.Version != Version || !reflect.DeepEqual(loaded.ProjectRoots, host.ProjectRoots) || loaded.Defaults.Instructions.ProjectRoot == nil || *loaded.Defaults.Instructions.ProjectRoot != "missing" {
 		t.Fatalf("project publication round trip=%+v %v", loaded, err)
 	}
 	loaded.ProjectRoots["missing"] = "/changed"
@@ -282,7 +282,7 @@ func TestHostProjectRootsExplicitPublicationAndBounds(t *testing.T) {
 		t.Fatalf("oversized project registry accepted: %v", err)
 	}
 	host = Default()
-	host.Version = 4
+	host.Version = Version - 1
 	if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("previous host format accepted: %v", err)
 	}
