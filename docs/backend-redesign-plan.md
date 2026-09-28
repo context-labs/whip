@@ -381,7 +381,7 @@ Maintain one compact table here as families are addressed:
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
-| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | Subscription credential manager implemented; public onboarding, API credential sources, Inference.net team/project/key lifecycle, catalogs and readiness remain | 5–6 pending |
+| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; API credential sources, Inference.net team/project/key lifecycle, catalogs, readiness and product clients remain | 5–6 in progress |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
@@ -927,7 +927,9 @@ with fixed routing, generation checks and one settled 401 refresh. Provider idle
 stalls now terminate as uncertain without replay, preserving known accounting.
 Reasoning deltas now flow through the existing bounded runtime/RPC/SDK preview,
 share its byte budget and disappear at the attempt boundary without persistence
-or replay into context. Public account onboarding remains Phase 6 work. Stateless
+or replay into context. Host ChatGPT account flows now use command-owned
+credentials and revisioned route setup through public RPC/SDK controls. Other
+accounts, catalogs/readiness and product-client adoption remain open. Stateless
 model helpers now use that same recorded-attempt path. Captured sampling belongs to the complete model
 selection, including explicit zero and provider-default null values. Existing
 per-route sampling fallback is retired: host defaults, definitions and overrides

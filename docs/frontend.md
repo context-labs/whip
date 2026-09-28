@@ -251,6 +251,25 @@ successfully billed provider attempt. Show those distinct outcomes rather than
 inferring activation from the turn or attempt status. Preserve nullable
 `origin_formulation_attempt_id` on goal records; clients own no formulation cache.
 
+The v4 host account API is separate from session execution. Use the SDK's
+`beginOpenAILogin`, `getOpenAILogin`, `listOpenAILogins`, `cancelOpenAILogin`,
+`openAIAccountStatus`, `setupOpenAIAccount` and `logoutOpenAIAccount` methods.
+Keep flow observation scoped to its visible owner and bounded by expiry; the SDK
+adds no account cache, browser launch or automatic polling. A disconnected Begin
+can be recovered through list/get or the existing active flow. Old process IDs
+report interrupted. Cancel is explicit; navigation alone must not cancel login.
+Status reports local credential/route evidence, not verified model availability:
+show auth and route state separately, preserve exact expiry strings, and do not
+label stored expired credentials as a successful live connection. A saved login
+with failed route setup requires Setup retry, not another device approval.
+Storage failures show unavailable separately from provider sign-in-required.
+Explicit Setup can retry a known local credential publication without refreshing
+or requesting device approval. A failed logout stays unavailable until explicit
+logout retry; a later read must not make it appear successfully signed out.
+Terminal flows omit approval URL/code; absent public metadata is null. Account
+secrets never belong in browser storage, session configuration or transcript.
+Product UI adoption and model catalogs remain pending.
+
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |
 | `@whip/legacy-protocol` — `packages/legacy-protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |

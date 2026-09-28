@@ -114,6 +114,28 @@ Each session is limited to 1,024 references and 64 MiB of referenced bytes.
 For configured HTTP providers, omit `-scripted` and use the host configuration
 described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
 
+Host ChatGPT account controls are direct SDK calls:
+`beginOpenAILogin`, `getOpenAILogin(flowID)`, `listOpenAILogins`,
+`cancelOpenAILogin(flowID)`, `openAIAccountStatus`, `setupOpenAIAccount` and
+`logoutOpenAIAccount`. Begin accepts host-owned work; disconnection does not
+cancel it. Recover a lost acknowledgement with list/get or the active flow,
+not ordinary session receipts. Earlier-process flow IDs report interrupted.
+The SDK neither opens a browser nor polls automatically. Clients explicitly
+observe the bounded flow and cancel only on user intent.
+
+Status separates saved authentication from configured routing. It does not
+refresh tokens or verify network/model access; an expired saved credential is
+still local `stored` evidence. Preserve the exact nullable expiry string. Login
+saves credentials before route setup; `setup_required` can retry setup without
+another device approval. Explicit setup can also confirm pending local credential
+publication without token refresh. Storage failure is `unavailable`, distinct
+from provider sign-in-required; failed logout remains unavailable until explicit
+logout retry. Status reads never rewrite credentials. Setup/logout leave model
+defaults and custom routes unchanged. Errors `ACCOUNT_CREDENTIALS`, `ACCOUNT_SETUP`, `ACCOUNT_CONFIGURATION`
+and `ACCOUNT_LOGOUT` distinguish the required recovery. Public values contain
+no access/refresh/device secret; terminal flows clear the approval URL/code.
+Catalogs and product-client adoption remain pending.
+
 Model selection accepts nullable `temperature` (0–2) and `top_p` (0–1), alongside
 `provider`, `name` and `effort`. Both values must be finite. Null or omission uses
 the provider default; explicit zero is preserved. A `sessions.configure` model

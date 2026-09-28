@@ -10,6 +10,9 @@ separate legacy runtime and SDK until their client cutover.
 | Fact | Authority |
 | --- | --- |
 | Runtime identity and schema version | Fresh SQLite database |
+| Host provider declarations | Revisioned host file; config authority reads fresh bytes and serializes publication |
+| ChatGPT credentials and login generation | One command-owned account manager and its private credential file |
+| Pending account approval | Bounded host-service flow in memory; never session input or SQL execution state |
 | Definition defaults and declarations | Immutable definition revision document |
 | Tree metadata and common engine | Tree row |
 | Reusable subtree capacity limits | Revisioned resource-limit rows; usage derived from live owning records |
@@ -322,8 +325,9 @@ The store owns database transactions only, with no resource-manager construction
 The new runtime implements the OpenAI-compatible Chat Completions, API Responses
 and ChatGPT subscription adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
 not a hardcoded commercial model or credentials. These cover the retained
-inference protocols. Account onboarding, provider presets, catalogs, readiness
-and product integrations are still being ported.
+inference protocols. ChatGPT account onboarding now has host-owned RPC/SDK
+controls; other provider accounts, presets, catalogs, readiness and product
+integrations are still being ported.
 
 Chat requests omit `reasoning_effort` when the captured selection is `off`.
 Their `prompt_cache_key` comes from the session ID, so it is stable across turns
@@ -391,9 +395,58 @@ refresh. Redirects are refused, and recognized hard quota errors are permanent.
 Subscription private continuation binds to fixed route, account and model,
 surviving token rotation and restart for newly authorized requests. A different
 account/model uses visible transcript reconstruction. Helpers receive no opaque
-state. Public login/status/logout, device-flow onboarding and account catalogs
-remain client-adoption work; this adapter is not a live-provider availability
-verification.
+state. Public login/status/logout and device-flow onboarding use the separate
+host boundary below; account catalogs and product-client adoption remain open.
+This adapter is not a live-provider availability verification.
+
+`config.Authority` retains an explicit directory, not a second configuration
+copy. A snapshot reads bounded complete UTF-8 JSON and returns an exact-file-bytes
+revision. Update compares that revision, applies a short side-effect-free patch
+and atomically publishes/syncs the same file read by provider preparation. All
+package writers share its lock; arbitrary external editors do not participate in
+that compare-and-set contract. Anchored owned-file access rejects unsafe writers,
+symlinks and nonregular files. Existing readable declarations remain valid;
+new publications use mode 0600. A post-publication error requires rereading before
+retry; an unchanged retry confirms directory durability without rewriting data.
+
+The command also owns one `account.Service` borrowing its sole credential manager
+and configuration authority. It closes and joins device work before closing the
+manager. Runtime sessions and guest tools do not own account flows. The service
+accepts one active login, retains at most 64 flow records for 15 minutes, and uses
+process-epoch identities: an earlier process's ID reads as interrupted. Begin
+returns accepted host work before device HTTP; a disconnect does not cancel it,
+and repeated Begin recovers the active flow. Cancel, logout and shutdown join
+starting requests, polling and credential publication.
+
+The fixed `accounts.openai.begin/get/list/cancel/status/setup/logout` RPCs and
+matching SDK methods return bounded safe approval/status projections. Device
+secrets, tokens and captured credentials never enter responses or SQL. Approval
+URL/code disappear on terminal flows; absent metadata and expiry are explicit
+nulls. Status reads local saved-state and route evidence only: expired saved
+credentials can still be `stored`, and `configured` says nothing about network
+reachability, model access or pricing. Reads neither refresh credentials nor
+fetch catalogs.
+
+Credential publication syncs the file and its parent directory. First load also
+confirms the directory entry for saved credentials or their absence before
+authorizing that state; a failed confirmation can be retried locally. A replacement
+that fails before publication leaves the prior login intact; a published but
+unconfirmed replacement invalidates old captures and remains blocked until its
+known local bytes are persisted. Rotated tokens use the same persistence-only
+retry and are never exchanged again merely because a file write failed. Status
+shows unresolved storage as unavailable without retrying a pending write or logout. Explicit Setup can
+confirm pending local publication without network work; pending logout still
+requires explicit Logout retry. A failed logout immediately revokes in-process
+captures, reports unavailable storage and does not claim durable sign-out.
+
+A completed login saves credentials before installing the fixed subscription
+route. Setup never changes defaults or overwrites a conflicting custom route.
+A route publication failure becomes `setup_required`; explicit Setup retries
+with saved credentials without another login. Safe account error kinds distinguish
+credential, setup, configuration and logout problems. Logout revokes local
+captures and removes saved credentials while preserving host route declarations.
+The SDK keeps no account cache, starts no browser and implements no polling loop;
+product clients own the bounded visible observation lifetime.
 
 An internal model request may narrow its captured output ceiling with
 `OutputTokenLimit`. Nil retains the host ceiling; explicit values must be

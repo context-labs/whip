@@ -2415,3 +2415,73 @@ lint findings and no reachable vulnerabilities. Logs are
 Fresh schema31 replaces schema30; config9 and development protocol major4 stay
 unchanged. Hosted validation is pending. This prerequisite does not close the
 fork/rewind acceptance item or Phase5.
+
+
+## Host-owned ChatGPT account controls
+
+Integrated config authority `621b3d145`, account service `d54bf1b82` and public
+RPC/SDK wiring `847500fab`. One command-owned credential manager supplies both
+model authorization and a separate host account service; sessions and the runtime
+do not own onboarding. Seven generated `accounts.openai` operations expose
+begin/get/list/cancel/status/setup/logout with bounded safe projections and exact
+nullable expiry strings. The SDK owns no account cache or automatic polling.
+
+Login is accepted before device HTTP and survives client disconnection. One
+active flow is deduplicated, retained records are bounded, old process identities
+report interrupted, and cancellation/logout/shutdown join owned requests.
+Credentials are stored before fixed-route setup. Setup is explicitly retryable,
+preserves defaults and custom routes, and compares freshly read host-file bytes
+through an anchored config authority. Status describes local credential and
+routing evidence; it is not a claim of working model access or live connectivity.
+
+Persistence review found two gaps before publication: failed logout could later
+look signed out despite remaining saved credentials, and a failed token save
+could look fully persisted. The real SDK fixture first reproduced the logout
+bug (`signed_out` instead of `unavailable`). Repairs `09eb28c15` and `591ca1973`
+track publication separately from durability, invalidate old login captures when
+replacement becomes visible, preserve rotated tokens for local-only save retry,
+and keep failed logout unavailable until explicit retry. First load confirms
+directory durability before trusting saved credentials or absence; failure
+blocks authorization and remains locally retryable. No second token exchange is
+used to repair a failed local save.
+
+The SDK process scenario uses only synthetic credentials and disposable files.
+It covers signed-out/expired-saved status, exact metadata without secrets,
+interrupted old flows, idempotent setup, unchanged defaults, conflicting routes,
+failed removal, explicit recovery, lost logout acknowledgement and restart.
+The extended fixture passed after the repair in 26.588s, including the account
+stage in 0.209s. Analysis passed with zero lint findings and no reachable
+vulnerabilities. Device-flow tests intercept HTTP; no real account was changed.
+The final `task check:phase` passed: store race170.817s, runtime185.374s,
+process147.618s, account15.597s, auth3.440s, generated contracts and SDK checks,
+v4 process fixture23.920s, retained crash fixture4.376s and daemon regressions2.833s.
+Logs are `/tmp/whip-host-accounts-{phase,analysis,durability-fixture}.log`;
+the pre-fix reproduction is `/tmp/whip-host-accounts-before-durability.log`.
+Hosted validation of this account increment remains pending.
+
+The preceding stateless-model and formulation increments also passed hosted
+Linux, macOS, analysis and aggregate gates at their exact heads:
+`b2a5be867` in [run 36483835552](https://github.com/context-labs/whip/actions/runs/36483835552)
+and `c47fefe96` in [run 36484832748](https://github.com/context-labs/whip/actions/runs/36484832748).
+The owner-scoped content increment `0ce307807` likewise passed all hosted gates
+in [run 36485162275](https://github.com/context-labs/whip/actions/runs/36485162275).
+
+This is a checkpoint within Phase5. The original Phase4 audit remains closed at
+`1244d7cd2`, whose passing hosted checks were reconfirmed against the original
+seven criteria. Phase5 is incomplete; account catalogs, other credential sources,
+Inference.net onboarding, automatic titles, fork/rewind/workspace behavior and
+remaining integration families still require work. Phases6–7 remain pending.
+The redesign is an unmerged draft stack; the original development checkout has
+not adopted it and retains the original proposed plan.
+
+At the user's request to finish the current task, the following independent work
+was saved in clean isolated commits without integrating it into this account PR:
+
+| Checkpoint | Commit and location | Validation and remaining work |
+| --- | --- | --- |
+| Immutable history groups and revision foundation | `762f8451b0321644fb4c7023a4205f4155a28f66`, `/Users/samheutmaker/.codex/worktrees/history-foundation/whip` | Full store/session races, targeted runtime checks, build/vet/lint passed. Fresh schema32. Still needs integration and public projections; imported runner context remains work for fork. |
+| Atomic conversation rewind and revision-scoped REPL reset | `0651d734920ad5ddcaf65bd9993d6f3b572bc65a`, `/Users/samheutmaker/.codex/worktrees/rewind/whip` | Full store/session/runtime races204.362s/7.505s/211.327s, both engines, build/vet/lint passed. Apply the history foundation first, then this commit only. RPC/SDK exposure, fork and workspace restore remain open. |
+| Independent Inference.net credential manager | `3e04bfcae8e2813ed7aa5587a250913cd4f5b80d`, `/Users/samheutmaker/.codex/worktrees/inference-auth/whip` | Race/shuffle, 20-run stress, vet, Linux compile and lint passed. Management credentials and inference keys have separate lifetimes. Integration, device/team/project/key HTTP flows, managed provider binding and public API remain open. |
+
+These are local checkpoints, not completed product features or published PRs.
+No next implementation slice was started after finishing this checkpoint.
