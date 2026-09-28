@@ -116,6 +116,7 @@ func TestMailEvidenceReplacementDeferralAndHistoryKeepExactReferences(t *testing
 		Body: strings.Repeat("界", 2000), EvidenceRef: &old.ID,
 	}
 	first := sendMailTest(t, s, spec)
+	original := spec
 	turn := claim(t, s, owner.ID).Turn
 	history, err := s.History(t.Context(), owner.ID, 0, 10)
 	if err != nil || len(history) != 1 || len(history[0].Parts) != 1 {
@@ -161,6 +162,9 @@ func TestMailEvidenceReplacementDeferralAndHistoryKeepExactReferences(t *testing
 	current := mailStateTest(t, s, owner.ID, spec.ID, session.MailPending, 3)
 	if *current.EvidenceRef != *replaced.EvidenceRef {
 		t.Fatal("deferral lost recipient alias")
+	}
+	if retry := sendMailTest(t, s, original); retry.Revision != current.Revision || *retry.EvidenceRef != *current.EvidenceRef || count(t, s, "content_references") != refs {
+		t.Fatal("send retry did not return current metadata without sharing again")
 	}
 	observed := count(t, s, "turn_mail_observations")
 	raw, err := s.ReadHistoryMessage(t.Context(), owner.ID, history[0].ID, 0, 65536)

@@ -1578,3 +1578,33 @@ The integrated race fixture passed in 102.496s. In that run context recovery
 took 24.022s and completion reports 17.837s; those measurements localize costs
 without claiming to explain the earlier hosted timeout. Hosted results for
 the harness revision remain pending.
+
+
+## One mail attachment path
+
+Automatic completion reports now put their existing parent-owned reference in
+the same immutable mail revision field as authored mail. `CompletionNotice`
+contains bounded outcome metadata and previews; it no longer has another
+attachment field inside its JSON body. Publication creates no additional alias.
+Digest truncation retains the attachment locator independently of body text,
+and mail listing can discover full report evidence without parsing the body.
+
+Store coverage checks coalesced and deferred revisions, old transcript evidence
+and a preview larger than the digest limit. Both engines discover the published
+reference via `mail.list` before using `artifacts.read`; SDK acceptance checks
+the same field, child deletion and restart. A separate send-retry assertion
+clarifies the existing admission contract: retrying an original request after
+replacement returns current mail metadata without creating another reference.
+
+The integrated `WHIP_SDK_RACE=1 task check:phase` passed: store race/shuffle
+77.508s, runtime 85.124s, process engine 101.318s, v4 SDK 101.664s and selected
+retained daemon regressions 2.657s. Analysis reported zero lint findings and no
+reachable vulnerabilities. The later send-retry assertion passed its focused
+race test in 1.696s and scoped lint; no production code changed after the gate
+started. Canonical domain docs now remove stale Phase 2/4 future-work statements
+and declare current schema/config versions in one place.
+
+The preceding standing-instruction hosted run `36465298896` passed Linux and
+analysis but also hit the old aggregate 180-second SDK timeout on macOS. Its
+failed result remains recorded. The new named-scenario harness and these mail
+changes still need hosted evidence; Phase 4 remains reopened until that passes.
