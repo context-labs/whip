@@ -18,6 +18,7 @@ import (
 )
 
 type skillReadRequest struct {
+	Scope  string  `json:"scope"`
 	RootID *string `json:"root_id"`
 	Name   string  `json:"name"`
 	Offset int64   `json:"offset,string"`
@@ -66,7 +67,19 @@ func (r *Runtime) prepareSkillRead(ctx context.Context, current session.Session,
 	}
 	path, rootID := current.WorkingDirectory, ""
 	capability, resource := "files.read", path
-	if args.RootID != nil {
+	switch args.Scope {
+	case "project":
+		rootID = *args.RootID
+		if configuration.Instructions.ProjectRoot == nil || *configuration.Instructions.ProjectRoot != rootID {
+			return tool.Prepared{}, fmt.Errorf("%w: project root is not selected by this turn", session.ErrInvalid)
+		}
+		var registered bool
+		path, registered = r.host.ProjectRoots[rootID]
+		if !registered {
+			return tool.Prepared{}, fmt.Errorf("%w: unknown project instruction root", session.ErrInvalid)
+		}
+		capability, resource = "instructions.read", "project:"+rootID
+	case "host":
 		rootID = *args.RootID
 		if !slices.Contains(configuration.Instructions.SkillRoots, rootID) {
 			return tool.Prepared{}, fmt.Errorf("%w: skill root is not selected by this turn", session.ErrInvalid)
@@ -82,11 +95,14 @@ func (r *Runtime) prepareSkillRead(ctx context.Context, current session.Session,
 	if err != nil {
 		return tool.Prepared{}, err
 	}
-	execution := &skillReadExecution{path: path, rootID: rootID, request: args}
+	execution := &skillReadExecution{path: path, cwd: current.WorkingDirectory, rootID: rootID, request: args}
 	return tool.Prepared{Capability: capability, Resource: resource, Arguments: arguments, Acquire: execution.acquire, Run: execution.run}, nil
 }
 
 func (r skillReadRequest) validate() error {
+	if (r.Scope != "workspace" && r.Scope != "host" && r.Scope != "project") || (r.Scope == "workspace") != (r.RootID == nil) {
+		return fmt.Errorf("%w: skill scope and root_id must identify workspace, host or project", session.ErrInvalid)
+	}
 	if err := session.ValidateText(r.Name, 64); err != nil {
 		return err
 	}
@@ -115,6 +131,8 @@ func (r skillReadRequest) validate() error {
 // boundary; acquiring a descriptor never reads the catalog or a skill body.
 type skillReadExecution struct {
 	path    string
+	cwd     string
+	project *instruction.Root
 	rootID  string
 	request skillReadRequest
 	root    *os.Root
@@ -123,6 +141,17 @@ type skillReadExecution struct {
 func (e *skillReadExecution) acquire(ctx context.Context) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if e.request.Scope == "project" {
+		root, err := openProjectInstructions(ctx, e.rootID, e.path, e.cwd)
+		if err != nil {
+			return nil, err
+		}
+		if root == nil {
+			return nil, errors.New("project instruction boundary does not contain this workspace")
+		}
+		e.project, e.root = root, root.FS
+		return func() { _ = root.FS.Close(); e.project, e.root = nil, nil }, nil
 	}
 	root, err := os.OpenRoot(e.path)
 	if err != nil {
@@ -140,7 +169,11 @@ func (e *skillReadExecution) run(ctx context.Context) (any, error) {
 	if e.root == nil {
 		return nil, errors.New("skill read requires an acquired root")
 	}
-	catalog, err := instruction.Catalog(ctx, []instruction.Root{{ID: e.rootID, FS: e.root}})
+	root := instruction.Root{ID: e.rootID, FS: e.root}
+	if e.project != nil {
+		root = *e.project
+	}
+	catalog, err := instruction.Catalog(ctx, []instruction.Root{root})
 	if err != nil {
 		return nil, err
 	}

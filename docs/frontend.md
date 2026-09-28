@@ -194,6 +194,17 @@ bytes/digest cover comments and blank lines omitted from model instructions.
 Disabled or ungranted sources are not probed. Never infer that skill inspection
 loaded this file or replace a historical audit by rereading it. There is no
 implicit HOME lookup or file creation; setup/editor flows must be explicit.
+Ancestor project instructions use nullable `instructions.project_root`, naming
+an explicit host boundary. A standing `instructions.read` grant on `project:<id>`
+authorizes only the verified boundary-to-cwd instruction/skill chain; arbitrary
+workspace file access remains separate. Project sources expose `scope: project`,
+a logical root ID and a boundary-relative path. `skills.read` requires explicit
+`scope` so project IDs and host skill-root IDs cannot be confused. An authorized
+project chain replaces the cwd-only scan; otherwise cwd sources still require
+independent workspace read authority. Child selection is copied, grants are
+delegated explicitly, and active turns retain their captured selection. Show the
+source scope in inspection and permission UI; never interpret a source locator as
+authority or an absolute host path.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

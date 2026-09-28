@@ -72,5 +72,5 @@ func LoadStanding(ctx context.Context, root *os.Root, name string) (Snapshot, er
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Text: text.String(), Sources: []session.InstructionSource{source("standing_instructions", "standing", name, data)}}, nil
+	return Snapshot{Text: text.String(), Sources: []session.InstructionSource{source("standing_instructions", "host", "standing", name, data)}}, nil
 }

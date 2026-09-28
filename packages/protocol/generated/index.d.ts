@@ -260,6 +260,7 @@ export interface CreateTreeParams {
       effort: string;
     };
     instructions?: null | {
+      project_root: null | string;
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
@@ -329,6 +330,7 @@ export interface CreateTreeResult {
         effort: string;
       };
       instructions: {
+        project_root: null | string;
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
@@ -386,6 +388,7 @@ export interface Definition {
         effort: string;
       };
       instructions?: null | {
+        project_root: null | string;
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
@@ -438,6 +441,7 @@ export interface DefinitionDocument {
       effort: string;
     };
     instructions?: null | {
+      project_root: null | string;
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
@@ -845,7 +849,7 @@ export interface InstructionManifestResult {
      */
     sources: {
       kind: "project_file" | "skill_metadata" | "invoked_skill" | "standing_instructions";
-      scope: "workspace" | "host";
+      scope: "workspace" | "host" | "project";
       root_id: null | string;
       path: string;
       bytes: string;
@@ -939,6 +943,7 @@ export interface ListSessionsResult {
             effort: string;
           };
           instructions: {
+            project_root: null | string;
             text: string;
             project_files: null | string[];
             discover_skills: boolean;
@@ -988,7 +993,7 @@ export interface ListSkillsResult {
     disabled: boolean;
     source: {
       kind: "project_file" | "skill_metadata" | "invoked_skill" | "standing_instructions";
-      scope: "workspace" | "host";
+      scope: "workspace" | "host" | "project";
       root_id: null | string;
       path: string;
       bytes: string;
@@ -1553,6 +1558,7 @@ export interface Session {
       effort: string;
     };
     instructions: {
+      project_root: null | string;
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
@@ -1827,6 +1833,7 @@ export interface SpawnSessionParams {
       effort: string;
     };
     instructions?: null | {
+      project_root: null | string;
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
@@ -1931,6 +1938,7 @@ export interface SpawnSessionResult {
         effort: string;
       };
       instructions: {
+        project_root: null | string;
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
@@ -2208,6 +2216,7 @@ export interface UpdateConfigurationParams {
       effort: string;
     };
     instructions?: null | {
+      project_root: null | string;
       text: string;
       project_files: null | string[];
       discover_skills: boolean;

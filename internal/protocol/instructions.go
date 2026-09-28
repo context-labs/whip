@@ -4,7 +4,7 @@ import "github.com/context-labs/whip/internal/session"
 
 type InstructionSource struct {
 	Kind   string  `json:"kind" enum:"project_file,skill_metadata,invoked_skill,standing_instructions"`
-	Scope  string  `json:"scope" enum:"workspace,host"`
+	Scope  string  `json:"scope" enum:"workspace,host,project"`
 	RootID *string `json:"root_id"`
 	Path   string  `json:"path"`
 	Bytes  Counter `json:"bytes"`

@@ -183,6 +183,8 @@ No live deletion can race the gap between publication and registration.
 
 ## Host and schema boundary
 
+The current fresh host configuration is version 5 and SQLite schema is version 24.
+
 Initialization takes explicit paths and never discovers an installed daemon or
 reads the retired home/config. A new host config is valid but unconfigured: users
 must select a model/provider before creating a runnable session. Credentials are
@@ -1053,11 +1055,13 @@ Host source manifests use `scope: host` and a logical `root_id`; workspace sourc
 use `scope: workspace` and null. Source paths remain confined to their root;
 escaping symlinks are rejected even if legacy global discovery allowed them.
 
-Guest `skills.read` accepts `root_id` (null for workspace), exact `name`, a
+Guest `skills.read` accepts explicit `scope` (`workspace`, `host`, or `project`),
+`root_id` (null for workspace), exact `name`, a
 decimal-string `offset`, `length` from 1 to 65,536, and optional full-file `sha256`.
 The digest is required beyond offset zero. It resolves roots from the cell's
 immutable turn configuration, then uses ordinary durable operation admission and
-dispatch: `skills.read` on the host ID, or `files.read` on the workspace. An
+dispatch: `skills.read` on the host ID, `files.read` on the workspace, or
+`instructions.read` on `project:<id>` for a selected project boundary. An
 explicit one-use approval authorizes only that guest call, never automatic
 catalog/body capture. The descriptor is opened after permission and released on
 all outcomes. Each read validates a complete skill file within 256 KiB, checks
@@ -1094,4 +1098,37 @@ authority. Restart preserves old audit and reads current rules on a new turn.
 Skill catalog inspection and maintenance compaction never load this file.
 Malformed authorized rules or audit failure stop before provider dispatch.
 
-Authorized ancestor sources remain an outstanding Phase 5 instruction obligation.
+Authorized ancestors use explicit host `project_roots` (at most 16 named absolute
+boundaries) and the copied nullable `instructions.project_root` selection. Neither
+publishing nor selecting a root creates authority. One standing `instructions.read`
+grant on exact resource `project:<id>` admits membership metadata and instruction
+sources from that boundary through cwd, including cwd itself. It grants no arbitrary
+file or script access and needs no additional workspace `files.read` grant. Project,
+standing-file and host-skill authorities remain distinct even when names coincide.
+
+Admission precedes canonicalization and filesystem opening. The runtime verifies
+canonical membership against the opened boundary and cwd descriptors with file
+identity checks, then reads only relative to the boundary's `os.Root`. Stable cwd
+or boundary symlink aliases work; outside-boundary source symlinks fail. Changed
+identities, broken authorized sources, chains over 128 directories, and paths over
+4096 bytes fail before provider dispatch, without exposing absolute host paths.
+An omitted/denied project source or a resolved unrelated boundary falls back only
+when independent workspace read authority exists. An authorized missing boundary
+is an explicit failure. No upward search occurs without project authority.
+
+Project rules read broadest directory first, following configured filename order
+at each directory. Skill roots follow host policy order, then the project chain
+from boundary to cwd; increasingly specific entries win, including disabled skills.
+The project chain replaces the separate cwd scan. The same winners serve automatic
+catalogs, explicit current-input invocation, human `skills.list`, and project
+`skills.read`. Each guest request names a scope/root/name, never an arbitrary
+ancestor directory; its cell's captured policy and verified cwd chain determine
+eligible files. Explicit invocation rechecks current standing project authority.
+All roots share the existing composition, source, entry, skill and body limits.
+
+Project audit sources use `scope: project`, the selected logical `root_id`, and a
+boundary-relative path. Captured policy and immutable manifests survive restart;
+new turns read current files. Descriptors close after capture or guest execution.
+There is no new source database, cache, watcher, or claim that digest metadata can
+reconstruct changed files. A filesystem membership check is not an atomic snapshot
+of the directory tree; the source digests describe the bytes actually captured.

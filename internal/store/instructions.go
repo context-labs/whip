@@ -38,15 +38,15 @@ func (s *Store) TurnInput(ctx context.Context, id session.TurnID) (*session.Inpu
 // SessionInstructions inspects current copied policy and standing instruction
 // authority in one read-only snapshot. Stopped sessions and stopped issuers keep
 // valid grants until revoked; inspection neither starts work nor requires a permit.
-// Grants are ordered workspace first, then selected host roots in policy order,
+// Grants are ordered workspace first, selected project root, then host skill roots,
 // followed by the selected standing instruction file. Sources without standing
 // authority are omitted.
-func (s *Store) SessionInstructions(ctx context.Context, id session.SessionID) (_ session.Instructions, _ []session.Grant, err error) {
+func (s *Store) SessionInstructions(ctx context.Context, id session.SessionID) (_ session.Session, _ []session.Grant, err error) {
 	// ReadOnly selects a deferred BEGIN with the pinned SQLite driver, avoiding
 	// the writer reservation used by ordinary store execution transactions.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return session.Instructions{}, nil, err
+		return session.Session{}, nil, err
 	}
 	defer func() {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
@@ -55,9 +55,12 @@ func (s *Store) SessionInstructions(ctx context.Context, id session.SessionID) (
 	}()
 	owner, err := readSession(ctx, tx, id)
 	if err != nil {
-		return session.Instructions{}, nil, err
+		return session.Session{}, nil, err
 	}
 	resources := []struct{ capability, resource string }{{"files.read", owner.WorkingDirectory}}
+	if rootID := owner.Config.Instructions.ProjectRoot; rootID != nil {
+		resources = append(resources, struct{ capability, resource string }{"instructions.read", "project:" + *rootID})
+	}
 	for _, rootID := range owner.Config.Instructions.SkillRoots {
 		resources = append(resources, struct{ capability, resource string }{"skills.read", rootID})
 	}
@@ -70,13 +73,13 @@ func (s *Store) SessionInstructions(ctx context.Context, id session.SessionID) (
 		if err == nil {
 			result = append(result, grant)
 		} else if !errors.Is(err, ErrNotFound) {
-			return session.Instructions{}, nil, err
+			return session.Session{}, nil, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return session.Instructions{}, nil, err
+		return session.Session{}, nil, err
 	}
-	return owner.Config.Instructions, result, nil
+	return owner, result, nil
 }
 
 // InstructionReadGrant admits a turn's instruction reads against one
@@ -102,6 +105,16 @@ func (s *Store) InstructionReadGrant(ctx context.Context, id session.TurnID, roo
 // Selection comes from the caller's captured policy, never current configuration.
 func (s *Store) StandingInstructionReadGrant(ctx context.Context, id session.TurnID) (*session.Grant, error) {
 	return s.instructionReadGrant(ctx, id, "instructions.read", "standing")
+}
+
+// ProjectInstructionReadGrant checks the exact selected project authority against
+// the live prompt turn and permit guards. Selection comes from captured policy;
+// workspace file authority is independent and never required for this lookup.
+func (s *Store) ProjectInstructionReadGrant(ctx context.Context, id session.TurnID, rootID string) (*session.Grant, error) {
+	if err := session.ValidateID(rootID); err != nil {
+		return nil, err
+	}
+	return s.instructionReadGrant(ctx, id, "instructions.read", "project:"+rootID)
 }
 
 func (s *Store) instructionReadGrant(ctx context.Context, id session.TurnID, capability, resource string) (*session.Grant, error) {

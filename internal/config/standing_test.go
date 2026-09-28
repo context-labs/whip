@@ -21,7 +21,7 @@ func TestStandingInstructionFileExplicitRoundTripAndBounds(t *testing.T) {
 		t.Fatal("publication must not inspect filesystem", err)
 	}
 	loaded, err := Load(directory)
-	if err != nil || loaded.Version != 4 || loaded.StandingInstructionsFile != host.StandingInstructionsFile || !loaded.Defaults.Instructions.StandingInstructions {
+	if err != nil || loaded.Version != Version || loaded.StandingInstructionsFile != host.StandingInstructionsFile || !loaded.Defaults.Instructions.StandingInstructions {
 		t.Fatalf("standing config roundtrip=%+v %v", loaded, err)
 	}
 	for _, valid := range []string{"", directory, "/個人/me.md", "/" + strings.Repeat("a", 4095)} {

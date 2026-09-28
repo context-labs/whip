@@ -24,17 +24,32 @@ import (
 )
 
 const (
-	maxSourceBytes = session.MaxInstructionSourceBytes
-	maxSkills      = 1024
-	maxEntries     = 8192
-	skillDirectory = ".agents/skills"
+	maxSourceBytes        = session.MaxInstructionSourceBytes
+	maxSkills             = 1024
+	maxEntries            = 8192
+	MaxProjectDirectories = 128
+	skillDirectory        = ".agents/skills"
 )
 
 // Root is an authorized, caller-owned directory. An empty ID identifies the
-// workspace; named roots contain immediate skill directories.
+// workspace; a named root contains immediate skill directories unless a verified
+// project directory chain is supplied.
 type Root struct {
 	ID string
 	FS *os.Root
+	// ProjectDirectories names one verified boundary-to-cwd chain, in order.
+	// A nonempty chain identifies project scope; paths are relative to FS.
+	ProjectDirectories []string
+}
+
+func (r Root) Scope() string {
+	if len(r.ProjectDirectories) != 0 {
+		return "project"
+	}
+	if r.ID != "" {
+		return "host"
+	}
+	return "workspace"
 }
 
 type Snapshot struct {
@@ -44,8 +59,8 @@ type Snapshot struct {
 }
 
 // Load reads only through caller-owned roots. No roots means no filesystem
-// reads. Project files belong to the workspace; skills follow host root order,
-// then workspace precedence. Missing optional sources are omitted.
+// reads. Project rules follow the verified boundary-to-cwd chain or the single
+// workspace. Skills follow host order, then increasingly specific directories.
 func Load(ctx context.Context, roots []Root, policy session.Instructions, invoked []string) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
@@ -62,32 +77,49 @@ func Load(ctx context.Context, roots []Root, policy session.Instructions, invoke
 		return Snapshot{}, err
 	}
 	var sources []session.InstructionSource
+	if len(policy.ProjectFiles) > 0 && len(roots) > 0 {
+		if err := appendText(&text, "\n\nInstruction precedence: explicit user instructions take priority over project and skill guidance. Project rules apply to their stated directory and descendants; more specific directories take precedence. Within a directory, later configured instruction files take precedence (normally AGENTS.md follows CLAUDE.md). Instructions and skills confer no additional filesystem or delegation authority."); err != nil {
+			return Snapshot{}, err
+		}
+	}
 	if len(roots) == 0 {
 		return Snapshot{Text: text.String()}, nil
 	}
-	var workspace *os.Root
-	if roots[len(roots)-1].ID == "" {
-		workspace = roots[len(roots)-1].FS
-	}
-	for _, path := range policy.ProjectFiles {
-		if workspace == nil {
-			break
-		}
-		data, found, err := readSource(ctx, workspace, path, false)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		if !found {
+	for _, root := range roots {
+		if root.Scope() == "host" {
 			continue
 		}
-		if !utf8.Valid(data) || slices.Contains(data, byte(0)) {
-			return Snapshot{}, fmt.Errorf("project instructions %s must be UTF-8 without NUL", path)
+		directories := root.ProjectDirectories
+		if len(directories) == 0 {
+			directories = []string{"."}
 		}
-		framed := "\n\n--- Project instructions: " + strconv.Quote(path) + " ---\n" + string(data)
-		if err := appendText(&text, framed); err != nil {
-			return Snapshot{}, err
+		for _, directory := range directories {
+			for _, name := range policy.ProjectFiles {
+				path := filepath.Join(directory, name)
+				data, found, err := readSource(ctx, root.FS, path, false)
+				if err != nil {
+					return Snapshot{}, err
+				}
+				if !found {
+					continue
+				}
+				if !utf8.Valid(data) || slices.Contains(data, byte(0)) {
+					return Snapshot{}, fmt.Errorf("project instructions %s must be UTF-8 without NUL", path)
+				}
+				framed := "\n\n--- Project instructions: " + strconv.Quote(root.Scope()+":"+root.ID+"/"+filepath.ToSlash(path)) + " (directory scope " + strconv.Quote(filepath.ToSlash(directory)) + " and descendants) ---\n" + string(data)
+				if err := appendText(&text, framed); err != nil {
+					return Snapshot{}, err
+				}
+				entry := source("project_file", root.Scope(), root.ID, path, data)
+				if err := entry.Validate(); err != nil {
+					return Snapshot{}, err
+				}
+				sources = append(sources, entry)
+				if len(sources) > session.MaxInstructionSources {
+					return Snapshot{}, errors.New("instruction source manifest exceeds bounds")
+				}
+			}
 		}
-		sources = append(sources, source("project_file", "", path, data))
 	}
 	var selected []Skill
 	if policy.DiscoverSkills || len(invoked) > 0 {
@@ -126,11 +158,10 @@ func appendText(text *strings.Builder, value string) error {
 	return nil
 }
 
-func source(kind, rootID, path string, data []byte) session.InstructionSource {
+func source(kind, scope, rootID, path string, data []byte) session.InstructionSource {
 	hash := sha256.Sum256(data)
-	result := session.InstructionSource{Kind: kind, Scope: "workspace", Path: filepath.ToSlash(path), Bytes: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	result := session.InstructionSource{Kind: kind, Scope: scope, Path: filepath.ToSlash(path), Bytes: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	if rootID != "" {
-		result.Scope = "host"
 		result.RootID = new(rootID)
 	}
 	return result
@@ -226,13 +257,9 @@ type catalogBounds struct {
 	entries, skills int
 }
 
-func loadSkills(ctx context.Context, root Root, bounds *catalogBounds) ([]skills.Skill, []session.InstructionSource, error) {
+func loadSkills(ctx context.Context, root Root, directoryPath string, bounds *catalogBounds) ([]skills.Skill, []session.InstructionSource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
-	}
-	directoryPath := skillDirectory
-	if root.ID != "" {
-		directoryPath = "."
 	}
 	directory, err := root.FS.OpenFile(directoryPath, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
 	if optionalMissing(root.FS, directoryPath, err) {
@@ -287,7 +314,7 @@ func loadSkills(ctx context.Context, root Root, bounds *catalogBounds) ([]skills
 			return nil, nil, err
 		}
 		catalog = append(catalog, skill)
-		metadata := source("skill_metadata", root.ID, path, data)
+		metadata := source("skill_metadata", root.Scope(), root.ID, path, data)
 		if err := metadata.Validate(); err != nil {
 			return nil, nil, err
 		}

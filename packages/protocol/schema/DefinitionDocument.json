@@ -94,6 +94,12 @@
             "object"
           ],
           "properties": {
+            "project_root": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
             "text": {
               "type": "string"
             },
@@ -123,6 +129,7 @@
             }
           },
           "required": [
+            "project_root",
             "text",
             "project_files",
             "discover_skills",

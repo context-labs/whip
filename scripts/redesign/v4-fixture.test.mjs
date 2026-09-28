@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { basename, join, resolve } from 'node:path';
@@ -197,7 +197,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       assert.equal((await detached.wait('abort-wait', deadline())).turn.state, 'succeeded');
       const beforeCrash = await page();
 
-      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: false } } }, deadline());
+      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: false, project_root: null } } }, deadline());
       const spawnParams = { parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child' }], grant_ids: null };
       const spawned = await client.spawn(spawnParams, 'child', deadline());
       const child = spawned.session;
@@ -256,6 +256,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('instructions', () => instructionAcceptance(runtime, client, createParams, evidence));
     await stage('host skills', () => hostSkillAcceptance(runtime, client, createParams, evidence));
     await stage('standing instructions', () => standingInstructionAcceptance(runtime, client, createParams, evidence));
+    await stage('project ancestor instructions', () => projectInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('engines', () => engineAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
@@ -1504,7 +1505,7 @@ async function instructionAcceptance(runtime, client, createParams, evidence) {
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
-    const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true, skill_roots: [], standing_instructions: false };
+    const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true, skill_roots: [], standing_instructions: false, project_root: null };
     const { root } = await client.call('trees.create', {
       ...createParams, engine: 'quickjs', working_directory: workspace,
       overrides: { ...createParams.overrides, model: { provider: 'instructions', name: 'instructions', effort: '' }, instructions: policy },
@@ -1615,8 +1616,8 @@ async function hostSkillAcceptance(runtime, client, createParams, evidence) {
     const first = received.length === 1;
     if (first) await releases.get(engine).promise;
     const code = engine === 'starlark'
-      ? 'p=skills.read(root_id="team",name="global",offset="0",length=65536)\nq=skills.read(root_id="team",name="global",offset=p["next_offset"],length=65536,sha256=p["sha256"])\nprint(p["total_bytes"], p["sha256"], q["next_offset"])'
-      : 'const p=await skills.read({root_id:"team",name:"global",offset:"0",length:65536}); const q=await skills.read({root_id:"team",name:"global",offset:p.next_offset,length:65536,sha256:p.sha256}); console.log(p.total_bytes,p.sha256,q.next_offset);';
+      ? 'p=skills.read(scope="host",root_id="team",name="global",offset="0",length=65536)\nq=skills.read(scope="host",root_id="team",name="global",offset=p["next_offset"],length=65536,sha256=p["sha256"])\nprint(p["total_bytes"], p["sha256"], q["next_offset"])'
+      : 'const p=await skills.read({scope:"host",root_id:"team",name:"global",offset:"0",length:65536}); const q=await skills.read({scope:"host",root_id:"team",name:"global",offset:p.next_offset,length:65536,sha256:p.sha256}); console.log(p.total_bytes,p.sha256,q.next_offset);';
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ choices: [{ message: first
       ? { role: 'assistant', content: null, tool_calls: [{ id: `host-skill-${engine}`, type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] }
@@ -1645,7 +1646,7 @@ async function hostSkillAcceptance(runtime, client, createParams, evidence) {
       await mkdir(join(workspace, '.agents', 'skills', 'same'), { recursive: true });
       await writeFile(join(workspace, '.agents', 'skills', 'same', 'SKILL.md'), '---\nname: same\ndescription: WORKSPACE_DUPLICATE\n---\nWORKSPACE_SAME_BODY');
       await writeFile(globalPath, metadata + 'GLOBAL_BEFORE');
-      const policy = { text: '', project_files: [], discover_skills: true, skill_roots: ['unused', 'team'], standing_instructions: false };
+      const policy = { text: '', project_files: [], discover_skills: true, skill_roots: ['unused', 'team'], standing_instructions: false, project_root: null };
       const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: workspace,
         overrides: { ...createParams.overrides, model: { provider: 'hostskills', name: engine, effort: '' }, instructions: policy },
       }, deadline());
@@ -1670,7 +1671,7 @@ async function hostSkillAcceptance(runtime, client, createParams, evidence) {
       const changed = metadata + 'GLOBAL_AFTER\n' + '🌍'.repeat(18_000);
       const expectedHash = createHash('sha256').update(changed).digest('hex');
       await writeFile(globalPath, changed);
-      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, skill_roots: [], standing_instructions: false } } }, deadline());
+      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, skill_roots: [], standing_instructions: false, project_root: null } } }, deadline());
       releases.get(engine).resolve();
       const done = await client.wait(key, deadline());
       assert.equal(done.turn.state, 'succeeded', done.turn.failure);
@@ -1751,7 +1752,7 @@ async function standingInstructionAcceptance(runtime, client, createParams, evid
     await runtime.start(null);
     const workspace = join(runtime.directory, 'standing-workspace');
     await mkdir(workspace);
-    const policy = { text: 'ordinary configured text', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: true };
+    const policy = { text: 'ordinary configured text', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: true, project_root: null };
     const { root } = await client.call('trees.create', { ...createParams, engine: 'quickjs', working_directory: workspace,
       overrides: { ...createParams.overrides, model: { provider: 'standing', name: 'standing', effort: '' }, instructions: policy },
     }, deadline());
@@ -1773,7 +1774,7 @@ async function standingInstructionAcceptance(runtime, client, createParams, evid
     assert.deepEqual(captured.manifest.sources, [{ kind: 'standing_instructions', scope: 'host', root_id: 'standing', path: 'me.md', bytes: String(Buffer.byteLength(original)), sha256: createHash('sha256').update(original).digest('hex') }]);
     assert.ok(!JSON.stringify(captured).includes(file));
     await writeFile(file, 'STANDING_AFTER');
-    const disabled = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, standing_instructions: false } } }, deadline());
+    const disabled = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, standing_instructions: false, project_root: null } } }, deadline());
     await client.call('grants.revoke', { grant_id: grant.id }, deadline());
     release.resolve();
     const done = await client.wait('standing-active', deadline());
@@ -1818,6 +1819,114 @@ async function standingInstructionAcceptance(runtime, client, createParams, evid
     evidence.push({ standing: { denied, done, captured, revoked, childDone, restarted, failed, maintenance } });
   } finally {
     release.resolve();
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+
+async function projectInstructionAcceptance(runtime, client, createParams, evidence) {
+  const requests = new Map();
+  const releases = new Map(['starlark', 'quickjs'].map(engine => [engine, Promise.withResolvers()]));
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const engine = body.model;
+    const received = requests.get(engine) ?? [];
+    received.push(body); requests.set(engine, received);
+    const first = received.length === 1;
+    if (first) await releases.get(engine).promise;
+    const code = engine === 'starlark'
+      ? 'p=skills.read(scope="project",root_id="repo",name="ancestor",offset="0",length=65536)\nprint(p["source"]["scope"],p["source"]["path"])'
+      : 'const p=await skills.read({scope:"project",root_id:"repo",name:"ancestor",offset:"0",length:65536}); console.log(p.source.scope,p.source.path);';
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message: first
+      ? { role: 'assistant', content: null, tool_calls: [{ id: `project-${engine}`, type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] }
+      : { role: 'assistant', content: 'Project instructions completed.' }, finish_reason: first ? 'tool_calls' : 'stop' }] }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const boundary = join(runtime.directory, 'project-boundary');
+    const skillPath = join(boundary, '.agents', 'skills', 'ancestor', 'SKILL.md');
+    await mkdir(join(boundary, '.agents', 'skills', 'ancestor'), { recursive: true });
+    const metadata = '---\nname: ancestor\ndescription: Inherited ancestor skill\ndisable-model-invocation: true\n---\n';
+    await runtime.stop();
+    const hostPath = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(hostPath, 'utf8'));
+    host.project_roots = { repo: boundary };
+    host.providers.projects = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['starlark', 'quickjs'].map(engine => [engine, { max_output_tokens: 128, timeout_millis: 5000, max_attempts: 1 }])),
+    };
+    await writeFile(hostPath, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const workspace = join(boundary, engine);
+      const alias = join(runtime.directory, `project-alias-${engine}`);
+      await mkdir(workspace);
+      await symlink(workspace, alias);
+      await writeFile(join(boundary, 'AGENTS.md'), 'PROJECT_ANCESTOR_BEFORE');
+      await writeFile(join(workspace, 'AGENTS.md'), 'PROJECT_LOCAL_RULE');
+      await writeFile(skillPath, metadata + 'PROJECT_BODY_BEFORE');
+      const policy = { text: '', project_files: ['CLAUDE.md', 'AGENTS.md'], discover_skills: true, skill_roots: [], standing_instructions: false, project_root: 'repo' };
+      const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: alias,
+        overrides: { ...createParams.overrides, model: { provider: 'projects', name: engine, effort: '' }, instructions: policy },
+      }, deadline());
+      assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
+      const grant = await client.call('grants.create', { id: `project-${engine}`, session_id: root.id, capability: 'instructions.read', resource: 'project:repo' }, deadline());
+      const catalog = await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline());
+      assert.equal(catalog.items.length, 1);
+      assert.equal(catalog.items[0].disabled, true);
+      assert.deepEqual([catalog.items[0].source.scope, catalog.items[0].source.root_id, catalog.items[0].source.path], ['project', 'repo', '.agents/skills/ancestor/SKILL.md']);
+      const key = `project-${engine}`;
+      await client.submit(root.id, [{ type: 'text', text: 'Use $ancestor and read its source' }], key, deadline());
+      await until(async () => requests.get(engine)?.length ?? 0, count => count === 1);
+      const frozen = requests.get(engine)[0].messages[0].content;
+      for (const marker of ['PROJECT_ANCESTOR_BEFORE', 'PROJECT_LOCAL_RULE', 'PROJECT_BODY_BEFORE']) assert.ok(frozen.includes(marker), marker);
+      assert.ok(frozen.indexOf('PROJECT_ANCESTOR_BEFORE') < frozen.indexOf('PROJECT_LOCAL_RULE'));
+      assert.ok(!JSON.stringify(catalog).includes(boundary));
+      const cleared = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, project_root: null } } }, deadline());
+      releases.get(engine).resolve();
+      const done = await client.wait(key, deadline());
+      assert.equal(done.turn.state, 'succeeded', done.turn.failure);
+      assert.equal(requests.get(engine)[1].messages[0].content, frozen);
+      const operations = await client.call('turns.operations', { turn_id: done.turn.id, limit: 100 }, deadline());
+      assert.equal(operations.items.length, 1);
+      const operation = operations.items[0];
+      assert.deepEqual([operation.capability, operation.resource, operation.state], ['instructions.read', 'project:repo', 'succeeded']);
+      assert.equal(operation.result.value.source.scope, 'project');
+      assert.equal(Buffer.from(operation.result.value.data_base64, 'base64').toString('utf8'), metadata + 'PROJECT_BODY_BEFORE');
+      const audit = await client.call('turns.instructions', { turn_id: done.turn.id }, deadline());
+      assert.equal(audit.manifest.sources.length, 4);
+      assert.ok(audit.manifest.sources.every(source => source.scope === 'project' && source.root_id === 'repo'));
+      assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
+      await client.call('sessions.configure', { session_id: root.id, expected_revision: cleared.config_revision, patch: { instructions: policy } }, deadline());
+      await writeFile(join(boundary, 'AGENTS.md'), 'PROJECT_ANCESTOR_AFTER');
+      const restricted = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'restricted child' }], grant_ids: [] }, `${key}-restricted`, deadline());
+      assert.equal((await client.wait(`${key}-restricted`, deadline())).turn.state, 'succeeded');
+      assert.ok(!requests.get(engine).at(-1).messages[0].content.includes('PROJECT_ANCESTOR_AFTER'));
+      const delegated = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'delegated child' }], grant_ids: null }, `${key}-delegated`, deadline());
+      assert.equal((await client.wait(`${key}-delegated`, deadline())).turn.state, 'succeeded');
+      assert.ok(requests.get(engine).at(-1).messages[0].content.includes('PROJECT_ANCESTOR_AFTER'));
+      assert.equal(delegated.session.configuration.instructions.project_root, 'repo');
+      await runtime.stop();
+      await writeFile(skillPath, metadata + 'PROJECT_BODY_RESTARTED');
+      await runtime.start(null);
+      assert.deepEqual(await client.call('turns.instructions', { turn_id: done.turn.id }, deadline()), audit);
+      await client.submit(delegated.session.id, [{ type: 'text', text: 'Use $ancestor again' }], `${key}-restart`, deadline());
+      const restarted = await client.wait(`${key}-restart`, deadline());
+      assert.equal(restarted.turn.state, 'succeeded', restarted.turn.failure);
+      assert.ok(requests.get(engine).at(-1).messages[0].content.includes('PROJECT_BODY_RESTARTED'));
+      await client.call('grants.revoke', { grant_id: grant.id }, deadline());
+      await writeFile(join(boundary, 'AGENTS.md'), Buffer.from([0xff]));
+      assert.deepEqual((await client.call('skills.list', { session_id: delegated.session.id, limit: 100 }, deadline())).items, []);
+      await client.submit(delegated.session.id, [{ type: 'text', text: 'revoked sources' }], `${key}-revoked`, deadline());
+      assert.equal((await client.wait(`${key}-revoked`, deadline())).turn.state, 'succeeded');
+      evidence.push({ projectInstructions: { engine, done, audit, operation, restricted, delegated, restarted } });
+    }
+  } finally {
+    for (const release of releases.values()) release.resolve();
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

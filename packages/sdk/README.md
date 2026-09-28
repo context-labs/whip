@@ -458,8 +458,10 @@ ungranted registered roots are not opened. Workspace names override host names.
 Catalog and audit sources contain a relative path plus `scope` and nullable
 `root_id`, never the absolute registry path.
 
-The REPL reads a catalog skill with `skills.read({root_id, name, offset, length,
-sha256})` (keyword arguments in Starlark). Null `root_id` selects workspace skills.
+The REPL reads a catalog skill with `skills.read({scope, root_id, name, offset, length,
+sha256})` (keyword arguments in Starlark). Use `scope: "workspace"` and null
+`root_id` for cwd skills, `scope: "host"` for a selected named skill root, or
+`scope: "project"` for the selected project instruction boundary.
 Use decimal-string offsets and at most 65,536 bytes; pass the returned full-file
 SHA-256 for subsequent pages. Join decoded `data_base64` bytes before decoding
 UTF-8. Changing the file between pages fails its digest check. Reads use the
@@ -482,3 +484,20 @@ ID `standing` and the basename. Active turns keep their captured rules while new
 turns refresh authorized sources, including after restart. Missing or malformed
 authorized files fail before provider dispatch. Catalog inspection and maintenance
 compaction do not read standing instructions.
+
+Ancestor project sources require explicit host `project_roots` and copied session
+`instructions.project_root` (a nullable root ID). Grant standing `instructions.read`
+with resource `project:<id>` to permit instruction files and `.agents/skills`
+through the verified boundary-to-cwd chain. No workspace `files.read` grant is
+needed for these source reads; the project grant does not authorize arbitrary
+files or scripts. Missing authority leaves only independently authorized cwd
+sources. Canonical cwd aliases retain applicable ancestors.
+
+For example, select `project_root: "repo"` in the whole instruction policy, grant
+`instructions.read` on `project:repo`, and read catalog metadata using the existing
+`skills.list` call. Project metadata uses `scope: "project"`, `root_id: "repo"`,
+and boundary-relative paths. A guest can read a selected skill with
+`skills.read({scope:"project", root_id:"repo", name:"review", offset:"0", length:65536})`.
+Later pages require the returned full-file `sha256`. Selection and source paths
+are never grants. Roots/children, live inspection and turn capture share the same
+catalog winners; old audit stays immutable while later turns refresh file bytes.

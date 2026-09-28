@@ -655,9 +655,11 @@ now use explicit registry IDs, captured root selection and standing grants;
 `skills.read` supplies bounded, digest-checked body pages through the operation
 ledger. Standing user instructions now use an explicit file and exact standing
 authority, with filtered turn-local text and immutable raw-source audit.
-Authorized ancestors remain required; the
-compaction acceptance item remains
-open until the retained instruction family is complete.
+Authorized ancestor project rules and skills now use explicit named boundaries,
+captured selection, exact instruction grants and verified descriptor-confined
+membership. Both engines and SDK process acceptance cover aliases, inherited and
+restricted child sources, guest reads, refresh and restart. Broader Phase 5
+acceptance, including fork/rewind, remains open.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission
