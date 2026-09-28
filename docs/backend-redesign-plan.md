@@ -377,6 +377,7 @@ Maintain one compact table here as families are addressed:
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the reopened evidence-sharing obligation | 4 repair locally validated; hosted checks pending |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; initial durable compaction and raw-history access implemented, advanced context policy pending | 3 complete; 5 pending |
+| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles implemented; Responses/continuation, subscription generation guards, captured sampling and stateless helpers/batch remain | 5 in progress |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
@@ -659,8 +660,12 @@ compaction acceptance item remains
 open until the retained instruction family is complete.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
-after accounting settles. Indivisible oversized exchanges still fail explicitly. This progress does not retire retained capabilities or narrow
-Phases 5–7.
+after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission
+and derived session cache keys. Responses continuation, subscription execution,
+stateless model helpers and captured sampling remain required. Legacy uncertain
+partial-stream regeneration is explicitly retired under the new no-replay
+accounting policy; all dispatched attempts must still settle truthful evidence.
+This progress does not narrow Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 
