@@ -11,12 +11,16 @@ import (
 )
 
 func (r *Runtime) CreateTree(ctx context.Context, request store.CreateTree) (session.Tree, session.Session, error) {
-	resources, err := session.ResolveResourceLimits(r.host.Resources, request.Resources)
+	current, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return session.Tree{}, session.Session{}, err
+	}
+	resources, err := session.ResolveResourceLimits(current.Host.Resources, request.Resources)
 	if err != nil {
 		return session.Tree{}, session.Session{}, err
 	}
 	request.Resources = resources
-	request.Defaults = r.host.Defaults.Clone()
+	request.Defaults = current.Host.Defaults.Clone()
 	return r.store.CreateTree(ctx, request)
 }
 

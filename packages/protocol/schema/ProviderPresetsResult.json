@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "openai-chat",
+              "openai-responses",
+              "openai-codex"
+            ]
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2
+          },
+          "environments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2
+          },
+          "key_url": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "suggested_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16
+          },
+          "suggested_effort": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "base_url",
+          "methods",
+          "environments",
+          "key_url",
+          "suggested_models",
+          "suggested_effort"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 11
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ProviderPresetsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderPresetsResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

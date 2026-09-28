@@ -35,6 +35,61 @@ export const manifest = {
       "result": "WorkspaceSnapshotsResult"
     },
     {
+      "name": "providers.presets",
+      "params": "EmptyParams",
+      "result": "ProviderPresetsResult"
+    },
+    {
+      "name": "providers.bundled",
+      "params": "ProviderParams",
+      "result": "ProviderModelsResult"
+    },
+    {
+      "name": "providers.list",
+      "params": "EmptyParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.create",
+      "params": "ChangeProviderParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.update",
+      "params": "ChangeProviderParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.remove",
+      "params": "RemoveProviderParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.defaults",
+      "params": "ProviderDefaultsParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.compaction",
+      "params": "ProviderDefaultsParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.catalog",
+      "params": "ProviderParams",
+      "result": "ProviderCatalog"
+    },
+    {
+      "name": "providers.refresh",
+      "params": "ProviderParams",
+      "result": "ProviderCatalog"
+    },
+    {
+      "name": "providers.readiness",
+      "params": "ProviderReadinessParams",
+      "result": "ProviderReadiness"
+    },
+    {
       "name": "accounts.openai.begin",
       "params": "EmptyParams",
       "result": "OpenAILoginFlow"

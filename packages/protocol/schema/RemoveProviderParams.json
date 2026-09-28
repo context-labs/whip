@@ -1,0 +1,167 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "replacement": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "selection": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "name": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string"
+            },
+            "temperature": {
+              "type": [
+                "null",
+                "number"
+              ],
+              "minimum": 0,
+              "maximum": 2
+            },
+            "top_p": {
+              "type": [
+                "null",
+                "number"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "effort"
+          ],
+          "additionalProperties": false
+        },
+        "settings": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "prices": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                },
+                "output": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                },
+                "reasoning": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                },
+                "cached_input": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                },
+                "cached_output": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                }
+              },
+              "required": [
+                "input",
+                "output",
+                "reasoning",
+                "cached_input",
+                "cached_output"
+              ],
+              "additionalProperties": false
+            },
+            "context_window_tokens": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "max_output_tokens": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "timeout_millis": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "max_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "prices",
+            "context_window_tokens",
+            "max_output_tokens",
+            "timeout_millis",
+            "max_attempts"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "selection",
+        "settings"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/RemoveProviderParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RemoveProviderParams",
+  "required": [
+    "revision",
+    "provider",
+    "replacement"
+  ],
+  "additionalProperties": false
+}

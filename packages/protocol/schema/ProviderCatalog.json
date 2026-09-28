@@ -1,0 +1,230 @@
+{
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "scope_changed",
+        "cached"
+      ]
+    },
+    "scope_state": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "current"
+      ]
+    },
+    "discovery": {
+      "type": "string",
+      "enum": [
+        "not_checked",
+        "failed",
+        "catalog_response",
+        "account_catalog",
+        "authenticated_catalog",
+        "public_catalog"
+      ]
+    },
+    "fetched_at": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "account-time"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "maxLength": 512
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "output": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "reasoning": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "cached_input": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "cached_output": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              }
+            },
+            "required": [
+              "input",
+              "output",
+              "reasoning",
+              "cached_input",
+              "cached_output"
+            ],
+            "additionalProperties": false
+          },
+          "context_window_tokens": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "advertised_context_tokens": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "effective_context_percent": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "max_output_tokens": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "reasoning_efforts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "maxItems": 32
+          },
+          "input_modalities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "maxItems": 32
+          },
+          "output_modalities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "maxItems": 32
+          },
+          "supports_tools": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "metadata_source": {
+            "type": "string",
+            "enum": [
+              "advertised",
+              "bundled",
+              "advertised+bundled"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prices",
+          "context_window_tokens",
+          "advertised_context_tokens",
+          "effective_context_percent",
+          "max_output_tokens",
+          "reasoning_efforts",
+          "input_modalities",
+          "output_modalities",
+          "supports_tools",
+          "metadata_source"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1024
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ProviderCatalog",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderCatalog",
+  "required": [
+    "provider",
+    "state",
+    "scope_state",
+    "discovery",
+    "fetched_at",
+    "stale",
+    "failure",
+    "models"
+  ],
+  "additionalProperties": false
+}

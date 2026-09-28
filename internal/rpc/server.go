@@ -16,15 +16,17 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
 )
 
 // HostServices are borrowed command-owned authorities, separate from sessions.
 type HostServices struct {
-	OpenAI    *account.Service
-	Inference *inferenceaccount.Service
-	Config    *config.Authority
+	OpenAI       *account.Service
+	Inference    *inferenceaccount.Service
+	Config       *config.Authority
+	ProviderHost *providerhost.Service
 }
 
 type Server struct {

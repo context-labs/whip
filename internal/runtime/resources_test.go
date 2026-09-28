@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -13,7 +14,9 @@ import (
 
 func TestCreateTreeSnapshotsHostAndRequestResourceLimits(t *testing.T) {
 	r := openTest(t, t.TempDir(), model.Scripted{})
-	r.host.Resources = []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(3))}}
+	setHostForTest(t, r, func(host *config.Host) {
+		host.Resources = []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(3))}}
+	})
 	refs, err := r.Builtins()
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +26,9 @@ func TestCreateTreeSnapshotsHostAndRequestResourceLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	*r.host.Resources[0].Limit = 4
+	setHostForTest(t, r, func(host *config.Host) {
+		host.Resources = []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(4))}}
+	})
 	*request.Resources[0].Limit = 5
 	usage, err := r.Resources(t.Context(), root.ID)
 	if err != nil {

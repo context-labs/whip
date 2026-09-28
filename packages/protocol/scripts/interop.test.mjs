@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import ajvUnicodeLength from 'ajv/dist/runtime/ucs2length.js';
 import { validate, manifest } from '../generated/index.js';
 
 const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
@@ -16,6 +17,19 @@ test('actual Go JSON agrees with standalone TypeScript validation', () => {
   assert.deepEqual(patch.output, { schema: null });
   assert.equal(patch.report_mode, 'inline');
   assert.equal(fixtures.find(f => f.type === 'Session').value.configuration.report_mode, 'notice');
+});
+
+test('standalone string bounds match pinned Ajv Unicode semantics under strict CSP', async () => {
+  const expectedLength = ajvUnicodeLength.default ?? ajvUnicodeLength;
+  const model = fixtures.find(value => value.type === 'ProviderModelsResult' && value.valid).value.items[0];
+  const strings = ['', 'plain BMP', 'é漢字', '🌍', '\uD800', '\uDC00', '\uD800x\uDC00', 'a'.repeat(512), 'a'.repeat(513), 'a'.repeat(511) + '🌍', '🌍'.repeat(512), '🌍'.repeat(513), '\uD800'.repeat(512), '\uDC00'.repeat(513)];
+  for (const name of strings) {
+    assert.equal(validate('ProviderModelsResult', { items: [{ ...model, name }] }), expectedLength(name) <= 512, JSON.stringify(name.slice(0, 8)));
+  }
+  const source = await readFile(new URL('../generated/validators.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\brequire\s*\(/);
+  assert.doesNotMatch(source, /\bnew Function\s*\(/);
+  assert.doesNotMatch(source, /\beval\s*\(/);
 });
 test('TypeScript JSON re-encoding retains counters and agrees with Go', () => {
   const fixture = structuredClone(fixtures.find(f => f.type === 'HistoryResult'));

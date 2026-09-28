@@ -9,6 +9,39 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+// ForkRetry resolves accepted identities before callers read mutable host
+// defaults. Fork repeats this lookup atomically with any new admission.
+func (s *Store) ForkRetry(ctx context.Context, request session.ForkRequest) (result session.ForkResult, exists bool, err error) {
+	if err := session.ValidateID(string(request.ID)); err != nil {
+		return result, false, err
+	}
+	digest, err := requestDigest("session_fork", request)
+	if err != nil {
+		return result, false, err
+	}
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		result, exists, err = forkRetry(ctx, tx, request.ID, digest)
+		return err
+	})
+	return result, exists, err
+}
+
+func forkRetry(ctx context.Context, q querier, id session.ForkID, digest string) (session.ForkResult, bool, error) {
+	var previous string
+	err := q.QueryRowContext(ctx, "SELECT digest FROM forks WHERE id=?", id).Scan(&previous)
+	if errors.Is(err, sql.ErrNoRows) {
+		return session.ForkResult{}, false, nil
+	}
+	if err != nil {
+		return session.ForkResult{}, false, err
+	}
+	if previous != digest {
+		return session.ForkResult{}, true, ErrConflict
+	}
+	result, err := readFork(ctx, q, id)
+	return result, true, err
+}
+
 // Fork atomically imports a terminal raw prefix into a fresh root. A later source
 // turn may be active: the exact observed tail, history and configuration must
 // still match. Receipt lookup precedes all mutable source/default validation.
@@ -21,16 +54,9 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		var previous string
-		err := tx.QueryRowContext(ctx, "SELECT digest FROM forks WHERE id=?", request.ID).Scan(&previous)
-		if err == nil {
-			if previous != digest {
-				return ErrConflict
-			}
-			result, err = readFork(ctx, tx, request.ID)
-			return err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		result, exists, err = forkRetry(ctx, tx, request.ID, digest)
+		if exists || err != nil {
 			return err
 		}
 		if err := request.Validate(); err != nil {

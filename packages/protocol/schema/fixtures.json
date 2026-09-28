@@ -1,5 +1,184 @@
 [
   {
+    "type": "ProviderParams",
+    "value": {
+      "provider": "explicit"
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderPresetsResult",
+    "value": {
+      "items": [
+        {
+          "id": "openai",
+          "name": "OpenAI",
+          "kind": "openai-responses",
+          "base_url": "https://api.openai.com/v1",
+          "methods": [
+            "api_key"
+          ],
+          "environments": [
+            "OPENAI_API_KEY"
+          ],
+          "key_url": "",
+          "suggested_models": [
+            "gpt-6-astra"
+          ],
+          "suggested_effort": ""
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderModelsResult",
+    "value": {
+      "items": [
+        {
+          "id": "model",
+          "name": "",
+          "prices": {
+            "input": "9007199254740993",
+            "output": "0",
+            "reasoning": null,
+            "cached_input": null,
+            "cached_output": null
+          },
+          "context_window_tokens": "1000000",
+          "advertised_context_tokens": null,
+          "effective_context_percent": null,
+          "max_output_tokens": null,
+          "reasoning_efforts": [],
+          "input_modalities": null,
+          "output_modalities": null,
+          "supports_tools": null,
+          "metadata_source": "advertised"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderInventory",
+    "value": {
+      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "routes": [],
+      "defaults": null,
+      "compaction_model": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ChangeProviderParams",
+    "value": {
+      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "provider": "custom",
+      "declaration": {
+        "kind": "openai-chat",
+        "base_url": "https://example.test/v1",
+        "credential": {
+          "source": "file",
+          "environment": "",
+          "file": "",
+          "command": null
+        },
+        "models": null
+      },
+      "keep_credential": false,
+      "key": {
+        "id": "stable-key",
+        "key": "fixture-only-key"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderDefaultsParams",
+    "value": {
+      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "defaults": {
+        "selection": {
+          "provider": "custom",
+          "name": "explicit-model",
+          "effort": "",
+          "temperature": 0
+        },
+        "settings": {
+          "prices": {
+            "input": "9007199254740993",
+            "output": "0",
+            "reasoning": null,
+            "cached_input": null,
+            "cached_output": null
+          },
+          "context_window_tokens": null,
+          "max_output_tokens": "4096",
+          "timeout_millis": "0",
+          "max_attempts": 0
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "RemoveProviderParams",
+    "value": {
+      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "provider": "custom",
+      "replacement": {
+        "selection": null,
+        "settings": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderCatalog",
+    "value": {
+      "provider": "custom",
+      "state": "missing",
+      "scope_state": "unverified",
+      "discovery": "not_checked",
+      "fetched_at": null,
+      "stale": false,
+      "failure": null,
+      "models": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderReadinessParams",
+    "value": {
+      "selection": {
+        "provider": "custom",
+        "name": "model",
+        "effort": ""
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderReadiness",
+    "value": {
+      "configured": true,
+      "credential_state": "unchecked",
+      "catalog_state": "missing",
+      "model_state": "unknown",
+      "inference_state": "not_tested"
+    },
+    "valid": true
+  },
+  {
+    "type": "RPCError",
+    "value": {
+      "code": -32033,
+      "message": "Published key durability is unconfirmed; retry the same key identity",
+      "kind": "PROVIDER_KEY_PENDING"
+    },
+    "valid": true
+  },
+  {
     "type": "EmptyParams",
     "value": {},
     "valid": true

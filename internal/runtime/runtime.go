@@ -53,6 +53,7 @@ type Runtime struct {
 	owner            *owner
 	directory        string
 	host             config.Host
+	configuration    *config.Authority
 	options          Options
 	wake             chan struct{}
 	done             chan struct{}
@@ -134,6 +135,10 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if err != nil {
 		return nil, err
 	}
+	configuration, err := config.NewAuthority(directory)
+	if err != nil {
+		return nil, err
+	}
 	database, err := store.Open(ctx, filepath.Join(directory, "state.db"))
 	if err != nil {
 		return nil, err
@@ -156,7 +161,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	r := &Runtime{
 		epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
-		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
+		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
 		preferResumption: true,
 		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
@@ -170,8 +175,13 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 }
 
 func (r *Runtime) Identity() session.RuntimeID { return r.store.Identity() }
-func (r *Runtime) SocketPath() string          { return filepath.Join(r.directory, "runtime.sock") }
-func (r *Runtime) Done() <-chan struct{}       { return r.done }
+
+// HostConfiguration is the single host declaration authority shared with the
+// command's account/provider services. Snapshot reads never create a second cache.
+func (r *Runtime) HostConfiguration() *config.Authority { return r.configuration }
+
+func (r *Runtime) SocketPath() string    { return filepath.Join(r.directory, "runtime.sock") }
+func (r *Runtime) Done() <-chan struct{} { return r.done }
 func (r *Runtime) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -207,6 +207,50 @@ export interface CellsResult {
         finished_at: null | string;
       }[];
 }
+export interface ChangeProviderParams {
+  revision: string;
+  provider: string;
+  declaration: {
+    kind: "openai-chat" | "openai-responses" | "openai-codex";
+    base_url: string;
+    credential: null | {
+      source: "env" | "file" | "command" | "none" | "inference-net";
+      environment: string;
+      file: string;
+      command: null | {
+        executable: string;
+        /**
+         * @maxItems 64
+         */
+        arguments: string[];
+        /**
+         * @maxItems 64
+         */
+        environment: string[];
+      };
+    };
+    models: {
+      [k: string]: {
+        prices: {
+          input: null | string;
+          output: null | string;
+          reasoning: null | string;
+          cached_input: null | string;
+          cached_output: null | string;
+        };
+        context_window_tokens: null | string;
+        max_output_tokens: string;
+        timeout_millis: string;
+        max_attempts: number;
+      };
+    } | null;
+  };
+  keep_credential: boolean;
+  key: null | {
+    id: string;
+    key: string;
+  };
+}
 export interface CompactParams {
   identity: {
     client_id: string;
@@ -2127,6 +2171,5811 @@ export interface PermissionsResult {
         resolved_at: null | string;
       }[];
 }
+export interface ProviderCatalog {
+  provider: string;
+  state: "missing" | "scope_changed" | "cached";
+  scope_state: "unverified" | "current";
+  discovery:
+    "not_checked" | "failed" | "catalog_response" | "account_catalog" | "authenticated_catalog" | "public_catalog";
+  fetched_at: null | string;
+  stale: boolean;
+  failure: null | string;
+  /**
+   * @maxItems 1024
+   */
+  models: {
+    id: string;
+    name: string;
+    prices: {
+      input: null | string;
+      output: null | string;
+      reasoning: null | string;
+      cached_input: null | string;
+      cached_output: null | string;
+    };
+    context_window_tokens: null | string;
+    advertised_context_tokens: null | string;
+    effective_context_percent: null | string;
+    max_output_tokens: null | string;
+    /**
+     * @maxItems 32
+     */
+    reasoning_efforts: null | string[];
+    /**
+     * @maxItems 32
+     */
+    input_modalities: null | string[];
+    /**
+     * @maxItems 32
+     */
+    output_modalities: null | string[];
+    supports_tools: null | boolean;
+    metadata_source: "advertised" | "bundled" | "advertised+bundled";
+  }[];
+}
+export interface ProviderDefaultsParams {
+  revision: string;
+  defaults: {
+    selection: null | {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    settings: null | {
+      prices: {
+        input: null | string;
+        output: null | string;
+        reasoning: null | string;
+        cached_input: null | string;
+        cached_output: null | string;
+      };
+      context_window_tokens: null | string;
+      max_output_tokens: string;
+      timeout_millis: string;
+      max_attempts: number;
+    };
+  };
+}
+export interface ProviderInventory {
+  revision: string;
+  /**
+   * @maxItems 128
+   */
+  routes: {
+    id: string;
+    kind: "openai-chat" | "openai-responses" | "openai-codex";
+    base_url: string;
+    credential: {
+      source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
+      state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
+      environment: string;
+      file: string;
+    };
+    models: {
+      [k: string]: {
+        prices: {
+          input: null | string;
+          output: null | string;
+          reasoning: null | string;
+          cached_input: null | string;
+          cached_output: null | string;
+        };
+        context_window_tokens: null | string;
+        max_output_tokens: string;
+        timeout_millis: string;
+        max_attempts: number;
+      };
+    } | null;
+  }[];
+  defaults: null | {
+    provider: string;
+    name: string;
+    effort: string;
+    temperature?: null | number;
+    top_p?: null | number;
+  };
+  compaction_model: null | {
+    provider: string;
+    name: string;
+    effort: string;
+    temperature?: null | number;
+    top_p?: null | number;
+  };
+}
+export interface ProviderModelsResult {
+  /**
+   * @maxItems 1024
+   */
+  items: {
+    id: string;
+    name: string;
+    prices: {
+      input: null | string;
+      output: null | string;
+      reasoning: null | string;
+      cached_input: null | string;
+      cached_output: null | string;
+    };
+    context_window_tokens: null | string;
+    advertised_context_tokens: null | string;
+    effective_context_percent: null | string;
+    max_output_tokens: null | string;
+    /**
+     * @maxItems 32
+     */
+    reasoning_efforts: null | string[];
+    /**
+     * @maxItems 32
+     */
+    input_modalities: null | string[];
+    /**
+     * @maxItems 32
+     */
+    output_modalities: null | string[];
+    supports_tools: null | boolean;
+    metadata_source: "advertised" | "bundled" | "advertised+bundled";
+  }[];
+}
+export interface ProviderParams {
+  provider: string;
+}
+export interface ProviderPresetsResult {
+  /**
+   * @maxItems 11
+   */
+  items:
+    | []
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        },
+        {
+          id: string;
+          name: string;
+          kind: "openai-chat" | "openai-responses" | "openai-codex";
+          base_url: string;
+          /**
+           * @maxItems 2
+           */
+          methods: [] | [string] | [string, string];
+          /**
+           * @maxItems 2
+           */
+          environments: [] | [string] | [string, string];
+          key_url: string;
+          /**
+           * @maxItems 16
+           */
+          suggested_models:
+            | []
+            | [string]
+            | [string, string]
+            | [string, string, string]
+            | [string, string, string, string]
+            | [string, string, string, string, string]
+            | [string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string]
+            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ]
+            | [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string
+              ];
+          suggested_effort: string;
+        }
+      ];
+}
+export interface ProviderReadiness {
+  configured: boolean;
+  credential_state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
+  catalog_state: "missing" | "scope_changed" | "cached";
+  model_state: "unknown" | "configured" | "catalogued";
+  inference_state: "not_tested";
+}
+export interface ProviderReadinessParams {
+  selection: {
+    provider: string;
+    name: string;
+    effort: string;
+    temperature?: null | number;
+    top_p?: null | number;
+  };
+}
 export interface PutContentParams {
   session_id: string;
   reference_id: string;
@@ -2151,6 +8000,11 @@ export interface RPCError {
     | "ACCOUNT_CONFIGURATION"
     | "ACCOUNT_LOGOUT"
     | "ACCOUNT_MANAGEMENT"
+    | "PROVIDER_CREDENTIALS"
+    | "PROVIDER_DISCOVERY"
+    | "PROVIDER_CONFIGURATION"
+    | "PROVIDER_KEY_PENDING"
+    | "PROVIDER_KEY_STORAGE"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -2277,6 +8131,32 @@ export interface ReadWorkspaceActionParams {
   session_id: string;
   action_id: string;
 }
+export interface RemoveProviderParams {
+  revision: string;
+  provider: string;
+  replacement: null | {
+    selection: null | {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    settings: null | {
+      prices: {
+        input: null | string;
+        output: null | string;
+        reasoning: null | string;
+        cached_input: null | string;
+        cached_output: null | string;
+      };
+      context_window_tokens: null | string;
+      max_output_tokens: string;
+      timeout_millis: string;
+      max_attempts: number;
+    };
+  };
+}
 export interface Request {
   jsonrpc: "2.0";
   id: string;
@@ -2345,6 +8225,11 @@ export type Response = {
       | "ACCOUNT_CONFIGURATION"
       | "ACCOUNT_LOGOUT"
       | "ACCOUNT_MANAGEMENT"
+      | "PROVIDER_CREDENTIALS"
+      | "PROVIDER_DISCOVERY"
+      | "PROVIDER_CONFIGURATION"
+      | "PROVIDER_KEY_PENDING"
+      | "PROVIDER_KEY_STORAGE"
       | "INTERNAL";
   };
 } & {
@@ -3500,6 +9385,7 @@ export interface ContractTypes {
   CellParams: CellParams;
   CellsParams: CellsParams;
   CellsResult: CellsResult;
+  ChangeProviderParams: ChangeProviderParams;
   CompactParams: CompactParams;
   CompactionParams: CompactionParams;
   CompactionResult: CompactionResult;
@@ -3579,6 +9465,14 @@ export interface ContractTypes {
   Permission: Permission;
   PermissionsParams: PermissionsParams;
   PermissionsResult: PermissionsResult;
+  ProviderCatalog: ProviderCatalog;
+  ProviderDefaultsParams: ProviderDefaultsParams;
+  ProviderInventory: ProviderInventory;
+  ProviderModelsResult: ProviderModelsResult;
+  ProviderParams: ProviderParams;
+  ProviderPresetsResult: ProviderPresetsResult;
+  ProviderReadiness: ProviderReadiness;
+  ProviderReadinessParams: ProviderReadinessParams;
   PutContentParams: PutContentParams;
   RPCError: RPCError;
   ReadCompletionParams: ReadCompletionParams;
@@ -3592,6 +9486,7 @@ export interface ContractTypes {
   ReadStateParams: ReadStateParams;
   ReadStateResult: ReadStateResult;
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
+  RemoveProviderParams: RemoveProviderParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
   ResolvePermissionParams: ResolvePermissionParams;
@@ -3649,6 +9544,17 @@ export interface Operations {
   "workspace.action": { params: ReadWorkspaceActionParams; result: WorkspaceAction };
   "workspace.snapshot": { params: WorkspaceSnapshotParams; result: WorkspaceSnapshot };
   "workspace.snapshots": { params: WorkspaceSnapshotsParams; result: WorkspaceSnapshotsResult };
+  "providers.presets": { params: EmptyParams; result: ProviderPresetsResult };
+  "providers.bundled": { params: ProviderParams; result: ProviderModelsResult };
+  "providers.list": { params: EmptyParams; result: ProviderInventory };
+  "providers.create": { params: ChangeProviderParams; result: ProviderInventory };
+  "providers.update": { params: ChangeProviderParams; result: ProviderInventory };
+  "providers.remove": { params: RemoveProviderParams; result: ProviderInventory };
+  "providers.defaults": { params: ProviderDefaultsParams; result: ProviderInventory };
+  "providers.compaction": { params: ProviderDefaultsParams; result: ProviderInventory };
+  "providers.catalog": { params: ProviderParams; result: ProviderCatalog };
+  "providers.refresh": { params: ProviderParams; result: ProviderCatalog };
+  "providers.readiness": { params: ProviderReadinessParams; result: ProviderReadiness };
   "accounts.openai.begin": { params: EmptyParams; result: OpenAILoginFlow };
   "accounts.openai.get": { params: OpenAIFlowParams; result: OpenAILoginFlow };
   "accounts.openai.list": { params: EmptyParams; result: OpenAIFlowsResult };

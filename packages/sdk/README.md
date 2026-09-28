@@ -758,3 +758,28 @@ attemptID)` reads candidate text and historical `applied` evidence. Neither meth
 starts work, automatically retries inference or caches a second title. Inspect
 attempt usage through existing turn methods. Generated naming creates no
 conversation message, and interrupted dispatched work is never replayed.
+
+
+## Provider setup and catalog evidence
+
+Use `providerPresets` / `bundledProviderModels` for setup templates and bundled
+metadata, and `listProviders` for the current host revision, safe routes and
+explicit defaults. `createProvider`, `updateProvider`, `removeProvider`,
+`setProviderDefaults` and `setProviderCompactionModel` require that exact revision.
+Reread after an uncertain delivery before deciding whether another mutation is
+needed. For a pasted key retain its stable publication ID and original bytes;
+reuse with different bytes conflicts. Key bytes and command arguments are input-
+only and never returned. Publication may be visible but not yet durably confirmed;
+`PROVIDER_KEY_PENDING` distinguishes that state from pre-publication failure.
+
+`providerCatalog` reads local evidence; `refreshProviderCatalog` explicitly runs
+discovery. A returned failure may accompany retained same-scope models; a successful
+empty result clears them. Credential changes invalidate old scopes. Neither
+cached nor bundled metadata proves inference availability. `providerReadiness`
+keeps configured/credential/catalog/model evidence separate and reports inference
+as `not_tested`. Prices and token limits use exact decimal strings, with null for
+unknown values and `"0"` for explicit zero.
+
+Explicit uncatalogued selections remain valid after cache loss. New roots capture
+current host defaults; existing sessions retain their selections. These methods
+create no SDK cache, automatic refresh, fallback model selection or mutation retry.
