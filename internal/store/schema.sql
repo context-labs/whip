@@ -196,6 +196,8 @@ CREATE TABLE messages (
  turn_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence > 0),
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
+ model_continuation TEXT CHECK(model_continuation IS NULL OR
+  (role='assistant' AND json_valid(model_continuation) AND length(CAST(model_continuation AS BLOB))<=1048576)),
  mail_id TEXT, mail_revision INTEGER, mail_presentation TEXT CHECK(mail_presentation IS NULL OR mail_presentation IN ('digest','body')),
  UNIQUE(session_id,sequence), UNIQUE(input_id), UNIQUE(id,turn_id),
  CHECK((input_id IS NOT NULL)+(parts IS NOT NULL)+(mail_id IS NOT NULL)=1),

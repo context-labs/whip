@@ -30,6 +30,16 @@ func (*outputLedger) History(context.Context, session.SessionID, int64, int) ([]
 	return nil, nil
 }
 
+func (s *outputLedger) Continuations(_ context.Context, _ session.SessionID, ids []session.MessageID) (map[session.MessageID]session.ModelContinuation, error) {
+	result := map[session.MessageID]session.ModelContinuation{}
+	for _, id := range ids {
+		if message := s.messages[id]; message.Continuation != nil {
+			result[id] = *message.Continuation
+		}
+	}
+	return result, nil
+}
+
 func (s *outputLedger) ReserveModelAttempt(_ context.Context, spec session.ModelAttemptSpec) (session.ModelAttempt, error) {
 	s.specs = append(s.specs, spec)
 	return session.ModelAttempt{ID: spec.ID, State: session.AttemptReserved}, nil

@@ -249,6 +249,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('state subscriptions', () => stateSubscriptionAcceptance(runtime, client, createParams, evidence));
     await stage('completion reports', () => completionAcceptance(runtime, client, createParams, evidence));
     await stage('HTTP provider', () => providerAcceptance(runtime, client, createParams, evidence));
+    await stage('Responses provider', () => responsesAcceptance(runtime, client, createParams, evidence));
     await stage('output contracts', () => outputAcceptance(runtime, client, createParams, evidence));
     await stage('context compaction', () => contextAcceptance(runtime, client, createParams, evidence));
     await stage('context recovery', () => contextRecoveryAcceptance(runtime, client, createParams, evidence), 150_000);
@@ -347,6 +348,97 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.equal(requests[0].body.max_completion_tokens, 123);
     assert.equal(requests[0].body.messages.at(-1).content[1].image_url.url, 'data:image/png;base64,' + image);
     evidence.push({ httpProvider: { result, ledger, history, requests } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function responsesAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const marker = 'opaque-response-continuation';
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push({ path: request.url, body, raw });
+    const prompt = body.input.findLast(item => item.role === 'user')?.content?.find(item => item.type === 'input_text')?.text;
+    const engine = prompt.split(':')[0];
+    const result = body.input.at(-1).type === 'function_call_output';
+    const code = engine === 'starlark'
+      ? 'view=context.inspect(limit=100)\nfor item in view["items"]:\n if item["role"]=="assistant":\n  print(context.read(id=item["id"],offset="0",length=65536)["data_base64"])\n  break'
+      : 'var view=await context.inspect({limit:100}); var item=view.items.find(item=>item.role==="assistant"); print((await context.read({id:item.id,offset:"0",length:65536})).data_base64);';
+    const output = [
+      { type: 'reasoning', encrypted_content: marker, future: { preserved: '9007199254740993' } },
+      result ? { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Responses completed' }] }
+        : { type: 'function_call', id: 'output-call', call_id: 'execute-responses', name: 'execute', arguments: JSON.stringify({ code }) },
+    ];
+    response.setHeader('content-type', 'text/event-stream');
+    // Exercise completed item replay when the terminal envelope omits output.
+    output.forEach((item, output_index) => response.write(`data: ${JSON.stringify({ type: 'response.output_item.done', output_index, item })}\n\n`));
+    response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 7, input_tokens_details: { cached_tokens: 4 }, output_tokens_details: { reasoning_tokens: 2 }, cost: 0.000000001 } } })}\n\n`);
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.responses = { kind: 'openai-responses', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '', models: { responses: { max_output_tokens: 500, timeout_millis: 10000, max_attempts: 1 } } };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'responses', name: 'responses', effort: 'off' } } }, deadline());
+      for (const capability of ['context.inspect', 'context.read']) {
+        await client.call('grants.create', { id: `${root.id}-${capability}`, session_id: root.id, capability, resource: root.tree_id, issuer_id: null }, deadline());
+      }
+      for (const stage of ['initial', 'restart', 'route-change']) {
+        if (stage === 'restart') { await runtime.stop(); await runtime.start(null); }
+        if (stage === 'route-change') {
+          const changed = JSON.parse(await readFile(path, 'utf8'));
+          changed.providers.responses.base_url += '/other';
+          await writeFile(path, JSON.stringify(changed), { mode: 0o600 });
+        }
+        const start = requests.length;
+        const id = `${engine}:responses:${stage}`;
+        await client.submit(root.id, [{ type: 'text', text: id }], id, deadline());
+        const completed = await client.wait(id, deadline());
+        assert.equal(completed.turn.state, 'succeeded', completed.turn.failure);
+        assert.equal(requests.length, start + 2, 'each Responses round dispatches exactly one recorded request');
+        const first = requests[start], second = requests[start + 1];
+        assert.equal(first.raw.includes(marker), stage === 'restart', 'opaque replay requires the original route and survives restart');
+        assert.ok(second.raw.includes(marker), 'the next model round must replay its committed reasoning');
+        assert.ok(second.body.input.some(item => item.type === 'function_call_output'));
+        assert.equal(first.body.max_output_tokens, 500);
+        assert.equal(first.body.reasoning, undefined);
+        assert.equal(first.body.store, false);
+        assert.equal(first.body.prompt_cache_key, root.id);
+        const attempts = await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline());
+        const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+        const operations = await client.call('turns.operations', { turn_id: completed.turn.id, limit: 100 }, deadline());
+        const snapshot = await client.call('context.snapshot', { session_id: root.id }, deadline());
+        const metadata = await client.call('context.list', { session_id: root.id, after: '0', through_sequence: snapshot.through_sequence, limit: 100 }, deadline());
+        const search = await client.call('context.search', { session_id: root.id, after: '0', through_sequence: snapshot.through_sequence, query: marker, limit: 100 }, deadline());
+        assert.equal(search.matches.length, 0);
+        assert.equal(attempts.items.length, 2);
+        for (const [index, attempt] of attempts.items.entries()) {
+          assert.equal(attempt.request.adapter, 'openai-responses');
+          assert.equal(attempt.request.model.effort, 'off');
+          assert.equal(attempt.request.request_digest, createHash('sha256').update(requests[start + index].raw).digest('hex'));
+          assert.equal(attempt.cost_nano_usd, '1');
+          assert.equal(attempt.result.usage.cached_input, '4');
+          assert.equal(attempt.result.usage.reasoning, '2');
+        }
+        for (const value of [attempts, history, operations, metadata, search]) {
+          assert.equal(JSON.stringify(value).includes(marker), false, 'private provider state leaked through a public projection');
+          assert.equal(JSON.stringify(value).includes('encrypted_content'), false);
+        }
+        for (const operation of operations.items.filter(item => item.capability === 'context.read')) {
+          assert.equal(operation.state, 'succeeded');
+          assert.equal(Buffer.from(operation.result.value.data_base64, 'base64').toString('utf8').includes(marker), false);
+        }
+        evidence.push({ responses: { engine, stage, completed, attempts, operations } });
+      }
+    }
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

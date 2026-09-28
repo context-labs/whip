@@ -28,8 +28,8 @@ func chatRequest() Request {
 }
 
 func chatProvider(url string) OpenAI {
-	return OpenAI{Resolve: func(context.Context, session.ModelSelection) (ChatRoute, error) {
-		return ChatRoute{URL: url, Credential: "test-secret", MaxOutputTokens: 100, TimeoutMillis: 1000, MaxAttempts: 3}, nil
+	return OpenAI{Resolve: func(context.Context, session.ModelSelection) (Route, error) {
+		return Route{URL: url, Credential: "test-secret", MaxOutputTokens: 100, TimeoutMillis: 1000, MaxAttempts: 3}, nil
 	}}
 }
 
@@ -53,7 +53,7 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	window := int64(1000)
 	contextWindow := &window
 	resolve := provider.Resolve
-	provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (ChatRoute, error) {
+	provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (Route, error) {
 		route, err := resolve(ctx, selection)
 		route.Prices.Input = &price
 		route.ContextWindowTokens = contextWindow
@@ -117,7 +117,7 @@ func TestChatRejectsInvalidHostContextMaximumBeforeDispatch(t *testing.T) {
 		t.Run(strconv.FormatInt(bound, 10), func(t *testing.T) {
 			provider := chatProvider("https://example.test/v1")
 			resolve := provider.Resolve
-			provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (ChatRoute, error) {
+			provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (Route, error) {
 				route, err := resolve(ctx, selection)
 				route.ContextWindowTokens = &bound
 				return route, err

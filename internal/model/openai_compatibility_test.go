@@ -118,8 +118,8 @@ func TestChatCacheKeyAndOffEffortAreFrozenAtPreparation(t *testing.T) {
 			request.SessionID = id
 			request.Selection.Effort = "off"
 			selection := request.Selection
-			route := ChatRoute{URL: "https://example.test/v1", Credential: "test-secret", MaxOutputTokens: 100, TimeoutMillis: 1000, MaxAttempts: 3}
-			provider := OpenAI{Resolve: func(context.Context, session.ModelSelection) (ChatRoute, error) { return route, nil }}
+			route := Route{URL: "https://example.test/v1", Credential: "test-secret", MaxOutputTokens: 100, TimeoutMillis: 1000, MaxAttempts: 3}
+			provider := OpenAI{Resolve: func(context.Context, session.ModelSelection) (Route, error) { return route, nil }}
 			var received []byte
 			provider.Client = &http.Client{Transport: contextLimitTransport(func(r *http.Request) (*http.Response, error) {
 				if r.URL.String() != "https://example.test/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-secret" {

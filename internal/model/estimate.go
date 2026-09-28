@@ -22,6 +22,10 @@ func EstimateInputTokens(request Request) int64 {
 	}
 	for _, message := range request.Messages {
 		add(4)
+		if message.Continuation != nil {
+			text(message.Continuation.Scope)
+			text(message.Continuation.Data)
+		}
 		text(string(message.Role))
 		for _, part := range message.Parts {
 			switch part.Type {

@@ -22,9 +22,10 @@ import (
 
 const maxResponseBytes = 4 << 20
 
-// ChatRoute is a resolved host route. Credentials are ephemeral and deliberately
+// Route is a resolved host route. Credentials are ephemeral and deliberately
 // excluded from the durable request snapshot. The URL is an API base URL.
-type ChatRoute struct {
+type Route struct {
+	Kind            string
 	URL             string
 	Credential      string
 	Prices          session.ModelPrices
@@ -36,10 +37,10 @@ type ChatRoute struct {
 	ContextWindowTokens *int64
 }
 
-// OpenAI implements streaming OpenAI-compatible chat completions. Retry
+// OpenAI implements streaming Chat Completions and Responses. Retry
 // policy is enforced by the runner so every request has its own durable attempt.
 type OpenAI struct {
-	Resolve func(context.Context, session.ModelSelection) (ChatRoute, error)
+	Resolve func(context.Context, session.ModelSelection) (Route, error)
 	Client  *http.Client
 }
 
@@ -87,7 +88,22 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
 	}
 	baseURL := strings.TrimRight(route.URL, "/")
-	body, err := encodeChat(request, baseURL, route.MaxOutputTokens)
+	adapter, path := route.Kind, "/chat/completions"
+	if adapter == "" {
+		adapter = "openai-chat"
+	}
+	var body []byte
+	scope := ""
+	switch adapter {
+	case "openai-chat":
+		body, err = encodeChat(request, baseURL, route.MaxOutputTokens)
+	case "openai-responses":
+		path = "/responses"
+		scope = responseScope(baseURL+path, route.Credential, request.Selection.Name)
+		body, err = encodeResponses(request, scope, route.MaxOutputTokens)
+	default:
+		return Prepared{}, fmt.Errorf("%w: unsupported provider adapter", session.ErrInvalid)
+	}
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -98,7 +114,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	hash := sha256.Sum256(body)
 	snapshot := session.ModelRequestSnapshot{
 		Purpose: request.Purpose, Model: request.Selection,
-		Route: baseURL + "/chat/completions", Adapter: "openai-chat",
+		Route: baseURL + path, Adapter: adapter,
 		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
 		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,
 		InputTokenBound: inputBound,
@@ -116,6 +132,9 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts, ContextWindowTokens: contextWindow,
 		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
+			if adapter == "openai-responses" {
+				return executeResponses(ctx, &client, snapshot.Route, route.Credential, scope, body, allowedTools, emit)
+			}
 			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit)
 		},
 	}, nil
@@ -240,11 +259,7 @@ func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error
 	if effort == "off" {
 		effort = ""
 	}
-	cacheKey := string(request.SessionID)
-	if len(cacheKey) > 64 {
-		digest := sha256.Sum256([]byte(cacheKey))
-		cacheKey = hex.EncodeToString(digest[:])
-	}
+	cacheKey := promptCacheKey(request.SessionID)
 	// Match complete preset roots, not hostnames: custom proxies retain the
 	// generic wire contract. These presets omit the explicit cache-key field.
 	switch baseURL {
@@ -277,6 +292,15 @@ func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error
 		return nil, errors.New("encoded model request exceeds size limit")
 	}
 	return body, nil
+}
+
+func promptCacheKey(id session.SessionID) string {
+	key := string(id)
+	if len(key) > 64 {
+		digest := sha256.Sum256([]byte(key))
+		key = hex.EncodeToString(digest[:])
+	}
+	return key
 }
 
 func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool, emit func(Chunk)) (Response, error) {

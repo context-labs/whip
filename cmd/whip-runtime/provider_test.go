@@ -32,6 +32,7 @@ func TestHostRoutesRefreshOnlyForNewPreparedCalls(t *testing.T) {
 	}
 	route := host.Providers["fixture"]
 	route.BaseURL = "https://second.example/v1"
+	route.Kind = "openai-responses"
 	host.Providers["fixture"] = route
 	if err := config.Save(directory, host); err != nil {
 		t.Fatal(err)
@@ -40,7 +41,7 @@ func TestHostRoutesRefreshOnlyForNewPreparedCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Snapshot.Route != "https://first.example/v1/chat/completions" || second.Snapshot.Route != "https://second.example/v1/chat/completions" || second.Snapshot.MaxOutputTokens != 77 || second.Snapshot.TimeoutMillis != 1234 || second.MaxAttempts != 2 {
+	if first.Snapshot.Route != "https://first.example/v1/chat/completions" || second.Snapshot.Route != "https://second.example/v1/responses" || second.Snapshot.Adapter != "openai-responses" || second.Snapshot.MaxOutputTokens != 77 || second.Snapshot.TimeoutMillis != 1234 || second.MaxAttempts != 2 {
 		t.Fatalf("prepared snapshots: %+v %+v", first.Snapshot, second.Snapshot)
 	}
 	raw, err := json.Marshal(second.Snapshot)

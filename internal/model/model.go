@@ -15,8 +15,10 @@ import (
 )
 
 type Message struct {
-	Role  session.Role
-	Parts []session.Part
+	ID           session.MessageID
+	Role         session.Role
+	Parts        []session.Part
+	Continuation *session.ModelContinuation
 }
 type Request struct {
 	Purpose      string
@@ -43,6 +45,7 @@ type Content struct {
 }
 type Response struct {
 	Parts               []session.Part
+	Continuation        *session.ModelContinuation
 	Usage               session.ModelUsage
 	ReportedCostNanoUSD *int64
 	UsageNote           *string

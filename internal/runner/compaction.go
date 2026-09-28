@@ -262,7 +262,13 @@ func (r *Runner) rawContext(ctx context.Context, owner session.SessionID, reques
 			if err := appendContext(request, message.Role, message.Parts, &size); err != nil {
 				return size, err
 			}
+			request.Messages[len(request.Messages)-1].ID = message.ID
 			after = message.Sequence
+		}
+	}
+	if request.SessionID != "" && request.Purpose != "compaction" {
+		if err := r.loadContinuations(ctx, request, &size); err != nil {
+			return size, err
 		}
 	}
 	return size, nil
