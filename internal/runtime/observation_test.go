@@ -219,7 +219,7 @@ func TestObservationKeepsPreviewDuringSQLSettlementRetry(t *testing.T) {
 	current := createTest(t, r)
 	settlements := &observationSettlements{Store: r.store, failed: make(chan struct{}, 1)}
 	var err error
-	r.runner, err = runner.New(provider, r.store, settlements, r, r, r)
+	r.runner, err = runner.New(provider, r.store, settlements, r, r, r, r)
 	if err != nil {
 		t.Fatal(err)
 	}

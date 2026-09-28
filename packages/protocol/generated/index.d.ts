@@ -394,6 +394,11 @@ export interface HistoryResult {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "user";
             /**
@@ -429,6 +434,11 @@ export interface HistoryResult {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "system";
             /**
@@ -464,6 +474,11 @@ export interface HistoryResult {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "assistant";
             /**
@@ -519,6 +534,11 @@ export interface HistoryResult {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "tool";
             /**
@@ -647,6 +667,29 @@ export interface LifecycleParams {
   session_id: string;
   lifecycle: "active" | "stopped";
 }
+export interface ListMailParams {
+  session_id: string;
+  state?: null | ("pending" | "delivered" | "done");
+  after?: null | string;
+  limit: number;
+}
+export interface ListMailResult {
+  items:
+    | null
+    | {
+        id: string;
+        revision: string;
+        sender_id: string;
+        recipient_id: string;
+        delivery: "queued" | "steer" | "next_turn";
+        subject: string;
+        body_bytes: string;
+        state: "pending" | "delivered" | "done";
+        available_at: string;
+        created_at: string;
+        revised_at: string;
+      }[];
+}
 export interface ListSessionsParams {
   tree_id: string;
   after?: null | string;
@@ -702,12 +745,34 @@ export interface ListSessionsResult {
         created_at: string;
       }[];
 }
+export interface MailAdmission {
+  mail_id: string;
+  mail: null | {
+    id: string;
+    revision: string;
+    sender_id: string;
+    recipient_id: string;
+    delivery: "queued" | "steer" | "next_turn";
+    subject: string;
+    body_bytes: string;
+    state: "pending" | "delivered" | "done";
+    available_at: string;
+    created_at: string;
+    revised_at: string;
+  };
+  deleted_at: null | string;
+}
 export type Message =
   | {
       id: string;
       session_id: string;
       turn_id: string;
       input_id: null | string;
+      mail: null | {
+        id: string;
+        revision: string;
+        presentation: "digest" | "body";
+      };
       sequence: string;
       role: "user";
       /**
@@ -743,6 +808,11 @@ export type Message =
       session_id: string;
       turn_id: string;
       input_id: null | string;
+      mail: null | {
+        id: string;
+        revision: string;
+        presentation: "digest" | "body";
+      };
       sequence: string;
       role: "system";
       /**
@@ -778,6 +848,11 @@ export type Message =
       session_id: string;
       turn_id: string;
       input_id: null | string;
+      mail: null | {
+        id: string;
+        revision: string;
+        presentation: "digest" | "body";
+      };
       sequence: string;
       role: "assistant";
       /**
@@ -833,6 +908,11 @@ export type Message =
       session_id: string;
       turn_id: string;
       input_id: null | string;
+      mail: null | {
+        id: string;
+        revision: string;
+        presentation: "digest" | "body";
+      };
       sequence: string;
       role: "tool";
       /**
@@ -984,6 +1064,26 @@ export interface ReadContentResult {
   };
   data_base64: string;
 }
+export interface ReadMailParams {
+  session_id: string;
+  mail_id: string;
+}
+export interface ReadMailResult {
+  mail: {
+    id: string;
+    revision: string;
+    sender_id: string;
+    recipient_id: string;
+    delivery: "queued" | "steer" | "next_turn";
+    subject: string;
+    body_bytes: string;
+    state: "pending" | "delivered" | "done";
+    available_at: string;
+    created_at: string;
+    revised_at: string;
+  };
+  body: string;
+}
 export interface Request {
   jsonrpc: "2.0";
   id: string;
@@ -1020,6 +1120,15 @@ export type Response = {
 } & {
   [k: string]: unknown;
 };
+export interface SendMailParams {
+  mail_id: string;
+  sender_id: string;
+  recipient_id: string;
+  delivery: "queued" | "steer" | "next_turn";
+  subject: string;
+  body: string;
+  available_at?: null | string;
+}
 export interface Session {
   id: string;
   tree_id: string;
@@ -1076,6 +1185,11 @@ export interface SessionObservation {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "user";
             /**
@@ -1111,6 +1225,11 @@ export interface SessionObservation {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "system";
             /**
@@ -1146,6 +1265,11 @@ export interface SessionObservation {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "assistant";
             /**
@@ -1201,6 +1325,11 @@ export interface SessionObservation {
             session_id: string;
             turn_id: string;
             input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
             sequence: string;
             role: "tool";
             /**
@@ -1588,8 +1717,11 @@ export interface ContractTypes {
   Input: Input;
   InputParams: InputParams;
   LifecycleParams: LifecycleParams;
+  ListMailParams: ListMailParams;
+  ListMailResult: ListMailResult;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  MailAdmission: MailAdmission;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
@@ -1601,10 +1733,13 @@ export interface ContractTypes {
   RPCError: RPCError;
   ReadContentParams: ReadContentParams;
   ReadContentResult: ReadContentResult;
+  ReadMailParams: ReadMailParams;
+  ReadMailResult: ReadMailResult;
   Request: Request;
   RequestIdentity: RequestIdentity;
   ResolvePermissionParams: ResolvePermissionParams;
   Response: Response;
+  SendMailParams: SendMailParams;
   Session: Session;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
@@ -1622,6 +1757,9 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
 }
 export interface Operations {
+  "mail.send": { params: SendMailParams; result: MailAdmission };
+  "mail.list": { params: ListMailParams; result: ListMailResult };
+  "mail.read": { params: ReadMailParams; result: ReadMailResult };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };

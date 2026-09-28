@@ -100,7 +100,12 @@ transcript authority. An aborted wait or observation does not cancel execution. 
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
 Child creation in v4 is a durable `client.spawn` request: its receipt covers the
 child, initial input and delegated authority together. Keep its identity and exact
-payload for recovery just as for submissions. Product clients continue to use the explicitly retained packages until their
+payload for recovery just as for submissions.
+Mail uses a separate stable mail ID, and `mail.list`/`mail.read` are read-only
+inspection. They neither submit input nor acknowledge agent delivery. A transcript
+entry with `mail` provenance references an immutable mail revision and has no
+`input_id`; clients must preserve that distinction in views and recovery records.
+Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 
 | Package | Responsibility | Internal dependencies and boundary |

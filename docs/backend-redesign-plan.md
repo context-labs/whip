@@ -363,13 +363,13 @@ Maintain one compact table here as families are addressed:
 
 | Feature/test family | Guarantee retained or retirement decision | Replacement evidence | Target phase / status |
 | --- | --- | --- | --- |
-| Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | Pending | 2 |
-| Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | Pending | 3 |
-| Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | Pending | 3 |
-| Recursion and authority | Uniform session behavior, scoped grants, shared limits | Pending | 4 |
-| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Pending | 3 and 5 |
+| Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | `scripts/redesign/v4-fixture.test.mjs`: lost acknowledgement, identical retry, SIGKILL and queue recovery | 2 complete |
+| Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
+| Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`; coordination/resource limits remain | 4 in progress |
+| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
-| All client surfaces | Correct submission, observation, recovery and resource cleanup | Pending | 2 through 6 |
+| All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
 
 ### Test fixture and diagnostics

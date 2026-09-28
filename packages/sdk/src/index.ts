@@ -43,6 +43,11 @@ export class Client {
     return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
   }
 
+  /** Keep a globally unique mailID and the same payload when retrying an uncertain send. */
+  sendMail(params: Omit<Operations['mail.send']['params'], 'mail_id'>, mailID: string, options: CallOptions = {}): Promise<Operations['mail.send']['result']> {
+    return this.call('mail.send', { ...params, mail_id: mailID }, options);
+  }
+
   recover(requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('receipts.get', this.identity(requestID), options);
   }

@@ -60,7 +60,7 @@ async function fixture() {
   return { directory, start, stop, get info() { return info; }, get pid() { return child.pid; }, get output() { return output; } };
 }
 
-async function dropAcknowledgement(path, upstream, requestID, onDrop) {
+async function dropAcknowledgement(path, upstream, requestID, onDrop, matches = response => response.result?.receipt?.identity.request_id === requestID) {
   const connections = new Set();
   const server = net.createServer(client => {
     const backend = net.connect(upstream);
@@ -75,7 +75,7 @@ async function dropAcknowledgement(path, upstream, requestID, onDrop) {
         const end = pending.indexOf('\n'); if (end < 0) return;
         const line = pending.slice(0, end); pending = pending.slice(end + 1);
         const response = JSON.parse(line);
-        if (response.result?.receipt?.identity.request_id === requestID) { onDrop(response.result); close(); return; }
+        if (matches(response)) { onDrop(response.result); close(); return; }
         client.write(line + '\n');
       }
     });
@@ -191,6 +191,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
     await budgetAcceptance(client, createParams, evidence);
+    await mailAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
@@ -600,4 +601,54 @@ async function budgetAcceptance(client, createParams, evidence) {
   assert.equal(blocked.turn.state, 'failed');
   assert.deepEqual((await client.call('turns.attempts', { turn_id: blocked.turn.id, limit: 100 }, deadline())).items, []);
   evidence.push({ budgetInitial: initial, budgetCharged: charged, budgetBlocked: blocked });
+}
+
+async function mailAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'mail sender' }], grant_ids: [] }, 'mail-child', deadline());
+  await client.wait('mail-child', deadline());
+  const params = { sender_id: child.session.id, recipient_id: root.id, delivery: 'next_turn', subject: 'Read-only inspection', body: 'This body remains canonical mail.' };
+  const admission = await client.sendMail(params, 'mail-next-turn', deadline());
+  const read = () => client.call('mail.read', { session_id: root.id, mail_id: admission.mail_id }, deadline());
+  const inbox = await client.call('mail.list', { session_id: root.id, state: 'pending', limit: 100 }, deadline());
+  assert.equal(inbox.items.length, 1);
+  assert.equal('body' in inbox.items[0], false);
+  assert.equal((await read()).body, params.body);
+  assert.equal((await read()).mail.state, 'pending', 'human reads must not acknowledge mail');
+  assert.deepEqual((await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline())).items, []);
+  await assert.rejects(client.call('mail.read', { session_id: child.session.id, mail_id: admission.mail_id }, deadline()), error => error.kind === 'NOT_FOUND');
+  await assert.rejects(client.sendMail({ ...params, body: 'changed' }, admission.mail_id, deadline()), error => error.kind === 'CONFLICT');
+  await client.submit(root.id, [{ type: 'text', text: 'present pending mail' }], 'mail-explicit-turn', deadline());
+  const completed = await client.wait('mail-explicit-turn', deadline());
+  assert.equal(completed.turn.state, 'succeeded');
+  assert.equal((await read()).mail.state, 'delivered');
+  const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+  const presented = history.items.find(message => message.mail?.id === admission.mail_id);
+  assert.ok(presented, 'history must retain its immutable mail source');
+  assert.equal(presented.input_id, null);
+  assert.equal(presented.mail.revision, '1');
+
+  let dropped;
+  const lostParams = { ...params, delivery: 'queued', subject: 'Lost mail acknowledgment', body: 'Mail can start a turn without an input.' };
+  const proxyPath = join(runtime.directory, 'mail-drop.sock');
+  const close = await dropAcknowledgement(proxyPath, runtime.info.socket, 'mail-lost-ack', value => { dropped = value; }, response => response.result?.mail_id === 'mail-lost-ack');
+  try {
+    const unreliable = await Client.connect(unixSocket(proxyPath), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+    await assert.rejects(unreliable.sendMail(lostParams, 'mail-lost-ack', deadline()), DeliveryError);
+  } finally { await close(); }
+  assert.equal(dropped.mail_id, 'mail-lost-ack');
+  const retried = await client.sendMail(lostParams, 'mail-lost-ack', deadline());
+  assert.equal(retried.mail_id, dropped.mail_id);
+  const delivered = await until(() => client.call('mail.read', { session_id: root.id, mail_id: retried.mail_id }, deadline()), result => result.mail.state === 'delivered');
+  const after = await client.call('sessions.history', { session_id: root.id, after: presented.sequence, limit: 100 }, deadline());
+  const mailOnlyMessage = after.items.find(message => message.mail?.id === retried.mail_id);
+  assert.ok(mailOnlyMessage);
+  assert.equal(after.items.filter(message => message.mail?.id === retried.mail_id).length, 1);
+  assert.equal(after.items.filter(message => message.turn_id === mailOnlyMessage.turn_id && message.input_id !== null).length, 0);
+  assert.equal((await client.call('turns.get', { turn_id: mailOnlyMessage.turn_id }, deadline())).state, 'succeeded');
+  await client.call('sessions.delete', { session_id: root.id }, deadline());
+  const deleted = await client.sendMail(lostParams, 'mail-lost-ack', deadline());
+  assert.equal(deleted.mail, null);
+  assert.ok(deleted.deleted_at);
+  evidence.push({ mail: { admission, inbox, completed, history, dropped, retried, delivered, after, deleted } });
 }

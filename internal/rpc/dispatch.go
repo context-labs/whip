@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "mail.send", "mail.list", "mail.read":
+		return dispatchMail(ctx, r, method, raw)
 	case "budgets.list", "budgets.set":
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":

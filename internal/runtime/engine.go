@@ -113,6 +113,16 @@ func (r *Runtime) Instructions(ctx context.Context, id session.SessionID) (strin
 		instructions += " Spawn children with const child=await agents.spawn({prompt:\"work\"}); register a wait with await agents.wait_after_cell({input_ids:[child.input_id]})."
 	}
 	instructions += " Spawn returns session_id and input_id after durable admission. A wait registration returns immediately: finish this cell, then the runtime waits for those descendant inputs before the next model step. Never poll or block inside the cell. Children use separate sessions and REPLs. Spawn inherits the current standing grants unless grant_ids is an explicit subset (an empty list delegates none). Child permissions cannot exceed that delegation. agents.spawn and agents.wait_after_cell grants use the tree ID as their resource."
+	instructions += " Mail is separate from submitted input. mail.send accepts recipient_id, body, optional subject, delivery and available_at; recipients must be direct relatives. Delivery queued starts an idle recipient turn, steer is presented at the next safe model boundary, and next_turn waits for another reason to start a turn. mail.list accepts state, after and limit; mail.read accepts id. Listing observes revisions for explicit actions, but only presentation by digest or read is delivered when this turn succeeds. mail.complete accepts receipts; mail.defer accepts receipt and an RFC3339 available_at. Copy each receipt's id and decimal-string revision unchanged. Mail grants use the tree ID as their resource."
+	if tree.Engine == session.Starlark {
+		instructions += " Example: mail.send(recipient_id=\"session_id\", body=\"update\", delivery=\"queued\")."
+	} else {
+		instructions += " Example: await mail.send({recipient_id:\"session_id\", body:\"update\", delivery:\"queued\"})."
+	}
+	instructions += " Your session ID is " + string(current.ID) + "."
+	if current.ParentID != nil {
+		instructions += " Your parent session ID is " + string(*current.ParentID) + "."
+	}
 	return instructions, nil
 }
 

@@ -21,6 +21,12 @@ type Provider interface {
 type Transcript interface {
 	History(context.Context, session.SessionID, int64, int) ([]session.Message, error)
 }
+
+// Mail presents durable steer revisions only at model-request boundaries.
+// Reading client views cannot cause presentation or delivery.
+type Mail interface {
+	ObserveSteers(context.Context, session.TurnID) ([]session.Message, error)
+}
 type Attempts interface {
 	ReserveModelAttempt(context.Context, session.ModelAttemptSpec) (session.ModelAttempt, error)
 	DispatchModelAttempt(context.Context, session.ModelAttemptID) (bool, error)
@@ -47,13 +53,14 @@ type Runner struct {
 	content    ContentReader
 	executor   Executor
 	progress   Progress
+	mail       Mail
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress, mail Mail) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress, mail: mail}, nil
 }
 
 type Outcome struct {
@@ -117,6 +124,17 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		return Failure(err), nil
 	}
 	for round := 1; round <= 32; round++ {
+		if r.mail != nil {
+			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
+			if err != nil {
+				return Outcome{}, fmt.Errorf("present steer mail: %w", err)
+			}
+			for _, message := range messages {
+				if err := appendContext(&request, message.Role, message.Parts, &size); err != nil {
+					return Failure(err), nil
+				}
+			}
+		}
 		completed, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_model_%d", turn.ID, round))
 		if err != nil {
 			return Outcome{}, err

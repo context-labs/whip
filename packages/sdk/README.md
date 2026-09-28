@@ -122,3 +122,32 @@ without enough bounded allowance fail before dispatch. Deleting a child retains
 its accounting against ancestors. Original turn/message IDs in accounting may
 therefore refer to deleted history. A root budget denial fails that turn without
 stopping unrelated sessions.
+
+Mail has its own stable identity and does not create an input receipt:
+
+```ts
+const params = {
+  sender_id: childID,
+  recipient_id: parentID,
+  delivery: 'next_turn' as const,
+  subject: 'Investigation complete',
+  body: 'The result is ready for the next turn.',
+};
+const mailID = crypto.randomUUID(); // Retain this ID with params before sending.
+const sent = await client.sendMail(params, mailID);
+const inbox = await client.call('mail.list', {
+  session_id: parentID, state: 'pending', limit: 100,
+});
+const inspected = await client.call('mail.read', {
+  session_id: parentID, mail_id: sent.mail_id,
+});
+```
+
+Keep the mail ID and exact payload for retries after an uncertain send; IDs are
+unique across the runtime. Retrying after recipient deletion returns a tombstone.
+Listings omit bodies. Reading a body is read-only and never acknowledges delivery.
+Only successful turn presentation or explicit authorized agent handling changes
+delivery state. `queued` and `steer` mail can start idle execution; `next_turn`
+waits for another trigger. Transcript messages identify mail provenance with
+`mail.id`, exact decimal-string `mail.revision`, and `mail.presentation`; their
+`input_id` is null. Other messages have `mail: null`.

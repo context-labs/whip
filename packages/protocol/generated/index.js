@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "mail.send",
+      "params": "SendMailParams",
+      "result": "MailAdmission"
+    },
+    {
+      "name": "mail.list",
+      "params": "ListMailParams",
+      "result": "ListMailResult"
+    },
+    {
+      "name": "mail.read",
+      "params": "ReadMailParams",
+      "result": "ReadMailResult"
+    },
+    {
       "name": "budgets.list",
       "params": "SessionParams",
       "result": "BudgetsResult"

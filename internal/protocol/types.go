@@ -198,14 +198,15 @@ type Turn struct {
 	FinishedAt     *string `json:"finished_at"`
 }
 type Message struct {
-	ID        ID      `json:"id"`
-	SessionID ID      `json:"session_id"`
-	TurnID    ID      `json:"turn_id"`
-	InputID   *ID     `json:"input_id"`
-	Sequence  Counter `json:"sequence"`
-	Role      string  `json:"role" enum:"system,user,assistant,tool"`
-	Parts     []Part  `json:"parts"`
-	CreatedAt string  `json:"created_at"`
+	ID        ID       `json:"id"`
+	SessionID ID       `json:"session_id"`
+	TurnID    ID       `json:"turn_id"`
+	InputID   *ID      `json:"input_id"`
+	Mail      *MailRef `json:"mail"`
+	Sequence  Counter  `json:"sequence"`
+	Role      string   `json:"role" enum:"system,user,assistant,tool"`
+	Parts     []Part   `json:"parts"`
+	CreatedAt string   `json:"created_at"`
 }
 type Admission struct {
 	Receipt Receipt `json:"receipt"`

@@ -315,12 +315,13 @@ func ValidateMessage(role Role, parts []Part) error {
 func ValidateInputParts(parts []Part) error { return ValidateMessage(User, parts) }
 
 // Message is the common root/child transcript projection. User entries resolve
-// Parts through InputID; assistant/tool entries own their stored parts directly.
+// Parts through an input or immutable mail revision; authored entries own parts.
 type Message struct {
 	ID        MessageID
 	SessionID SessionID
 	TurnID    TurnID
 	InputID   *InputID
+	Mail      *MailRef
 	Sequence  int64
 	Role      Role
 	Parts     []Part

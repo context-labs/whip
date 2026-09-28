@@ -675,3 +675,41 @@ reserved bounds, dispatched-call accounting, unknown evidence and saturation.
 
 The preceding child/wait increment at `70bce08a7` passed the complete
 [Linux/macOS hosted gate](https://github.com/context-labs/whip/actions/runs/36378062536).
+
+## Phase 4 mail increment
+
+Fresh schema 8 stores mail identities/retry tombstones, immutable revisions and
+turn presentation receipts. Mail-driven turns use the existing scheduler, runner,
+accounting and transcript; no synthetic input or second work queue is added.
+Client inspection remains read-only. Agent helpers atomically commit authority,
+mail mutations or observations, and their operation outcomes. A read operation
+retains its revision metadata and reconstructs its body from canonical mail.
+
+New store tests exercise concurrent identical sends across two connections,
+partial-admission rollback, source-backed history across replacement, atomic
+successful-turn delivery, stale batch handling, operation settlement rollback,
+read retry after replacement, deferral and sender/recipient deletion. The failure
+barrier survives reopen at both root and child depth. Both engine integration
+tests exercise actual mail helpers, metadata-only listing versus presentation,
+mail-only turns, steer injection after the complete tool batch, and failure/
+cancellation/interruption recovery. Future due mail wakes through ordinary
+scheduler reconciliation without another notification.
+
+The generated Go/TypeScript contract and SDK checks pass. The race-enabled SDK
+process fixture passed in 19.477 s, including lost mail acknowledgement, exact
+retry, read-only inspection, immutable transcript provenance and deletion
+without resurrection. Focused mail/cancellation race suites pass (store 4.044 s,
+runtime 16.180 s); pinned analysis reports zero lint issues and no reachable
+vulnerabilities. The full `task check:phase` passed: active build/vet/race,
+complete process-engine suite, generated contract/SDK checks, new and retained
+process fixtures, and required legacy cross-layer regressions. Runtime race
+coverage took 51.668 s; retained cross-layer tests took 2.709 s.
+
+The budget head `a9f05dc40` passed macOS and analysis, but Linux exposed an overly
+strict cancellation assertion: a cancelled host wait can return a correlated
+language-error result before process cancellation wins. That settled boundary
+may retain its exact checkpoint. Revision `e5f5d215d` checks both permitted
+outcomes, verifies any retained checkpoint through the real restore loader,
+and still rejects checkpoints on uncertain cells, late approval and filesystem
+effects. Ten repeated race runs across both engines pass in 51.004 s. This changes
+only the test; production execution and checkpoint semantics are unchanged.

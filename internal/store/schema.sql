@@ -69,6 +69,7 @@ CREATE TABLE turns (
  CHECK((state IN ('running','cancelling')) = (finished_at IS NULL)),
  CHECK(state <> 'succeeded' OR failure IS NULL)
 ) STRICT;
+CREATE INDEX turns_by_session_start ON turns(session_id,started_at DESC);
 CREATE UNIQUE INDEX one_active_turn ON turns(session_id) WHERE state IN ('running','cancelling');
 CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
@@ -102,13 +103,52 @@ CREATE TRIGGER receipt_immutable BEFORE UPDATE ON receipts
  OR NEW.digest IS NOT OLD.digest OR NEW.created_at IS NOT OLD.created_at OR OLD.deleted_at IS NOT NULL
  OR NEW.input_id IS NOT NULL OR NEW.deleted_at IS NULL
  BEGIN SELECT RAISE(ABORT, 'receipt may only become a deletion marker'); END;
+-- Mail identity survives recipient deletion solely as a send-retry tombstone.
+CREATE TABLE mail (
+ id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
+ initial_digest TEXT NOT NULL, revision INTEGER, state TEXT,
+ created_at INTEGER NOT NULL, deleted_at INTEGER,
+ CHECK((revision IS NULL) = (deleted_at IS NOT NULL)),
+ CHECK((state IS NULL) = (deleted_at IS NOT NULL)),
+ CHECK(revision IS NULL OR revision BETWEEN 1 AND 128),
+ CHECK(state IS NULL OR state IN ('pending','delivered','done')),
+ FOREIGN KEY(id,revision) REFERENCES mail_revisions(mail_id,revision) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+CREATE INDEX mail_by_recipient ON mail(recipient_id,id) WHERE deleted_at IS NULL;
+CREATE INDEX mail_sender_rate ON mail(sender_id,created_at);
+CREATE TABLE mail_revisions (
+ mail_id TEXT NOT NULL REFERENCES mail(id), revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 128),
+ delivery TEXT NOT NULL CHECK(delivery IN ('queued','steer','next_turn')),
+ subject TEXT NOT NULL, body TEXT NOT NULL, available_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
+ PRIMARY KEY(mail_id,revision)
+) STRICT;
+CREATE TRIGGER mail_revision_immutable BEFORE UPDATE ON mail_revisions
+ BEGIN SELECT RAISE(ABORT, 'mail revision is immutable'); END;
+CREATE TRIGGER mail_identity_immutable BEFORE UPDATE ON mail
+ WHEN NEW.id IS NOT OLD.id OR NEW.sender_id IS NOT OLD.sender_id OR NEW.recipient_id IS NOT OLD.recipient_id
+ OR NEW.initial_digest IS NOT OLD.initial_digest OR NEW.created_at IS NOT OLD.created_at OR OLD.deleted_at IS NOT NULL
+ OR (NEW.deleted_at IS NULL AND NEW.revision NOT IN (OLD.revision,OLD.revision+1))
+ BEGIN SELECT RAISE(ABORT, 'invalid mail identity transition'); END;
+CREATE TABLE turn_mail_observations (
+ turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+ mail_id TEXT NOT NULL, revision INTEGER NOT NULL, presented INTEGER NOT NULL CHECK(presented IN (0,1)),
+ PRIMARY KEY(turn_id,mail_id,revision),
+ FOREIGN KEY(mail_id,revision) REFERENCES mail_revisions(mail_id,revision) ON DELETE CASCADE
+) STRICT;
+CREATE TRIGGER mail_observation_immutable BEFORE UPDATE ON turn_mail_observations
+ WHEN NEW.turn_id IS NOT OLD.turn_id OR NEW.mail_id IS NOT OLD.mail_id OR NEW.revision IS NOT OLD.revision OR NEW.presented<OLD.presented
+ BEGIN SELECT RAISE(ABORT, 'invalid mail observation'); END;
 CREATE TABLE messages (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  turn_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence > 0),
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
+ mail_id TEXT, mail_revision INTEGER, mail_presentation TEXT CHECK(mail_presentation IS NULL OR mail_presentation IN ('digest','body')),
  UNIQUE(session_id,sequence), UNIQUE(input_id), UNIQUE(id,turn_id),
- CHECK((input_id IS NULL) <> (parts IS NULL)), CHECK((role='user') = (input_id IS NOT NULL)),
+ CHECK((input_id IS NOT NULL)+(parts IS NOT NULL)+(mail_id IS NOT NULL)=1),
+ CHECK((mail_id IS NULL)=(mail_revision IS NULL)), CHECK((mail_id IS NULL)=(mail_presentation IS NULL)),
+ CHECK((role='user') = (input_id IS NOT NULL OR mail_id IS NOT NULL)),
+ FOREIGN KEY(mail_id,mail_revision) REFERENCES mail_revisions(mail_id,revision) ON DELETE CASCADE,
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(input_id,turn_id,session_id) REFERENCES inputs(id,turn_id,session_id) ON DELETE CASCADE
 ) STRICT;

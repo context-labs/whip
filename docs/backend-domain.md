@@ -76,12 +76,12 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    The digest covers operation kind and typed submission, including recipient and source.
    A receipt and input commit together. Equal retries return the same receipt;
    changed payload reuse conflicts. Queues are bounded. No worker starts here.
-2. **Claim:** one eligible queued input becomes associated with a new turn, the
-   current config revision is captured, and a user transcript entry references
-   the input. One transaction and a partial unique index enforce one active turn
+2. **Claim:** an eligible queued input or due mail starts a new turn; the
+   current config revision is captured. An input-backed user transcript entry
+   references its input, and mail entries reference immutable mail revisions. One transaction and a partial unique index enforce one active turn
    per session. Independent store connections must obey the same invariant.
-   Each turn claims exactly one input in this initial contract; batching is not
-   implicit. FIFO order comes from the input insertion ordinal.
+   Each turn claims at most one input; mail-only turns claim none. Input batching
+   is not implicit. FIFO input order comes from the insertion ordinal.
 3. **Transcript append:** stable message identity and per-session sequence make
    retries idempotent. Completed entries survive restart even before turn finish.
    Tool calls are assistant parts; tool results reference their call ID and
@@ -461,3 +461,51 @@ a provider limit. Actual usage, charges and timeout overruns are never clamped
 to it. Elapsed usage is monotonic execution time rounded up to milliseconds;
 SQL settlement retries do not add execution usage. Provider timeouts are
 cooperative, so an actual duration may exceed its reserved timeout.
+
+## Mail and presentation
+
+Mail is retained inter-session communication, separate from accepted input.
+A caller supplies a stable mail ID; its original typed payload digest makes an
+identical send retry idempotent. A deleted recipient leaves a mail tombstone,
+so retrying an uncertain send cannot resurrect deleted work. Sender deletion
+leaves surviving recipients' mail intact. Senders and recipients must be in the
+same tree and be self, parent, child or siblings.
+
+A mail identity owns its current revision and handling state. Immutable revisions
+own delivery class, availability, subject and body. Transcript entries reference
+the exact presented revision, so replacing pending mail cannot rewrite history.
+A listing contains metadata and body size; an explicit read returns the body.
+Human list/read operations do not start work, establish agent observations or
+acknowledge delivery.
+
+The scheduler derives readiness directly from due mail and queued inputs.
+`queued` mail waits for an idle session, `steer` can also be presented at the next
+model boundary after all preceding code calls settle, and `next_turn` waits for
+another reason to start a turn. All due classes can be presented when a turn
+starts. A mail-only turn has no input; execution, accounting, cancellation,
+history and recovery use the ordinary turn path.
+
+Turn observations record exact mail revisions. Listing through an agent helper
+allows explicit handling but does not count as model presentation. Automatic
+digests and explicit agent reads do. A successful turn marks only its presented,
+still-current pending revisions delivered. Failed, cancelled and interrupted
+turns leave mail pending. An unsuccessful latest turn blocks automatic mail-only
+execution until an explicit input succeeds; new mail and a runtime restart do
+not bypass that barrier. Delivery does not mean the agent has finished handling
+the mail: `mail.complete` explicitly marks observed revisions done, while
+`mail.defer` creates a new pending revision for a later availability time.
+
+Guest helpers are scoped host operations with persisted authority and results.
+Their observation/handling mutation and operation settlement share one SQL
+transaction. They derive the sender/recipient from the executing session.
+Client operations expose send and inspection; clients cannot impersonate a
+successful agent presentation by acknowledging mail through an inspection API.
+
+Mail bodies are limited to 16 KiB and subjects to 256 bytes. A digest presents at
+most 20 items, each with at most 2 KiB and 20 body lines. Per recipient, storage
+allows 1024 retained mail identities, 256 pending items and 20 unfinished items
+from one sender. Each sender can create 30 identities in ten seconds. A mail ID
+has at most 128 revisions and a turn at most 1024 observed revisions. Exhaustion
+returns an explicit limit error; no body, revision or observation is silently
+dropped. General resource policies and report/state coalescing remain subsequent
+Phase 4 work.

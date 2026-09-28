@@ -116,6 +116,9 @@ func (s *Store) DeleteSubtree(ctx context.Context, id session.SessionID) error {
    WHERE input_id IN (SELECT id FROM inputs WHERE session_id IN (SELECT id FROM subtree))`, id, now()); err != nil {
 			return err
 		}
+		if err := deleteRecipientMail(ctx, tx, id); err != nil {
+			return err
+		}
 		if target.ParentID == nil {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM model_attempts WHERE id IN (SELECT attempt_id FROM attempt_budget_ancestors WHERE session_id=?)", target.ID); err != nil {
 				return err

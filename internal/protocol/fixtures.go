@@ -54,6 +54,9 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"MailAdmission", MailAdmission{MailID: "mail_deleted", DeletedAt: new(created.Format(time.RFC3339Nano))}},
+		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_fixture", Revision: 128, SenderID: "session_root", RecipientID: "session_child", Delivery: session.MailNextTurn, Subject: "Subject", BodyBytes: 5, State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created}), Body: "hello"}},
+		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
 		{"Budget", BudgetFromDomain(session.Budget{SessionID: "session_root", Kind: session.BudgetModelTokens, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993, Reserved: 1})},
 		{"SessionObservation", SessionObservation{Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
 		{"SessionObservation", SessionObservation{Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},

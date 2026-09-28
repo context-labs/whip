@@ -16,6 +16,9 @@ import (
 // PrepareCoordination resolves a guest request to immutable, owner-bound SQL
 // intent. The store rechecks the persisted intent and authority at application.
 func (r *Runtime) PrepareCoordination(_ context.Context, current session.Session, call tool.Invocation) (tool.Prepared, error) {
+	if call.Module == "mail" {
+		return r.prepareMail(current, call)
+	}
 	if call.Module == "agents" && call.Name == "wait_after_cell" {
 		var request store.ChildWait
 		if err := decodeArguments(call.Arguments, &request); err != nil {

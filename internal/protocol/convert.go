@@ -177,6 +177,9 @@ func MessageFromDomain(value session.Message) Message {
 		id := ID(*value.InputID)
 		result.InputID = &id
 	}
+	if value.Mail != nil {
+		result.Mail = &MailRef{ID: ID(value.Mail.ID), Revision: Counter(value.Mail.Revision), Presentation: string(value.Mail.Presentation)}
+	}
 	return result
 }
 

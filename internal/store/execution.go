@@ -193,7 +193,7 @@ func (s *Store) Turn(ctx context.Context, id session.TurnID) (session.Turn, erro
 
 type Claim struct {
 	Turn          session.Turn
-	Input         session.Input
+	Input         *session.Input
 	Configuration session.Configuration
 }
 
@@ -216,9 +216,14 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		var inputID session.InputID
 		err = tx.QueryRowContext(ctx, "SELECT id FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL ORDER BY ordinal LIMIT 1", id).Scan(&inputID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNoWork
-		}
-		if err != nil {
+			ready, err := mailReady(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				return ErrNoWork
+			}
+		} else if err != nil {
 			return err
 		}
 		turnID := session.TurnID(newID("turn"))
@@ -226,45 +231,66 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO turns VALUES (?,?,?,'running',NULL,?,NULL)", turnID, id, current.ConfigRevision, started); err != nil {
 			return err
 		}
-		update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
-		if err != nil {
-			return err
-		}
-		affected, err := update.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if affected != 1 {
-			return ErrConflict
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
+		if inputID != "" {
+			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
+			if err != nil {
+				return err
+			}
+			affected, err := update.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if affected != 1 {
+				return ErrConflict
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
    SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
-			"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
-			return err
+				"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
+				return err
+			}
+			input, err := readInput(ctx, tx, inputID)
+			if err != nil {
+				return err
+			}
+			result.Input = &input
 		}
-		result.Input, err = readInput(ctx, tx, inputID)
+
+		result.Turn, err = readTurn(ctx, tx, turnID)
 		if err != nil {
 			return err
 		}
-		result.Turn, err = readTurn(ctx, tx, turnID)
+		if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
+			return err
+		}
 		result.Configuration = current.Config
-		return err
+		return nil
 	})
 	return
 }
 
 const messageSelect = `SELECT m.id,m.session_id,m.turn_id,m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at FROM messages m LEFT JOIN inputs i ON i.id=m.input_id`
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.sender_id
+ FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
+ LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
+ LEFT JOIN mail ON mail.id=m.mail_id`
 
 func scanMessage(row scanner) (result session.Message, err error) {
-	var raw string
+	var raw sql.NullString
 	var created int64
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created)
+	var mailID *session.MailID
+	var revision sql.NullInt64
+	var presentation, subject, body, sender sql.NullString
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sender)
 	if err != nil {
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
-	err = json.Unmarshal([]byte(raw), &result.Parts)
+	if mailID != nil {
+		result.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
+		result.Parts = mailParts(*result.Mail, session.SessionID(sender.String), subject.String, body.String)
+	} else {
+		err = json.Unmarshal([]byte(raw.String), &result.Parts)
+	}
 	return
 }
 
@@ -404,6 +430,11 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 				}
 			} else if err := reconcileCalls(ctx, tx, current, "turn ended"); err != nil {
 				return err
+			}
+			if state == session.Succeeded {
+				if err := acknowledgeMail(ctx, tx, id); err != nil {
+					return err
+				}
 			}
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state=?,failure=?,finished_at=? WHERE id=?", state, failure, now(), id); err != nil {
 				return err

@@ -1,5 +1,58 @@
 [
   {
+    "type": "MailAdmission",
+    "value": {
+      "mail_id": "mail_deleted",
+      "mail": null,
+      "deleted_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadMailResult",
+    "value": {
+      "mail": {
+        "id": "mail_fixture",
+        "revision": "128",
+        "sender_id": "session_root",
+        "recipient_id": "session_child",
+        "delivery": "next_turn",
+        "subject": "Subject",
+        "body_bytes": "5",
+        "state": "pending",
+        "available_at": "2026-09-27T12:00:00.123456Z",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "revised_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "body": "hello"
+    },
+    "valid": true
+  },
+  {
+    "type": "Message",
+    "value": {
+      "id": "message_mail",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "input_id": null,
+      "mail": {
+        "id": "mail_fixture",
+        "revision": "128",
+        "presentation": "digest"
+      },
+      "sequence": "9007199254740995",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Mail from session_root: Subject"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
     "type": "Budget",
     "value": {
       "session_id": "session_root",
@@ -23,6 +76,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740993",
           "role": "assistant",
           "parts": [
@@ -362,6 +416,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740993",
           "role": "assistant",
           "parts": [
@@ -381,6 +436,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740994",
           "role": "assistant",
           "parts": [
@@ -402,6 +458,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740995",
           "role": "tool",
           "parts": [
@@ -665,6 +722,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740994",
           "role": "user",
           "parts": [
@@ -694,6 +752,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740995",
           "role": "assistant",
           "parts": [
