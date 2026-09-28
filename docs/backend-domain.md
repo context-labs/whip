@@ -183,14 +183,12 @@ No live deletion can race the gap between publication and registration.
 
 ## Host and schema boundary
 
-The current fresh host configuration is version 5 and SQLite schema is version 24.
-
 Initialization takes explicit paths and never discovers an installed daemon or
 reads the retired home/config. A new host config is valid but unconfigured: users
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
-Current fresh host configuration is version 4; the SQLite schema is version 23.
+Current fresh host configuration is version 5; the SQLite schema is version 24.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
