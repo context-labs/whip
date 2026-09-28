@@ -73,6 +73,7 @@ type HistoryMetadata struct {
 }
 
 type HistoryMetadataPage struct {
+	Revision        Revision          `json:"revision,string"`
 	Items           []HistoryMetadata `json:"items"`
 	ThroughSequence int64             `json:"through_sequence,string"`
 	NextAfter       *int64            `json:"next_after,string"`
@@ -99,6 +100,7 @@ type HistoryMatch struct {
 // NextAfter is the last searched sequence, even when Matches is empty. A nil
 // cursor means the fixed snapshot has been completely searched.
 type HistorySearchPage struct {
+	Revision        Revision       `json:"revision,string"`
 	Matches         []HistoryMatch `json:"matches"`
 	ThroughSequence int64          `json:"through_sequence,string"`
 	NextAfter       *int64         `json:"next_after,string"`

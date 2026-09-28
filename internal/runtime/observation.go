@@ -14,20 +14,22 @@ const maxPreviewBytes = 128 << 10
 // Preview contains provisional provider text and reasoning, not a Message.
 // Partial tool arguments may be invalid JSON and must never be executed.
 type Preview struct {
-	AttemptID session.ModelAttemptID
-	TurnID    session.TurnID
-	MessageID session.MessageID
-	Revision  int64
-	Text      string
-	Reasoning string
-	Calls     []CallPreview
-	Truncated bool
+	historyRevision session.Revision
+	AttemptID       session.ModelAttemptID
+	TurnID          session.TurnID
+	MessageID       session.MessageID
+	Revision        int64
+	Text            string
+	Reasoning       string
+	Calls           []CallPreview
+	Truncated       bool
 }
 type CallPreview struct {
 	Index               int
 	ID, Name, Arguments string
 }
 type Observation struct {
+	Snapshot session.HistorySnapshot
 	Epoch    string
 	Messages []session.Message
 	Preview  *Preview
@@ -46,7 +48,7 @@ type (
 // BeginPreview's callbacks live only for the dispatched attempt. Late callbacks
 // cannot overwrite another attempt. Capacity is bounded separately from history.
 func (r *Runtime) BeginPreview(turn session.Turn, id session.ModelAttemptID, messageID session.MessageID) (func(model.Chunk), func()) {
-	live := &livePreview{preview: Preview{AttemptID: id, TurnID: turn.ID, MessageID: messageID}, calls: map[int]*callPreviewBuffer{}}
+	live := &livePreview{preview: Preview{historyRevision: turn.HistoryRevision, AttemptID: id, TurnID: turn.ID, MessageID: messageID}, calls: map[int]*callPreviewBuffer{}}
 	r.previewMu.Lock()
 	if len(r.previews) >= 64 {
 		r.previewMu.Unlock()
@@ -135,9 +137,12 @@ func (r *Runtime) preview(id session.SessionID) *Preview {
 // preview before history is read; a concurrent settlement is also reconciled by
 // message ID. SQL never waits on the presentation mutex or on an observer.
 func (r *Runtime) Observe(ctx context.Context, id session.SessionID, after int64, limit int) (Observation, error) {
-	if _, err := r.store.Session(ctx, id); err != nil {
-		return Observation{}, err
-	}
+	return r.ObserveRevision(ctx, id, after, limit, nil)
+}
+
+// ObserveRevision rejects cursors from retired history. Preview state is still
+// provisional; its attempt is validated before the atomic durable page read.
+func (r *Runtime) ObserveRevision(ctx context.Context, id session.SessionID, after int64, limit int, expected *session.Revision) (Observation, error) {
 	preview := r.preview(id)
 	if preview != nil {
 		attempt, err := r.store.ModelAttempt(ctx, preview.AttemptID)
@@ -148,9 +153,12 @@ func (r *Runtime) Observe(ctx context.Context, id session.SessionID, after int64
 			preview = nil
 		}
 	}
-	messages, err := r.store.History(ctx, id, after, limit)
+	snapshot, messages, err := r.store.HistoryPage(ctx, id, after, limit, expected)
 	if err != nil {
 		return Observation{}, err
+	}
+	if preview != nil && preview.historyRevision != snapshot.Revision {
+		preview = nil
 	}
 	if preview != nil {
 		for _, message := range messages {
@@ -160,5 +168,5 @@ func (r *Runtime) Observe(ctx context.Context, id session.SessionID, after int64
 			}
 		}
 	}
-	return Observation{Epoch: r.epoch, Messages: messages, Preview: preview}, nil
+	return Observation{Snapshot: snapshot, Epoch: r.epoch, Messages: messages, Preview: preview}, nil
 }
