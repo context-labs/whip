@@ -624,9 +624,10 @@ Implementation progress: final-output contracts and the first context increment
 are implemented. Manual compaction, revisioned summary selection/undo, bounded
 own-history access, ordinary request reconstruction and automatic whole-turn
 folding have replacement evidence. The compaction acceptance item remains open:
-oversized current-turn splitting with exact input pins, reactive provider
-context-limit handling, token-aware policy and dynamic instruction refresh are
-still required. This progress does not retire retained capabilities or narrow
+token-aware policy and dynamic instruction refresh are still required.
+Long-turn splitting now retains exact opening inputs and complete tool exchanges;
+one confirmed provider context rejection can trigger a recorded smaller request
+after accounting settles. Indivisible oversized exchanges still fail explicitly. This progress does not retire retained capabilities or narrow
 Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption

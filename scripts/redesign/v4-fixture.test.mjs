@@ -200,6 +200,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await providerAcceptance(runtime, client, createParams, evidence);
     await outputAcceptance(runtime, client, createParams, evidence);
     await contextAcceptance(runtime, client, createParams, evidence);
+    await contextRecoveryAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -1113,6 +1114,114 @@ async function contextAcceptance(runtime, client, createParams, evidence) {
     assert.equal(afterAuto.message_count, '102', 'automatic folding must retain every original raw message');
     assert.ok(requests.at(-1).messages.length <= 101, 'ordinary request stays under its history cap plus system instructions');
     evidence.push({ context: { compacted, attempts, selected, summaryRecord, snapshot, undone, autoAttempts, autoHead, afterAuto } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+
+async function contextRecoveryAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const states = new Map(['starlark', 'quickjs'].map(engine => [engine, { round: 0, retry: 0, twice: 0 }]));
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const engine = body.model.split('-').at(-1);
+    const state = states.get(engine);
+    const helper = body.messages[0]?.content.startsWith('Summarize the conversation data');
+    const prompt = body.messages.findLast(item => item.role === 'user')?.content ?? '';
+    requests.push({ engine, helper, body });
+    response.setHeader('content-type', 'application/json');
+    let message;
+    let finish_reason = 'stop';
+    if (helper) message = { role: 'assistant', content: 'Preserve the opening task and completed count.' };
+    else if (prompt.endsWith(':uncertain')) { response.destroy(); return; }
+    else if (prompt.endsWith(':twice') || (prompt.endsWith(':retry') && state.retry++ === 0)) {
+      if (prompt.endsWith(':twice')) state.twice++;
+      response.statusCode = 400;
+      response.end(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'private provider diagnostic' }, usage: { prompt_tokens: 6, completion_tokens: 0 } }));
+      return;
+    } else if (prompt.endsWith(':long') && state.round < 10) {
+      const round = state.round++;
+      message = { role: 'assistant', content: 'Retained work evidence: ' + 'x'.repeat(600_000), tool_calls: Array.from({ length: 3 }, (_, index) => {
+        const start = round === 0 && index === 0;
+        const code = engine === 'starlark'
+          ? (start ? 'context_count = 0\n' : '') + 'context_count += 1\nprint(context_count)'
+          : (start ? 'var context_count = 0; ' : '') + 'context_count += 1; console.log(context_count)';
+        return { id: `count-${round}-${index}`, type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } };
+      }) };
+      finish_reason = 'tool_calls';
+    } else if (prompt.endsWith(':retry') && body.messages.at(-1).role !== 'tool') {
+      const code = engine === 'starlark' ? 'print(context_count)' : 'console.log(context_count)';
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'restored-count', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+      finish_reason = 'tool_calls';
+    } else message = { role: 'assistant', content: body.messages.at(-1).content };
+    response.end(JSON.stringify({ choices: [{ message, finish_reason }], usage: { prompt_tokens: 30, completion_tokens: 5 } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.context = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries([...states.keys()].map(engine => [`context-${engine}`, { max_output_tokens: 2048, timeout_millis: 5000, max_attempts: 1 }])),
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of states.keys()) {
+      const { root } = await client.call('trees.create', {
+        ...createParams, engine, overrides: { model: { provider: 'context', name: `context-${engine}`, effort: '' } },
+      }, deadline());
+      const requestID = `context-recovery-${engine}`;
+      await client.submit(root.id, [{ type: 'text', text: `${engine}:long` }], requestID, deadline());
+      const completed = await client.wait(requestID, { signal: AbortSignal.timeout(60_000) });
+      assert.equal(completed.turn.state, 'succeeded', completed.turn.failure);
+      const raw = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+      const selected = await client.call('context.head', { session_id: root.id }, deadline());
+      assert.ok(selected.compaction_id, 'one long turn must compact before its next model request');
+      const summary = await client.call('context.compaction', { session_id: root.id, compaction_id: selected.compaction_id }, deadline());
+      assert.deepEqual(summary.metadata.pinned_message_ids, [raw.items[0].id]);
+      assert.equal(raw.items[0].input_id, completed.input.id, 'pin identifies the exact accepted opening input');
+      assert.equal((await client.call('context.snapshot', { session_id: root.id }, deadline())).message_count, '42');
+      const cells = await client.call('turns.cells', { turn_id: completed.turn.id, limit: 100 }, deadline());
+      assert.equal(cells.items.length, 30);
+      assert.ok(cells.items.every(cell => cell.state === 'succeeded'));
+      const ordinary = requests.filter(item => item.engine === engine && !item.helper);
+      assert.ok(ordinary.every(item => item.body.messages.filter(message => message.role === 'user' && message.content === `${engine}:long`).length === 1), 'opening input remains present exactly once across splits');
+      await runtime.stop(); await runtime.start(null);
+      const retryID = requestID + '-retry';
+      await client.submit(root.id, [{ type: 'text', text: `${engine}:retry` }], retryID, deadline());
+      const retried = await client.wait(retryID, deadline());
+      assert.equal(retried.turn.state, 'succeeded', retried.turn.failure);
+      const attempts = await client.call('turns.attempts', { turn_id: retried.turn.id, limit: 100 }, deadline());
+      assert.equal(attempts.items.length, 4, 'failed request, helper, resumed code request and final reply all have accounted attempts');
+      const rejected = attempts.items.find(item => item.state === 'failed');
+      assert.equal(rejected.result.usage.input, '6');
+      assert.ok(!JSON.stringify(rejected).includes('private provider diagnostic'));
+      assert.equal(attempts.items.filter(item => item.request.purpose === 'compaction').length, 1);
+      const retryHistory = await client.call('sessions.history', { session_id: root.id, after: '42', limit: 100 }, deadline());
+      assert.equal(JSON.parse(retryHistory.items.at(-1).parts[0].text).result.output, '30\n', 'restart and context recovery cannot replay prior cells');
+      assert.equal((await client.call('turns.cells', { turn_id: retried.turn.id, limit: 100 }, deadline())).items.length, 1);
+      const twiceID = requestID + '-twice';
+      await client.submit(root.id, [{ type: 'text', text: `${engine}:twice` }], twiceID, deadline());
+      const twice = await client.wait(twiceID, deadline());
+      assert.equal(twice.turn.state, 'failed');
+      assert.equal(states.get(engine).twice, 2);
+      const twiceAttempts = await client.call('turns.attempts', { turn_id: twice.turn.id, limit: 100 }, deadline());
+      assert.equal(twiceAttempts.items.length, 3);
+      assert.equal(twiceAttempts.items.filter(item => item.request.purpose === 'compaction').length, 1);
+      const uncertainID = requestID + '-uncertain';
+      await client.submit(root.id, [{ type: 'text', text: `${engine}:uncertain` }], uncertainID, deadline());
+      const uncertain = await client.wait(uncertainID, deadline());
+      assert.equal(uncertain.turn.state, 'failed');
+      const unknown = await client.call('turns.attempts', { turn_id: uncertain.turn.id, limit: 100 }, deadline());
+      assert.equal(unknown.items.length, 1);
+      assert.equal(unknown.items[0].state, 'uncertain');
+      evidence.push({ contextRecovery: { engine, completed, selected, summary, retried, attempts, twice, twiceAttempts, uncertain, unknown } });
+    }
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

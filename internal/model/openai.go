@@ -50,7 +50,10 @@ type CallError struct {
 	RetryAfter time.Duration
 	Retryable  bool
 	Uncertain  bool
-	Message    string
+	// ContextLimit is a confirmed rejection that may permit a smaller request,
+	// never an automatic retry of this prepared request.
+	ContextLimit bool
+	Message      string
 }
 
 func (e *CallError) Error() string { return e.Message }
@@ -280,6 +283,7 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 	var envelope struct {
 		Choices json.RawMessage `json:"choices"`
 		Usage   json.RawMessage `json:"usage"`
+		Error   json.RawMessage `json:"error"`
 	}
 	decodeErr := json.Unmarshal(raw, &envelope)
 	result := Response{}
@@ -288,9 +292,15 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusInternalServerError || response.StatusCode == http.StatusBadGateway || response.StatusCode == http.StatusServiceUnavailable || response.StatusCode == http.StatusGatewayTimeout
+		contextLimit := (response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusRequestEntityTooLarge) &&
+			!strings.EqualFold(mediaType, "text/event-stream") && decodeErr == nil && isContextLimitError(envelope.Error)
+		message := fmt.Sprintf("provider returned HTTP %d", response.StatusCode)
+		if contextLimit {
+			message = fmt.Sprintf("provider rejected request context (HTTP %d)", response.StatusCode)
+		}
 		return result, &CallError{
 			StatusCode: response.StatusCode, Retryable: retryable, RetryAfter: retryAfter(response.Header.Get("Retry-After")),
-			Message: fmt.Sprintf("provider returned HTTP %d", response.StatusCode),
+			ContextLimit: contextLimit, Message: message,
 		}
 	}
 	var choices []struct {
@@ -321,6 +331,22 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 	result.Parts = parts
 	emitResponse(result, emit)
 	return result, nil
+}
+
+func isContextLimitError(raw json.RawMessage) bool {
+	var detail struct {
+		Code string `json:"code"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &detail) != nil {
+		return false
+	}
+	for _, value := range []string{detail.Code, detail.Type} {
+		if value == "context_length_exceeded" || value == "prompt_too_long" {
+			return true
+		}
+	}
+	return false
 }
 
 func retryAfter(value string) time.Duration {

@@ -1172,3 +1172,64 @@ runner race 2.286 s, both engine suites, generated Go/TS contract drift and
 interop, SDK checks, the new process fixture 8.529 s, retained reference fixture
 2.291 s and required daemon regressions 2.766 s. `task check:analysis` reports
 zero lint issues and no reachable vulnerabilities.
+
+## Phase 5 long turns and confirmed context rejection
+
+Fresh schema 17 deliberately rejects the previous disposable database version:
+summary pin semantics are now stronger even though the tables are unchanged.
+A cut inside a live or partially covered prompt turn requires the exact opening
+input-backed message. A mail entry with user role, another turn's input or a
+missing pin cannot satisfy it. Terminal fully covered turns and mail-only turns
+need no opening pin. The guard runs for every summary settlement, including
+intermediate cuts in older history. Pin-set validation failure still records
+completed provider billing and returns rejected summary evidence.
+
+The runner restores pins with bounded indexed lookups and folds within a long
+turn when retaining recent whole turns cannot fit. It retains the newest
+assistant exchange with every tool result, plus later mail, and carries the
+exact required opening input. Manual compaction invokes the same fallback after
+its normal older-turn fold. New pin sets can discard obsolete opening inputs
+once their whole turn is covered. Effectiveness compares the entire before/after
+projection, including changed pin bytes; coverage advances and the shared
+16-fold ceiling still apply. An indivisible oversized exchange fails explicitly.
+
+OpenAI-compatible dispatch recognizes only complete bounded non-streaming HTTP
+400/413 responses with exact structured context-limit error codes/types. Usage
+and cost decoding is independent and diagnostics omit provider bodies. The
+runner can replan once per ordinary turn, only after that certain rejected
+attempt settles. Compaction must advance coverage before a new logical model
+round is prepared. Preparation errors, settlement errors, arbitrary error text,
+partial streams and uncertain transport never authorize replan. Helpers cannot
+recursively replan. Existing output-correction state and completed effects survive
+request reconstruction.
+
+The first real-process scenario exceeded the existing 64-cell turn bound. The
+fixture was corrected to create context pressure using large assistant evidence:
+ten complete multi-call exchanges execute 30 cells per engine without changing
+any production limit. Both Starlark and QuickJS then retain all 42 raw messages,
+pin the exact accepted input, restart and recover the same count. A confirmed
+context rejection records failed/helper/resumed attempts; the restored count
+remains 30. A second rejection stops after one helper, and a disconnected
+provider creates one uncertain attempt. The targeted SDK fixture passed in
+11.480 s before the broader gate.
+
+The full `task check:phase` passed: store race 68.540 s, runtime race 71.154 s,
+runner race 2.600 s, generated contract/SDK checks, both engines, new process
+acceptance 11.788 s, retained process acceptance 2.634 s and required daemon
+regressions 2.806 s. The final sanitized context-rejection diagnostic also passed
+focused model/runner race tests (3.059 s/1.890 s); it identifies the rejection
+category in durable failure evidence without retaining provider text.
+
+Final `task check:analysis` reports zero lint issues and no reachable vulnerabilities.
+
+Hosted Linux passed the context-foundation revision, but macOS exposed an
+inherited worker-exit diagnostic race: an early process exit could close stdin
+before the read loop reported EOF, returning a raw closed-pipe error without
+engine/status context. Parent revision `18d5b7fa5` fixes write-side annotation
+while retaining the real I/O cause. Deterministic tests reproduce the original
+failure in both engines; hosted-seed process race stress passed ten repetitions
+(63.704 s), checkpoint/cancellation checks passed (21.362 s), and scoped lint was
+clean. The recovery increment rebased onto that fix without conflicts; the real
+SDK acceptance passed again (11.927 s) and final whole-scope analysis remained
+clean. Updated hosted gates are pending; prior failed macOS evidence is not
+reported as a pass.

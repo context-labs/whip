@@ -143,12 +143,12 @@ func TestCompactionStaleHeadRetainsEvidenceAndInvalidDraftsSettleBilling(t *test
 	foreignHistory := compactionHistoryTest(t, s, foreign.ID, "foreign")
 	foreignTurn := compactionTurnTest(t, s, foreign.ID, "foreign_compact")
 	foreignAttempt := compactionAttemptTest(t, s, foreignTurn.ID, "foreign_attempt")
-	foreignDraft := session.CompactionDraft{ID: "foreign_summary", ThroughSequence: 1, Text: "foreign"}
+	foreignDraft := session.CompactionDraft{ID: "foreign_summary", ThroughSequence: 1, PinnedMessageIDs: []session.MessageID{foreignHistory[0].ID}, Text: "foreign"}
 	settleCompactionTest(t, s, foreignAttempt.ID, foreignDraft)
 	turn := compactionTurnTest(t, s, owner.ID, "compact")
-	first := session.CompactionDraft{ID: "first", ThroughSequence: 1, Text: "first"}
+	first := session.CompactionDraft{ID: "first", ThroughSequence: 1, PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "first"}
 	settleCompactionTest(t, s, compactionAttemptTest(t, s, turn.ID, "first_attempt").ID, first)
-	stale := session.CompactionDraft{ID: "stale", ThroughSequence: 2, Text: "stale selection"}
+	stale := session.CompactionDraft{ID: "stale", ThroughSequence: 2, PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "stale selection"}
 	value := settleCompactionTest(t, s, compactionAttemptTest(t, s, turn.ID, "stale_attempt").ID, stale)
 	if value.Selected || value.Rejection == nil || value.Compaction == nil || value.Head.CompactionID == nil || *value.Head.CompactionID != first.ID || value.Attempt.State != session.AttemptSucceeded {
 		t.Fatalf("stale result discarded evidence or selected: %+v", value)
@@ -166,7 +166,7 @@ func TestCompactionStaleHeadRetainsEvidenceAndInvalidDraftsSettleBilling(t *test
 		func(d *session.CompactionDraft) { d.Text = "\xff" },
 		func(d *session.CompactionDraft) { d.Text = strings.Repeat("x", session.MaxCompactionBytes+1) },
 	} {
-		draft := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("invalid_%d", i)), ExpectedRevision: 1, BaseID: &first.ID, ThroughSequence: 2, Text: "candidate"}
+		draft := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("invalid_%d", i)), ExpectedRevision: 1, BaseID: &first.ID, ThroughSequence: 2, PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "candidate"}
 		mutate(&draft)
 		attempt := compactionAttemptTest(t, s, turn.ID, fmt.Sprintf("invalid_attempt_%d", i))
 		before := count(t, s, "compactions")
@@ -175,7 +175,7 @@ func TestCompactionStaleHeadRetainsEvidenceAndInvalidDraftsSettleBilling(t *test
 			t.Fatalf("invalid draft lost billing or entered context: %+v", value)
 		}
 		// Later SQL retries cannot attach a replacement summary to a settled attempt.
-		valid := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("replacement_%d", i)), ExpectedRevision: 1, BaseID: &first.ID, ThroughSequence: 2, Text: "replacement"}
+		valid := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("replacement_%d", i)), ExpectedRevision: 1, BaseID: &first.ID, ThroughSequence: 2, PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "replacement"}
 		retry := settleCompactionTest(t, s, attempt.ID, valid)
 		if retry.Compaction != nil || retry.Rejection == nil || count(t, s, "compactions") != before {
 			t.Fatal("retry attached late summary", retry)
@@ -237,7 +237,7 @@ func TestCompactionAncestorUndoMetadataAndCascade(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			compactionHistoryTest(t, s, owner.ID, "raw")
+			history := compactionHistoryTest(t, s, owner.ID, "raw")
 			turn := compactionTurnTest(t, s, owner.ID, "compact")
 			var base *session.CompactionID
 			var last session.CompactionDraft
@@ -245,6 +245,11 @@ func TestCompactionAncestorUndoMetadataAndCascade(t *testing.T) {
 			for i := int64(1); i <= 3; i++ {
 				attempt = compactionAttemptTest(t, s, turn.ID, fmt.Sprintf("attempt_%d", i))
 				last = session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("summary_%d", i)), BaseID: base, ExpectedRevision: i - 1, ThroughSequence: i, Text: strings.Repeat("s", session.MaxCompactionBytes)}
+				for _, message := range history {
+					if message.InputID != nil && message.Sequence <= i {
+						last.PinnedMessageIDs = append(last.PinnedMessageIDs, message.ID)
+					}
+				}
 				value := settleCompactionTest(t, s, attempt.ID, last)
 				if !value.Selected || value.Head.Revision != i {
 					t.Fatalf("summary chain=%+v", value)
@@ -287,7 +292,7 @@ func TestCompactionAncestorUndoMetadataAndCascade(t *testing.T) {
 func TestCompactionCancellationAndMissingDraftKeepAccounting(t *testing.T) {
 	s := fresh(t)
 	_, owner := create(t, s, nil)
-	compactionHistoryTest(t, s, owner.ID, "raw")
+	history := compactionHistoryTest(t, s, owner.ID, "raw")
 	turn := compactionTurnTest(t, s, owner.ID, "compact")
 	without := compactionAttemptTest(t, s, turn.ID, "without")
 	value, err := s.SettleCompaction(t.Context(), without.ID, compactionOutcomeTest(), nil)
@@ -298,7 +303,7 @@ func TestCompactionCancellationAndMissingDraftKeepAccounting(t *testing.T) {
 	if _, err := s.CancelTurn(t.Context(), turn.ID); err != nil {
 		t.Fatal(err)
 	}
-	draft := session.CompactionDraft{ID: "cancelled_summary", ThroughSequence: 2, Text: "completed despite cancellation"}
+	draft := session.CompactionDraft{ID: "cancelled_summary", ThroughSequence: 2, PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "completed despite cancellation"}
 	value = settleCompactionTest(t, s, attempt.ID, draft)
 	if value.Selected || value.Rejection == nil || value.Compaction == nil || value.Head.Revision != 0 || value.Attempt.State != session.AttemptSucceeded {
 		t.Fatalf("cancelled helper settlement=%+v", value)
@@ -317,7 +322,7 @@ func TestCompactionConcurrentSelectionCommitsBothAttemptsOnce(t *testing.T) {
 	s := openTest(t, path)
 	other := openTest(t, path)
 	_, owner := create(t, s, nil)
-	compactionHistoryTest(t, s, owner.ID, "raw")
+	history := compactionHistoryTest(t, s, owner.ID, "raw")
 	turn := compactionTurnTest(t, s, owner.ID, "compact")
 	attempts := []session.ModelAttempt{
 		compactionAttemptTest(t, s, turn.ID, "attempt_a"),
@@ -329,7 +334,7 @@ func TestCompactionConcurrentSelectionCommitsBothAttemptsOnce(t *testing.T) {
 	for i, database := range []*Store{s, other} {
 		workers.Go(func() {
 			<-start
-			draft := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("summary_%d", i)), ThroughSequence: int64(i + 1), Text: "concurrent summary"}
+			draft := session.CompactionDraft{ID: session.CompactionID(fmt.Sprintf("summary_%d", i)), ThroughSequence: int64(i + 1), PinnedMessageIDs: []session.MessageID{history[0].ID}, Text: "concurrent summary"}
 			value, err := database.SettleCompaction(t.Context(), attempts[i].ID, compactionOutcomeTest(), &draft)
 			if err != nil {
 				t.Error(err)

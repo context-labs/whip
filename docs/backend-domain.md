@@ -873,6 +873,22 @@ compaction. Before an ordinary model request would exceed 100 messages or 4 MiB,
 automatic compaction progressively retains four through one recent whole turns.
 Both paths fold older history in bounded batches without splitting assistant calls
 from their tool results, require a shorter replacement and exact forward coverage,
-and allow at most 16 folds per turn. One oversized most-recent turn currently
-fails explicitly. Splitting that turn with an exact opening-input pin, reactive
-provider context-limit handling, and token-aware policy remain Phase 5 work.
+and allow at most 16 folds per turn. If those recent turns still exceed the local bound, the runner folds within
+the latest turn while retaining its newest assistant message with all tool results
+and later mail. Manual compaction uses the same fallback when its recent history
+is still oversized. A partial prompt turn pins its exact opening input-backed
+message; mail with user role cannot substitute for that pin. Mail-only turns
+invent no input. Every intermediate fold has the same transactional pin guard,
+including cuts inside older turns. Once an entire turn is covered its pin can be
+dropped. Pin restoration uses at most 32 indexed message lookups, sorted by raw
+sequence, and fails rather than returning an incomplete or oversized set.
+An indivisible exchange, opening input or summary that cannot fit still fails.
+
+A complete bounded non-streaming HTTP 400/413 response with a recognized
+structured context-limit code permits at most one replan per ordinary turn.
+Its rejected attempt must settle before compaction makes forward coverage
+progress and a fresh model round begins. Generic errors, provider message text,
+partial streams, transport uncertainty and settlement failures do not authorize
+replay. The helper cannot recursively replan itself. Output-correction state
+survives reconstruction, and completed cells are never repeated. Token-aware
+proactive policy and dynamic instructions remain Phase 5 work.

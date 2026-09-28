@@ -354,3 +354,12 @@ if a search page has no matches. Search is literal and case-sensitive, with a
 or JSON. These APIs inspect retained raw history regardless of the current
 summary selection. They do not admit execution or acknowledge mail. Guest
 `context.inspect/read/search` uses the same bounded own-history semantics.
+
+
+Long-turn compaction preserves the exact opening input and the newest complete
+assistant/tool exchange. `pinned_message_ids` names raw input-backed messages;
+mail entries with user role are not opening inputs. Manual compaction shares the
+oversized-context fallback. Raw message sequence numbers remain unchanged.
+A confirmed structured provider context-limit rejection can cause one helper
+and a new ordinary model round after its failed attempt is recorded. This does
+not replay cells or the whole turn; uncertain transport failures still stop.
