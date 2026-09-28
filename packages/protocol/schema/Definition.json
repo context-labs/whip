@@ -1,0 +1,206 @@
+{
+  "type": "object",
+  "properties": {
+    "ref": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "effort"
+              ],
+              "additionalProperties": false
+            },
+            "instructions": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "project_files": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "discover_skills": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "text",
+                "project_files",
+                "discover_skills"
+              ],
+              "additionalProperties": false
+            },
+            "tools": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "input_schema": true,
+                  "output_schema": true
+                },
+                "required": [
+                  "description",
+                  "input_schema",
+                  "output_schema"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "children": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "hooks": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "operations": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    }
+                  },
+                  "optional": {
+                    "type": "boolean"
+                  },
+                  "timeout_millis": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60000
+                  }
+                },
+                "required": [
+                  "operations",
+                  "optional",
+                  "timeout_millis"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "output": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "schema": true
+              },
+              "required": [
+                "schema"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "defaults"
+      ],
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/Definition",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Definition",
+  "required": [
+    "ref",
+    "document",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

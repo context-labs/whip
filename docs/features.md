@@ -122,7 +122,7 @@ inside the existing stripped-environment worker subprocess.
   `execution_engines` capability. The language picker is a creation control.
 
 Implementation and validation: `internal/rlm/quickjs_test.go`,
-`internal/session/execution_engine_test.go`,
+`internal/legacy/session/execution_engine_test.go`,
 `internal/daemon/execution_engine_test.go`, SDK execution tests, web creation
 and REPL tests, mobile creation tests, and `internal/tui/repl_result_test.go`.
 See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints) and
@@ -286,7 +286,7 @@ root prompt (`evals/rlm`).
   preserve existing saved session choices. Explicit terminal launch flags update the initial
   session; ACP loading preserves the saved mode and follows other clients'
   changes. Remembered allow rules and headless/deny execution policies remain
-  separate. Implementation: `internal/session/permission_mode.go`, daemon
+  separate. Implementation: `internal/legacy/session/permission_mode.go`, daemon
   startup/control, ACP bridge and TUI client. Coverage: session and daemon
   `permission_mode_test.go`, `migrations_test.go`, ACP bridge and TUI client tests.
   Schema 14 tags known root grants as session-scoped. Legacy child grants keep
@@ -339,13 +339,13 @@ existing routes, disabled providers, defaults and sessions survive discovery.
 File keys reread on discovery/new clients; existing sessions require reload after
 rotation. OpenCode credential/config/database import and desktop probes are removed.
 
-Code: `cmd/modelgen`, `internal/config/modelsdev`,
-`internal/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
+Code: `cmd/modelgen`, `internal/legacy/config/modelsdev`,
+`internal/legacy/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
 `internal/daemon/provider_{discovery,list,configuration,model,service}.go`,
 `internal/tui/setup.go`, `packages/app/src/provider-setup.tsx`,
 `apps/desktop/src/provider-environment.ts`.
 Tests: importer/presence/pricing tests in `cmd/modelgen` and
-`internal/config/modelsdev`; `internal/config/provider_credentials_test.go`;
+`internal/legacy/config/modelsdev`; `internal/legacy/config/provider_credentials_test.go`;
 `TestDiscoveredFileKeyPersistsReferenceAndReachesInference`,
 `TestProviderDiscoveryRPCUsesHostSourcesAndPreservesOptOut`,
 `TestDiscoveredOpenRouterKeyStillRequiresAuthentication`; CLI file-key checks in
@@ -369,10 +369,10 @@ appear in their own Settings group. Disconnect also clears the disabled flag. Mo
 rejects stale route/account responses. Desktop recovers only the supported local
 shell keys, bounded and without forwarding them to remote hosts.
 
-Code: `internal/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
+Code: `internal/legacy/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
 `internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
 `packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
-Tests: `internal/config/providers_test.go`,
+Tests: `internal/legacy/config/providers_test.go`,
 `internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
 `packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
 `apps/desktop/tests/provider-environment.test.ts`, and the production
@@ -429,12 +429,12 @@ installations, advanced diagnostics and remote hosts retain their policies.
 
 Code: `internal/daemon/provider_selection.go`, `internal/daemon/provider_service.go`,
 `internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
-`internal/session/command.go`,
+`internal/legacy/session/command.go`,
 `packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
 `packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
 Tests: `internal/daemon/{provider_selection,root_client}_test.go`,
 `internal/tui/{setup,startup,client,cursor}_test.go`,
-`internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
+`internal/legacy/session/command_test.go`, `cmd/whip/daemon_test.go`,
 `packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
 `apps/desktop/tests/runtime.test.ts`, and `apps/desktop/scripts/onboarding-smoke.mjs`.
 See the [implementation and acceptance record](../.ai-docs/plans/provider-onboarding/README.md)
@@ -483,11 +483,11 @@ OpenAI-compatible endpoints retain Chat Completions. No paid live-provider
 acceptance is implied.
 
 Code: `internal/tui/setup_picker.go`, `internal/tui/ui/list.go`,
-`internal/config/{providers,provider_credentials,provider_models}.go`,
+`internal/legacy/config/{providers,provider_credentials,provider_models}.go`,
 `internal/daemon/provider_{list,model,service}.go`,
 `internal/llm/provider_compatibility.go`, `apps/desktop/src/runtime.ts`.
 Tests: `internal/tui/setup_picker_test.go`, credential/preset model tests under
-`internal/config`, preset discovery/key tests under `internal/daemon`,
+`internal/legacy/config`, preset discovery/key tests under `internal/daemon`,
 `internal/llm/provider_compatibility_test.go`, and desktop provider environment tests.
 See [picker implementation and evidence](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
 One-step defaults: `internal/tui/setup_default{,_test}.go`,
@@ -513,12 +513,12 @@ history. Web/desktop inventory sees the same connections. No provider database o
 web custom-provider form is introduced.
 
 Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
-`internal/daemon/provider_configuration.go`, `internal/config/providers.go`,
-`internal/llm/openai.go`, `internal/protocol/provider_types.go`, and
+`internal/daemon/provider_configuration.go`, `internal/legacy/config/providers.go`,
+`internal/llm/openai.go`, `internal/legacy/protocol/provider_types.go`, and
 `packages/sdk/src/services.ts`.
 Tests: `internal/tui/setup_provider_test.go`,
 `internal/daemon/provider_configuration_test.go`,
-`internal/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
+`internal/legacy/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
 `cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
 See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
 and [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
@@ -542,7 +542,7 @@ Code: `internal/openaiauth`, `internal/llm/{subscription,responses}.go`,
 `internal/tui/auth_cmd.go`, `packages/app/src/settings/providers.tsx`, and
 `packages/app/src/model-options.ts`.
 Tests: `internal/openaiauth/auth_test.go`, `internal/llm/{subscription,responses}_test.go`,
-`internal/daemon/provider_openai_test.go`, `internal/session/continuation_test.go`,
+`internal/daemon/provider_openai_test.go`, `internal/legacy/session/continuation_test.go`,
 and `packages/app/test/{providers,model-selection}.test.tsx` cover rotation races,
 cross-transport login recovery, secret isolation, stream completion, budgeting,
 model/provider selection and client state. Live Pro-account acceptance also
@@ -573,7 +573,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   gateway forces `network-client-v1` and requires the daemon's negotiated
   acknowledgement before forwarding traffic, failing closed against old daemons.
   Terminal authorization stays daemon-owned for these restricted socket clients.
-  Code: `internal/webgateway`, `internal/protocol/gateway.go`,
+  Code: `internal/webgateway`, `internal/legacy/protocol/gateway.go`,
   `internal/daemon/{server,terminal_rpc}.go`; validation:
   `internal/webgateway/{server,websocket,content}_test.go`,
   `internal/daemon/{server_gateway,gateway_ownership,terminal_rpc}_test.go`.
@@ -602,9 +602,9 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - Provider setup/login, versioned configuration updates and completion execute on
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
-- Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
-  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/session`, and
-  `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
+- Implementation: `internal/legacy/protocol`, `internal/daemon/{server,subscription,
+  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/legacy/session`, and
+  `packages/legacy-protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the
   generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
 - Slow clients lose their bounded connection instead of blocking a root.
@@ -652,9 +652,9 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   search, and attention queries. Existing polling intervals and visibility gates
   remain unchanged as backup; older clients/hosts continue polling. Off-page and
   disconnected views read current titles when fetched or reconnected.
-- Code: `internal/session/{command,title}.go`,
+- Code: `internal/legacy/session/{command,title}.go`,
   `internal/daemon/{session,agent_session,client_control}.go`. Validation: session
-  `internal/session/title_admission_test.go`, daemon title lifecycle and metadata
+  `internal/legacy/session/title_admission_test.go`, daemon title lifecycle and metadata
   routing tests (`title_lifecycle_test.go`, `metadata_routing_test.go`), title
   model-accounting tests, and notification delivery/lifecycle tests in
   `internal/daemon/title_notifications_test.go`. Client coverage lives in
@@ -673,7 +673,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   child recipients, and explicit uncertain-command recovery use existing scoped
   input/content identities. Older daemons retain the previous delivery selector.
 
-- Private Node 24 ESM workspace: `@whip/protocol` generates typed RPC/runtime
+- Private Node 24 ESM workspace: `@whip/legacy-protocol` generates typed RPC/runtime
   maps and standalone CSP-safe validators; `@whip/sdk` attaches over native
   WebSockets or Node Unix sockets without owning daemon processes.
 - Stable session handles, committed command acceptance, typed terminal outcomes,
@@ -797,13 +797,13 @@ behavior to its owning code and repeatable validation.
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
-| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
+| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/legacy/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/legacy/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
 | Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
 | Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
-| Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
+| Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/legacy/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/legacy/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
-| Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
+| Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/legacy/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
 | Drag saved sidebar sessions into any pane's tab strip or split left/right/up/down at its content edges, or use Open in new tab; always another root chat view, never a fork; atomic four-pane/32-view limits; normal clicks still reuse views | `packages/app/src/{session-sidebar,session-actions,session-tabs,session-tab-routing,session-tab-strip,shell}.ts*`, `packages/ui/src/{workspace-drag,workspace-tab-drag,workspace-tabs,workspace-layout}.tsx` | App store/routing/action/sidebar tests; UI external-source layout Chromium/Firefox strict-CSP fixture; `apps/web/scripts/workspace-layout.mjs` |
 | Desktop File > New session / `CmdOrCtrl+T` opens an independent draft in the focused pane, including from Settings and guest website focus; modal/capacity guards preserve existing work. Web shortcuts are unchanged. | `apps/desktop/src/{main,browser-manager}.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform}.ts`, `packages/app/src/shell.tsx` | `packages/app/test/{desktop-adapter,desktop-close-tab}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
 | Desktop File > Reopen closed tab / `CmdOrCtrl+Shift+T` restores the last closed tab through existing bounded history, including from Settings or a hidden window; repeated presses restore earlier tabs. No web shortcut. | `apps/desktop/src/main.ts`, `apps/web/src/platform/desktop.ts`, `packages/app/src/{desktop-bridge,platform,session-tab-routing,shell,session-tab-strip}.ts*` | `packages/app/test/{desktop-adapter,desktop-close-tab,session-tabs,session-tab-routing}.test.ts*`; `apps/desktop/scripts/{browser-native,terminal-smoke}.mjs` (native guest non-interception and production menu/IPC; physical-key acceptance is separate) |
@@ -986,8 +986,8 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
 
 | Behavior | Implementation | Verification |
 | --- | --- | --- |
-| Bounded full metadata without transcript hydration | `internal/session/metadata.go`, `sessions.get`, `packages/sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
-| Durable archive, filtered cursor revisions, one-way v10→v11 preservation | `internal/session/{migrations,metadata,catalog_page}.go`, `internal/daemon/client_control.go` | Migration rollback/reopen and catalog tests, busy archive/dedup/event tests, race suite |
+| Bounded full metadata without transcript hydration | `internal/legacy/session/metadata.go`, `sessions.get`, `packages/sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
+| Durable archive, filtered cursor revisions, one-way v10→v11 preservation | `internal/legacy/session/{migrations,metadata,catalog_page}.go`, `internal/daemon/client_control.go` | Migration rollback/reopen and catalog tests, busy archive/dedup/event tests, race suite |
 | Shared host-bound actions and deletion cleanup | `packages/app/src/session-actions.tsx`, `session-search-dialog.tsx`, `runtime.ts`, `session-tabs.ts`, `compositions.ts` | `session-actions.test.tsx`, runtime/tabs/compositions tests, `apps/web/scripts/session-actions.mjs` |
 | Fixed native editor launchers and verified runtime identity | `apps/desktop/src/project-open.ts`, main/preload bridge and web desktop adapter | Project opening/adapter tests, real Electron IPC, local launches and Cursor/VS Code SSH handoff; [native acceptance limits](../.ai-docs/plans/conversation-row-actions/README.md#implementation-record--2026-09-08) |
 
@@ -1306,10 +1306,10 @@ Other custom origins, wildcards, suffixes, ports and paths remain rejected.
 validation, explicit opt-in and CORS response headers; the daemon no longer
 hosts HTTP handlers.
 
-Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
+Code: `internal/legacy/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
 `packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
 `{host-dialog,welcome,settings,session-search-dialog,attention}.tsx`.
-Tests: `internal/config/remote_hosts_test.go`, the remote-host configuration test
+Tests: `internal/legacy/config/remote_hosts_test.go`, the remote-host configuration test
 in `internal/daemon/provider_client_behavior_test.go`, and
 `packages/app/test/{hosts,runtime,session-tabs,session-tab-routing,workspace-views}.test.ts`,
 `sidebar-creation.test.tsx`, `multi-host-discovery.test.tsx`.

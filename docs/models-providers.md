@@ -268,7 +268,7 @@ files; the browser/desktop client never uploads local secrets to them.
 
 ## Bundled Models.dev metadata
 
-The reviewed subset in `internal/config/modelsdev/` supplies provider key names,
+The reviewed subset in `internal/legacy/config/modelsdev/` supplies provider key names,
 model capabilities, context/output limits and prices. Whip retains its supported
 provider list, endpoints, auth behavior, recommendation order and model/effort
 defaults. Models.dev's `inference` ID maps to Whip's `inference-net`; Whip retains

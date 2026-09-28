@@ -7,12 +7,12 @@ validation and daemon handlers. WHIP's protocol
 major is `6` (minor `8`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
-The executable contract is `internal/protocol`: wire DTOs, operation registry,
-permission metadata and schemas. `packages/protocol/schema/manifest.json`
+The executable contract is `internal/legacy/protocol`: wire DTOs, operation registry,
+permission metadata and schemas. `packages/legacy-protocol/schema/manifest.json`
 lists RPCs and runtime operations with their parameter/result types. Generated
-TypeScript declarations and Ajv validators are exported by `@whip/protocol`.
-Run `npm ci` and `npm run check` from the repository root. Regenerate after
-editing Go types with `npm run generate`; drift checks compare without rewriting
+TypeScript declarations and Ajv validators are exported by `@whip/legacy-protocol`.
+Run `npm ci` and `npm run check -w @whip/legacy-protocol` from the repository root. Regenerate after
+editing Go types with `npm run generate -w @whip/legacy-protocol`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).

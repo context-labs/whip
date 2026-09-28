@@ -1,6 +1,7 @@
 # Whip backend redesign and delivery plan
 
-Status: phase 0 complete and validated in PR #197; phases 1–7 have not started.
+Status: phase 0 complete and validated in PR #197; phase 1 implemented and in
+acceptance validation; phases 2–7 have not started.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -69,6 +70,7 @@ requirements for the replacement.
 
 The names below establish responsibilities. Exact Go fields and SQL columns are
 settled in phase 1 before dependent implementations grow around them.
+The implemented Phase 1 contract is [backend-domain.md](backend-domain.md).
 
 | Concept | Owns | Authoritative storage |
 | --- | --- | --- |
@@ -437,6 +439,12 @@ Implement durable value types, validation, definition revisions, effective confi
 resolution, host config and fresh schema. Establish transaction APIs and the
 state machines that later code will use. Write the initial wire shapes and
 generation fixtures. Choose the first provider and engine for phase 3.
+
+Implementation: internal/session, internal/store, internal/config and
+internal/protocol, with the v4 generator in cmd/whip-contract and packages/protocol.
+The old storage/config/protocol and its clients are explicitly isolated under
+legacy paths until the Phase 2 runtime/SDK cutover. They are not imported by the
+new core. Phase 3 starts with OpenAI-compatible chat completions and Starlark.
 
 Acceptance:
 

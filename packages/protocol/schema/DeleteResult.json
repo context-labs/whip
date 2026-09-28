@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "deleted": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/DeleteResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeleteResult",
+  "required": [
+    "deleted"
+  ],
+  "additionalProperties": false
+}

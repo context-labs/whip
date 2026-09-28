@@ -1,0 +1,65 @@
+import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
+import { compile } from 'json-schema-to-typescript';
+import Ajv from 'ajv';
+import standaloneCode from 'ajv/dist/standalone/index.js';
+import { _ } from 'ajv/dist/compile/codegen/index.js';
+
+const check = process.argv.includes('--check');
+const manifest = JSON.parse(await readFile('schema/manifest.json', 'utf8'));
+const schemas = {};
+for (const file of (await readdir('schema')).sort()) {
+  if (file === 'manifest.json' || file === 'fixtures.json') continue;
+  schemas[file.slice(0, -5)] = JSON.parse(await readFile('schema/' + file, 'utf8'));
+}
+let declarations = '// Generated from Go DTOs. Run npm run generate.\n';
+for (const [name, schema] of Object.entries(schemas)) {
+  declarations += await compile(schema, name, { bannerComment: '' });
+}
+declarations += '\nexport interface ContractTypes {\n';
+for (const name of Object.keys(schemas)) declarations += '  ' + name + ': ' + name + ';\n';
+declarations += '}\nexport interface Operations {\n';
+for (const op of manifest.operations) {
+  declarations += '  ' + JSON.stringify(op.name) + ': { params: ' + op.params + '; result: ' + op.result + ' };\n';
+}
+declarations += [
+  '}',
+  'export declare const manifest: { major: 4; minor: number; operations: readonly { name: keyof Operations; params: keyof ContractTypes; result: keyof ContractTypes }[] };',
+  'export declare function validate<T extends keyof ContractTypes>(type: T, value: unknown): value is ContractTypes[T];',
+  'export declare function assertValid<T extends keyof ContractTypes>(type: T, value: unknown): asserts value is ContractTypes[T];',
+  '',
+].join('\n');
+
+// Embed a browser-native exact-counter validator; consumers never compile code.
+const formats = _`{counter: {type: 'string', validate: value =>
+  /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n}}`;
+const ajv = new Ajv({ strict: false, allErrors: true, code: { source: true, esm: true, lines: true, formats } });
+ajv.addFormat('counter', { type: 'string', validate: value => /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n });
+const exports = {};
+for (const [name, schema] of Object.entries(schemas)) {
+  ajv.addSchema(schema);
+  exports[name] = schema.$id;
+}
+const runtime = [
+  '// Generated from Go DTOs. Run npm run generate.',
+  "import * as validators from './validators.js';",
+  'export const manifest = ' + JSON.stringify(manifest, null, 2) + ';',
+  'export function validate(type, value) {',
+  "  if (!Object.hasOwn(validators, type)) throw new TypeError('Unknown contract type: ' + type);",
+  '  return validators[type](value);',
+  '}',
+  'export function assertValid(type, value) {',
+  "  if (!validate(type, value)) throw new TypeError('Invalid ' + type + ': ' + JSON.stringify(validators[type].errors));",
+  '}',
+  '',
+].join('\n');
+const files = { 'index.d.ts': declarations, 'index.js': runtime, 'validators.js': standaloneCode(ajv, exports) };
+if (!check) await mkdir('generated', { recursive: true });
+for (const [name, expected] of Object.entries(files)) {
+  const path = 'generated/' + name;
+  if (check) {
+    if (await readFile(path, 'utf8') !== expected) throw new Error('Generated contract drift: ' + path);
+  } else await writeFile(path, expected);
+}
+for (const name of await readdir('generated')) {
+  if (!Object.hasOwn(files, name)) throw new Error('Stale generated contract: ' + name);
+}

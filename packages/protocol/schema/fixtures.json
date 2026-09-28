@@ -1,0 +1,218 @@
+[
+  {
+    "type": "Session",
+    "value": {
+      "id": "session_root",
+      "tree_id": "tree_fixture",
+      "parent_id": null,
+      "definition": {
+        "id": "assistant",
+        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+      },
+      "config_revision": "9007199254740993",
+      "configuration": {
+        "model": {
+          "provider": "fixture",
+          "name": "scripted",
+          "effort": ""
+        },
+        "instructions": {
+          "text": "Help the user complete their task. Use only the operations made available to you.",
+          "project_files": [
+            "AGENTS.md"
+          ],
+          "discover_skills": true
+        },
+        "tools": null,
+        "children": null,
+        "hooks": null,
+        "output_schema": null
+      },
+      "working_directory": "/workspace",
+      "lifecycle": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Session",
+    "value": {
+      "id": "session_child",
+      "tree_id": "tree_fixture",
+      "parent_id": "session_root",
+      "definition": {
+        "id": "assistant",
+        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+      },
+      "config_revision": "9007199254740993",
+      "configuration": {
+        "model": {
+          "provider": "fixture",
+          "name": "scripted",
+          "effort": ""
+        },
+        "instructions": {
+          "text": "Help the user complete their task. Use only the operations made available to you.",
+          "project_files": [
+            "AGENTS.md"
+          ],
+          "discover_skills": true
+        },
+        "tools": null,
+        "children": null,
+        "hooks": null,
+        "output_schema": null
+      },
+      "working_directory": "/workspace",
+      "lifecycle": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "HistoryResult",
+    "value": {
+      "items": [
+        {
+          "id": "message_fixture",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740993",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "text",
+              "text": "Completed."
+            },
+            {
+              "type": "content",
+              "reference_id": "content_fixture"
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "request"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Run this."
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "9007199254740993",
+      "patch": {
+        "output": {
+          "schema": null
+        },
+        "tools": {}
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Turn",
+    "value": {
+      "id": "turn_fixture",
+      "session_id": "session_child",
+      "config_revision": "9007199254740993",
+      "state": "running",
+      "failure": null,
+      "started_at": "2026-09-27T12:00:00.123456Z",
+      "finished_at": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": 9007199254740993,
+      "limit": 10
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": "9223372036854775808",
+      "limit": 10
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": "01",
+      "limit": 10
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": "-1",
+      "limit": 10
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": "0",
+      "limit": 101
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryParams",
+    "value": {
+      "session_id": "session_child",
+      "after": "0",
+      "limit": 10,
+      "unexpected": true
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "request"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "x",
+          "reference_id": "content"
+        }
+      ]
+    },
+    "valid": false
+  }
+]

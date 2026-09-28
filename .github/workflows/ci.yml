@@ -367,4 +367,4 @@ jobs:
         run: python3 scripts/test-distributions.py
       - name: Canonical distribution paths
         run: |
-          go test ./cmd/whip ./internal/buildinfo ./internal/config ./internal/browser ./internal/browser/extrelay ./internal/computer ./internal/skills ./internal/capability -run '^TestDistribution'
+          go test ./cmd/whip ./internal/buildinfo ./internal/legacy/config ./internal/browser ./internal/browser/extrelay ./internal/computer ./internal/skills ./internal/capability -run '^TestDistribution'
