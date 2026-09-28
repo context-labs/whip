@@ -517,8 +517,12 @@ The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
 its retained resources while its immutable model attempts remain charged to live
 ancestors. Per-value, retained-history and byte safety bounds remain at their
-owning boundaries. Unified retained byte/record allowances and runnable execution
+owning boundaries. Configurable cumulative logical-write allowances and scoped runnable execution
 capacity are still Phase 4 work; these five kinds do not claim to cover them.
+The legacy byte/record allowance charged selected accepted writes, including
+state and mail, without refund on deletion. It was not a quota over all database
+rows or retained bytes. Model accounting and required execution settlement must
+remain recordable when a write allowance is exhausted.
 
 ## Mail and presentation
 

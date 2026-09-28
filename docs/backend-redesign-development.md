@@ -830,3 +830,36 @@ and runtime race coverage 61.783 s. The final helper-instruction/recursive-cap
 check passed in 11.280 s. Pinned analysis reports zero lint issues and no reachable
 vulnerabilities. An independent review found no correctness blockers; admission
 queries may merit profiling with many unrelated trees before scale claims.
+
+
+## Remaining Phase 4 policy audit
+
+The resource audit distinguishes retained controls from incidental old storage
+structure. Legacy `durable_bytes` and `record_count` charged selected successful
+logical writes cumulatively: mail, descendant input, content, state, subscriptions
+and schedules. They did not count every database row or represent current disk
+occupancy; deletion did not refund them. Model accounting explicitly bypassed
+these allowances (`internal/legacy/session/model_call_test.go`,
+`TestModelAccountingDoesNotConsumeAgentStorageAllowances`). Preserve configurable
+ancestor write allowances with that narrow meaning. Do not introduce a generic
+quota over all transcript/accounting rows, or allow exhaustion to block recording
+completed effects. The existing per-owner retention bounds remain separate.
+
+Subtree concurrency is a distinct retained control: the old regression runs four
+host workers with a subtree child-turn allowance of one and keeps the second
+child queued. Host-wide worker counts alone do not preserve it. Add scoped
+runnable permits, with release/reacquisition around parent waits, instead of
+counting every unfinished SQL turn and deadlocking recursive waits. The new
+`active_operations` resource intentionally describes the host-operation domain;
+model concurrency needs explicit coverage in those scheduling permits and later
+helper-call admission. Schedule/subscription combined admission is revisited
+with the Phase 5 schedule implementation.
+
+The guest recursion surface also still needs ordinary submit, bounded result
+inspection/listing and scoped stop/delete operations. Completion reporting must
+retain idle-parent wakeup and exact result access. The old completion notifier
+sent after turn settlement and ignored failures; copying that ordering would
+lose reports. Conversely, checking an inbox quota while finishing a completed
+effect can prevent terminal settlement. The replacement needs bounded reserved
+report delivery ownership and independently recoverable delivery. These are
+remaining obligations, not implemented claims.
