@@ -314,7 +314,7 @@ Local validation passed on 2026-09-27: `task check:phase`, targeted race/shuffle
 checks after lint fixes, the v4 process fixture with `WHIP_SDK_RACE=1`, contract
 generation/interchange, and `task check:analysis` (zero new lint issues; no
 reachable vulnerabilities). The retained SDK's 466 tests and its original
-process fixture still pass. Hosted Linux/macOS validation follows on the phase PR.
+process fixture still pass. Hosted Linux/macOS validation runs on [Phase 2 PR #200](https://github.com/context-labs/whip/pull/200), stacked on Phase 1 PR #199.
 
 Phase 2 intentionally does not claim engine execution, real-provider integration,
 model accounting, effect permissions, checkpointing, or product UI adoption.

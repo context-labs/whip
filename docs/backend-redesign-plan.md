@@ -1,7 +1,8 @@
 # Whip backend redesign and delivery plan
 
-Status: phases 0 and 1 complete and validated in PRs #197 and #199;
-phases 2–7 have not started.
+Status: phases 0 and 1 complete and validated in PRs #197 and #199.
+Phase 2 is implemented in PR #200 and passes local gates; hosted validation is
+running. Phases 3–7 are pending.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
