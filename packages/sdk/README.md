@@ -65,6 +65,36 @@ retains exact old execution evidence, independent mail/goals/state/spend and
 external files. It does not restore a workspace. Active history hides the suffix,
 and later messages never reuse its sequences.
 
+Fork a terminal whole-group prefix using a stable fork ID and exact source
+snapshot. The source may have later active work outside the selected prefix;
+history/configuration revisions and the full observed tail must still match.
+
+```ts
+const source = await client.call('sessions.get', { session_id: sessionID });
+const snapshot = await client.call('context.snapshot', { session_id: sessionID });
+const fork = await client.fork({
+  session_id: sessionID,
+  expected_history_revision: snapshot.revision,
+  expected_config_revision: source.config_revision,
+  observed_through: snapshot.through_sequence,
+  keep_through: selectedGroupEnd,
+  title: null,
+}, forkID);
+```
+
+An uncertain retry must reuse the ID and exact request. `fork.fork` is the immutable
+receipt; `fork.tree` and `fork.root` are current projections. Deleting the destination
+leaves `{fork: receipt, tree: null, root: null, deleted: true}` permanently. Source
+deletion does not invalidate an already accepted fork. There is no automatic retry
+or generic admission receipt for this mutation.
+
+Forks preserve bounded history, compatible selected compaction/pins, effective
+configuration/definition/engine and owner-scoped content handles without inventing
+local execution or spending. They start with empty REPLs, fresh limits and no
+copied authority, children, schedules, goals, mail or state. Working-directory reuse
+does not create or restore a Git worktree. Ordinary content reads remain scoped to
+the new root, including after source deletion.
+
 `turns.attempts` reads bounded provider accounting with exact decimal counters.
 Retries have separate attempt IDs, a shared logical-call ID, and a link to the
 completed response. Unknown usage/cost is `null`, independently of known zero.

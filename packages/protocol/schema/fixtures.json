@@ -479,6 +479,40 @@
     "valid": true
   },
   {
+    "type": "ForkParams",
+    "value": {
+      "fork_id": "fork",
+      "session_id": "session_child",
+      "expected_history_revision": "9007199254740993",
+      "expected_config_revision": "9007199254740994",
+      "observed_through": "9007199254740995",
+      "keep_through": "0",
+      "title": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ForkResult",
+    "value": {
+      "fork": {
+        "id": "fork",
+        "session_id": "session_child",
+        "expected_history_revision": "9007199254740993",
+        "expected_config_revision": "9007199254740994",
+        "observed_through": "9007199254740995",
+        "keep_through": "0",
+        "title": null,
+        "tree_id": "deleted_tree",
+        "root_id": "deleted_root",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "tree": null,
+      "root": null,
+      "deleted": true
+    },
+    "valid": true
+  },
+  {
     "type": "HistoryEdit",
     "value": {
       "id": "edit",

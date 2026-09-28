@@ -36,7 +36,7 @@ func newCompactionLedger(raw []session.Message) *compactionLedger {
 func (s *compactionLedger) ContextPins(_ context.Context, owner session.SessionID, ids []session.MessageID) ([]session.Message, error) {
 	var result []session.Message
 	for _, message := range s.raw {
-		if slices.Contains(ids, message.ID) && message.SessionID == owner && message.InputID != nil && message.Role == session.User {
+		if slices.Contains(ids, message.ID) && message.SessionID == owner && message.OpeningInput && message.Role == session.User {
 			result = append(result, message)
 		}
 	}
@@ -48,22 +48,23 @@ func (s *compactionLedger) ContextPins(_ context.Context, owner session.SessionI
 
 //nolint:nilnil // A fully covered terminal or mail-only turn requires no input pin.
 func (s *compactionLedger) ContextBoundaryPin(_ context.Context, _ session.SessionID, through int64) (*session.MessageID, error) {
-	var turn session.TurnID
+	var group session.HistoryGroupID
+	partial := false
 	for _, message := range s.raw {
 		if message.Sequence == through {
-			turn = message.TurnID
+			group = message.GroupID
+			partial = message.TurnID != "" && s.live[message.TurnID]
 		}
 	}
-	partial := s.live[turn]
 	var pin *session.MessageID
 	for _, message := range s.raw {
-		if message.TurnID != turn {
+		if message.GroupID != group {
 			continue
 		}
 		if message.Sequence > through {
 			partial = true
 		}
-		if message.InputID != nil {
+		if message.OpeningInput {
 			id := message.ID
 			pin = &id
 		}
@@ -107,7 +108,7 @@ func (s *compactionLedger) recordMessage(turn session.TurnID, id session.Message
 	if len(s.raw) != 0 {
 		sequence = s.raw[len(s.raw)-1].Sequence + 1
 	}
-	s.raw = append(s.raw, session.Message{ID: id, SessionID: "owner", TurnID: turn, Sequence: sequence, Role: role, Parts: parts})
+	s.raw = append(s.raw, session.Message{ID: id, SessionID: "owner", GroupID: session.HistoryGroupID(turn), TurnID: turn, Sequence: sequence, Role: role, Parts: parts})
 }
 
 func (s *compactionLedger) ContextHead(context.Context, session.SessionID) (session.ContextHead, error) {
@@ -141,17 +142,17 @@ func (s *compactionLedger) HistoryRange(_ context.Context, _ session.SessionID, 
 }
 
 func (s *compactionLedger) ContextTail(_ context.Context, _ session.SessionID, through int64, keep int) (int64, error) {
-	var turns []session.TurnID
+	var groups []session.HistoryGroupID
 	for _, message := range slices.Backward(s.raw) {
-		if message.Sequence <= through && !slices.Contains(turns, message.TurnID) {
-			turns = append(turns, message.TurnID)
-			if len(turns) == keep {
+		if message.Sequence <= through && !slices.Contains(groups, message.GroupID) {
+			groups = append(groups, message.GroupID)
+			if len(groups) == keep {
 				break
 			}
 		}
 	}
 	for _, message := range s.raw {
-		if slices.Contains(turns, message.TurnID) {
+		if slices.Contains(groups, message.GroupID) {
 			return message.Sequence - 1, nil
 		}
 	}
@@ -200,8 +201,9 @@ func compactionMessages(turns, each int) []session.Message {
 			if i%2 != 0 {
 				role = session.Assistant
 			}
-			message := session.Message{ID: session.MessageID(fmt.Sprintf("m%d", sequence)), SessionID: "owner", TurnID: session.TurnID(fmt.Sprintf("old%d", turn)), Sequence: sequence, Role: role, Parts: []session.Part{{Type: "text", Text: fmt.Sprintf("source %d with important exact context", sequence)}}}
+			message := session.Message{ID: session.MessageID(fmt.Sprintf("m%d", sequence)), SessionID: "owner", GroupID: session.HistoryGroupID(fmt.Sprintf("old%d", turn)), TurnID: session.TurnID(fmt.Sprintf("old%d", turn)), Sequence: sequence, Role: role, Parts: []session.Part{{Type: "text", Text: fmt.Sprintf("source %d with important exact context", sequence)}}}
 			if i == 0 {
+				message.OpeningInput = true
 				message.InputID = new(session.InputID(fmt.Sprintf("input%d", turn)))
 			}
 			messages = append(messages, message)
@@ -330,18 +332,19 @@ func TestAutomaticCompactionRebuildsWithinMessageBound(t *testing.T) {
 
 func TestCompactionPreservesToolBatchesAcrossIncrementalFolds(t *testing.T) {
 	raw := compactionMessages(1, 98)
-	call := session.Message{ID: "calls", SessionID: "owner", TurnID: "old1", Sequence: 99, Role: session.Assistant, Parts: []session.Part{
+	call := session.Message{ID: "calls", SessionID: "owner", GroupID: "old1", TurnID: "old1", Sequence: 99, Role: session.Assistant, Parts: []session.Part{
 		{Type: "tool_call", Call: &session.ToolCall{ID: "a", Name: "execute", Arguments: json.RawMessage(`{"code":"a"}`)}},
 		{Type: "tool_call", Call: &session.ToolCall{ID: "b", Name: "execute", Arguments: json.RawMessage(`{"code":"b"}`)}},
 	}}
 	raw = append(raw, call)
 	for i, id := range []string{"a", "b"} {
-		raw = append(raw, session.Message{ID: session.MessageID("result_" + id), SessionID: "owner", TurnID: "old1", Sequence: int64(100 + i), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: id, Output: "exact result"}}}})
+		raw = append(raw, session.Message{ID: session.MessageID("result_" + id), SessionID: "owner", GroupID: "old1", TurnID: "old1", Sequence: int64(100 + i), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: id, Output: "exact result"}}}})
 	}
 	for _, message := range compactionMessages(4, 1) {
 		message.Sequence += 101
 		message.ID = session.MessageID(fmt.Sprintf("tail%d", message.Sequence))
 		message.TurnID = session.TurnID(fmt.Sprintf("tail%d", message.Sequence))
+		message.GroupID = session.HistoryGroupID(message.TurnID)
 		raw = append(raw, message)
 	}
 	ledger := newCompactionLedger(raw)
@@ -501,13 +504,13 @@ func TestCompactionRetriesOnlyExplicitProviderFailureWithFreshAttempt(t *testing
 
 func TestCompactionRejectsOneOversizedToolBatchBeforeDispatch(t *testing.T) {
 	ledger := newCompactionLedger(nil)
-	call := session.Message{ID: "calls", SessionID: "owner", TurnID: "old", Sequence: 1, Role: session.Assistant}
+	call := session.Message{ID: "calls", SessionID: "owner", GroupID: "old", TurnID: "old", Sequence: 1, Role: session.Assistant}
 	for i := range 8 {
 		call.Parts = append(call.Parts, session.Part{Type: "tool_call", Call: &session.ToolCall{ID: fmt.Sprintf("call%d", i), Name: "execute", Arguments: json.RawMessage(`{}`)}})
 	}
 	ledger.raw = append(ledger.raw, call)
 	for i := range 8 {
-		ledger.raw = append(ledger.raw, session.Message{ID: session.MessageID(fmt.Sprintf("result%d", i)), SessionID: "owner", TurnID: "old", Sequence: int64(i + 2), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: fmt.Sprintf("call%d", i), Output: strings.Repeat("x", 600<<10)}}}})
+		ledger.raw = append(ledger.raw, session.Message{ID: session.MessageID(fmt.Sprintf("result%d", i)), SessionID: "owner", GroupID: "old", TurnID: "old", Sequence: int64(i + 2), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: fmt.Sprintf("call%d", i), Output: strings.Repeat("x", 600<<10)}}}})
 	}
 	for _, message := range compactionMessages(4, 1) {
 		message.Sequence += 9
@@ -547,6 +550,7 @@ func TestCompactionRebuildsAfterDurableToolBatchOrOutputCorrection(t *testing.T)
 	for _, correcting := range []bool{false, true} {
 		ledger := newCompactionLedger(compactionMessages(100, 1))
 		ledger.raw[len(ledger.raw)-1].TurnID = "current"
+		ledger.raw[len(ledger.raw)-1].GroupID = "current"
 		executor := &compactionExecutor{ledger: ledger}
 		var purposes []string
 		ordinary := 0
@@ -620,6 +624,7 @@ func TestCompactionFoldIdentityPersistsAcrossModelBoundaries(t *testing.T) {
 	ledger := newCompactionLedger(compactionMessages(5, 20))
 	for i := 80; i < len(ledger.raw); i++ {
 		ledger.raw[i].TurnID = "current"
+		ledger.raw[i].GroupID = "current"
 	}
 	executor := &compactionExecutor{ledger: ledger}
 	ordinary := 0

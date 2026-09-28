@@ -134,6 +134,26 @@ test('rewind retries preserve the edit ID and exact observed snapshot after a lo
   assert.equal(requests.length, 2);
 });
 
+test('fork retries retain the exact source identity and preserve deletion tombstones', async () => {
+  const requests = [];
+  const params = { session_id: 'source', expected_history_revision: '9007199254740993', expected_config_revision: '9007199254740994', observed_through: '9007199254740995', keep_through: '0', title: null };
+  const fork = { id: 'stable_fork', ...params, tree_id: 'deleted_tree', root_id: 'deleted_root', created_at: '2026-09-28T12:00:00Z' };
+  const deleted = { fork, tree: null, root: null, deleted: true };
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    requests.push(request);
+    if (requests.length === 1) throw new DeliveryError('lost acknowledgement');
+    return success(request, deleted);
+  }, { clientID: 'forks' });
+  await assert.rejects(client.fork(params, 'stable_fork'), DeliveryError);
+  assert.deepEqual(await client.fork(params, 'stable_fork'), deleted);
+  assert.deepEqual(requests.map(value => value.method), ['sessions.fork', 'sessions.fork']);
+  assert.deepEqual(requests[0].params, { ...params, fork_id: 'stable_fork' });
+  assert.deepEqual(requests[1].params, requests[0].params);
+  await assert.rejects(client.fork({ ...params, expected_config_revision: 9007199254740993 }, 'stable_fork'), TypeError);
+  assert.equal(requests.length, 2);
+});
+
 test('resource calls preserve exact limits and validate before transport', async () => {
   const calls = [];
   const value = { session_id: 'child', kind: 'queued_inputs', revision: '9007199254740993', limit: null, used: '9007199254740994' };

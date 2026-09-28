@@ -147,6 +147,7 @@ func TestProactivePostFinalUsesSettledOrdinaryUsageAndCapturedHelper(t *testing.
 func TestProactiveNoSourceRechecksAfterNewExchangeThenStalls(t *testing.T) {
 	ledger := newCompactionLedger(compactionMessages(1, 1))
 	ledger.raw[0].TurnID = "current"
+	ledger.raw[0].GroupID = "current"
 	ledger.raw[0].Parts[0].Text = strings.Repeat("retained opening ", 100)
 	ledger.live["current"] = true
 	executor := &compactionExecutor{ledger: ledger}
@@ -190,6 +191,7 @@ func TestProactiveNoSourceRechecksAfterNewExchangeThenStalls(t *testing.T) {
 func TestProactiveFirstFinalWithoutReplaceableSourceSucceeds(t *testing.T) {
 	ledger := newCompactionLedger(compactionMessages(1, 1))
 	ledger.raw[0].TurnID = "current"
+	ledger.raw[0].GroupID = "current"
 	ledger.live["current"] = true
 	calls := 0
 	provider := preparedProvider(func(ctx context.Context, request model.Request) (model.Prepared, error) {

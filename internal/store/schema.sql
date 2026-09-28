@@ -508,6 +508,25 @@ CREATE TABLE compactions (
 CREATE INDEX compactions_by_session ON compactions(session_id,id);
 CREATE TRIGGER compaction_immutable BEFORE UPDATE ON compactions
  BEGIN SELECT RAISE(ABORT,'compaction is immutable'); END;
+-- Fork receipts intentionally have no foreign keys: deleting either tree cannot
+-- erase admission identity or recreate a deleted destination on retry.
+CREATE TABLE forks (
+ id TEXT PRIMARY KEY,
+ digest TEXT NOT NULL CHECK(length(digest)=64),
+ source_session_id TEXT NOT NULL,
+ history_revision INTEGER NOT NULL CHECK(history_revision>0),
+ config_revision INTEGER NOT NULL CHECK(config_revision>0),
+ observed_through INTEGER NOT NULL CHECK(observed_through>=0),
+ keep_through INTEGER NOT NULL CHECK(keep_through>=0 AND keep_through<=observed_through),
+ title TEXT CHECK(title IS NULL OR length(CAST(title AS BLOB)) BETWEEN 1 AND 1024),
+ tree_id TEXT NOT NULL UNIQUE,
+ root_id TEXT NOT NULL UNIQUE,
+ created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER fork_immutable BEFORE UPDATE ON forks
+ BEGIN SELECT RAISE(ABORT,'fork receipt is immutable'); END;
+CREATE TRIGGER fork_retained BEFORE DELETE ON forks
+ BEGIN SELECT RAISE(ABORT,'fork receipt is retained'); END;
 CREATE TABLE context_heads (
  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
  revision INTEGER NOT NULL CHECK(revision > 0),

@@ -350,6 +350,11 @@ export const manifest = {
       "result": "HistoryEdit"
     },
     {
+      "name": "sessions.fork",
+      "params": "ForkParams",
+      "result": "ForkResult"
+    },
+    {
       "name": "sessions.lifecycle",
       "params": "LifecycleParams",
       "result": "Session"

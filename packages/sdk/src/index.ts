@@ -79,6 +79,11 @@ export class Client {
     return this.call('sessions.rewind', { ...params, edit_id: editID }, options);
   }
 
+  /** Keep forkID and the exact source snapshot; a deleted destination remains deleted on retry. */
+  fork(params: Omit<Operations['sessions.fork']['params'], 'fork_id'>, forkID: string, options: CallOptions = {}): Promise<Operations['sessions.fork']['result']> {
+    return this.call('sessions.fork', { ...params, fork_id: forkID }, options);
+  }
+
   /** Child identity, initial input and delegated authority share one recoverable admission. */
   spawn(params: Omit<Operations['sessions.spawn']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Operations['sessions.spawn']['result']> {
     return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);

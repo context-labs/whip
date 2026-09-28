@@ -2526,7 +2526,9 @@ daemon regressions2.825s. `task check:analysis` passed with zero lint findings
 and no reachable vulnerabilities after correcting a multiline literal's format.
 An independent review found no blocking defect in the integrated history path.
 Logs are `/tmp/whip-history-controls-{phase,analysis,fixture}.log`.
-Hosted validation and broader Phase5 acceptance remain open.
+Hosted Linux, macOS, analysis and aggregate validation passed at `41bb99a5e`
+in [run36494846463](https://github.com/context-labs/whip/actions/runs/36494846463).
+Broader Phase5 acceptance remains open.
 
 The retained-feature audit also makes these Phase5 obligations explicit: human
 questions and permission modes, file list/search/LSP behavior, definition modules
@@ -2540,7 +2542,7 @@ removal remain required under Phases6–7.
 ## Managed Inference.net credential binding
 
 History and rewind are published in draft [PR237](https://github.com/context-labs/whip/pull/237)
-at `41bb99a5e`; hosted validation is pending. The next isolated stack increment
+at `41bb99a5e`; hosted validation subsequently passed in run36494846463. The next isolated stack increment
 reuses saved credential-manager checkpoint `3e04bfcae` via clean tested leaf
 `f054248c2` as `53dd639dc`, then integrates managed binding `296e5cee8` as
 `797e800b1`. Fresh configuration advances to version10; schema32 and development
@@ -2599,3 +2601,45 @@ issues and no reachable vulnerabilities. Logs are
 Pasted/named-key publication, catalogs, readiness,
 route/default setup and product controls remain open; no real credentials or
 installed runtime were changed.
+
+
+## Bounded conversation fork and imported context
+
+Explicit credential sources are published in draft
+[PR239](https://github.com/context-labs/whip/pull/239) at `1dd685670`, stacked on
+[PR238](https://github.com/context-labs/whip/pull/238). The next main increment
+integrates fork core `4742f0d5d` as `31c765e4e`, imported runner context `ab91f78c9`
+as `bfab4c316`, and public integration `30bb54554` as `5cef4be84`.
+Fresh schema advances to33; config11/development protocol4 stay unchanged.
+
+Fork is an atomic bounded import with exact history/config/tail comparison,
+whole terminal group boundaries, immutable receipts and destination tombstones.
+It copies effective configuration, pinned definition/engine, raw groups/messages,
+authorized opaque handles and compatible summaries/pins with explicit provenance.
+It creates no execution identities, authority, checkpoints or spending. Shared
+runner context now uses history groups and opening-input markers for imported
+exchanges. Destination budgets are fresh; bounded initial import has no historical
+logical-write charge, matching fresh-tree admission. Working-directory reuse and
+empty REPL semantics are explicit; workspace effects remain separate work.
+
+Core store race passed168.478s; focused store race16.277s plus build/vet/pinned
+lint passed. Imported runner tests passed4.291s after first reproducing dropped
+pins/split imported groups. Public integration races passed runtime7.006s,
+RPC3.951s/protocol1.297s, and focused vet/lint passed. Generated interchange/CSP/
+drift checks and16 SDK tests passed. Independent review found no blocking defect.
+
+The full SDK process fixture passed25.259s, including fork0.646s across both
+engines and root/child sources. It drops fork acknowledgements, kills/restarts the
+runtime, checks null imported execution links, deletes source owners, verifies
+opaque content after startup collection, continues local execution and forks
+again before checking deletion tombstones. An initial fixture failure used a
+parent handle after child admission had aliased it; authorizing the opaque handle
+in the actual child scope repaired the test without changing production code.
+Separate both-engine tests prove empty REPL after restart, retained source globals
+and old retry preserving destination globals. Integrated phase/analysis gates
+passed: store race175.402s, runtime179.862s, process118.085s, runner17.896s,
+RPC20.170s, protocol7.033s and remaining package races, generated contracts and
+SDK checks. The integrated v4 fixture passed25.417s, retained fixture2.893s and
+daemon regressions2.725s. Analysis found zero lint issues and no reachable
+vulnerabilities. Hosted validation is pending; logs use `/tmp/whip-forks-{phase,analysis}.log` and
+`/tmp/whip-fork-public-{focused,race,fixture,contract,sdk,lint}.log`.

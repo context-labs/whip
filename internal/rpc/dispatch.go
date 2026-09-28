@@ -252,6 +252,18 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, accounts *account.Service
 			})
 			return protocol.HistoryEditFromDomain(value), err
 		})
+	case "sessions.fork":
+		return decode(raw, func(p protocol.ForkParams) (any, error) {
+			value, err := r.Fork(ctx, session.ForkRequest{
+				ID: session.ForkID(p.ForkID), SessionID: session.SessionID(p.SessionID),
+				ExpectedHistoryRevision: session.Revision(p.ExpectedHistoryRevision), ExpectedConfigRevision: session.Revision(p.ExpectedConfigRevision),
+				ObservedThrough: int64(p.ObservedThrough), KeepThrough: int64(p.KeepThrough), Title: p.Title,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return protocol.ForkResultFromDomain(value)
+		})
 	case "sessions.lifecycle":
 		return decode(raw, func(p protocol.LifecycleParams) (any, error) {
 			value, err := r.SetLifecycle(ctx, session.SessionID(p.SessionID), session.Lifecycle(p.Lifecycle))

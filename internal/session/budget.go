@@ -20,6 +20,15 @@ type BudgetLimit struct {
 	Limit *int64     `json:"limit,string"`
 }
 
+// DefaultWriteBudgets gives each new root fresh finite storage limits. Imported
+// history never copies the source's cumulative usage or remaining allowance.
+func DefaultWriteBudgets() []BudgetLimit {
+	return []BudgetLimit{
+		{Kind: BudgetLogicalWrites, Limit: new(int64(100_000))},
+		{Kind: BudgetLogicalWriteBytes, Limit: new(int64(1 << 30))},
+	}
+}
+
 // Budget projects model attempts or committed logical writes.
 // Incomplete means some exposure cannot be quantified within the int64 range.
 type Budget struct {

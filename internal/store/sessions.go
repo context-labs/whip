@@ -67,10 +67,8 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 				return err
 			}
 		}
-		for kind, value := range map[session.BudgetKind]int64{
-			session.BudgetLogicalWrites: 100_000, session.BudgetLogicalWriteBytes: 1 << 30,
-		} {
-			if _, err := setBudget(ctx, tx, root.ID, 0, session.BudgetLimit{Kind: kind, Limit: &value}); err != nil {
+		for _, limit := range session.DefaultWriteBudgets() {
+			if _, err := setBudget(ctx, tx, root.ID, 0, limit); err != nil {
 				return err
 			}
 		}

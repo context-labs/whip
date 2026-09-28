@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "fork_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_history_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "expected_config_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "observed_through": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "keep_through": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "title": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ForkParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ForkParams",
+  "required": [
+    "fork_id",
+    "session_id",
+    "expected_history_revision",
+    "expected_config_revision",
+    "observed_through",
+    "keep_through",
+    "title"
+  ],
+  "additionalProperties": false
+}
